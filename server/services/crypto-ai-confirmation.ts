@@ -24,7 +24,26 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { coerceConfidence, noteConfidenceSample, getUniversalAIClientForUser } from '../openai';
+import { createConfirmationCache } from './ai-confirmation-cache';
 import type { CandleData } from '../indicators';
+
+// ── Verdict cache (AI cost audit 2026-11-08, item #10) ─────────────────────
+// The FX side has reused confirmation verdicts since the 11,354-calls/day
+// incident (ai-confirmation-cache.ts); this call site never got the same
+// treatment, so the 60 s scanner re-bought the identical confirmation —
+// same symbol, same strategy, same direction, scanner score in the same
+// 5-point band — on every cycle. Same pattern, same semantics: 3-min TTL,
+// 1/min per-symbol floor, stale reuse up to 10 min, keyed on
+// user:symbol:timeframe:direction:strategy:score-band. The verdict object is
+// returned as-is; no decision logic changes. Error results are never cached.
+// The only caller fetches 5-minute bars (cryptocom-scanner fetchBars '5m').
+const cryptoConfirmationCache = createConfirmationCache();
+const CONFIRM_TIMEFRAME = '5m';
+
+/** Counters so the crypto cache saving is measurable, like the FX side's. */
+export function cryptoConfirmationCacheStats() {
+  return cryptoConfirmationCache.stats();
+}
 
 export interface CryptoAiConfirmation {
   confirmed: boolean;
@@ -52,6 +71,16 @@ export async function getCryptoAiConfirmation(opts: {
   candles: CandleData[];
 }): Promise<CryptoAiConfirmation> {
   try {
+    // Same question asked within the cache window → reuse the verdict, spend
+    // nothing. quantScore plays the EA-confidence role in the key (banded).
+    const cached = cryptoConfirmationCache.get(
+      opts.userId, opts.symbol, CONFIRM_TIMEFRAME, opts.direction, opts.quantScore, opts.price, opts.strategy,
+    );
+    if (cached) {
+      console.log(`[crypto-ai-confirmation] ${opts.symbol} ${opts.direction}: verdict reused — ${cached.reason}`);
+      return cached.verdict as CryptoAiConfirmation;
+    }
+
     const client: any = await getUniversalAIClientForUser(opts.userId);
 
     const recent = opts.candles.slice(-20);
@@ -183,13 +212,19 @@ Would you independently confirm this ${opts.direction} setup on its own merits a
       ? parsed.direction
       : 'NEUTRAL';
 
-    return {
+    const verdict: CryptoAiConfirmation = {
       confirmed: !!parsed.confirmed,
       aiDirection: direction,
       aiConfidence: confidence,
       reasoning: String(parsed.reasoning || 'no reasoning returned'),
       modelUsed: client.defaultModel,
     };
+    // Only genuine model verdicts are cached — provider errors fall through
+    // to the catch below and are never stored.
+    cryptoConfirmationCache.put(
+      opts.userId, opts.symbol, CONFIRM_TIMEFRAME, opts.direction, opts.quantScore, opts.price, verdict, opts.strategy,
+    );
+    return verdict;
   } catch (err: any) {
     const statusCode = err?.status || err?.statusCode || err?.response?.status;
     return {

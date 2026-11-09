@@ -11496,8 +11496,7 @@ var init_profit_split = __esm({
 import { eq as eq3, and as and3, gte as gte3, sql as sql3 } from "drizzle-orm";
 function estimateCostCents(model, promptTokens, completionTokens) {
   if (model.endsWith(":free")) return 0;
-  const pricing = MODEL_PRICING_CENTS_PER_1M[model];
-  if (!pricing) return 0;
+  const pricing = MODEL_PRICING_CENTS_PER_1M[model] ?? MODEL_PRICING_CENTS_PER_1M["gpt-4o-mini"];
   return promptTokens / 1e6 * pricing.input + completionTokens / 1e6 * pricing.output;
 }
 async function recordAiUsage(params) {
@@ -11601,7 +11600,7 @@ async function getTodayPlatformKeyCallsAllUsers() {
     return 0;
   }
 }
-async function isUnderPlatformKeyCostCap(userId) {
+async function isUnderPlatformKeyCostCap(userId, opts) {
   const [usedCents, capCents] = await Promise.all([
     getMonthlyPlatformKeyCostCents(userId),
     getEffectiveAiCostCapCents(userId)
@@ -11611,8 +11610,15 @@ async function isUnderPlatformKeyCostCap(userId) {
   if (PLATFORM_TOTAL_CAP > 0) {
     const total = await getTodayPlatformKeyCallsAllUsers();
     if (total >= PLATFORM_TOTAL_CAP) {
-      console.warn(`[AI Usage] platform-wide daily cap reached (${total}/${PLATFORM_TOTAL_CAP}) \u2014 shared key paused for non-admin user ${userId} until 00:00 UTC`);
-      return false;
+      if (opts?.critical) {
+        if (Date.now() - lastOverCapFlagAt > 5 * 6e4) {
+          lastOverCapFlagAt = Date.now();
+          console.warn(`[AI Usage] OVER-CAP: platform daily call cap reached (${total}/${PLATFORM_TOTAL_CAP}) \u2014 allowing CRITICAL engine call for user ${userId}; non-critical platform-key use is paused until 00:00 UTC`);
+        }
+      } else {
+        console.warn(`[AI Usage] platform-wide daily cap reached (${total}/${PLATFORM_TOTAL_CAP}) \u2014 shared key paused for non-admin user ${userId} until 00:00 UTC`);
+        return false;
+      }
     }
   }
   const calls = await getTodayPlatformKeyCalls(userId);
@@ -11622,7 +11628,7 @@ async function isUnderPlatformKeyCostCap(userId) {
   }
   return true;
 }
-var MODEL_PRICING_CENTS_PER_1M, DAILY_PLATFORM_CALL_CAP, dailyCountCache, PLATFORM_TOTAL_CAP, platformTotalCache;
+var MODEL_PRICING_CENTS_PER_1M, DAILY_PLATFORM_CALL_CAP, dailyCountCache, DEFAULT_PLATFORM_DAILY_CALLS_TOTAL, PLATFORM_TOTAL_CAP, platformTotalCache, lastOverCapFlagAt;
 var init_ai_usage = __esm({
   "server/ai-usage.ts"() {
     "use strict";
@@ -11648,8 +11654,10 @@ var init_ai_usage = __esm({
     };
     DAILY_PLATFORM_CALL_CAP = Math.max(1, Number(process.env.AI_PLATFORM_DAILY_CALLS_PER_USER) || 2e3);
     dailyCountCache = /* @__PURE__ */ new Map();
-    PLATFORM_TOTAL_CAP = Number(process.env.AI_PLATFORM_DAILY_CALLS_TOTAL) || 0;
+    DEFAULT_PLATFORM_DAILY_CALLS_TOTAL = 2e4;
+    PLATFORM_TOTAL_CAP = process.env.AI_PLATFORM_DAILY_CALLS_TOTAL === void 0 ? DEFAULT_PLATFORM_DAILY_CALLS_TOTAL : Math.max(0, Number(process.env.AI_PLATFORM_DAILY_CALLS_TOTAL) || 0);
     platformTotalCache = null;
+    lastOverCapFlagAt = 0;
   }
 });
 
@@ -24012,7 +24020,7 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
   try {
     const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
     try {
-      openai2 = await getUniversalAIClientForUser2(userId);
+      openai2 = await getUniversalAIClientForUser2(userId, { critical: true });
     } catch {
       addActivity(userId, { type: "error", message: "No AI API key configured. Cannot analyze." });
       if (_fxMode !== "ai" || _fxShadow) await _aiFailed("failed:no_client");
@@ -30868,7 +30876,7 @@ Return your analysis as JSON:
   };
 }
 async function callOpenAIConfirmation(prompt, model, userId) {
-  const openaiInstance = userId ? await getUniversalAIClientForUser(userId) : getOpenAIInstance();
+  const openaiInstance = userId ? await getUniversalAIClientForUser(userId, { critical: true }) : getOpenAIInstance();
   const resolvedModel = openaiInstance.defaultModel || model;
   const response = await openaiInstance.chat.completions.create({
     model: resolvedModel,
@@ -30988,7 +30996,7 @@ async function runDeepReasoningDebate(prompt, userId) {
   let bullCase = "";
   let bearCase = "";
   try {
-    const debateClient = userId ? await getUniversalAIClientForUser(userId) : getOpenAIInstance();
+    const debateClient = userId ? await getUniversalAIClientForUser(userId, { critical: true }) : getOpenAIInstance();
     const debateModel = debateClient.defaultModel || "gpt-4o-mini";
     const debateResponse = await debateClient.chat.completions.create({
       model: debateModel,
@@ -31410,7 +31418,7 @@ Entry: ${tradePlan?.entryPrice} | SL: ${tradePlan?.stopLoss} | TP: ${tradePlan?.
 INSTRUCTION: If grade is A (\u226570%) or B (\u226550%) AND \u22653 strategies align in same direction as ${proposedSignal}, CONFIRM with fixed R:R targets. No trailing stop in your response. Show and prove.`;
     let aiClient = null;
     try {
-      aiClient = await getUniversalAIClientForUser(userId || 0);
+      aiClient = await getUniversalAIClientForUser(userId || 0, { critical: true });
     } catch {
     }
     if (!aiClient) {
@@ -31628,7 +31636,7 @@ async function buildGroqEconomyClient(userGroqKey) {
     return null;
   }
 }
-async function getUniversalAIClientForUser(userId) {
+async function getUniversalAIClientForUser(userId, opts) {
   try {
     const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
     const user = await storage2.getUser(userId);
@@ -31638,7 +31646,7 @@ async function getUniversalAIClientForUser(userId) {
     const keyFor = (p) => activeKeys.find((k) => k.provider === p)?.apiKey;
     const selModel = getUserModelPreference(userId);
     const selProvider = inferModelProvider(selModel);
-    const canUsePlatformKey = await isUnderPlatformKeyCostCap(userId);
+    const canUsePlatformKey = await isUnderPlatformKeyCostCap(userId, opts);
     if (!canUsePlatformKey) {
       console.warn(`[AI] user ${userId} has exceeded their platform-key AI cost cap this month \u2014 platform-key fallback disabled`);
     }
@@ -31739,7 +31747,7 @@ async function getUniversalAIClientForUser(userId) {
   platformClient.usedPlatformKey = true;
   return platformClient;
 }
-async function getUniversalVisionClientForUser(userId) {
+async function getUniversalVisionClientForUser(userId, opts) {
   try {
     let buildProviderClient2 = function(provider, apiKey, preferredModel) {
       try {
@@ -31777,7 +31785,7 @@ async function getUniversalVisionClientForUser(userId) {
     const allKeys = await storage2.getUserApiKeys(userId);
     const activeKeys = allKeys.filter((k) => k.isActive && k.isValid !== false);
     const keyFor = (p) => activeKeys.find((k) => k.provider === p)?.apiKey;
-    const canUsePlatformKey = await isUnderPlatformKeyCostCap(userId);
+    const canUsePlatformKey = await isUnderPlatformKeyCostCap(userId, opts);
     if (!canUsePlatformKey) {
       console.warn(`[AI Vision] user ${userId} has exceeded their platform-key AI cost cap this month \u2014 platform-key fallback disabled`);
     }
@@ -33666,13 +33674,93 @@ You ALWAYS produce proposals that are ready to submit \u2014 no placeholders lik
   }
 });
 
+// server/services/ai-confirmation-cache.ts
+function createConfirmationCache() {
+  const cache7 = /* @__PURE__ */ new Map();
+  const lastCallAt2 = /* @__PURE__ */ new Map();
+  let hits = 0, misses = 0, throttled = 0;
+  function bandKey(userId, symbol, timeframe, direction, eaConf, _price, discriminator) {
+    const cBand = Math.round((Number(eaConf) || 0) / CONF_BAND);
+    return `${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ""}:${cBand}`;
+  }
+  function symbolKey(userId, symbol, timeframe) {
+    return `${userId}:${symbol}:${timeframe}`;
+  }
+  function get(userId, symbol, timeframe, direction, eaConfidence, price, discriminator) {
+    const now = Date.now();
+    const k = bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator);
+    const hit = cache7.get(k);
+    if (hit && now - hit.at < TTL_MS7) {
+      hits++;
+      return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
+    }
+    const sk = symbolKey(userId, symbol, timeframe);
+    const last2 = lastCallAt2.get(sk) ?? 0;
+    if (now - last2 < FLOOR_MS) {
+      let best = null;
+      for (const [ck, v] of Array.from(cache7.entries())) {
+        if (!ck.startsWith(`${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ""}:`)) continue;
+        if (now - v.at > STALE_USABLE_MS) continue;
+        if (!best || v.at > best.at) best = v;
+      }
+      if (best) {
+        throttled++;
+        return { verdict: best.verdict, reason: `throttled (floor ${Math.round(FLOOR_MS / 1e3)}s) \u2014 reusing verdict from ${Math.round((now - best.at) / 1e3)}s ago` };
+      }
+    }
+    misses++;
+    return null;
+  }
+  function put(userId, symbol, timeframe, direction, eaConfidence, price, verdict, discriminator) {
+    const now = Date.now();
+    cache7.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator), { verdict, at: now, eaConfidence, price });
+    lastCallAt2.set(symbolKey(userId, symbol, timeframe), now);
+    if (cache7.size > 500) {
+      for (const [k, v] of Array.from(cache7.entries())) if (now - v.at > STALE_USABLE_MS) cache7.delete(k);
+    }
+  }
+  function stats() {
+    const total = hits + misses + throttled;
+    return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache7.size };
+  }
+  return { get, put, stats };
+}
+var TTL_MS7, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, fxConfirmationCache;
+var init_ai_confirmation_cache = __esm({
+  "server/services/ai-confirmation-cache.ts"() {
+    "use strict";
+    TTL_MS7 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
+    FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
+    STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
+    CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
+    fxConfirmationCache = createConfirmationCache();
+  }
+});
+
 // server/services/crypto-ai-confirmation.ts
 var crypto_ai_confirmation_exports = {};
 __export(crypto_ai_confirmation_exports, {
+  cryptoConfirmationCacheStats: () => cryptoConfirmationCacheStats,
   getCryptoAiConfirmation: () => getCryptoAiConfirmation
 });
+function cryptoConfirmationCacheStats() {
+  return cryptoConfirmationCache.stats();
+}
 async function getCryptoAiConfirmation(opts) {
   try {
+    const cached = cryptoConfirmationCache.get(
+      opts.userId,
+      opts.symbol,
+      CONFIRM_TIMEFRAME,
+      opts.direction,
+      opts.quantScore,
+      opts.price,
+      opts.strategy
+    );
+    if (cached) {
+      console.log(`[crypto-ai-confirmation] ${opts.symbol} ${opts.direction}: verdict reused \u2014 ${cached.reason}`);
+      return cached.verdict;
+    }
     const client2 = await getUniversalAIClientForUser(opts.userId);
     const recent = opts.candles.slice(-20);
     const candleSummary = recent.map((c) => {
@@ -33755,13 +33843,24 @@ Would you independently confirm this ${opts.direction} setup on its own merits a
     const confidence = coerceConfidence(parsed.confidence);
     noteConfidenceSample(confidence);
     const direction = ["BUY", "SELL", "NEUTRAL"].includes(parsed.direction) ? parsed.direction : "NEUTRAL";
-    return {
+    const verdict = {
       confirmed: !!parsed.confirmed,
       aiDirection: direction,
       aiConfidence: confidence,
       reasoning: String(parsed.reasoning || "no reasoning returned"),
       modelUsed: client2.defaultModel
     };
+    cryptoConfirmationCache.put(
+      opts.userId,
+      opts.symbol,
+      CONFIRM_TIMEFRAME,
+      opts.direction,
+      opts.quantScore,
+      opts.price,
+      verdict,
+      opts.strategy
+    );
+    return verdict;
   } catch (err) {
     const statusCode = err?.status || err?.statusCode || err?.response?.status;
     return {
@@ -33774,10 +33873,14 @@ Would you independently confirm this ${opts.direction} setup on its own merits a
     };
   }
 }
+var cryptoConfirmationCache, CONFIRM_TIMEFRAME;
 var init_crypto_ai_confirmation = __esm({
   "server/services/crypto-ai-confirmation.ts"() {
     "use strict";
     init_openai();
+    init_ai_confirmation_cache();
+    cryptoConfirmationCache = createConfirmationCache();
+    CONFIRM_TIMEFRAME = "5m";
   }
 });
 

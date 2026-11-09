@@ -426,7 +426,8 @@ function quantVerdictFromScore(score: number | null): QuantVerdict {
 async function getOptionsAiConfirmation(userId: number, symbol: string, result: StrategyResult, cfg: OptionsEngineConfig): Promise<{ confirmed: boolean; confidence: number; reasoning: string }> {
   try {
     const { getUniversalAIClientForUser, hasHiddenReasoningOverhead } = await import('../openai');
-    const client = await getUniversalAIClientForUser(userId);
+    // Critical: this confirmation gates live options trades.
+    const client = await getUniversalAIClientForUser(userId, { critical: true });
     const system = 'You are a disciplined options-trading second opinion. Given a technical signal from a rules-based scanner, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string (1-2 sentences)}.';
     const user = `Underlying: ${symbol}\nStrategy: ${result.strategy}\nDirection: ${result.direction}\nQuant score: ${result.score}/100\nPrice: ${result.price}\nDaily change %: ${result.dailyChangePercent}\nScanner reasoning: ${result.reasoning}\n\nWould you confirm this trade?`;
     const model = (client as any).defaultModel || 'gpt-4o-mini';

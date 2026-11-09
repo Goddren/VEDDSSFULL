@@ -2111,7 +2111,8 @@ Return your analysis as JSON:
 }
 
 async function callOpenAIConfirmation(prompt: { system: string; user: string }, model: string, userId?: number): Promise<string> {
-  const openaiInstance = userId ? await getUniversalAIClientForUser(userId) : getOpenAIInstance();
+  // Critical: this is the FX EA confirmation — a live trade-decision call.
+  const openaiInstance = userId ? await getUniversalAIClientForUser(userId, { critical: true }) : getOpenAIInstance();
   const resolvedModel = (openaiInstance as any).defaultModel || model;
   const response = await openaiInstance.chat.completions.create({
     model: resolvedModel,
@@ -2284,7 +2285,7 @@ async function runDeepReasoningDebate(
   let bullCase = '';
   let bearCase = '';
   try {
-    const debateClient = userId ? await getUniversalAIClientForUser(userId) : getOpenAIInstance();
+    const debateClient = userId ? await getUniversalAIClientForUser(userId, { critical: true }) : getOpenAIInstance();
     const debateModel = (debateClient as any).defaultModel || 'gpt-4o-mini';
     const debateResponse = await (debateClient as any).chat.completions.create({
       model: debateModel,
@@ -2779,7 +2780,7 @@ INSTRUCTION: If grade is A (≥70%) or B (≥50%) AND ≥3 strategies align in s
 
     let aiClient: any = null;
     try {
-      aiClient = await getUniversalAIClientForUser(userId || 0);
+      aiClient = await getUniversalAIClientForUser(userId || 0, { critical: true });
     } catch { /* fallback below */ }
 
     if (!aiClient) {
@@ -3164,7 +3165,10 @@ async function buildGroqVisionClient(userGroqKey?: string): Promise<UniversalAIC
   }
 }
 
-export async function getUniversalAIClientForUser(userId: number): Promise<UniversalAIClient> {
+// `opts.critical` marks an engine's live trade-decision call: the platform-wide
+// daily call cap (ai-usage.ts) may refuse platform-key access to non-critical
+// callers once reached, but must never hard-block these. See ai-usage.ts.
+export async function getUniversalAIClientForUser(userId: number, opts?: { critical?: boolean }): Promise<UniversalAIClient> {
   try {
     const { storage } = await import('./storage');
 
@@ -3183,7 +3187,7 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
     // platform-key fallback stops entirely for them — only their own saved keys
     // work — until the next billing cycle or they add a personal key. Personal
     // keys are never gated by this check.
-    const canUsePlatformKey = await isUnderPlatformKeyCostCap(userId);
+    const canUsePlatformKey = await isUnderPlatformKeyCostCap(userId, opts);
     if (!canUsePlatformKey) {
       console.warn(`[AI] user ${userId} has exceeded their platform-key AI cost cap this month — platform-key fallback disabled`);
     }
@@ -3309,7 +3313,7 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
 
 // Vision-specific client: uses Groq Llama 4 Scout (vision) in economy mode,
 // or the standard universal client (GPT-4o) in full mode
-export async function getUniversalVisionClientForUser(userId: number): Promise<UniversalAIClient> {
+export async function getUniversalVisionClientForUser(userId: number, opts?: { critical?: boolean }): Promise<UniversalAIClient> {
   try {
     const { storage } = await import('./storage');
     const user = await storage.getUser(userId);
@@ -3320,7 +3324,7 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
     // Once a user's monthly platform-key spend hits their membership tier's cap,
     // platform-key fallback stops for vision calls too — same rule as the text
     // client — until the next billing cycle or they add a personal key.
-    const canUsePlatformKey = await isUnderPlatformKeyCostCap(userId);
+    const canUsePlatformKey = await isUnderPlatformKeyCostCap(userId, opts);
     if (!canUsePlatformKey) {
       console.warn(`[AI Vision] user ${userId} has exceeded their platform-key AI cost cap this month — platform-key fallback disabled`);
     }
