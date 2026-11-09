@@ -28098,15 +28098,45 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
 
   // ============= SOLANA TOKEN SCANNER =============
-  
+
+  // Per-IP rate limit for the PUBLIC (unauthenticated-reachable) scanner
+  // routes. These endpoints fan out to external market-data APIs and — for
+  // signed-in users — platform-key AI calls, so anonymous volume is bounded
+  // by construction. In-memory fixed window (same pattern as the AI usage
+  // counters in ai-usage.ts); per-process is fine for a single-instance app.
+  const SOLANA_PUBLIC_RL_MAX = Math.max(1, Number(process.env.SOLANA_PUBLIC_RATE_LIMIT_PER_MIN) || 30);
+  const SOLANA_PUBLIC_RL_WINDOW_MS = 60_000;
+  const solanaPublicHits = new Map<string, { count: number; resetAt: number }>();
+  function solanaPublicRateLimited(req: Request): boolean {
+    const ip = req.ip || (req.socket as any)?.remoteAddress || 'unknown';
+    const now = Date.now();
+    const hit = solanaPublicHits.get(ip);
+    if (!hit || now >= hit.resetAt) {
+      solanaPublicHits.set(ip, { count: 1, resetAt: now + SOLANA_PUBLIC_RL_WINDOW_MS });
+      if (solanaPublicHits.size > 1000) {
+        for (const [k, v] of Array.from(solanaPublicHits.entries())) if (now >= v.resetAt) solanaPublicHits.delete(k);
+      }
+      return false;
+    }
+    hit.count++;
+    return hit.count > SOLANA_PUBLIC_RL_MAX;
+  }
+
   // Scan and analyze trending Solana tokens
   app.get("/api/solana/scan", async (req: Request, res: Response) => {
     try {
+      if (solanaPublicRateLimited(req)) {
+        return res.status(429).json({ success: false, error: 'Rate limit exceeded — try again in a minute' });
+      }
       const limit = Math.min(parseInt(req.query.limit as string) || 10, 20);
       const dexFilter = (req.query.dex as DexSource) || 'all';
       const validDexes: DexSource[] = ['all', 'raydium', 'orca', 'meteora', 'pumpfun', 'jupiter'];
       const safeDexFilter = validDexes.includes(dexFilter) ? dexFilter : 'all';
-      const analyses = await scanAndAnalyzeTokens(limit, safeDexFilter);
+      // Unauthenticated requests get ZERO AI calls: the reasoning blurbs are
+      // served from the deterministic score template inside analyzeToken.
+      // Signed-in users keep the AI reasoning (AI cost audit 2026-11-08).
+      const authed = typeof req.isAuthenticated === 'function' && req.isAuthenticated();
+      const analyses = await scanAndAnalyzeTokens(limit, safeDexFilter, { skipAiReasoning: !authed });
       res.json({ success: true, tokens: analyses, scannedAt: new Date().toISOString(), dexFilter: safeDexFilter });
     } catch (error) {
       console.error('Error scanning Solana tokens:', error);
@@ -28132,12 +28162,17 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   // Analyze a specific token by address
   app.get("/api/solana/analyze/:address", async (req: Request, res: Response) => {
     try {
+      if (solanaPublicRateLimited(req)) {
+        return res.status(429).json({ success: false, error: 'Rate limit exceeded — try again in a minute' });
+      }
       const { address } = req.params;
       const tokens = await searchSolanaToken(address);
       if (tokens.length === 0) {
         return res.status(404).json({ success: false, error: 'Token not found' });
       }
-      const analysis = await analyzeToken(tokens[0]);
+      // Same rule as /api/solana/scan: no AI spend for anonymous callers.
+      const authed = typeof req.isAuthenticated === 'function' && req.isAuthenticated();
+      const analysis = await analyzeToken(tokens[0], { skipAiReasoning: !authed });
       res.json({ success: true, analysis });
     } catch (error) {
       console.error('Error analyzing token:', error);

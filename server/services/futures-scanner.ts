@@ -529,7 +529,8 @@ function pushFuturesConsensus(userId: number, entry: FuturesConsensusEntry): voi
 async function getFuturesAiConfirmation(userId: number, symbol: string, strategy: string, direction: 'BUY' | 'SELL', data: any): Promise<{ confirmed: boolean; confidence: number; reasoning: string }> {
   try {
     const { getUniversalAIClientForUser } = await import('../openai');
-    const client = await getUniversalAIClientForUser(userId);
+    // Critical: this confirmation gates live futures trades.
+    const client = await getUniversalAIClientForUser(userId, { critical: true });
     const system = 'You are a disciplined futures-trading second opinion. Given a technical signal from a rules-based scanner, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string (1-2 sentences)}.';
     const user = `Symbol: ${symbol}\nStrategy: ${strategy}\nDirection: ${direction}\nADX: ${data.adx?.adx ?? 'n/a'}\nRSI: ${data.rsi?.value ?? 'n/a'}\nMACD histogram: ${data.macd?.histogram ?? 'n/a'}\nTrend: ${data.trend ?? 'n/a'}\n\nWould you confirm this trade?`;
     const r = await (client as any).chat.completions.create({
@@ -895,7 +896,8 @@ async function runFuturesAIAnalysis(userId: number, marketAnalysis: Record<strin
   let openai: any;
   try {
     const { getUniversalAIClientForUser } = await import('../openai');
-    openai = await getUniversalAIClientForUser(userId);
+    // Critical: runFuturesAIAnalysis is the futures engine's decision call.
+    openai = await getUniversalAIClientForUser(userId, { critical: true });
   } catch {
     addActivity(userId, { type: 'error', message: 'No AI API key configured — futures scanner cannot analyze.' });
     return;

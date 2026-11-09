@@ -4157,7 +4157,8 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
   try {
     const { getUniversalAIClientForUser } = await import('../openai');
     try {
-      openai = await getUniversalAIClientForUser(userId);
+      // Critical: runAILiveAnalysis is the FX engine's live decision call.
+      openai = await getUniversalAIClientForUser(userId, { critical: true });
     } catch {
       addActivity(userId, { type: 'error', message: 'No AI API key configured. Cannot analyze.' });
       if (_fxMode !== 'ai' || _fxShadow) await _aiFailed('failed:no_client');

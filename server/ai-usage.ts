@@ -2,9 +2,12 @@ import { db } from "./db";
 import { aiUsageLog, subscriptionPlans, users } from "@shared/schema";
 import { eq, and, gte, sql } from "drizzle-orm";
 
-// Cents per 1M tokens, input/output. Anything not listed (incl. any ":free" model)
-// costs $0 — OpenRouter free-tier models and unknown/new models default to free
-// rather than blocking usage; update this table as new paid models get wired in.
+// Cents per 1M tokens, input/output. ":free" models cost $0 (OpenRouter
+// free tier). A model NOT listed here is priced at the default model's rate
+// (gpt-4o-mini) rather than $0 — the old $0-for-unlisted rule made the cost
+// meter silently under-read whenever a new/provider-prefixed model id showed
+// up (AI cost audit 2026-11-08). Update this table as new paid models get
+// wired in so their estimates are exact.
 const MODEL_PRICING_CENTS_PER_1M: Record<string, { input: number; output: number }> = {
   'gpt-4o': { input: 250, output: 1000 },
   'gpt-4o-mini': { input: 15, output: 60 },
@@ -22,8 +25,7 @@ const MODEL_PRICING_CENTS_PER_1M: Record<string, { input: number; output: number
 
 function estimateCostCents(model: string, promptTokens: number, completionTokens: number): number {
   if (model.endsWith(':free')) return 0;
-  const pricing = MODEL_PRICING_CENTS_PER_1M[model];
-  if (!pricing) return 0;
+  const pricing = MODEL_PRICING_CENTS_PER_1M[model] ?? MODEL_PRICING_CENTS_PER_1M['gpt-4o-mini'];
   return (promptTokens / 1_000_000) * pricing.input + (completionTokens / 1_000_000) * pricing.output;
 }
 
@@ -152,12 +154,26 @@ async function isAdminUser(userId: number): Promise<boolean> {
 
 // Whether platform-key AI calls should be allowed for this user right now.
 // Personal-key usage is never gated by this — only the shared platform key is.
-// ── Optional PLATFORM-WIDE daily call cap on the shared key ─────────────────
+// ── PLATFORM-WIDE daily call cap on the shared key ─────────────────────────
 // The per-user cap alone lets 100 users × 2000 = 200k calls/day on one key.
-// Set AI_PLATFORM_DAILY_CALLS_TOTAL to bound the whole platform; once reached,
-// non-admin users fall back to "no AI" until 00:00 UTC (admins keep priority).
-// Unset = off (no change in behaviour).
-const PLATFORM_TOTAL_CAP = Number(process.env.AI_PLATFORM_DAILY_CALLS_TOTAL) || 0;
+// AI_PLATFORM_DAILY_CALLS_TOTAL bounds the whole platform; it now has a
+// CODE-LEVEL DEFAULT so the bound exists even when the env var was never set
+// (the audit found it unset = cap off). Env wins when set — including an
+// explicit 0, which disables the cap (the pre-default behaviour). Default
+// 20,000/day ≈ 10 users at their full per-user cap, ~2× the worst observed
+// day (11,354 calls, 2026-09-22, before the per-user cap existed).
+//
+// SAFETY RULE — the platform cap must never hard-block the engines' live
+// trade decisions. Enforcement is therefore criticality-aware (see
+// isUnderPlatformKeyCostCap): past the cap, NON-critical callers lose
+// platform-key access (they fall back to personal keys / templates /
+// rule-based paths), while callers marked critical — the engines' live
+// decision paths, threaded through openai.ts's client builders — keep
+// running and are logged as over-cap. Admins are exempt, as before.
+const DEFAULT_PLATFORM_DAILY_CALLS_TOTAL = 20000;
+const PLATFORM_TOTAL_CAP = process.env.AI_PLATFORM_DAILY_CALLS_TOTAL === undefined
+  ? DEFAULT_PLATFORM_DAILY_CALLS_TOTAL
+  : Math.max(0, Number(process.env.AI_PLATFORM_DAILY_CALLS_TOTAL) || 0);
 let platformTotalCache: { at: number; day: string; count: number } | null = null;
 async function getTodayPlatformKeyCallsAllUsers(): Promise<number> {
   const day = new Date().toISOString().slice(0, 10);
@@ -177,7 +193,19 @@ async function getTodayPlatformKeyCallsAllUsers(): Promise<number> {
   }
 }
 
-export async function isUnderPlatformKeyCostCap(userId: number): Promise<boolean> {
+/** True once today's platform-key calls (all users, counted from
+ *  ai_usage_log) reach the platform-wide daily cap. False when the cap is
+ *  disabled (explicit env 0). Exported for observability; enforcement lives
+ *  in isUnderPlatformKeyCostCap below. */
+export async function isOverPlatformDailyCallCap(): Promise<boolean> {
+  if (PLATFORM_TOTAL_CAP <= 0) return false;
+  const total = await getTodayPlatformKeyCallsAllUsers();
+  return total >= PLATFORM_TOTAL_CAP;
+}
+
+let lastOverCapFlagAt = 0;
+
+export async function isUnderPlatformKeyCostCap(userId: number, opts?: { critical?: boolean }): Promise<boolean> {
   const [usedCents, capCents] = await Promise.all([
     getMonthlyPlatformKeyCostCents(userId),
     getEffectiveAiCostCapCents(userId),
@@ -187,8 +215,19 @@ export async function isUnderPlatformKeyCostCap(userId: number): Promise<boolean
   if (PLATFORM_TOTAL_CAP > 0) {
     const total = await getTodayPlatformKeyCallsAllUsers();
     if (total >= PLATFORM_TOTAL_CAP) {
-      console.warn(`[AI Usage] platform-wide daily cap reached (${total}/${PLATFORM_TOTAL_CAP}) — shared key paused for non-admin user ${userId} until 00:00 UTC`);
-      return false;
+      if (opts?.critical) {
+        // SAFETY RULE: never hard-block an engine's live trade decision on a
+        // platform-wide volume cap. The call proceeds on the platform key
+        // and is flagged as over-cap (log throttled to once per 5 min; the
+        // call itself is still recorded in ai_usage_log by the router).
+        if (Date.now() - lastOverCapFlagAt > 5 * 60_000) {
+          lastOverCapFlagAt = Date.now();
+          console.warn(`[AI Usage] OVER-CAP: platform daily call cap reached (${total}/${PLATFORM_TOTAL_CAP}) — allowing CRITICAL engine call for user ${userId}; non-critical platform-key use is paused until 00:00 UTC`);
+        }
+      } else {
+        console.warn(`[AI Usage] platform-wide daily cap reached (${total}/${PLATFORM_TOTAL_CAP}) — shared key paused for non-admin user ${userId} until 00:00 UTC`);
+        return false;
+      }
     }
   }
   const calls = await getTodayPlatformKeyCalls(userId);

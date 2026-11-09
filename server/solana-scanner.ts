@@ -59,6 +59,12 @@ export interface AnalyzeTokenOptions {
   shieldActive?: boolean;
   minConfidence?: number;
   openai?: OpenAI | UniversalAIClient;
+  /** When true, analyzeToken makes ZERO AI calls and serves the reasoning
+   *  blurb from the deterministic score template (the same text the AI
+   *  path's catch block produces). Set by the PUBLIC scanner routes for
+   *  unauthenticated requests — anonymous traffic must not burn platform
+   *  AI credits for decorative prose (AI cost audit 2026-11-08, leak #9). */
+  skipAiReasoning?: boolean;
 }
 
 // Last good trending result — served when DexScreener rate-limits or errors so
@@ -534,8 +540,15 @@ export async function analyzeToken(token: SolanaToken, options: AnalyzeTokenOpti
   // analysis in the scanner UI. Savings come from: compact prompt (~50% fewer
   // input tokens), gpt-4o-mini platform fallback (not gpt-4o), and max_tokens
   // cut from 180→100. Groq Llama routes here automatically in economy mode.
+  // The deterministic template below carries the same information (signal +
+  // the three rule-computed scores + risk) with zero AI — it is what the
+  // catch block has always fallen back to, and it is ALL an unauthenticated
+  // caller of the public routes ever gets (skipAiReasoning).
+  const templateReasoning = `${signal} signal: sentiment ${sentimentScore}/100, tokenomics ${tokenomicsScore}/100, whale activity ${whaleScore}/100. Risk: ${riskLevel}.`;
   let reasoning = '';
-  try {
+  if (options.skipAiReasoning) {
+    reasoning = templateReasoning;
+  } else try {
     const macroBlock = macro
       ? ` Macro: BTC${macro.btcChange >= 0 ? '+' : ''}${macro.btcChange.toFixed(1)}%/ETH${macro.ethChange >= 0 ? '+' : ''}${macro.ethChange.toFixed(1)}%/SOL${macro.solChange >= 0 ? '+' : ''}${macro.solChange.toFixed(1)}% (${macro.bias}).`
       : '';
@@ -575,7 +588,7 @@ export async function analyzeToken(token: SolanaToken, options: AnalyzeTokenOpti
 
     reasoning = response.choices[0]?.message?.content || '';
   } catch (error) {
-    reasoning = `${signal} signal: sentiment ${sentimentScore}/100, tokenomics ${tokenomicsScore}/100, whale activity ${whaleScore}/100. Risk: ${riskLevel}.`;
+    reasoning = templateReasoning;
   }
   
   const price = parseFloat(token.priceUsd) || 0;
