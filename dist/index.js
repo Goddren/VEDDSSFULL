@@ -16713,13 +16713,13 @@ var init_dxtrade = __esm({
       async getClosedTradesWithPnl(accountCode, fromMs) {
         const enc = encodeURIComponent(accountCode);
         const fromIso = new Date(fromMs).toISOString();
-        const toIso = (/* @__PURE__ */ new Date()).toISOString();
+        const toIso2 = (/* @__PURE__ */ new Date()).toISOString();
         const candidates = [
-          `/accounts/${enc}/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
-          `/accounts/${enc}/orders/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
-          `/accounts/${enc}/tradeHistory?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
-          `/accounts/${enc}/reports/trades?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
-          `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
+          `/accounts/${enc}/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso2)}`,
+          `/accounts/${enc}/orders/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso2)}`,
+          `/accounts/${enc}/tradeHistory?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso2)}`,
+          `/accounts/${enc}/reports/trades?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso2)}`,
+          `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso2)}`
         ];
         for (const path20 of candidates) {
           let res2;
@@ -55526,6 +55526,256 @@ var init_engine_consensus = __esm({
   }
 });
 
+// server/services/kalshi-perps.ts
+var kalshi_perps_exports = {};
+__export(kalshi_perps_exports, {
+  aggregateBars: () => aggregateBars,
+  getLiquidStockPerps: () => getLiquidStockPerps,
+  getPerpBars: () => getPerpBars,
+  getPerpCandles: () => getPerpCandles,
+  getPerpCorporateActions: () => getPerpCorporateActions,
+  getPerpFundingEstimate: () => getPerpFundingEstimate,
+  getPerpFundingHistory: () => getPerpFundingHistory,
+  getPerpMarkets: () => getPerpMarkets,
+  getPerpRiskParams: () => getPerpRiskParams,
+  getPerpTouch: () => getPerpTouch,
+  indexExcludeSet: () => indexExcludeSet,
+  perpHost: () => perpHost,
+  underlyingOfPerpTicker: () => underlyingOfPerpTicker
+});
+function perpHost() {
+  return process.env.KALSHI_PERP_HOST === "demo" ? DEMO_HOST : PROD_HOST;
+}
+async function getJson(path20) {
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 15e3);
+  try {
+    const res2 = await fetch(`${perpHost()}${path20}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
+    if (!res2.ok) throw new Error(`kalshi-perps GET ${path20} -> ${res2.status}`);
+    return await res2.json();
+  } finally {
+    clearTimeout(to);
+  }
+}
+function underlyingOfPerpTicker(ticker) {
+  const m = /^KX([A-Z][A-Z0-9.]*)PERP1?$/.exec(ticker || "");
+  return m ? m[1] : null;
+}
+function indexExcludeSet() {
+  const env = (process.env.KALSHI_STOCK_PERP_EXCLUDE || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+  return env.length ? new Set(env) : DEFAULT_INDEX_EXCLUDE;
+}
+async function getPerpMarkets() {
+  if (_marketsCache && Date.now() - _marketsCache.at < MARKETS_TTL_MS) return _marketsCache.markets;
+  const out = [];
+  let cursor = null;
+  for (let page = 0; page < 10; page++) {
+    const q = `/margin/markets?limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+    const data = await getJson(q);
+    for (const m of data?.markets ?? []) {
+      out.push({
+        ticker: String(m.ticker || ""),
+        underlying: underlyingOfPerpTicker(String(m.ticker || "")) || "",
+        title: String(m.title || ""),
+        status: String(m.status || ""),
+        bid: num6(m.bid),
+        ask: num6(m.ask),
+        price: num6(m.price),
+        contractSize: num6(m.contract_size),
+        leverageEstimate: num6(m.leverage_estimate),
+        volume24hContracts: num6(m.volume_24h),
+        volume24hNotionalUsd: num6(m.volume_24h_notional_value_dollars),
+        openInterest: num6(m.open_interest),
+        openInterestNotionalUsd: num6(m.open_interest_notional_value_dollars),
+        tickSize: num6(m.tick_size),
+        fundingCap: num6(m.funding_cap),
+        scheduleOpen: m.schedule?.is_open !== false,
+        haltSources: Array.isArray(m.halt_sources) ? m.halt_sources.map(String) : []
+      });
+    }
+    cursor = data?.cursor || null;
+    if (!cursor) break;
+  }
+  _marketsCache = { at: Date.now(), markets: out };
+  return out;
+}
+async function getLiquidStockPerps() {
+  const minVol = Number(process.env.KALSHI_STOCK_SHADOW_MIN_VOL24_USD ?? 25e3);
+  const minOi = Number(process.env.KALSHI_STOCK_SHADOW_MIN_OI_USD ?? 1e4);
+  const maxTickers = Math.max(1, Math.floor(Number(process.env.KALSHI_STOCK_SHADOW_MAX_TICKERS ?? 20)));
+  const exclude = indexExcludeSet();
+  const all = await getPerpMarkets();
+  return all.filter((m) => m.status === "active" && m.underlying && !exclude.has(m.underlying)).filter((m) => m.price > 0 && m.bid > 0 && m.ask > m.bid).filter((m) => m.volume24hNotionalUsd >= minVol && m.openInterestNotionalUsd >= minOi).sort((a, b) => b.volume24hNotionalUsd - a.volume24hNotionalUsd).slice(0, maxTickers);
+}
+async function getPerpRiskParams() {
+  if (_riskCache && Date.now() - _riskCache.at < 10 * 6e4) return _riskCache.map;
+  const data = await getJson("/margin/risk_parameters");
+  const map = /* @__PURE__ */ new Map();
+  const src = data?.risk_parameters ?? data ?? {};
+  for (const [ticker, v] of Object.entries(src)) {
+    map.set(ticker, {
+      initialMarginMultiplier: v?.initial_margin_multiplier != null ? num6(v.initial_margin_multiplier) : null,
+      liquidationThreshold: v?.liquidation_margin_ratio_threshold != null ? num6(v.liquidation_margin_ratio_threshold) : null
+    });
+  }
+  _riskCache = { at: Date.now(), map };
+  return map;
+}
+function dist(d) {
+  const f = (x) => x == null || x === "" ? null : num6(x);
+  return { o: f(d?.open), h: f(d?.high), l: f(d?.low), c: f(d?.close) };
+}
+function toBar(raw, intervalMin) {
+  const endTs = Number(raw?.end_period_ts);
+  if (!Number.isFinite(endTs) || endTs <= 0) return null;
+  const bid = dist(raw.bid), ask = dist(raw.ask), px = dist(raw.price);
+  const prev = raw.price?.previous != null && raw.price.previous !== "" ? num6(raw.price.previous) : null;
+  const mid = bid.c != null && ask.c != null ? (bid.c + ask.c) / 2 : bid.c ?? ask.c;
+  const c = px.c ?? prev ?? mid;
+  if (c == null || !(c > 0)) return null;
+  const o = px.o ?? prev ?? c;
+  const h = px.h ?? Math.max(o, c);
+  const l = px.l ?? Math.min(o, c);
+  const z3 = { o: 0, h: 0, l: 0, c: 0 };
+  return {
+    t: (endTs - intervalMin * 60) * 1e3,
+    o,
+    h,
+    l,
+    c,
+    v: num6(raw.volume),
+    bid: { o: bid.o ?? c, h: bid.h ?? c, l: bid.l ?? c, c: bid.c ?? c },
+    ask: { o: ask.o ?? c, h: ask.h ?? c, l: ask.l ?? c, c: ask.c ?? c },
+    openInterest: num6(raw.open_interest)
+  };
+}
+async function getPerpCandles(ticker, intervalMin, minutesBack) {
+  const capped = Math.min(Math.max(intervalMin, minutesBack), 5e3 * intervalMin);
+  const key = `${ticker}|${intervalMin}|${capped}`;
+  const hit = _candleCache.get(key);
+  if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.bars;
+  const end = Math.floor(Date.now() / 1e3);
+  const start = end - capped * 60;
+  const data = await getJson(`/margin/markets/${encodeURIComponent(ticker)}/candlesticks?start_ts=${start}&end_ts=${end}&period_interval=${intervalMin}`);
+  const bars = (data?.candlesticks ?? []).map((r) => toBar(r, intervalMin)).filter((b) => !!b).sort((a, b) => a.t - b.t);
+  _candleCache.set(key, { at: Date.now(), bars });
+  return bars;
+}
+function aggregateBars(bars, factor) {
+  if (factor <= 1) return bars;
+  const span = factor * 6e4;
+  const out = [];
+  let cur = null;
+  let bucket = -1;
+  for (const b of bars) {
+    const bk = Math.floor(b.t / span);
+    if (!cur || bk !== bucket) {
+      if (cur) out.push(cur);
+      bucket = bk;
+      cur = { ...b, bid: { ...b.bid }, ask: { ...b.ask } };
+    } else {
+      cur.h = Math.max(cur.h, b.h);
+      cur.l = Math.min(cur.l, b.l);
+      cur.c = b.c;
+      cur.v += b.v;
+      cur.bid.h = Math.max(cur.bid.h, b.bid.h);
+      cur.bid.l = Math.min(cur.bid.l, b.bid.l);
+      cur.bid.c = b.bid.c;
+      cur.ask.h = Math.max(cur.ask.h, b.ask.h);
+      cur.ask.l = Math.min(cur.ask.l, b.ask.l);
+      cur.ask.c = b.ask.c;
+      cur.openInterest = b.openInterest;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+async function getPerpBars(ticker, timeframe, count) {
+  const tf = TF_MINUTES[timeframe] ?? 15;
+  const strip = (bars2) => bars2.slice(-count).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+  if (tf === 60 || tf === 1440) {
+    const bars2 = await getPerpCandles(ticker, tf === 60 ? 60 : 1440, (count + 6) * tf);
+    return strip(bars2);
+  }
+  if (tf === 240) {
+    const bars2 = await getPerpCandles(ticker, 60, (Math.ceil(count / 4) + 6) * 60);
+    return strip(aggregateBars(bars2, 4));
+  }
+  let minutes = Math.min(5e3, Math.ceil(count * tf * 2));
+  let bars = aggregateBars(await getPerpCandles(ticker, 1, minutes), tf);
+  if (bars.length < count && minutes < 5e3) {
+    minutes = 5e3;
+    bars = aggregateBars(await getPerpCandles(ticker, 1, minutes), tf);
+  }
+  return strip(bars);
+}
+async function getPerpTouch(ticker) {
+  try {
+    const data = await getJson(`/margin/markets/${encodeURIComponent(ticker)}/orderbook`);
+    const bids = data?.orderbook?.bids ?? [];
+    const asks = data?.orderbook?.asks ?? [];
+    const bid = bids.reduce((mx, lvl2) => Math.max(mx, num6(lvl2?.[0])), 0);
+    const ask = asks.reduce((mn, lvl2) => {
+      const p2 = num6(lvl2?.[0]);
+      return p2 > 0 && (mn === 0 || p2 < mn) ? p2 : mn;
+    }, 0);
+    return bid > 0 && ask > bid ? { bid, ask } : null;
+  } catch {
+    return null;
+  }
+}
+async function getPerpFundingHistory(ticker) {
+  const data = await getJson(`/margin/funding_rates/historical?ticker=${encodeURIComponent(ticker)}`);
+  return (data?.funding_rates ?? []).map((r) => ({ fundingTimeMs: new Date(r.funding_time).getTime(), rate: num6(r.funding_rate), markPrice: num6(r.mark_price) })).filter((r) => Number.isFinite(r.fundingTimeMs) && r.fundingTimeMs > 0).sort((a, b) => a.fundingTimeMs - b.fundingTimeMs);
+}
+async function getPerpFundingEstimate(ticker) {
+  try {
+    const data = await getJson(`/margin/funding_rates/estimate?ticker=${encodeURIComponent(ticker)}`);
+    const next = new Date(data?.next_funding_time).getTime();
+    return { rate: num6(data?.funding_rate), nextFundingTimeMs: Number.isFinite(next) ? next : 0 };
+  } catch {
+    return null;
+  }
+}
+async function getPerpCorporateActions() {
+  if (_caCache && Date.now() - _caCache.at < 10 * 6e4) return _caCache.actions;
+  const data = await getJson("/margin/corporate_actions");
+  const list = Array.isArray(data) ? data : data?.corporate_actions ?? data?.notices ?? [];
+  const actions = list.map((a) => {
+    const t = a?.effective_ts ?? a?.effective_time ?? a?.scheduled_ts ?? a?.scheduled_time ?? a?.ex_date ?? a?.pay_date ?? a?.record_date ?? null;
+    const ms = t == null ? null : typeof t === "number" ? t > 1e12 ? t : t * 1e3 : new Date(t).getTime();
+    return {
+      ticker: String(a?.market_ticker ?? a?.ticker ?? ""),
+      type: String(a?.type ?? a?.action_type ?? ""),
+      status: String(a?.status ?? "").toLowerCase(),
+      effectiveMs: ms != null && Number.isFinite(ms) ? ms : null,
+      raw: a
+    };
+  }).filter((a) => !!a.ticker);
+  _caCache = { at: Date.now(), actions };
+  return actions;
+}
+var PROD_HOST, DEMO_HOST, num6, DEFAULT_INDEX_EXCLUDE, _marketsCache, MARKETS_TTL_MS, _riskCache, _candleCache, CANDLE_TTL_MS, TF_MINUTES, _caCache;
+var init_kalshi_perps = __esm({
+  "server/services/kalshi-perps.ts"() {
+    "use strict";
+    PROD_HOST = "https://external-api.kalshi.com/trade-api/v2";
+    DEMO_HOST = "https://external-api.demo.kalshi.co/trade-api/v2";
+    num6 = (v) => {
+      const n = typeof v === "string" ? parseFloat(v) : Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+    DEFAULT_INDEX_EXCLUDE = /* @__PURE__ */ new Set(["SPY", "QQQ", "DIA", "IWM", "US500", "USTECH100", "SPX", "NDX", "VIX"]);
+    _marketsCache = null;
+    MARKETS_TTL_MS = 6e4;
+    _riskCache = null;
+    _candleCache = /* @__PURE__ */ new Map();
+    CANDLE_TTL_MS = 45e3;
+    TF_MINUTES = { "1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440 };
+    _caCache = null;
+  }
+});
+
 // server/services/process-fingerprint.ts
 var PROCESS_BOOT_ID;
 var init_process_fingerprint = __esm({
@@ -55949,256 +56199,6 @@ var init_cefi_executor = __esm({
     "use strict";
     init_db();
     init_crypto_market_data();
-  }
-});
-
-// server/services/kalshi-perps.ts
-var kalshi_perps_exports = {};
-__export(kalshi_perps_exports, {
-  aggregateBars: () => aggregateBars,
-  getLiquidStockPerps: () => getLiquidStockPerps,
-  getPerpBars: () => getPerpBars,
-  getPerpCandles: () => getPerpCandles,
-  getPerpCorporateActions: () => getPerpCorporateActions,
-  getPerpFundingEstimate: () => getPerpFundingEstimate,
-  getPerpFundingHistory: () => getPerpFundingHistory,
-  getPerpMarkets: () => getPerpMarkets,
-  getPerpRiskParams: () => getPerpRiskParams,
-  getPerpTouch: () => getPerpTouch,
-  indexExcludeSet: () => indexExcludeSet,
-  perpHost: () => perpHost,
-  underlyingOfPerpTicker: () => underlyingOfPerpTicker
-});
-function perpHost() {
-  return process.env.KALSHI_PERP_HOST === "demo" ? DEMO_HOST : PROD_HOST;
-}
-async function getJson(path20) {
-  const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), 15e3);
-  try {
-    const res2 = await fetch(`${perpHost()}${path20}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
-    if (!res2.ok) throw new Error(`kalshi-perps GET ${path20} -> ${res2.status}`);
-    return await res2.json();
-  } finally {
-    clearTimeout(to);
-  }
-}
-function underlyingOfPerpTicker(ticker) {
-  const m = /^KX([A-Z][A-Z0-9.]*)PERP1?$/.exec(ticker || "");
-  return m ? m[1] : null;
-}
-function indexExcludeSet() {
-  const env = (process.env.KALSHI_STOCK_PERP_EXCLUDE || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
-  return env.length ? new Set(env) : DEFAULT_INDEX_EXCLUDE;
-}
-async function getPerpMarkets() {
-  if (_marketsCache && Date.now() - _marketsCache.at < MARKETS_TTL_MS) return _marketsCache.markets;
-  const out = [];
-  let cursor = null;
-  for (let page = 0; page < 10; page++) {
-    const q = `/margin/markets?limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
-    const data = await getJson(q);
-    for (const m of data?.markets ?? []) {
-      out.push({
-        ticker: String(m.ticker || ""),
-        underlying: underlyingOfPerpTicker(String(m.ticker || "")) || "",
-        title: String(m.title || ""),
-        status: String(m.status || ""),
-        bid: num6(m.bid),
-        ask: num6(m.ask),
-        price: num6(m.price),
-        contractSize: num6(m.contract_size),
-        leverageEstimate: num6(m.leverage_estimate),
-        volume24hContracts: num6(m.volume_24h),
-        volume24hNotionalUsd: num6(m.volume_24h_notional_value_dollars),
-        openInterest: num6(m.open_interest),
-        openInterestNotionalUsd: num6(m.open_interest_notional_value_dollars),
-        tickSize: num6(m.tick_size),
-        fundingCap: num6(m.funding_cap),
-        scheduleOpen: m.schedule?.is_open !== false,
-        haltSources: Array.isArray(m.halt_sources) ? m.halt_sources.map(String) : []
-      });
-    }
-    cursor = data?.cursor || null;
-    if (!cursor) break;
-  }
-  _marketsCache = { at: Date.now(), markets: out };
-  return out;
-}
-async function getLiquidStockPerps() {
-  const minVol = Number(process.env.KALSHI_STOCK_SHADOW_MIN_VOL24_USD ?? 25e3);
-  const minOi = Number(process.env.KALSHI_STOCK_SHADOW_MIN_OI_USD ?? 1e4);
-  const maxTickers = Math.max(1, Math.floor(Number(process.env.KALSHI_STOCK_SHADOW_MAX_TICKERS ?? 20)));
-  const exclude = indexExcludeSet();
-  const all = await getPerpMarkets();
-  return all.filter((m) => m.status === "active" && m.underlying && !exclude.has(m.underlying)).filter((m) => m.price > 0 && m.bid > 0 && m.ask > m.bid).filter((m) => m.volume24hNotionalUsd >= minVol && m.openInterestNotionalUsd >= minOi).sort((a, b) => b.volume24hNotionalUsd - a.volume24hNotionalUsd).slice(0, maxTickers);
-}
-async function getPerpRiskParams() {
-  if (_riskCache && Date.now() - _riskCache.at < 10 * 6e4) return _riskCache.map;
-  const data = await getJson("/margin/risk_parameters");
-  const map = /* @__PURE__ */ new Map();
-  const src = data?.risk_parameters ?? data ?? {};
-  for (const [ticker, v] of Object.entries(src)) {
-    map.set(ticker, {
-      initialMarginMultiplier: v?.initial_margin_multiplier != null ? num6(v.initial_margin_multiplier) : null,
-      liquidationThreshold: v?.liquidation_margin_ratio_threshold != null ? num6(v.liquidation_margin_ratio_threshold) : null
-    });
-  }
-  _riskCache = { at: Date.now(), map };
-  return map;
-}
-function dist(d) {
-  const f = (x) => x == null || x === "" ? null : num6(x);
-  return { o: f(d?.open), h: f(d?.high), l: f(d?.low), c: f(d?.close) };
-}
-function toBar(raw, intervalMin) {
-  const endTs = Number(raw?.end_period_ts);
-  if (!Number.isFinite(endTs) || endTs <= 0) return null;
-  const bid = dist(raw.bid), ask = dist(raw.ask), px = dist(raw.price);
-  const prev = raw.price?.previous != null && raw.price.previous !== "" ? num6(raw.price.previous) : null;
-  const mid = bid.c != null && ask.c != null ? (bid.c + ask.c) / 2 : bid.c ?? ask.c;
-  const c = px.c ?? prev ?? mid;
-  if (c == null || !(c > 0)) return null;
-  const o = px.o ?? prev ?? c;
-  const h = px.h ?? Math.max(o, c);
-  const l = px.l ?? Math.min(o, c);
-  const z3 = { o: 0, h: 0, l: 0, c: 0 };
-  return {
-    t: (endTs - intervalMin * 60) * 1e3,
-    o,
-    h,
-    l,
-    c,
-    v: num6(raw.volume),
-    bid: { o: bid.o ?? c, h: bid.h ?? c, l: bid.l ?? c, c: bid.c ?? c },
-    ask: { o: ask.o ?? c, h: ask.h ?? c, l: ask.l ?? c, c: ask.c ?? c },
-    openInterest: num6(raw.open_interest)
-  };
-}
-async function getPerpCandles(ticker, intervalMin, minutesBack) {
-  const capped = Math.min(Math.max(intervalMin, minutesBack), 5e3 * intervalMin);
-  const key = `${ticker}|${intervalMin}|${capped}`;
-  const hit = _candleCache.get(key);
-  if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.bars;
-  const end = Math.floor(Date.now() / 1e3);
-  const start = end - capped * 60;
-  const data = await getJson(`/margin/markets/${encodeURIComponent(ticker)}/candlesticks?start_ts=${start}&end_ts=${end}&period_interval=${intervalMin}`);
-  const bars = (data?.candlesticks ?? []).map((r) => toBar(r, intervalMin)).filter((b) => !!b).sort((a, b) => a.t - b.t);
-  _candleCache.set(key, { at: Date.now(), bars });
-  return bars;
-}
-function aggregateBars(bars, factor) {
-  if (factor <= 1) return bars;
-  const span = factor * 6e4;
-  const out = [];
-  let cur = null;
-  let bucket = -1;
-  for (const b of bars) {
-    const bk = Math.floor(b.t / span);
-    if (!cur || bk !== bucket) {
-      if (cur) out.push(cur);
-      bucket = bk;
-      cur = { ...b, bid: { ...b.bid }, ask: { ...b.ask } };
-    } else {
-      cur.h = Math.max(cur.h, b.h);
-      cur.l = Math.min(cur.l, b.l);
-      cur.c = b.c;
-      cur.v += b.v;
-      cur.bid.h = Math.max(cur.bid.h, b.bid.h);
-      cur.bid.l = Math.min(cur.bid.l, b.bid.l);
-      cur.bid.c = b.bid.c;
-      cur.ask.h = Math.max(cur.ask.h, b.ask.h);
-      cur.ask.l = Math.min(cur.ask.l, b.ask.l);
-      cur.ask.c = b.ask.c;
-      cur.openInterest = b.openInterest;
-    }
-  }
-  if (cur) out.push(cur);
-  return out;
-}
-async function getPerpBars(ticker, timeframe, count) {
-  const tf = TF_MINUTES[timeframe] ?? 15;
-  const strip = (bars2) => bars2.slice(-count).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
-  if (tf === 60 || tf === 1440) {
-    const bars2 = await getPerpCandles(ticker, tf === 60 ? 60 : 1440, (count + 6) * tf);
-    return strip(bars2);
-  }
-  if (tf === 240) {
-    const bars2 = await getPerpCandles(ticker, 60, (Math.ceil(count / 4) + 6) * 60);
-    return strip(aggregateBars(bars2, 4));
-  }
-  let minutes = Math.min(5e3, Math.ceil(count * tf * 2));
-  let bars = aggregateBars(await getPerpCandles(ticker, 1, minutes), tf);
-  if (bars.length < count && minutes < 5e3) {
-    minutes = 5e3;
-    bars = aggregateBars(await getPerpCandles(ticker, 1, minutes), tf);
-  }
-  return strip(bars);
-}
-async function getPerpTouch(ticker) {
-  try {
-    const data = await getJson(`/margin/markets/${encodeURIComponent(ticker)}/orderbook`);
-    const bids = data?.orderbook?.bids ?? [];
-    const asks = data?.orderbook?.asks ?? [];
-    const bid = bids.reduce((mx, lvl2) => Math.max(mx, num6(lvl2?.[0])), 0);
-    const ask = asks.reduce((mn, lvl2) => {
-      const p2 = num6(lvl2?.[0]);
-      return p2 > 0 && (mn === 0 || p2 < mn) ? p2 : mn;
-    }, 0);
-    return bid > 0 && ask > bid ? { bid, ask } : null;
-  } catch {
-    return null;
-  }
-}
-async function getPerpFundingHistory(ticker) {
-  const data = await getJson(`/margin/funding_rates/historical?ticker=${encodeURIComponent(ticker)}`);
-  return (data?.funding_rates ?? []).map((r) => ({ fundingTimeMs: new Date(r.funding_time).getTime(), rate: num6(r.funding_rate), markPrice: num6(r.mark_price) })).filter((r) => Number.isFinite(r.fundingTimeMs) && r.fundingTimeMs > 0).sort((a, b) => a.fundingTimeMs - b.fundingTimeMs);
-}
-async function getPerpFundingEstimate(ticker) {
-  try {
-    const data = await getJson(`/margin/funding_rates/estimate?ticker=${encodeURIComponent(ticker)}`);
-    const next = new Date(data?.next_funding_time).getTime();
-    return { rate: num6(data?.funding_rate), nextFundingTimeMs: Number.isFinite(next) ? next : 0 };
-  } catch {
-    return null;
-  }
-}
-async function getPerpCorporateActions() {
-  if (_caCache && Date.now() - _caCache.at < 10 * 6e4) return _caCache.actions;
-  const data = await getJson("/margin/corporate_actions");
-  const list = Array.isArray(data) ? data : data?.corporate_actions ?? data?.notices ?? [];
-  const actions = list.map((a) => {
-    const t = a?.effective_ts ?? a?.effective_time ?? a?.scheduled_ts ?? a?.scheduled_time ?? a?.ex_date ?? a?.pay_date ?? a?.record_date ?? null;
-    const ms = t == null ? null : typeof t === "number" ? t > 1e12 ? t : t * 1e3 : new Date(t).getTime();
-    return {
-      ticker: String(a?.market_ticker ?? a?.ticker ?? ""),
-      type: String(a?.type ?? a?.action_type ?? ""),
-      status: String(a?.status ?? "").toLowerCase(),
-      effectiveMs: ms != null && Number.isFinite(ms) ? ms : null,
-      raw: a
-    };
-  }).filter((a) => !!a.ticker);
-  _caCache = { at: Date.now(), actions };
-  return actions;
-}
-var PROD_HOST, DEMO_HOST, num6, DEFAULT_INDEX_EXCLUDE, _marketsCache, MARKETS_TTL_MS, _riskCache, _candleCache, CANDLE_TTL_MS, TF_MINUTES, _caCache;
-var init_kalshi_perps = __esm({
-  "server/services/kalshi-perps.ts"() {
-    "use strict";
-    PROD_HOST = "https://external-api.kalshi.com/trade-api/v2";
-    DEMO_HOST = "https://external-api.demo.kalshi.co/trade-api/v2";
-    num6 = (v) => {
-      const n = typeof v === "string" ? parseFloat(v) : Number(v);
-      return Number.isFinite(n) ? n : 0;
-    };
-    DEFAULT_INDEX_EXCLUDE = /* @__PURE__ */ new Set(["SPY", "QQQ", "DIA", "IWM", "US500", "USTECH100", "SPX", "NDX", "VIX"]);
-    _marketsCache = null;
-    MARKETS_TTL_MS = 6e4;
-    _riskCache = null;
-    _candleCache = /* @__PURE__ */ new Map();
-    CANDLE_TTL_MS = 45e3;
-    TF_MINUTES = { "1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440 };
-    _caCache = null;
   }
 });
 
@@ -59432,92 +59432,1503 @@ var init_cryptocom_scanner = __esm({
   }
 });
 
-// server/services/all-time-performance.ts
-var all_time_performance_exports = {};
-__export(all_time_performance_exports, {
-  getAllTimePerformance: () => getAllTimePerformance
+// server/services/iv-rank.ts
+var iv_rank_exports = {};
+__export(iv_rank_exports, {
+  MIN_IV_SAMPLES: () => MIN_IV_SAMPLES,
+  getIvRank: () => getIvRank,
+  recordDailyIv: () => recordDailyIv
 });
-async function getAllTimePerformance(userId) {
-  const atrQuery = pool.query(
-    `SELECT
-       CASE WHEN source IN ('tradelocker', 'tradelocker_auto') THEN 'tradelocker' ELSE 'mt5' END AS engine,
-       date_trunc('day', closed_at)::date AS day,
-       sum(profit_loss) AS pnl, count(*) AS trades
-     FROM ai_trade_results
-     WHERE user_id = $1 AND result IS NOT NULL AND result != 'PENDING' AND closed_at IS NOT NULL
-     GROUP BY engine, day`,
-    [userId]
-  );
-  const optQuery = pool.query(
-    `SELECT date_trunc('day', closed_at)::date AS day, sum(realized_pnl) AS pnl, count(*) AS trades
-     FROM options_engine_trades WHERE user_id = $1 AND status = 'closed' AND closed_at IS NOT NULL
-     GROUP BY day`,
-    [userId]
-  );
-  const cryptoQuery = pool.query(
-    `SELECT date_trunc('day', closed_at)::date AS day, sum(realized_pnl) AS pnl, count(*) AS trades
-     FROM cryptocom_engine_trades WHERE user_id = $1 AND status = 'closed' AND closed_at IS NOT NULL
-     GROUP BY day`,
-    [userId]
-  );
-  const futuresQuery = pool.query(
-    `SELECT date_trunc('day', closed_at)::date AS day, sum(realized_pnl) AS pnl, count(*) AS trades
-     FROM futures_engine_trades WHERE user_id = $1 AND status = 'closed' AND closed_at IS NOT NULL
-     GROUP BY day`,
-    [userId]
-  );
-  const [atr3, opt, crypto17, futures] = await Promise.all([
-    atrQuery.catch(() => ({ rows: [] })),
-    optQuery.catch(() => ({ rows: [] })),
-    cryptoQuery.catch(() => ({ rows: [] })),
-    futuresQuery.catch(() => ({ rows: [] }))
-  ]);
-  const byDay = {};
-  const addRows = (rows, engineOverride) => {
-    for (const r of rows) {
-      const day = r.day instanceof Date ? r.day.toISOString().slice(0, 10) : String(r.day).slice(0, 10);
-      const engine = engineOverride ?? r.engine;
-      byDay[day] = byDay[day] || {};
-      byDay[day][engine] = byDay[day][engine] || { pnl: 0, trades: 0 };
-      byDay[day][engine].pnl += Number(r.pnl) || 0;
-      byDay[day][engine].trades += Number(r.trades) || 0;
-    }
-  };
-  addRows(atr3.rows);
-  addRows(opt.rows, "options");
-  addRows(crypto17.rows, "cryptocom");
-  addRows(futures.rows, "futures");
-  const dailyHistory = Object.entries(byDay).map(([date2, engines]) => {
-    const byEngine = Object.entries(engines).map(([engine, v]) => ({
-      engine,
-      pnl: Math.round(v.pnl * 100) / 100,
-      trades: v.trades
-    }));
-    const total = Math.round(byEngine.reduce((s, e) => s + e.pnl, 0) * 100) / 100;
-    return { date: date2, total, byEngine };
-  }).sort((a, b) => a.date.localeCompare(b.date));
-  const biggestDay = dailyHistory.length > 0 ? dailyHistory.reduce((max, d) => d.total > max.total ? d : max, dailyHistory[0]) : null;
-  const allTimeTotal = Math.round(dailyHistory.reduce((s, d) => s + d.total, 0) * 100) / 100;
-  const totalTrades = dailyHistory.reduce((s, d) => s + d.byEngine.reduce((s2, e) => s2 + e.trades, 0), 0);
-  const engineTotals = {};
-  for (const d of dailyHistory) {
-    for (const e of d.byEngine) {
-      engineTotals[e.engine] = engineTotals[e.engine] || { pnl: 0, trades: 0 };
-      engineTotals[e.engine].pnl += e.pnl;
-      engineTotals[e.engine].trades += e.trades;
-    }
-  }
-  const byEngineAllTime = Object.entries(engineTotals).map(([engine, v]) => ({
-    engine,
-    pnl: Math.round(v.pnl * 100) / 100,
-    trades: v.trades
-  }));
-  return { allTimeTotal, totalTrades, biggestDay, dailyHistory, byEngineAllTime };
+function todayUtc() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
 }
-var init_all_time_performance = __esm({
-  "server/services/all-time-performance.ts"() {
+async function recordDailyIv(underlyingSymbol, iv) {
+  if (!isFinite(iv) || iv <= 0) return;
+  const day = todayUtc();
+  if (_recordedToday.get(underlyingSymbol) === day) return;
+  _recordedToday.set(underlyingSymbol, day);
+  try {
+    await pool.query(
+      `INSERT INTO options_iv_history (underlying_symbol, iv, observed_date)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (underlying_symbol, observed_date)
+       DO UPDATE SET iv = EXCLUDED.iv`,
+      [underlyingSymbol, iv, day]
+    );
+  } catch (err) {
+    console.error("[IV Rank] recordDailyIv failed (non-fatal):", err?.message ?? err);
+  }
+}
+async function getIvRank(underlyingSymbol, currentIv) {
+  let rows = [];
+  try {
+    const { rows: r } = await pool.query(
+      `SELECT iv FROM options_iv_history
+       WHERE underlying_symbol = $1 AND observed_date >= (CURRENT_DATE - $2::int)`,
+      [underlyingSymbol, IV_WINDOW_DAYS]
+    );
+    rows = r;
+  } catch (err) {
+    console.error("[IV Rank] getIvRank read failed (defaulting to no-data):", err?.message ?? err);
+  }
+  const vals = rows.map((r) => typeof r.iv === "number" ? r.iv : parseFloat(r.iv)).filter((v) => isFinite(v) && v > 0);
+  if (isFinite(currentIv) && currentIv > 0) vals.push(currentIv);
+  if (vals.length < MIN_IV_SAMPLES) {
+    return { ivRank: null, samples: vals.length, min: null, max: null, currentIv };
+  }
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const ivRank = max > min ? Math.round((currentIv - min) / (max - min) * 100) : 50;
+  return { ivRank: Math.max(0, Math.min(100, ivRank)), samples: vals.length, min, max, currentIv };
+}
+var IV_WINDOW_DAYS, MIN_IV_SAMPLES, _recordedToday;
+var init_iv_rank = __esm({
+  "server/services/iv-rank.ts"() {
     "use strict";
     init_db();
+    IV_WINDOW_DAYS = 365;
+    MIN_IV_SAMPLES = 20;
+    _recordedToday = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/options-scanner.ts
+var options_scanner_exports = {};
+__export(options_scanner_exports, {
+  OPTIONS_STRATEGY_RUNNERS: () => OPTIONS_STRATEGY_RUNNERS,
+  runOptionsEngineScan: () => runOptionsEngineScan,
+  startOptionsEngineScanner: () => startOptionsEngineScanner
+});
+function positionBias(optionType, spreadType) {
+  if (spreadType === "bull_put") return "bullish";
+  if (spreadType === "bear_call") return "bearish";
+  const ot = (optionType || "").toLowerCase();
+  if (!spreadType && ot === "call") return "bullish";
+  if (!spreadType && ot === "put") return "bearish";
+  return null;
+}
+function nyOffsetMinutes(date2) {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+  const parts = dtf.formatToParts(date2).reduce((acc, p2) => {
+    acc[p2.type] = p2.value;
+    return acc;
+  }, {});
+  const asUTC = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
+  return (asUTC - date2.getTime()) / 6e4;
+}
+function nyMarketOpenUTC(reference) {
+  const dtf = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+  const parts = dtf.formatToParts(reference).reduce((acc, p2) => {
+    acc[p2.type] = p2.value;
+    return acc;
+  }, {});
+  const y = +parts.year, m = +parts.month, d = +parts.day;
+  const noonUTC = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  const offsetMin = nyOffsetMinutes(noonUTC);
+  const utcMinutesSinceMidnight = 9 * 60 + 30 - offsetMin;
+  return new Date(Date.UTC(y, m - 1, d, 0, 0, 0) + utcMinutesSinceMidnight * 6e4);
+}
+function nyMarketCloseUTC(reference) {
+  const open = nyMarketOpenUTC(reference);
+  return new Date(open.getTime() + 6.5 * 60 * 6e4);
+}
+function isWeekday(date2) {
+  const dow = date2.getUTCDay();
+  return dow >= 1 && dow <= 5;
+}
+async function runOrb(service, symbol, cfg) {
+  const now = /* @__PURE__ */ new Date();
+  const open = nyMarketOpenUTC(now);
+  const rangeEnd = new Date(open.getTime() + cfg.orbRangeMinutes * 6e4);
+  if (!isWeekday(now) || now < open) {
+    return { decision: "watching", reasoning: `${symbol}: market is closed \u2014 ORB needs the regular session to be open.`, score: null, price: null, dailyChangePercent: null, strategy: "orb" };
+  }
+  if (now < rangeEnd) {
+    return { decision: "watching", reasoning: `${symbol}: opening range still forming (first ${cfg.orbRangeMinutes} min) \u2014 checking again once it closes.`, score: null, price: null, dailyChangePercent: null, strategy: "orb" };
+  }
+  const bars = await service.getBars(symbol, "1Min", open, now, 500);
+  if (bars.length < cfg.orbRangeMinutes) {
+    return { decision: "error", reasoning: `${symbol}: not enough intraday bars returned to compute the opening range.`, score: null, price: null, dailyChangePercent: null, strategy: "orb" };
+  }
+  const rangeBars = bars.filter((b) => new Date(b.t) < rangeEnd);
+  const afterRangeBars = bars.filter((b) => new Date(b.t) >= rangeEnd);
+  if (rangeBars.length === 0 || afterRangeBars.length === 0) {
+    return { decision: "watching", reasoning: `${symbol}: waiting on more bars to confirm the opening range.`, score: null, price: null, dailyChangePercent: null, strategy: "orb" };
+  }
+  const orHigh = Math.max(...rangeBars.map((b) => b.h));
+  const orLow = Math.min(...rangeBars.map((b) => b.l));
+  const last2 = afterRangeBars[afterRangeBars.length - 1];
+  const avgRangeVolume = rangeBars.reduce((s, b) => s + b.v, 0) / rangeBars.length;
+  const volumeConfirmed = last2.v > avgRangeVolume * 1.2;
+  const brokeUp = last2.c > orHigh;
+  const brokeDown = last2.c < orLow;
+  const direction = brokeUp ? "up" : brokeDown ? "down" : "inside";
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
+  const rangeSizePct = (orHigh - orLow) / orLow * 100;
+  const score = Math.min(100, Math.round(50 + rangeSizePct * 10 + (volumeConfirmed ? 15 : 0)));
+  if (direction === "inside") {
+    return { decision: "watching", reasoning: `${symbol}: still trading inside the ${cfg.orbRangeMinutes}-min opening range ($${orLow.toFixed(2)}-$${orHigh.toFixed(2)}) \u2014 no breakout yet.`, score, price: last2.c, dailyChangePercent: null, strategy: "orb" };
+  }
+  if (!directionAllowed) {
+    return { decision: "skipped", reasoning: `${symbol}: broke ${direction} out of the opening range at $${last2.c.toFixed(2)}, but your direction filter is "${cfg.directionFilter}" \u2014 doesn't qualify.`, score, price: last2.c, dailyChangePercent: null, strategy: "orb" };
+  }
+  if (!volumeConfirmed) {
+    return { decision: "watching", reasoning: `${symbol}: broke ${direction} out of the opening range at $${last2.c.toFixed(2)}, but volume (${Math.round(last2.v)}) isn't confirming vs the range average (${Math.round(avgRangeVolume)}) \u2014 watching for confirmation.`, score, price: last2.c, dailyChangePercent: null, strategy: "orb" };
+  }
+  if (score < cfg.minConfidence) {
+    return { decision: "watching", reasoning: `${symbol}: volume-confirmed ${direction} breakout of the opening range, but score ${score}/100 is below your ${cfg.minConfidence} threshold.`, score, price: last2.c, dailyChangePercent: null, strategy: "orb" };
+  }
+  const optType = direction === "up" ? "call" : "put";
+  return {
+    decision: "signal",
+    score,
+    price: last2.c,
+    dailyChangePercent: null,
+    strategy: "orb",
+    direction,
+    reasoning: `${symbol}: volume-confirmed ${direction} breakout of the ${cfg.orbRangeMinutes}-min opening range ($${orLow.toFixed(2)}-$${orHigh.toFixed(2)}), now at $${last2.c.toFixed(2)}. Score ${score}/100. Would target a ${cfg.strikeSelectionMode === "delta_target" ? `~${cfg.targetDelta} delta` : cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
+  };
+}
+async function runVolumeProfile2(service, symbol, cfg) {
+  const now = /* @__PURE__ */ new Date();
+  const start = new Date(now.getTime() - cfg.volumeProfileLookbackDays * 24 * 60 * 6e4);
+  const bars = await service.getBars(symbol, "5Min", start, now, 2e3);
+  if (bars.length < 20) {
+    return { decision: "error", reasoning: `${symbol}: not enough intraday history returned to build a volume profile.`, score: null, price: null, dailyChangePercent: null, strategy: "volume_profile" };
+  }
+  const lo2 = Math.min(...bars.map((b) => b.l));
+  const hi2 = Math.max(...bars.map((b) => b.h));
+  const binCount = 24;
+  const binSize = (hi2 - lo2) / binCount || 1;
+  const volumeByBin = new Array(binCount).fill(0);
+  for (const b of bars) {
+    const mid = (b.h + b.l) / 2;
+    const idx = Math.min(binCount - 1, Math.max(0, Math.floor((mid - lo2) / binSize)));
+    volumeByBin[idx] += b.v;
+  }
+  const totalVolume = volumeByBin.reduce((s, v) => s + v, 0);
+  let pocIdx = 0;
+  for (let i = 1; i < binCount; i++) if (volumeByBin[i] > volumeByBin[pocIdx]) pocIdx = i;
+  const pocPrice = lo2 + (pocIdx + 0.5) * binSize;
+  let sorted = volumeByBin.map((v, i) => ({ i, v })).sort((a, b) => b.v - a.v);
+  let acc = 0;
+  const valueAreaIdx = /* @__PURE__ */ new Set();
+  for (const { i, v } of sorted) {
+    valueAreaIdx.add(i);
+    acc += v;
+    if (acc >= totalVolume * 0.7) break;
+  }
+  const valueAreaIdxArr = Array.from(valueAreaIdx);
+  const vaHighIdx = Math.max(...valueAreaIdxArr);
+  const vaLowIdx = Math.min(...valueAreaIdxArr);
+  const vaHigh = lo2 + (vaHighIdx + 1) * binSize;
+  const vaLow = lo2 + vaLowIdx * binSize;
+  const last2 = bars[bars.length - 1];
+  const price = last2.c;
+  const distFromPocPct = Math.abs((price - pocPrice) / pocPrice) * 100;
+  const aboveVA = price > vaHigh;
+  const belowVA = price < vaLow;
+  const direction = aboveVA ? "up" : belowVA ? "down" : "inside";
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
+  const score = Math.min(100, Math.round(40 + distFromPocPct * 8));
+  if (direction === "inside") {
+    return { decision: "watching", reasoning: `${symbol}: trading inside its ${cfg.volumeProfileLookbackDays}-day value area ($${vaLow.toFixed(2)}-$${vaHigh.toFixed(2)}, POC $${pocPrice.toFixed(2)}) \u2014 fair value, no edge either direction.`, score, price, dailyChangePercent: null, strategy: "volume_profile" };
+  }
+  if (!directionAllowed) {
+    return { decision: "skipped", reasoning: `${symbol}: broke ${direction} out of its value area (POC $${pocPrice.toFixed(2)}) at $${price.toFixed(2)}, but your direction filter is "${cfg.directionFilter}" \u2014 doesn't qualify.`, score, price, dailyChangePercent: null, strategy: "volume_profile" };
+  }
+  if (score < cfg.minConfidence) {
+    return { decision: "watching", reasoning: `${symbol}: outside its value area at $${price.toFixed(2)} (POC $${pocPrice.toFixed(2)}), but score ${score}/100 is below your ${cfg.minConfidence} threshold.`, score, price, dailyChangePercent: null, strategy: "volume_profile" };
+  }
+  const optType = direction === "up" ? "call" : "put";
+  return {
+    decision: "signal",
+    score,
+    price,
+    dailyChangePercent: null,
+    strategy: "volume_profile",
+    direction,
+    reasoning: `${symbol}: broke ${direction} out of its ${cfg.volumeProfileLookbackDays}-day value area ($${vaLow.toFixed(2)}-$${vaHigh.toFixed(2)}) \u2014 POC (point of control) at $${pocPrice.toFixed(2)}, now at $${price.toFixed(2)} (${distFromPocPct.toFixed(1)}% away). Score ${score}/100. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
+  };
+}
+async function runBreakout2(service, symbol, cfg) {
+  const now = /* @__PURE__ */ new Date();
+  const start = new Date(now.getTime() - (cfg.breakoutLookbackDays + 3) * 24 * 60 * 6e4);
+  const bars = await service.getBars(symbol, "1Day", start, now, 200);
+  if (bars.length < cfg.breakoutLookbackDays) {
+    return { decision: "error", reasoning: `${symbol}: not enough daily history returned for a ${cfg.breakoutLookbackDays}-day breakout check.`, score: null, price: null, dailyChangePercent: null, strategy: "breakout" };
+  }
+  const priorBars = bars.slice(-cfg.breakoutLookbackDays - 1, -1);
+  const today = bars[bars.length - 1];
+  const priorHigh = Math.max(...priorBars.map((b) => b.h));
+  const priorLow = Math.min(...priorBars.map((b) => b.l));
+  const avgVolume = priorBars.reduce((s, b) => s + b.v, 0) / priorBars.length;
+  const volumeConfirmed = today.v > avgVolume * 1.3;
+  const brokeUp = today.c > priorHigh;
+  const brokeDown = today.c < priorLow;
+  const direction = brokeUp ? "up" : brokeDown ? "down" : "inside";
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
+  const breakoutMagnitudePct = direction === "up" ? (today.c - priorHigh) / priorHigh * 100 : direction === "down" ? (priorLow - today.c) / priorLow * 100 : 0;
+  const score = Math.min(100, Math.round(45 + breakoutMagnitudePct * 15 + (volumeConfirmed ? 15 : 0)));
+  if (direction === "inside") {
+    return { decision: "watching", reasoning: `${symbol}: still inside its ${cfg.breakoutLookbackDays}-day range ($${priorLow.toFixed(2)}-$${priorHigh.toFixed(2)}) \u2014 no breakout.`, score, price: today.c, dailyChangePercent: null, strategy: "breakout" };
+  }
+  if (!directionAllowed) {
+    return { decision: "skipped", reasoning: `${symbol}: broke ${direction} out of its ${cfg.breakoutLookbackDays}-day range at $${today.c.toFixed(2)}, but your direction filter is "${cfg.directionFilter}" \u2014 doesn't qualify.`, score, price: today.c, dailyChangePercent: null, strategy: "breakout" };
+  }
+  if (!volumeConfirmed) {
+    return { decision: "watching", reasoning: `${symbol}: broke ${direction} out of its ${cfg.breakoutLookbackDays}-day range at $${today.c.toFixed(2)}, but today's volume isn't confirming (${Math.round(today.v)} vs avg ${Math.round(avgVolume)}) \u2014 watching for follow-through.`, score, price: today.c, dailyChangePercent: null, strategy: "breakout" };
+  }
+  if (score < cfg.minConfidence) {
+    return { decision: "watching", reasoning: `${symbol}: volume-confirmed ${direction} breakout of its ${cfg.breakoutLookbackDays}-day range, but score ${score}/100 is below your ${cfg.minConfidence} threshold.`, score, price: today.c, dailyChangePercent: null, strategy: "breakout" };
+  }
+  const optType = direction === "up" ? "call" : "put";
+  return {
+    decision: "signal",
+    score,
+    price: today.c,
+    dailyChangePercent: null,
+    strategy: "breakout",
+    direction,
+    reasoning: `${symbol}: volume-confirmed ${direction} breakout of its ${cfg.breakoutLookbackDays}-day range ($${priorLow.toFixed(2)}-$${priorHigh.toFixed(2)}), now at $${today.c.toFixed(2)}. Score ${score}/100. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
+  };
+}
+function momentumScore(dailyChangePercent) {
+  const magnitude = Math.min(Math.abs(dailyChangePercent) / 3, 1);
+  return Math.round(50 + magnitude * 50);
+}
+async function runMomentum2(service, symbol, cfg) {
+  const snap = await service.getSnapshot(symbol);
+  if (!snap) {
+    return { decision: "error", reasoning: `${symbol}: no market data returned \u2014 check the symbol is a valid US equity ticker.`, score: null, price: null, dailyChangePercent: null, strategy: "momentum" };
+  }
+  const score = momentumScore(snap.dailyChangePercent);
+  const direction = snap.dailyChangePercent >= 0 ? "up" : "down";
+  const meetsConfidence = score >= cfg.minConfidence;
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
+  if (!directionAllowed) {
+    return { decision: "skipped", score, price: snap.price, dailyChangePercent: snap.dailyChangePercent, strategy: "momentum", reasoning: `${symbol} moved ${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today, but your direction filter is "${cfg.directionFilter}" \u2014 this move doesn't qualify.` };
+  }
+  if (meetsConfidence) {
+    const optType = direction === "up" ? "call" : "put";
+    return { decision: "signal", score, price: snap.price, dailyChangePercent: snap.dailyChangePercent, strategy: "momentum", direction, reasoning: `${symbol} moved ${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today \u2014 momentum score ${score}/100 clears your ${cfg.minConfidence} minimum. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.` };
+  }
+  return { decision: "watching", score, price: snap.price, dailyChangePercent: snap.dailyChangePercent, strategy: "momentum", reasoning: `${symbol} at $${snap.price.toFixed(2)} (${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today) \u2014 momentum score ${score}/100 is below your ${cfg.minConfidence} confidence threshold. Watching, not acting.` };
+}
+async function runOrderFlow2(service, symbol, cfg) {
+  const now = /* @__PURE__ */ new Date();
+  const lookback = Math.max(10, cfg.orderFlowLookbackBars);
+  const sessionsNeeded = Math.ceil(lookback / 78);
+  const start = new Date(now.getTime() - (sessionsNeeded + 3) * 24 * 60 * 6e4);
+  const bars = await service.getBars(symbol, "5Min", start, now, 500);
+  if (bars.length < lookback) {
+    return { decision: "error", reasoning: `${symbol}: not enough intraday bars returned to compute an order-flow read (need ${lookback}, got ${bars.length}).`, score: null, price: null, dailyChangePercent: null, strategy: "order_flow" };
+  }
+  const window = bars.slice(-lookback);
+  const deltas = window.map((b) => {
+    const range = b.h - b.l;
+    if (range <= 0) return 0;
+    const closeLocation = (b.c - b.l) / range;
+    return b.v * (closeLocation * 2 - 1);
+  });
+  const mid = Math.floor(deltas.length / 2);
+  const cvdFirstHalf = deltas.slice(0, mid).reduce((s, d) => s + d, 0);
+  const cvdSecondHalf = deltas.slice(mid).reduce((s, d) => s + d, 0);
+  const totalVolume = window.reduce((s, b) => s + b.v, 0) || 1;
+  const cvdShiftPct = (cvdSecondHalf - cvdFirstHalf) / totalVolume * 100;
+  const vwapNum = window.reduce((s, b) => s + b.vw * b.v, 0);
+  const vwap = totalVolume > 0 ? vwapNum / totalVolume : window[window.length - 1].c;
+  const last2 = window[window.length - 1];
+  const price = last2.c;
+  const lastBarBullish = last2.c > last2.o;
+  const lastBarBearish = last2.c < last2.o;
+  const windowHigh = Math.max(...window.map((b) => b.h));
+  const windowLow = Math.min(...window.map((b) => b.l));
+  const rangePct = (windowHigh - windowLow) / windowLow * 100;
+  const imbalanced = rangePct > 0.8;
+  const cvdBull = cvdShiftPct > 2;
+  const cvdBear = cvdShiftPct < -2;
+  const aboveVwap = price > vwap;
+  const belowVwap = price < vwap;
+  let direction = "inside";
+  if (imbalanced && cvdBull && aboveVwap && lastBarBullish) direction = "up";
+  else if (imbalanced && cvdBear && belowVwap && lastBarBearish) direction = "down";
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
+  const distFromVwapPct = Math.abs((price - vwap) / vwap) * 100;
+  const cvdStrength = Math.min(30, Math.abs(cvdShiftPct) * 4);
+  const vwapAlign = Math.min(15, distFromVwapPct * 10);
+  const rangeStrength = Math.min(15, Math.max(0, rangePct - 0.8) * 6);
+  const overextPenalty = distFromVwapPct > 1.5 ? Math.min(25, (distFromVwapPct - 1.5) * 12) : 0;
+  const score = Math.max(0, Math.min(100, Math.round(40 + cvdStrength + vwapAlign + rangeStrength - overextPenalty)));
+  if (!imbalanced) {
+    return { decision: "watching", reasoning: `${symbol}: range is tight (${rangePct.toFixed(2)}% over the last ${lookback} bars) \u2014 market looks balanced, not imbalanced. Order flow sits out until price moves out of balance.`, score, price, dailyChangePercent: null, strategy: "order_flow" };
+  }
+  if (direction === "inside") {
+    return { decision: "watching", reasoning: `${symbol}: imbalanced (${rangePct.toFixed(2)}% range) but volume-delta and VWAP aren't aligned yet (CVD shift ${cvdShiftPct.toFixed(1)}%, price $${price.toFixed(2)} vs VWAP $${vwap.toFixed(2)}) \u2014 waiting for a full-candle-close confirmation.`, score, price, dailyChangePercent: null, strategy: "order_flow" };
+  }
+  if (!directionAllowed) {
+    return { decision: "skipped", reasoning: `${symbol}: order-flow read is ${direction} (CVD shift ${cvdShiftPct.toFixed(1)}%, vs VWAP $${vwap.toFixed(2)}), but your direction filter is "${cfg.directionFilter}" \u2014 doesn't qualify.`, score, price, dailyChangePercent: null, strategy: "order_flow" };
+  }
+  if (score < cfg.minConfidence) {
+    return { decision: "watching", reasoning: `${symbol}: ${direction} order-flow read (CVD shift ${cvdShiftPct.toFixed(1)}%, ${distFromVwapPct.toFixed(1)}% from VWAP), but score ${score}/100 is below your ${cfg.minConfidence} threshold.`, score, price, dailyChangePercent: null, strategy: "order_flow" };
+  }
+  const optType = direction === "up" ? "call" : "put";
+  return {
+    decision: "signal",
+    score,
+    price,
+    dailyChangePercent: null,
+    strategy: "order_flow",
+    direction,
+    reasoning: `${symbol}: imbalanced market (${rangePct.toFixed(2)}% range over ${lookback} bars) with a ${direction} volume-delta shift of ${cvdShiftPct.toFixed(1)}%, price $${price.toFixed(2)} ${direction === "up" ? "above" : "below"} VWAP $${vwap.toFixed(2)}, confirmed by a full ${direction === "up" ? "bullish" : "bearish"} candle close. Score ${score}/100. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
+  };
+}
+function quantVerdictFromScore2(score) {
+  if (score === null) return "SKIP";
+  if (score >= 65) return "CONFIRM";
+  if (score >= 40) return "WATCH";
+  return "SKIP";
+}
+async function getOptionsAiConfirmation(userId, symbol, result, cfg) {
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2, hasHiddenReasoningOverhead: hasHiddenReasoningOverhead2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const client2 = await getUniversalAIClientForUser2(userId, { critical: true });
+    const system = 'You are a disciplined options-trading second opinion. Given a technical signal from a rules-based scanner, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string (1-2 sentences)}.';
+    const user = `Underlying: ${symbol}
+Strategy: ${result.strategy}
+Direction: ${result.direction}
+Quant score: ${result.score}/100
+Price: ${result.price}
+Daily change %: ${result.dailyChangePercent}
+Scanner reasoning: ${result.reasoning}
+
+Would you confirm this trade?`;
+    const model = client2.defaultModel || "gpt-4o-mini";
+    const r = await client2.chat.completions.create({
+      model,
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      response_format: { type: "json_object" },
+      // 300 was too tight for gpt-oss/Qwen3 (the current Groq/OpenRouter default
+      // models) — their hidden reasoning tokens alone could consume the whole
+      // budget and leave content empty, which this function's catch block then
+      // reports as a hard failure (confidence 0) indistinguishable from an
+      // actual provider/auth error.
+      max_tokens: hasHiddenReasoningOverhead2(model) ? 1200 : 300,
+      temperature: 0.3
+    });
+    const parsed = JSON.parse(r.choices?.[0]?.message?.content || "{}");
+    return {
+      confirmed: !!parsed.confirmed,
+      confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)),
+      reasoning: String(parsed.reasoning || "")
+    };
+  } catch (err) {
+    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
+  }
+}
+function pushOptionsConsensus(userId, entry) {
+  global.optionsEngineConsensus = global.optionsEngineConsensus || {};
+  const list = global.optionsEngineConsensus[userId] || [];
+  const deduped = list.filter((e) => e.symbol !== entry.symbol);
+  global.optionsEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
+  Promise.resolve().then(() => (init_engine_consensus(), engine_consensus_exports)).then(
+    ({ recordEngineConsensus: recordEngineConsensus2 }) => recordEngineConsensus2(userId, "options", entry)
+  ).catch(() => {
+  });
+}
+async function assembleOptionsConsensus(userId, symbol, result, cfg) {
+  const quantVerdict = quantVerdictFromScore2(result.score);
+  if (cfg.aiMode === "rule_based") {
+    const tradeAllowed2 = quantVerdict !== "SKIP" && (result.score ?? 0) >= cfg.minConfidence;
+    pushOptionsConsensus(userId, {
+      symbol,
+      strategy: result.strategy,
+      quantVerdict,
+      quantScore: result.score ?? 0,
+      aiVerdict: "CONFIRM",
+      aiConfidence: 0,
+      aiReasoning: "Rule-based mode \u2014 AI confirmation skipped.",
+      consensus: quantVerdict === "CONFIRM" ? "STRONG_CONFIRM" : quantVerdict === "SKIP" ? "STRONG_SKIP" : "WATCH",
+      tradeAllowed: tradeAllowed2,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    return tradeAllowed2;
+  }
+  const ai = await getOptionsAiConfirmation(userId, symbol, result, cfg);
+  const aiVerdict = ai.confirmed && ai.confidence >= Math.max(60, cfg.minConfidence) ? "CONFIRM" : "SKIP";
+  let consensus;
+  if (quantVerdict === "CONFIRM" && aiVerdict === "CONFIRM") consensus = "STRONG_CONFIRM";
+  else if (quantVerdict === "SKIP" && aiVerdict === "SKIP") consensus = "STRONG_SKIP";
+  else if (quantVerdict === "CONFIRM" && aiVerdict === "SKIP" || quantVerdict === "SKIP" && aiVerdict === "CONFIRM") consensus = "CAUTION";
+  else consensus = "WATCH";
+  const tradeAllowed = consensus !== "STRONG_SKIP" && aiVerdict === "CONFIRM";
+  pushOptionsConsensus(userId, {
+    symbol,
+    strategy: result.strategy,
+    quantVerdict,
+    quantScore: result.score ?? 0,
+    aiVerdict,
+    aiConfidence: ai.confidence,
+    aiReasoning: ai.reasoning,
+    consensus,
+    tradeAllowed,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  return tradeAllowed;
+}
+async function scanSymbol2(service, symbol, cfg) {
+  const now = /* @__PURE__ */ new Date();
+  if (cfg.sessionFilterEnabled && isWeekday(now)) {
+    const open = nyMarketOpenUTC(now);
+    const close = nyMarketCloseUTC(now);
+    const closeGuardStart = new Date(close.getTime() - cfg.avoidLastMinutesBeforeClose * 6e4);
+    if (now >= close || now < open) {
+      return { decision: "watching", reasoning: `${symbol}: outside regular market hours \u2014 session filter is on.`, score: null, price: null, dailyChangePercent: null, strategy: cfg.strategyMode };
+    }
+    if (now >= closeGuardStart) {
+      return { decision: "watching", reasoning: `${symbol}: within the last ${cfg.avoidLastMinutesBeforeClose} minutes before close \u2014 session filter is skipping new entries (pin-risk/illiquidity guard).`, score: null, price: null, dailyChangePercent: null, strategy: cfg.strategyMode };
+    }
+  }
+  if (cfg.strategyMode === "auto" || cfg.strategyMode === "credit_spread") {
+    const results = await Promise.all(["orb", "volume_profile", "breakout", "momentum", "order_flow"].map((k2) => STRATEGY_RUNNERS2[k2](service, symbol, cfg).catch(() => null)));
+    const valid = results.filter((r) => !!r);
+    const signals = valid.filter((r) => r.decision === "signal").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    if (signals.length > 0) return signals[0];
+    if (cfg.enableCompositeAutonomous) {
+      const withDirection = valid.filter((r) => (r.decision === "watching" || r.decision === "signal") && typeof r.score === "number");
+      const momentum = valid.find((r) => r.strategy === "momentum");
+      const compositeScore = withDirection.length > 0 ? withDirection.reduce((s, r) => s + (r.score ?? 0), 0) / withDirection.length : 0;
+      if (momentum && momentum.dailyChangePercent !== null && compositeScore >= cfg.compositeMinEdgeScore) {
+        const direction = momentum.dailyChangePercent >= 0 ? "up" : "down";
+        const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
+        if (directionAllowed) {
+          const optType = direction === "up" ? "call" : "put";
+          return {
+            decision: "signal",
+            score: Math.round(compositeScore),
+            price: momentum.price,
+            dailyChangePercent: momentum.dailyChangePercent,
+            strategy: "composite_autonomous",
+            direction,
+            reasoning: `${symbol}: Composite Autonomous Entry \u2014 ${withDirection.length} strategies blended to a ${Math.round(compositeScore)}/100 edge score (floor ${cfg.compositeMinEdgeScore}), consensus direction ${direction} from momentum. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
+          };
+        }
+      }
+    }
+    const watching = valid.filter((r) => r.decision === "watching").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    if (watching.length > 0) return watching[0];
+    return valid[0] ?? { decision: "error", reasoning: `${symbol}: all strategies failed to return data.`, score: null, price: null, dailyChangePercent: null, strategy: "auto" };
+  }
+  const runner = STRATEGY_RUNNERS2[cfg.strategyMode];
+  if (!runner) {
+    return { decision: "watching", reasoning: `${symbol}: strategy "${cfg.strategyMode}" isn't yet backed by live scanning logic (options-spread strategies like covered_call/credit_spread are on the roadmap) \u2014 no read produced.`, score: null, price: null, dailyChangePercent: null, strategy: cfg.strategyMode };
+  }
+  return runner(service, symbol, cfg);
+}
+function daysUntil(dateStr, from) {
+  const target = /* @__PURE__ */ new Date(dateStr + "T00:00:00Z");
+  return Math.round((target.getTime() - from.getTime()) / (24 * 60 * 6e4));
+}
+function passesLiquidityAndIvGate(c, cfg) {
+  if (!c.bid || c.bid <= 0 || !c.ask || c.ask <= 0) return false;
+  const mid = (c.bid + c.ask) / 2;
+  const spreadPct = mid > 0 ? (c.ask - c.bid) / mid * 100 : Infinity;
+  if (spreadPct > cfg.maxSpreadPct) return false;
+  if (typeof c.openInterest === "number" && c.openInterest < cfg.minOpenInterest) return false;
+  if (typeof c.impliedVolatility === "number" && c.impliedVolatility * 100 > cfg.ivRankMax) return false;
+  return true;
+}
+async function resolveContract(service, underlyingSymbol, direction, cfg) {
+  const optType = direction === "up" ? "call" : "put";
+  const chain = await service.getOptionsChain(underlyingSymbol);
+  const now = /* @__PURE__ */ new Date();
+  let candidates = chain.filter((c) => c.type === optType && c.ask && c.ask > 0);
+  candidates = candidates.filter((c) => {
+    const dte = daysUntil(c.expirationDate, now);
+    return dte >= cfg.minDaysToExpiry && dte <= cfg.maxDaysToExpiry;
+  });
+  candidates = candidates.filter((c) => passesLiquidityAndIvGate(c, cfg));
+  if (candidates.length === 0) return null;
+  const targetDte = cfg.expiryPreference === "0dte" ? 0 : cfg.expiryPreference === "weekly" ? 7 : cfg.expiryPreference === "monthly" ? 30 : 7;
+  const sortedByExpiry = [...candidates].sort((a, b) => Math.abs(daysUntil(a.expirationDate, now) - targetDte) - Math.abs(daysUntil(b.expirationDate, now) - targetDte));
+  const chosenExpiry = sortedByExpiry[0].expirationDate;
+  candidates = candidates.filter((c) => c.expirationDate === chosenExpiry);
+  const snap = await service.getSnapshot(underlyingSymbol);
+  if (!snap) return null;
+  const price = snap.price;
+  const bySpread = (a, b) => {
+    const spreadA = a.bid && a.ask ? (a.ask - a.bid) / ((a.ask + a.bid) / 2) : Infinity;
+    const spreadB = b.bid && b.ask ? (b.ask - b.bid) / ((b.ask + b.bid) / 2) : Infinity;
+    return spreadA - spreadB;
+  };
+  const sortedByStrike = [...candidates].sort((a, b) => a.strikePrice - b.strikePrice);
+  if (cfg.strikeSelectionMode === "delta_target") {
+    const withDelta = sortedByStrike.filter((c) => typeof c.delta === "number");
+    if (withDelta.length > 0) {
+      const byDeltaDistance = withDelta.sort((a, b) => Math.abs(Math.abs(a.delta) - cfg.targetDelta) - Math.abs(Math.abs(b.delta) - cfg.targetDelta));
+      return [...byDeltaDistance.slice(0, 3)].sort(bySpread)[0] ?? byDeltaDistance[0];
+    }
+  }
+  if (cfg.strikeSelectionMode === "itm") {
+    const itm = optType === "call" ? sortedByStrike.filter((c) => c.strikePrice < price) : sortedByStrike.filter((c) => c.strikePrice > price);
+    if (itm.length === 0) return null;
+    const closest = optType === "call" ? itm.slice(-3) : itm.slice(0, 3);
+    return [...closest].sort(bySpread)[0] ?? (optType === "call" ? itm[itm.length - 1] : itm[0]);
+  }
+  if (cfg.strikeSelectionMode === "otm") {
+    const otm = optType === "call" ? sortedByStrike.filter((c) => c.strikePrice > price) : sortedByStrike.filter((c) => c.strikePrice < price);
+    if (otm.length === 0) return null;
+    const closest = optType === "call" ? otm.slice(0, 3) : otm.slice(-3);
+    return [...closest].sort(bySpread)[0] ?? (optType === "call" ? otm[0] : otm[otm.length - 1]);
+  }
+  const nearAtm = [...sortedByStrike].sort((a, b) => Math.abs(a.strikePrice - price) - Math.abs(b.strikePrice - price)).slice(0, 3);
+  return [...nearAtm].sort(bySpread)[0] ?? null;
+}
+async function computeContractQuantity(userId, cfg, equity, askPrice, signalScore = null, brainMultiplier = null, contractIv = null) {
+  if (!askPrice || askPrice <= 0 || equity <= 0) return { quantity: 0, reasoning: "" };
+  const contractCost = askPrice * 100;
+  const riskAmount = equity * (cfg.riskPerTrade / 100);
+  let baseQty = Math.max(0, Math.min(Math.floor(riskAmount / contractCost), cfg.maxContractsPerTrade));
+  const notes = [];
+  const stats = await storage.getOptionsEngineTradeStats(userId);
+  if (cfg.volatileCapMode === "risk_scaled" && typeof contractIv === "number" && contractIv > 0.5 && baseQty > 1) {
+    baseQty = Math.max(1, Math.floor(baseQty / 2));
+    notes.push(`Volatile Cap: high IV (${(contractIv * 100).toFixed(0)}%) halved base size to ${baseQty}`);
+  }
+  const finalize = (qty, reason) => {
+    if (stats.lossStreak >= 3 && qty > 1) {
+      const relocked = qty > 0 ? 1 : 0;
+      return { quantity: relocked, reasoning: `${reason} \u26A0\uFE0F Loss-streak re-lock: ${stats.lossStreak} losses in a row \u2014 capped to ${relocked} contract.` };
+    }
+    return { quantity: qty, reasoning: [reason, ...notes].filter(Boolean).join(" ") };
+  };
+  if (cfg.highConfidenceOverride && (signalScore ?? 0) >= 90) {
+    const qty = brainMultiplier != null ? Math.max(0, Math.min(cfg.maxContractsPerTrade, Math.round(baseQty * brainMultiplier))) : baseQty;
+    return finalize(qty, `\u26A1 High Confidence Override: ${signalScore}/100 score bypasses Brain Learning lock \u2014 ${qty} contracts.`);
+  }
+  if (cfg.brainLearningMode) {
+    const brainLocked = stats.totalClosed < 10 || stats.winRate < 60;
+    if (brainLocked) {
+      const lockedQty = baseQty > 0 ? 1 : 0;
+      return finalize(lockedQty, `\u{1F9E0} Learning Mode: contracts locked at 1 (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR) \u2014 full sizing unlocks automatically.`);
+    }
+    if (cfg.useKellyCriterion && brainMultiplier != null) {
+      const kellyQty = Math.max(0, Math.min(cfg.maxContractsPerTrade, Math.round(baseQty * brainMultiplier)));
+      return finalize(kellyQty, `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + real Kelly sizing (${brainMultiplier.toFixed(2)}x): ${kellyQty} contracts.`);
+    }
+    return finalize(baseQty, `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) \u2014 full risk sizing active.`);
+  }
+  if (cfg.useKellyCriterion && brainMultiplier != null) {
+    const kellyQty = Math.max(0, Math.min(cfg.maxContractsPerTrade, Math.round(baseQty * brainMultiplier)));
+    return finalize(kellyQty, `Kelly Criterion sizing (${brainMultiplier.toFixed(2)}x, ${stats.winRate}% WR over ${stats.totalClosed} trades): ${kellyQty} contracts.`);
+  }
+  return finalize(baseQty, "");
+}
+async function checkSafetyGates2(userId, cfg, equity, connectionId, connectionType = "alpaca", symbol, unrealizedPnl = 0, directionBias) {
+  if (cfg.maxDailyTrades > 0) {
+    const count = await storage.getTodayOptionsEngineTradeCount(userId, connectionId);
+    if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) already reached`, riskMultiplier: 1 };
+  }
+  const openTrades = await storage.getOpenOptionsEngineTrades(userId, connectionId);
+  if (openTrades.length >= cfg.maxOpenPositions) return { allowed: false, reason: `max open positions (${cfg.maxOpenPositions}) already reached`, riskMultiplier: 1 };
+  if (symbol) {
+    const act = await storage.getOptionsEngineSymbolActivity(userId, symbol, connectionId);
+    if (act.openCount >= MAX_OPEN_PER_SYMBOL2) {
+      return { allowed: false, reason: `concentration cap \u2014 already ${act.openCount} open position(s) on ${symbol} (max ${MAX_OPEN_PER_SYMBOL2})`, riskMultiplier: 1 };
+    }
+    if (act.todayEntryCount >= MAX_DAILY_ENTRIES_PER_SYMBOL2) {
+      return { allowed: false, reason: `concentration cap \u2014 already ${act.todayEntryCount} entries on ${symbol} today (max ${MAX_DAILY_ENTRIES_PER_SYMBOL2})`, riskMultiplier: 1 };
+    }
+    if (act.lastEntryAt) {
+      const sinceMs = Date.now() - act.lastEntryAt.getTime();
+      if (sinceMs < SYMBOL_COOLDOWN_MS2) {
+        return { allowed: false, reason: `cooldown \u2014 last ${symbol} entry ${Math.round(sinceMs / 6e4)} min ago (min gap ${Math.round(SYMBOL_COOLDOWN_MS2 / 6e4)} min)`, riskMultiplier: 1 };
+      }
+    }
+    if (directionBias) {
+      const basket = CORRELATED_BASKETS.find((b) => b.includes(symbol.toUpperCase()));
+      if (basket) {
+        const sameBias = openTrades.filter(
+          (t) => basket.includes((t.underlyingSymbol || "").toUpperCase()) && positionBias(t.optionType, t.spreadType) === directionBias
+        ).length;
+        if (sameBias >= CORRELATED_BASKET_CAP) {
+          return { allowed: false, reason: `correlated-basket cap \u2014 already ${sameBias} ${directionBias} position(s) across the ${basket[0]}-group (max ${CORRELATED_BASKET_CAP})`, riskMultiplier: 1 };
+        }
+      }
+    }
+  }
+  let riskMultiplier = 1;
+  if (equity > 0) {
+    const todayPnl = await storage.getTodayOptionsEngineRealizedPnl(userId, connectionId) + unrealizedPnl;
+    if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
+      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached \u2014 incl. open positions`, riskMultiplier: 1 };
+    }
+    const propState = await storage.getPropFirmAccountState(connectionId, connectionType);
+    if (propState) {
+      const isFunded = propState.phase === "funded";
+      const activeDrawdownPct = isFunded ? propState.fundedDailyDrawdownPct : propState.challengeDailyDrawdownPct;
+      const activeConsistencyEnabled = isFunded ? propState.fundedConsistencyEnabled : propState.challengeConsistencyEnabled;
+      const activeConsistencyThreshold = isFunded ? propState.fundedConsistencyThresholdPct : propState.challengeConsistencyThresholdPct;
+      if (activeDrawdownPct > 0 && todayPnl <= -(equity * activeDrawdownPct / 100)) {
+        return { allowed: false, reason: `prop-firm ${propState.phase} daily drawdown limit (${activeDrawdownPct}%) reached`, riskMultiplier: 1 };
+      }
+      const { getConsistencyStatus: getConsistencyStatus2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+      const consistency = await getConsistencyStatus2(connectionId, connectionType, activeConsistencyThreshold, activeConsistencyEnabled);
+      if (consistency.hardBlocked) {
+        return { allowed: false, reason: consistency.guidance, riskMultiplier: 1 };
+      }
+      riskMultiplier = Math.min(riskMultiplier, consistency.sizeMultiplier);
+    } else if (cfg.propFirmMode && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
+      return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached`, riskMultiplier: 1 };
+    }
+    if (cfg.dailyProfitTarget > 0 && todayPnl >= equity * cfg.dailyProfitTarget / 100) {
+      return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached \u2014 locking in gains`, riskMultiplier: 1 };
+    }
+    const peak = Math.max(sessionPeakEquity2.get(connectionId) ?? equity, equity);
+    sessionPeakEquity2.set(connectionId, peak);
+    const ddFromPeakPct = peak > 0 ? (peak - equity) / peak * 100 : 0;
+    if (ddFromPeakPct >= cfg.drawdownShieldThreshold) {
+      riskMultiplier = Math.min(riskMultiplier, 0.25);
+    }
+    if (!propState && cfg.consistencyEnforcementEnabled && cfg.propFirmMode) {
+      const history = await storage.getOptionsEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays, connectionId);
+      const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      history[today] = todayPnl;
+      const recentKeys = Object.keys(history).sort().slice(-cfg.consistencyPeriodDays);
+      const profitableDays = recentKeys.filter((k2) => (history[k2] ?? 0) > 0).length;
+      const tradingDays = recentKeys.length;
+      const daysRemaining = cfg.consistencyPeriodDays - tradingDays;
+      const todayIsLosing = todayPnl < 0;
+      const daysNeeded = cfg.consistencyMinProfitableDays - profitableDays;
+      const mustWinRemaining = todayIsLosing ? daysNeeded : Math.max(0, daysNeeded - 1);
+      if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 1) {
+        riskMultiplier = Math.min(riskMultiplier, 0.25);
+      } else if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 3) {
+        riskMultiplier = Math.min(riskMultiplier, 0.5);
+      }
+      if (cfg.maxDailyProfitPctOfTotal > 0) {
+        const totalProfitAllTime = Object.values(history).reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+        const todayProfit = Math.max(0, todayPnl);
+        if (totalProfitAllTime > 0 && todayProfit > 0) {
+          const todayPctOfTotal = todayProfit / totalProfitAllTime * 100;
+          if (todayPctOfTotal >= cfg.maxDailyProfitPctOfTotal) {
+            return { allowed: false, reason: `consistency rule \u2014 today's profit is already ${todayPctOfTotal.toFixed(0)}% of total challenge profit (limit ${cfg.maxDailyProfitPctOfTotal}%)`, riskMultiplier: 1 };
+          }
+        }
+      }
+    }
+  }
+  return { allowed: true, riskMultiplier };
+}
+async function buildCreditSpread(service, underlyingSymbol, direction, cfg) {
+  const spreadType = direction === "up" ? "bull_put" : "bear_call";
+  const optType = spreadType === "bull_put" ? "put" : "call";
+  const now = /* @__PURE__ */ new Date();
+  const chain = await service.getOptionsChain(underlyingSymbol);
+  const inBand = chain.filter((c) => {
+    if (c.type !== optType) return false;
+    const d = daysUntil(c.expirationDate, now);
+    if (d < cfg.creditSpreadDteMin || d > cfg.creditSpreadDteMax) return false;
+    if (typeof c.delta !== "number" || typeof c.bid !== "number" || typeof c.ask !== "number") return false;
+    if (c.bid <= 0 || c.ask <= 0) return false;
+    if (typeof c.openInterest === "number" && c.openInterest < cfg.minOpenInterest) return false;
+    return true;
+  });
+  if (!inBand.length) return { spread: null, reason: `no ${optType}s with delta/quotes in the ${cfg.creditSpreadDteMin}-${cfg.creditSpreadDteMax} DTE band` };
+  const byExpiryDist = [...inBand].sort((a, b) => Math.abs(daysUntil(a.expirationDate, now) - cfg.creditSpreadDte) - Math.abs(daysUntil(b.expirationDate, now) - cfg.creditSpreadDte));
+  const targetExpiry = byExpiryDist[0].expirationDate;
+  const sameExpiry = inBand.filter((c) => c.expirationDate === targetExpiry);
+  const shortLeg = [...sameExpiry].sort((a, b) => Math.abs(Math.abs(a.delta) - cfg.creditSpreadShortDelta) - Math.abs(Math.abs(b.delta) - cfg.creditSpreadShortDelta))[0];
+  if (!shortLeg) return { spread: null, reason: "could not resolve a short leg near target delta" };
+  const { recordDailyIv: recordDailyIv2, getIvRank: getIvRank2 } = await Promise.resolve().then(() => (init_iv_rank(), iv_rank_exports));
+  const atm = [...sameExpiry].sort((a, b) => Math.abs(a.strikePrice - byExpiryDist[0].strikePrice) - Math.abs(b.strikePrice - byExpiryDist[0].strikePrice))[0];
+  const atmIv = (typeof atm?.impliedVolatility === "number" ? atm.impliedVolatility : shortLeg.impliedVolatility) ?? 0;
+  if (atmIv > 0) await recordDailyIv2(underlyingSymbol, atmIv).catch(() => {
+  });
+  let capturedIvRank = null;
+  const shortIv = shortLeg.impliedVolatility;
+  if (typeof shortIv === "number" && shortIv > 0) {
+    const { ivRank, samples } = await getIvRank2(underlyingSymbol, shortIv).catch(() => ({ ivRank: null, samples: 0 }));
+    capturedIvRank = ivRank;
+    if (ivRank !== null) {
+      if (ivRank < cfg.creditSpreadMinIvRank) {
+        return { spread: null, reason: `IV Rank ${ivRank} below the ${cfg.creditSpreadMinIvRank} floor (${samples} days of history) \u2014 premium not rich enough vs this name's own range` };
+      }
+    } else if (shortIv < cfg.creditSpreadMinIv) {
+      return { spread: null, reason: `IV ${(shortIv * 100).toFixed(0)}% below the ${(cfg.creditSpreadMinIv * 100).toFixed(0)}% floor (building IV-rank history: ${samples}/20 days)` };
+    }
+  }
+  const targetLongStrike = spreadType === "bull_put" ? shortLeg.strikePrice - cfg.creditSpreadWidthDollars : shortLeg.strikePrice + cfg.creditSpreadWidthDollars;
+  const longLeg = [...sameExpiry].sort((a, b) => Math.abs(a.strikePrice - targetLongStrike) - Math.abs(b.strikePrice - targetLongStrike))[0];
+  if (!longLeg || longLeg.strikePrice === shortLeg.strikePrice) {
+    return { spread: null, reason: "no distinct protective long strike ~1 width OTM available" };
+  }
+  const width = Math.abs(shortLeg.strikePrice - longLeg.strikePrice);
+  const credit = Math.round((shortLeg.bid - longLeg.ask) * 100) / 100;
+  if (credit <= 0) return { spread: null, reason: `spread would be a net debit (${credit}) \u2014 not a credit spread` };
+  const creditPct = credit / width * 100;
+  if (creditPct < cfg.creditSpreadMinCreditPct) {
+    return { spread: null, reason: `credit $${credit.toFixed(2)} is only ${creditPct.toFixed(0)}% of the $${width} width (need \u2265${cfg.creditSpreadMinCreditPct}%) \u2014 reward/risk too poor` };
+  }
+  const maxLoss = Math.round((width - credit) * 100 * 100) / 100;
+  const dte = daysUntil(shortLeg.expirationDate, now);
+  return { spread: { spreadType, optType, shortLeg, longLeg, credit, width, maxLoss, creditPct, dte, ivRank: capturedIvRank }, reason: "" };
+}
+async function executeCreditSpread(service, connection2, userId, underlyingSymbol, result, cfg, account, gate) {
+  const dir = result.direction;
+  const { spread, reason } = await buildCreditSpread(service, underlyingSymbol, dir, cfg).catch((err) => ({ spread: null, reason: err?.message || "build error" }));
+  if (!spread) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "skipped",
+      strategy: `${result.strategy}:credit_spread`,
+      reasoning: `${underlyingSymbol}: credit-spread signal (${dir === "up" ? "bull put" : "bear call"}) but ${reason}.`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca"
+    });
+    return;
+  }
+  const equity = account.equity > 0 ? account.equity : cfg.accountBalance;
+  const riskPct = cfg.creditSpreadRiskPct / 100 * (gate.riskMultiplier < 1 ? gate.riskMultiplier : 1);
+  const riskDollars = equity * riskPct;
+  const quantity = Math.max(0, Math.floor(riskDollars / spread.maxLoss));
+  if (quantity < 1) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "skipped",
+      strategy: `${result.strategy}:credit_spread`,
+      reasoning: `${underlyingSymbol}: ${spread.spreadType} spread has max loss $${spread.maxLoss.toFixed(0)}/spread, but ${cfg.creditSpreadRiskPct}% of $${equity.toFixed(0)} ($${riskDollars.toFixed(0)}) doesn't cover even one.`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca"
+    });
+    return;
+  }
+  const legs = [
+    { optionSymbol: spread.shortLeg.symbol, side: "sell", ratioQty: 1, positionIntent: "sell_to_open" },
+    { optionSymbol: spread.longLeg.symbol, side: "buy", ratioQty: 1, positionIntent: "buy_to_open" }
+  ];
+  let order;
+  try {
+    order = await service.placeMultiLegOrder({ legs, quantity, netLimitPrice: -spread.credit, timeInForce: "day" });
+  } catch (err) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "error",
+      strategy: `${result.strategy}:credit_spread`,
+      reasoning: `${underlyingSymbol}: ${spread.spreadType} spread order failed (${spread.shortLeg.symbol} / ${spread.longLeg.symbol} x${quantity}): ${err.message}`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca"
+    });
+    return;
+  }
+  await storage.createOptionsEngineTrade({
+    userId,
+    connectionId: connection2.id,
+    broker: "alpaca",
+    underlyingSymbol,
+    optionSymbol: spread.shortLeg.symbol,
+    strategy: `${result.strategy}:credit_spread`,
+    optionType: spread.optType,
+    quantity,
+    entryPrice: spread.credit,
+    entryOrderId: order.orderId,
+    entryReasoning: result.reasoning,
+    status: "open",
+    entryConfidence: result.score,
+    dte: spread.dte,
+    ivAtEntry: spread.shortLeg.impliedVolatility ?? null,
+    underlyingPriceAtEntry: result.price,
+    bidAskSpreadPct: null,
+    spreadType: spread.spreadType,
+    longLegSymbol: spread.longLeg.symbol,
+    netCredit: spread.credit,
+    maxLossPerSpread: spread.maxLoss
+  });
+  await storage.createOptionsEngineActivity({
+    userId,
+    symbol: underlyingSymbol,
+    decision: "signal",
+    strategy: `${result.strategy}:credit_spread`,
+    reasoning: `${underlyingSymbol}: EXECUTED ${spread.spreadType.replace("_", " ")} x${quantity} \u2014 sold ${spread.shortLeg.strikePrice}${spread.optType[0].toUpperCase()} / bought ${spread.longLeg.strikePrice}${spread.optType[0].toUpperCase()} exp ${spread.shortLeg.expirationDate} (${spread.dte} DTE). Net credit $${spread.credit.toFixed(2)} on $${spread.width} width (${spread.creditPct.toFixed(0)}% of width), max loss $${spread.maxLoss.toFixed(0)}/spread. Short IV ${((spread.shortLeg.impliedVolatility ?? 0) * 100).toFixed(0)}%${spread.ivRank !== null ? ` (IV Rank ${spread.ivRank})` : " (IV-rank history building)"}, ~${(Math.abs(spread.shortLeg.delta ?? 0) * 100).toFixed(0)}\u0394. Target: buy back at ${cfg.creditSpreadProfitTakePct}% of credit. ${result.reasoning}`,
+    score: result.score,
+    price: result.price,
+    dailyChangePercent: result.dailyChangePercent,
+    source: "alpaca"
+  });
+}
+async function executeSignal2(service, connection2, userId, underlyingSymbol, result, cfg, brainMultiplier, bestStrategies) {
+  if (!result.direction) return;
+  let account;
+  try {
+    account = await service.getAccountInfo();
+  } catch (err) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "error",
+      strategy: result.strategy,
+      reasoning: `${underlyingSymbol}: couldn't fetch account info before sizing the trade: ${err.message}`,
+      score: null,
+      price: null,
+      dailyChangePercent: null,
+      source: "alpaca"
+    });
+    return;
+  }
+  const gateEquity = account.equity > 0 ? account.equity : cfg.accountBalance;
+  let unrealizedPnl = 0;
+  try {
+    const positions = await service.getPositions();
+    unrealizedPnl = positions.reduce((s, p2) => s + (p2.unrealizedPl || 0), 0);
+  } catch {
+  }
+  const _dirBias = result.direction === "up" ? "bullish" : "bearish";
+  const gate = await checkSafetyGates2(userId, cfg, gateEquity, connection2.id, "alpaca", underlyingSymbol, unrealizedPnl, _dirBias);
+  if (!gate.allowed) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "skipped",
+      reasoning: `${underlyingSymbol}: signal confirmed (${result.strategy}), but execution blocked \u2014 ${gate.reason}.`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca",
+      strategy: result.strategy
+    });
+    return;
+  }
+  if (gate.riskMultiplier < 1) {
+    if ((result.score ?? 0) < 80) {
+      await storage.createOptionsEngineActivity({
+        userId,
+        symbol: underlyingSymbol,
+        decision: "skipped",
+        strategy: result.strategy,
+        reasoning: `${underlyingSymbol}: Drawdown Shield active \u2014 only 80%+ confidence setups allowed during drawdown (this signal: ${result.score}/100).`,
+        score: result.score,
+        price: result.price,
+        dailyChangePercent: result.dailyChangePercent,
+        source: "alpaca"
+      });
+      return;
+    }
+    if (bestStrategies.length > 0 && !bestStrategies.includes(result.strategy)) {
+      await storage.createOptionsEngineActivity({
+        userId,
+        symbol: underlyingSymbol,
+        decision: "skipped",
+        strategy: result.strategy,
+        reasoning: `${underlyingSymbol}: Drawdown Shield active \u2014 only this symbol's best-performing strategies (${bestStrategies.join(", ")}) are allowed during drawdown ("${result.strategy}" isn't one of them).`,
+        score: result.score,
+        price: result.price,
+        dailyChangePercent: result.dailyChangePercent,
+        source: "alpaca"
+      });
+      return;
+    }
+  }
+  const forceSpread = result.strategy === "order_flow";
+  if (cfg.creditSpreadEnabled || cfg.strategyMode === "credit_spread" || forceSpread) {
+    await executeCreditSpread(service, connection2, userId, underlyingSymbol, result, cfg, account, gate);
+    return;
+  }
+  const contract = await resolveContract(service, underlyingSymbol, result.direction, cfg).catch(() => null);
+  if (!contract || !contract.ask) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "skipped",
+      strategy: result.strategy,
+      reasoning: `${underlyingSymbol}: signal confirmed, but no matching option contract cleared the liquidity/spread filter for expiry preference "${cfg.expiryPreference}" / strike mode "${cfg.strikeSelectionMode}" within ${cfg.minDaysToExpiry}-${cfg.maxDaysToExpiry} days to expiry (max spread ${cfg.maxSpreadPct}%, min OI ${cfg.minOpenInterest}).`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca"
+    });
+    return;
+  }
+  const dte = daysUntil(contract.expirationDate, /* @__PURE__ */ new Date());
+  const minSafeDte = cfg.expiryPreference === "0dte" ? 0 : 2;
+  if (dte < minSafeDte) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "skipped",
+      strategy: result.strategy,
+      reasoning: `${underlyingSymbol}: signal confirmed, but the resolved contract is ${dte}-DTE \u2014 below the ${minSafeDte}-DTE theta-safety floor for long premium (0-1 DTE won only 29% / -$4.2k historically; the 2-7 DTE band won 74%). Set expiry preference to "0dte" to override.`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca"
+    });
+    return;
+  }
+  const sizingCfg = gate.riskMultiplier < 1 ? { ...cfg, riskPerTrade: cfg.riskPerTrade * gate.riskMultiplier } : cfg;
+  const { quantity, reasoning: sizingReasoningRaw } = await computeContractQuantity(
+    userId,
+    sizingCfg,
+    account.equity,
+    contract.ask,
+    result.score,
+    brainMultiplier,
+    contract.impliedVolatility ?? null
+  );
+  const sizingReasoning = gate.riskMultiplier < 1 ? `${sizingReasoningRaw} \u26A0\uFE0F Risk reduced to ${Math.round(gate.riskMultiplier * 100)}% of normal (Drawdown Shield / consistency rule active).` : sizingReasoningRaw;
+  if (quantity < 1) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "skipped",
+      strategy: result.strategy,
+      reasoning: `${underlyingSymbol}: signal confirmed, but ${cfg.riskPerTrade}% of equity ($${account.equity.toFixed(0)}) doesn't cover even 1 contract at $${contract.ask.toFixed(2)} ($${(contract.ask * 100).toFixed(0)}/contract).`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca"
+    });
+    return;
+  }
+  const entryMid = contract.bid ? Math.round((contract.bid + contract.ask) / 2 * 100) / 100 : contract.ask;
+  const entrySpreadPct = contract.bid ? (contract.ask - contract.bid) / entryMid * 100 : 0;
+  let order;
+  try {
+    order = await service.placeOrder({ optionSymbol: contract.symbol, side: "buy", quantity, type: "limit", limitPrice: entryMid, timeInForce: "day" });
+  } catch (err) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "error",
+      strategy: result.strategy,
+      reasoning: `${underlyingSymbol}: order placement failed for ${contract.symbol} x${quantity}: ${err.message}`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca"
+    });
+    return;
+  }
+  await storage.createOptionsEngineTrade({
+    userId,
+    connectionId: connection2.id,
+    broker: "alpaca",
+    underlyingSymbol,
+    optionSymbol: contract.symbol,
+    strategy: result.strategy,
+    optionType: result.direction === "up" ? "call" : "put",
+    quantity,
+    entryPrice: entryMid,
+    entryOrderId: order.orderId,
+    entryReasoning: result.reasoning,
+    status: "open",
+    entryConfidence: result.score,
+    dte,
+    ivAtEntry: contract.impliedVolatility ?? null,
+    underlyingPriceAtEntry: result.price,
+    bidAskSpreadPct: entrySpreadPct
+  });
+  await storage.createOptionsEngineActivity({
+    userId,
+    symbol: underlyingSymbol,
+    decision: "signal",
+    strategy: result.strategy,
+    reasoning: `${underlyingSymbol}: EXECUTED \u2014 bought ${quantity}x ${contract.symbol} (${contract.type}, strike $${contract.strikePrice}, exp ${contract.expirationDate}, ${dte} DTE) @ ~$${entryMid.toFixed(2)}/contract (limit, mid of $${contract.bid?.toFixed(2) ?? "?"}/$${contract.ask.toFixed(2)}). ${result.reasoning}${sizingReasoning ? ` ${sizingReasoning}` : ""}`,
+    score: result.score,
+    price: result.price,
+    dailyChangePercent: result.dailyChangePercent,
+    source: "alpaca"
+  });
+}
+function computeTrailFloorPercent(cfg, peakPnlPercent) {
+  switch (cfg.trailMethod) {
+    case "fixed_pct":
+      return peakPnlPercent - cfg.trailFixedPct;
+    case "stepped_fixed": {
+      const steps = Math.floor(peakPnlPercent / cfg.trailStepPct);
+      return (steps - 1) * cfg.trailStepPct;
+    }
+    case "profit_lock":
+      return peakPnlPercent * (cfg.trailProfitLockPct / 100);
+    case "chandelier":
+      return peakPnlPercent - cfg.trailFixedPct * 1.5;
+    case "parabolic_sar": {
+      const af = Math.min(cfg.trailSarMaxAF, cfg.trailSarInitialAF + peakPnlPercent / 100 * cfg.trailSarInitialAF);
+      return peakPnlPercent * (1 - af);
+    }
+    case "r_multiple":
+      return cfg.trailActivationPct + (peakPnlPercent - cfg.trailActivationPct) * 0.5;
+    case "swing_structure":
+      return peakPnlPercent - cfg.trailFixedPct * 0.75;
+    default:
+      return -Infinity;
+  }
+}
+async function manageCreditSpread(service, userId, cfg, connectionId, trade) {
+  const shortSym = trade.optionSymbol;
+  const longSym = trade.longLegSymbol;
+  const credit = trade.netCredit ?? trade.entryPrice;
+  const qty = trade.quantity;
+  const [sq, lq] = await Promise.all([
+    service.getOptionQuote(shortSym).catch(() => null),
+    service.getOptionQuote(longSym).catch(() => null)
+  ]);
+  if (!sq || !lq || sq.ask <= 0) {
+    const { expirationDate } = parseOccSymbol(shortSym, trade.underlyingSymbol);
+    const isPastExpiry = (/* @__PURE__ */ new Date(expirationDate + "T21:00:00Z")).getTime() < Date.now();
+    if (isPastExpiry) {
+      const live = await service.getPositions().catch(() => []);
+      const stillOpen = live.some((p2) => p2.symbol === shortSym || p2.symbol === longSym);
+      if (!stillOpen) {
+        await storage.markOptionsEngineTradeFailed(trade.id, `credit spread expired ${expirationDate} \u2014 settled by broker; realized P&L not tracked here, check the Alpaca statement`);
+      }
+    }
+    return;
+  }
+  const closeCost = Math.round((sq.ask - lq.bid) * 100) / 100;
+  const closeMid = Math.round((sq.mid - lq.mid) * 100) / 100;
+  const capturedPct = credit > 0 ? (credit - closeCost) / credit * 100 : 0;
+  const dte = daysUntil(parseOccSymbol(shortSym, trade.underlyingSymbol).expirationDate, /* @__PURE__ */ new Date());
+  let exitReason = null;
+  if (closeCost <= credit * (1 - cfg.creditSpreadProfitTakePct / 100)) exitReason = "profit_target";
+  else if (closeCost >= credit * cfg.creditSpreadStopMultiple) exitReason = "stop_loss";
+  else if (dte <= 1) exitReason = "expiry_close";
+  if (!exitReason) return;
+  const legs = [
+    { optionSymbol: shortSym, side: "buy", ratioQty: 1, positionIntent: "buy_to_close" },
+    { optionSymbol: longSym, side: "sell", ratioQty: 1, positionIntent: "sell_to_close" }
+  ];
+  let closeOrder;
+  try {
+    closeOrder = await service.placeMultiLegOrder({ legs, quantity: qty, netLimitPrice: Math.max(0.01, closeCost), timeInForce: "day" });
+  } catch (err) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: trade.underlyingSymbol,
+      decision: "error",
+      strategy: trade.strategy,
+      reasoning: `${trade.underlyingSymbol}: failed to close ${trade.spreadType} spread (${shortSym}/${longSym}): ${err.message}`,
+      score: null,
+      price: null,
+      dailyChangePercent: null,
+      source: "alpaca"
+    });
+    return;
+  }
+  const closeFill = closeMid > 0 ? closeMid : closeCost;
+  const realizedPnl = Math.round((credit - closeFill) * 100 * qty * 100) / 100;
+  await storage.closeOptionsEngineTrade(trade.id, { exitPrice: closeFill, exitOrderId: closeOrder.orderId, exitReason, realizedPnl });
+  try {
+    const { recordRealizedPnl: recordRealizedPnl2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+    await recordRealizedPnl2(userId, connectionId, "alpaca", realizedPnl);
+  } catch {
+  }
+  await storage.createOptionsEngineActivity({
+    userId,
+    symbol: trade.underlyingSymbol,
+    decision: "signal",
+    strategy: trade.strategy,
+    reasoning: `${trade.underlyingSymbol}: CLOSED ${trade.spreadType} x${qty} @ net $${closeFill.toFixed(2)} debit (captured ${capturedPct.toFixed(0)}% of the $${credit.toFixed(2)} credit, ${exitReason.replace("_", " ")}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
+    score: null,
+    price: null,
+    dailyChangePercent: null,
+    source: "alpaca"
+  });
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { optionsBrainOutcomes: optionsBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const entered = trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now();
+    await db2.insert(optionsBrainOutcomes2).values({
+      userId,
+      underlyingSymbol: trade.underlyingSymbol,
+      optionType: trade.optionType,
+      strategy: trade.strategy,
+      direction: trade.spreadType === "bull_put" ? "bullish" : "bearish",
+      entryConfidence: trade.entryConfidence ?? null,
+      returnPct: capturedPct,
+      hourUtc: (/* @__PURE__ */ new Date()).getUTCHours(),
+      holdingMinutes: Math.max(0, Math.round((Date.now() - entered) / 6e4)),
+      exitReason,
+      result: realizedPnl > 0 ? "WIN" : realizedPnl < 0 ? "LOSS" : "BREAKEVEN",
+      profitLoss: realizedPnl,
+      contracts: qty,
+      source: "live",
+      closedAt: /* @__PURE__ */ new Date()
+    });
+  } catch {
+  }
+}
+async function monitorOpenPositions2(service, userId, cfg, connectionId) {
+  const openTrades = await storage.getOpenOptionsEngineTrades(userId, connectionId);
+  const alpacaTrades = openTrades.filter((t) => t.broker === "alpaca");
+  for (const trade of alpacaTrades) {
+    try {
+      if (trade.spreadType && trade.longLegSymbol) {
+        await manageCreditSpread(service, userId, cfg, connectionId, trade);
+        continue;
+      }
+      const quote = await service.getOptionQuote(trade.optionSymbol);
+      if (!quote || quote.mid <= 0) {
+        const { expirationDate } = parseOccSymbol(trade.optionSymbol, trade.underlyingSymbol);
+        const isPastExpiry = (/* @__PURE__ */ new Date(expirationDate + "T21:00:00Z")).getTime() < Date.now();
+        if (isPastExpiry) {
+          const livePositions = await service.getPositions();
+          const stillOpenAtBroker = livePositions.some((p2) => p2.symbol === trade.optionSymbol);
+          if (!stillOpenAtBroker) {
+            await storage.markOptionsEngineTradeFailed(trade.id, `expired ${expirationDate} \u2014 settled by broker (worthless or exercised/assigned), real P&L not tracked here; check the Alpaca account statement`);
+            await storage.createOptionsEngineActivity({
+              userId,
+              symbol: trade.underlyingSymbol,
+              decision: "error",
+              strategy: trade.strategy,
+              reasoning: `${trade.underlyingSymbol}: ${trade.optionSymbol} expired ${expirationDate} and no longer appears in the broker's open positions \u2014 closed out of tracking. P&L wasn't captured by this reconciliation; check the Alpaca account statement for the actual settlement amount.`,
+              score: null,
+              price: null,
+              dailyChangePercent: null,
+              source: "alpaca"
+            });
+          }
+        }
+        continue;
+      }
+      const pnlPercent = (quote.mid - trade.entryPrice) / trade.entryPrice * 100;
+      let exitReason = null;
+      if (cfg.trailMethod === "none") {
+        if (pnlPercent >= cfg.profitTargetPercent) exitReason = "profit_target";
+        else if (pnlPercent <= -cfg.stopLossPercent) exitReason = "stop_loss";
+      } else {
+        const peakPnlPercent = Math.max(trade.peakPnlPercent, pnlPercent);
+        const armed = trade.trailArmed || peakPnlPercent >= cfg.trailActivationPct;
+        if (pnlPercent <= -cfg.stopLossPercent) {
+          exitReason = "stop_loss";
+        } else if (armed) {
+          const rawFloor = computeTrailFloorPercent(cfg, peakPnlPercent);
+          const floor = Math.max(rawFloor, cfg.breakevenBufferPct);
+          if (pnlPercent <= floor) exitReason = "trailing_stop";
+        }
+        if (!exitReason && (peakPnlPercent !== trade.peakPnlPercent || armed !== trade.trailArmed)) {
+          await storage.updateOptionsEngineTradeTrailState(trade.id, { peakPnlPercent, trailArmed: armed });
+        }
+      }
+      if (!exitReason) continue;
+      const exitLimitPrice = quote.bid > 0 ? quote.bid : quote.mid;
+      const closeOrder = await service.placeOrder({ optionSymbol: trade.optionSymbol, side: "sell", quantity: trade.quantity, type: "limit", limitPrice: exitLimitPrice, timeInForce: "day" });
+      const realizedPnl = (exitLimitPrice - trade.entryPrice) * 100 * trade.quantity;
+      await storage.closeOptionsEngineTrade(trade.id, { exitPrice: exitLimitPrice, exitOrderId: closeOrder.orderId, exitReason, realizedPnl });
+      try {
+        const { recordRealizedPnl: recordRealizedPnl2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+        await recordRealizedPnl2(userId, connectionId, "alpaca", realizedPnl);
+      } catch {
+      }
+      await storage.createOptionsEngineActivity({
+        userId,
+        symbol: trade.underlyingSymbol,
+        decision: "signal",
+        strategy: trade.strategy,
+        reasoning: `${trade.underlyingSymbol}: CLOSED ${trade.optionSymbol} x${trade.quantity} @ ~$${quote.mid.toFixed(2)} (${pnlPercent >= 0 ? "+" : ""}${pnlPercent.toFixed(1)}% of premium, ${exitReason.replace("_", " ")}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
+        score: null,
+        price: quote.mid,
+        dailyChangePercent: null,
+        source: "alpaca"
+      });
+      try {
+        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { optionsBrainOutcomes: optionsBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+        const entered = trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now();
+        await db2.insert(optionsBrainOutcomes2).values({
+          userId,
+          underlyingSymbol: trade.underlyingSymbol,
+          optionType: trade.optionType,
+          strategy: trade.strategy,
+          direction: trade.optionType === "call" ? "bullish" : "bearish",
+          entryConfidence: trade.entryConfidence ?? null,
+          returnPct: pnlPercent,
+          hourUtc: (/* @__PURE__ */ new Date()).getUTCHours(),
+          holdingMinutes: Math.max(0, Math.round((Date.now() - entered) / 6e4)),
+          exitReason,
+          result: realizedPnl > 0 ? "WIN" : realizedPnl < 0 ? "LOSS" : "BREAKEVEN",
+          profitLoss: realizedPnl,
+          contracts: trade.quantity,
+          source: "live"
+        });
+        const { runOptionsBrainLearning: runOptionsBrainLearning2 } = await Promise.resolve().then(() => (init_options_brain(), options_brain_exports));
+        await runOptionsBrainLearning2(userId).catch(() => {
+        });
+      } catch (e) {
+        console.error("[options-scanner] brain outcome record failed (non-critical):", e?.message ?? e);
+      }
+    } catch (err) {
+      console.error(`[options-scanner] failed to monitor/close trade ${trade.id}:`, err.message);
+    }
+  }
+}
+async function scanOneUser2(userId) {
+  const config = await storage.getUserOptionsEngineConfig(userId);
+  if (!config || !config.isActive) return;
+  const now = Date.now();
+  const last2 = lastScanAt2.get(userId) || 0;
+  if (now - last2 < Math.max(MIN_SCAN_INTERVAL_MS2, config.scanIntervalMs)) return;
+  lastScanAt2.set(userId, now);
+  const alpacaConns = await storage.getUserAlpacaConnections(userId);
+  const activeConns = alpacaConns.filter((c) => c.isActive);
+  if (activeConns.length === 0) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: "\u2014",
+      decision: "error",
+      reasoning: "No active Alpaca connection \u2014 market data requires at least one connected Alpaca account. TastyTrade/Crypto.com orders can still execute, but symbol scanning needs Alpaca for now.",
+      score: null,
+      price: null,
+      dailyChangePercent: null,
+      source: "none",
+      strategy: null
+    });
+    return;
+  }
+  const primaryConn = activeConns[0];
+  let service;
+  try {
+    const secret = decryptApiSecret2(primaryConn.encryptedApiSecret);
+    service = new AlpacaService(primaryConn.accountType, primaryConn.apiKeyId, secret);
+  } catch (err) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: "\u2014",
+      decision: "error",
+      reasoning: `Could not decrypt Alpaca credentials: ${err.message}`,
+      score: null,
+      price: null,
+      dailyChangePercent: null,
+      source: "alpaca",
+      strategy: null
+    });
+    return;
+  }
+  const connServices = /* @__PURE__ */ new Map();
+  connServices.set(primaryConn.id, service);
+  for (const conn of activeConns) {
+    if (connServices.has(conn.id)) continue;
+    try {
+      const secret = decryptApiSecret2(conn.encryptedApiSecret);
+      connServices.set(conn.id, new AlpacaService(conn.accountType, conn.apiKeyId, secret));
+    } catch (err) {
+      await storage.createOptionsEngineActivity({
+        userId,
+        symbol: "\u2014",
+        decision: "error",
+        reasoning: `Could not decrypt credentials for Alpaca connection "${conn.propFirmName || conn.accountId || conn.id}": ${err.message}`,
+        score: null,
+        price: null,
+        dailyChangePercent: null,
+        source: "alpaca",
+        strategy: null
+      });
+    }
+  }
+  for (const conn of activeConns) {
+    const connSvc = connServices.get(conn.id);
+    if (!connSvc) continue;
+    await monitorOpenPositions2(connSvc, userId, config, conn.id).catch(
+      (e) => console.error(`[options-scanner] monitorOpenPositions failed for user ${userId} connection ${conn.id}:`, e.message)
+    );
+  }
+  const todayDow = (/* @__PURE__ */ new Date()).getUTCDay();
+  const allowedDows = Array.isArray(config.tradingDaysOfWeek) ? config.tradingDaysOfWeek : [1, 2, 3, 4, 5];
+  if (!allowedDows.includes(todayDow)) return;
+  const symbolDaySchedule = config.symbolDaySchedule || {};
+  const symbolDirectionOverrides = config.symbolDirectionOverrides || {};
+  const symbolContractOverrides = config.symbolContractOverrides || {};
+  const brain = await getOrRefreshOptionsBrain(userId).catch(() => null);
+  const symbols = Array.isArray(config.symbols) ? config.symbols : [];
+  for (const symbol of symbols) {
+    try {
+      const symbolDays = symbolDaySchedule[symbol];
+      if (Array.isArray(symbolDays) && symbolDays.length > 0 && !symbolDays.includes(todayDow)) {
+        continue;
+      }
+      let symbolCfg = config;
+      if (symbolDirectionOverrides[symbol] || symbolContractOverrides[symbol]) {
+        symbolCfg = {
+          ...config,
+          directionFilter: symbolDirectionOverrides[symbol] || config.directionFilter,
+          maxContractsPerTrade: symbolContractOverrides[symbol] || config.maxContractsPerTrade
+        };
+      }
+      if (config.smartSymbolEscalation) {
+        const recentForSymbol = (await storage.getUserOptionsEngineTrades(userId, 50)).filter((t) => t.underlyingSymbol === symbol && t.status === "closed").sort((a, b) => new Date(b.closedAt ?? 0).getTime() - new Date(a.closedAt ?? 0).getTime());
+        if (recentForSymbol[0] && (recentForSymbol[0].realizedPnl ?? 0) > 0) {
+          symbolCfg = { ...symbolCfg, minConfidence: Math.max(50, symbolCfg.minConfidence - 5) };
+        }
+      }
+      let result = await scanSymbol2(service, symbol, symbolCfg);
+      const symbolKnowledge = brain?.contractKnowledge?.[symbol];
+      if (result.decision === "signal" && symbolKnowledge) {
+        const stratStats = symbolKnowledge.strategyWinRates?.[result.strategy];
+        if (stratStats && stratStats.total >= 5 && stratStats.winRate < 45) {
+          result = {
+            ...result,
+            decision: "skipped",
+            reasoning: `${symbol}: ${result.reasoning} \u2014 BLOCKED by brain: "${result.strategy}" has only a ${stratStats.winRate}% win rate on ${symbol} over ${stratStats.total} trades.`
+          };
+        } else if (symbolKnowledge.preferredDirection !== "both" && symbolKnowledge.totalTrades >= 5 && (symbolKnowledge.preferredDirection === "call" && result.direction === "down" || symbolKnowledge.preferredDirection === "put" && result.direction === "up") && (result.score ?? 0) < symbolCfg.minConfidence + 15) {
+          result = {
+            ...result,
+            decision: "watching",
+            reasoning: `${symbol}: ${result.reasoning} \u2014 brain shows a strong ${symbolKnowledge.preferredDirection.toUpperCase()} bias on ${symbol}; this counter-bias signal needs ${symbolCfg.minConfidence + 15}%+ confidence (has ${result.score}/100).`
+          };
+        }
+      }
+      await storage.createOptionsEngineActivity({
+        userId,
+        symbol,
+        decision: result.decision,
+        reasoning: result.reasoning,
+        score: result.score,
+        price: result.price,
+        dailyChangePercent: result.dailyChangePercent,
+        source: "alpaca",
+        strategy: result.strategy
+      });
+      const executingConns = activeConns.filter(
+        (c) => c.autoExecute && (config.executionSource === "alpaca" || config.executionSource === "auto") && connServices.has(c.id)
+      );
+      if (result.decision === "signal" && executingConns.length > 0) {
+        const tradeAllowed = await assembleOptionsConsensus(userId, symbol, result, symbolCfg).catch((e) => {
+          console.error(`[options-scanner] consensus check failed for ${symbol}:`, e.message);
+          return false;
+        });
+        if (tradeAllowed) {
+          const brainMultiplier = symbolKnowledge && symbolKnowledge.totalTrades >= 10 ? symbolKnowledge.recommendedContractMultiplier : null;
+          const bestStrategies = symbolKnowledge?.bestStrategies ?? [];
+          for (const conn of executingConns) {
+            const connSvc = connServices.get(conn.id);
+            await executeSignal2(connSvc, conn, userId, symbol, result, symbolCfg, brainMultiplier, bestStrategies).catch(
+              (e) => console.error(`[options-scanner] executeSignal failed for ${symbol} on connection ${conn.id}:`, e.message)
+            );
+          }
+        } else {
+          await storage.createOptionsEngineActivity({
+            userId,
+            symbol,
+            decision: "skipped",
+            strategy: result.strategy,
+            reasoning: `${symbol}: signal confirmed by quant scan, but Dual-Vote Consensus blocked execution (AI second opinion disagreed).`,
+            score: result.score,
+            price: result.price,
+            dailyChangePercent: result.dailyChangePercent,
+            source: "alpaca"
+          });
+        }
+      }
+    } catch (err) {
+      await storage.createOptionsEngineActivity({
+        userId,
+        symbol,
+        decision: "error",
+        reasoning: `Scan failed for ${symbol}: ${err.message}`,
+        score: null,
+        price: null,
+        dailyChangePercent: null,
+        source: "alpaca",
+        strategy: config.strategyMode
+      });
+    }
+  }
+}
+async function runOptionsEngineScan() {
+  if (optionsScanRunning) return;
+  optionsScanRunning = true;
+  try {
+    const configs = await storage.getAllActiveOptionsEngineConfigs();
+    const k2 = configs.length ? optionsCycle++ % configs.length : 0;
+    for (const config of configs.slice(k2).concat(configs.slice(0, k2))) {
+      const uid2 = config.userId;
+      if (optionsUserInFlight.has(uid2)) {
+        console.warn(`[options-scanner] user ${uid2} still running from a previous pass \u2014 skipping this pass`);
+        continue;
+      }
+      optionsUserInFlight.add(uid2);
+      const work = scanOneUser2(uid2).catch((e) => console.error(`[options-scanner] user ${uid2} scan failed:`, e.message)).finally(() => optionsUserInFlight.delete(uid2));
+      let timer;
+      const outcome = await Promise.race([
+        work.then(() => "done"),
+        new Promise((r) => {
+          timer = setTimeout(() => r("timeout"), OPTIONS_USER_BUDGET_MS);
+        })
+      ]);
+      if (timer) clearTimeout(timer);
+      if (outcome === "timeout") console.error(`[options-scanner] user ${uid2} exceeded ${OPTIONS_USER_BUDGET_MS / 1e3}s \u2014 moving on (it keeps running in the background)`);
+    }
+  } catch (err) {
+    console.error("[options-scanner] runOptionsEngineScan failed:", err.message);
+  } finally {
+    optionsScanRunning = false;
+  }
+}
+function startOptionsEngineScanner() {
+  if (started3) return;
+  started3 = true;
+  const LOOP_INTERVAL_MS = 6e4;
+  setInterval(() => {
+    runOptionsEngineScan().catch(() => {
+    });
+  }, LOOP_INTERVAL_MS);
+  console.log("[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/order_flow/auto).");
+}
+var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, CORRELATED_BASKET_CAP, CORRELATED_BASKETS, STRATEGY_RUNNERS2, OPTIONS_STRATEGY_RUNNERS, sessionPeakEquity2, OPTIONS_USER_BUDGET_MS, optionsUserInFlight, optionsScanRunning, optionsCycle, started3;
+var init_options_scanner = __esm({
+  "server/services/options-scanner.ts"() {
+    "use strict";
+    init_storage();
+    init_alpaca();
+    init_options_brain();
+    MIN_SCAN_INTERVAL_MS2 = 3e4;
+    lastScanAt2 = /* @__PURE__ */ new Map();
+    MAX_OPEN_PER_SYMBOL2 = 3;
+    MAX_DAILY_ENTRIES_PER_SYMBOL2 = 4;
+    SYMBOL_COOLDOWN_MS2 = 20 * 60 * 1e3;
+    CORRELATED_BASKET_CAP = 4;
+    CORRELATED_BASKETS = [
+      ["NVDA", "TSLA", "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "AMD", "AVGO", "SMH", "QQQ", "NAS100", "NDX"],
+      // mega-cap tech / Nasdaq
+      ["SPY", "SPX", "US500", "ES", "VOO"],
+      // S&P 500
+      ["DIA", "US30", "YM"],
+      // Dow
+      ["BTCUSD", "ETHUSD", "MSTR", "COIN"]
+      // crypto-beta
+    ];
+    STRATEGY_RUNNERS2 = {
+      orb: runOrb,
+      volume_profile: runVolumeProfile2,
+      breakout: runBreakout2,
+      momentum: runMomentum2,
+      order_flow: runOrderFlow2
+    };
+    OPTIONS_STRATEGY_RUNNERS = STRATEGY_RUNNERS2;
+    sessionPeakEquity2 = /* @__PURE__ */ new Map();
+    OPTIONS_USER_BUDGET_MS = 45e3;
+    optionsUserInFlight = /* @__PURE__ */ new Set();
+    optionsScanRunning = false;
+    optionsCycle = 0;
+    started3 = false;
   }
 });
 
@@ -60654,6 +62065,727 @@ var init_strategy_backtest = __esm({
       SOLUSD: 100,
       XRPUSD: 1e4
     };
+  }
+});
+
+// server/services/kalshi-stock-shadow.ts
+var kalshi_stock_shadow_exports = {};
+__export(kalshi_stock_shadow_exports, {
+  aggregateKalshiStats: () => aggregateKalshiStats,
+  computeKalshiStockShadowStats: () => computeKalshiStockShadowStats,
+  getKalshiStockShadowReport: () => getKalshiStockShadowReport,
+  kalshiBucketsOf: () => kalshiBucketsOf,
+  resolveKalshiStockShadowTrades: () => resolveKalshiStockShadowTrades,
+  runKalshiStockShadowCycle: () => runKalshiStockShadowCycle,
+  sessionEt: () => sessionEt,
+  startKalshiStockShadow: () => startKalshiStockShadow,
+  stockShadowEnabled: () => stockShadowEnabled
+});
+function etParts(ts) {
+  const parts = etFmt.formatToParts(new Date(ts));
+  const g = (t) => parts.find((p2) => p2.type === t)?.value || "";
+  const dowMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return { hour: Number(g("hour")) % 24, minute: Number(g("minute")), dow: dowMap[g("weekday")] ?? 0 };
+}
+function sessionEt(ts) {
+  const { hour, minute } = etParts(ts);
+  const m = hour * 60 + minute;
+  if (m >= 240 && m < 570) return "premarket";
+  if (m >= 570 && m < 960) return "regular";
+  if (m >= 960 && m < 1200) return "after_hours";
+  return "overnight";
+}
+function ema6(vals, n) {
+  if (vals.length < n) return null;
+  const k2 = 2 / (n + 1);
+  let e = vals.slice(0, n).reduce((a, b) => a + b, 0) / n;
+  for (let i = n; i < vals.length; i++) e = vals[i] * k2 + e * (1 - k2);
+  return e;
+}
+function trendOf2(closes, fast, slow) {
+  const f = ema6(closes, fast), s = ema6(closes, slow);
+  if (f == null || s == null) return null;
+  return f > s * 1.002 ? "BULLISH" : f < s * 0.998 ? "BEARISH" : "NEUTRAL";
+}
+function atrOf(bars, n = 14) {
+  if (bars.length < n + 1) return null;
+  const trs = [];
+  for (let i = bars.length - n; i < bars.length; i++) {
+    const b = bars[i], pc = bars[i - 1].c;
+    trs.push(Math.max(b.h - b.l, Math.abs(b.h - pc), Math.abs(b.l - pc)));
+  }
+  return trs.reduce((a, b) => a + b, 0) / n;
+}
+function kalshiBucketsOf(c) {
+  const b = {};
+  if (c.session_et) b.session = c.session_et;
+  if (c.ticker) b.ticker = c.ticker;
+  if (c.direction) b.side = c.direction;
+  if (c.spread_bps != null) b.spread = c.spread_bps < 10 ? "<10bps" : c.spread_bps < 25 ? "10-25bps" : c.spread_bps < 50 ? "25-50bps" : "50bps+";
+  if (c.atr_pct != null) b.volatility = c.atr_pct < 0.5 ? "atr<0.5%" : c.atr_pct < 1 ? "atr0.5-1%" : c.atr_pct < 2 ? "atr1-2%" : "atr2%+";
+  if (c.funding_rate_at_entry != null) b.funding = c.funding_rate_at_entry < 0 ? "negative" : c.funding_rate_at_entry > 0 ? "positive" : "zero";
+  if (c.htf_aligned != null) b.htf = c.htf_aligned ? "aligned" : "against";
+  if (c.hour_et != null) {
+    const s = Math.floor(c.hour_et / 4) * 4;
+    b.hourEt = `${String(s).padStart(2, "0")}-${String(s + 4).padStart(2, "0")}ET`;
+  }
+  return b;
+}
+function quantile3(s, q) {
+  if (!s.length) return 0;
+  const p2 = (s.length - 1) * q, lo2 = Math.floor(p2), hi2 = Math.ceil(p2);
+  return s[lo2] + (s[hi2] - s[lo2]) * (p2 - lo2);
+}
+function aggregateKalshiStats(rows) {
+  const g = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const v = Number(r.net_pct);
+    if (!Number.isFinite(v)) continue;
+    for (const [dim, bucket] of Object.entries({ ...kalshiBucketsOf(r), all: "all" })) {
+      const k2 = `${r.strategy}|${dim}|${bucket}`;
+      (g.get(k2) ?? g.set(k2, []).get(k2)).push(v);
+    }
+  }
+  const minN = num7("KALSHI_STOCK_SHADOW_STATS_MIN_N", 15), fav = num7("KALSHI_STOCK_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num7("KALSHI_STOCK_SHADOW_AVOID_MEDIAN_PCT", 1);
+  return Array.from(g.entries()).map(([k2, v]) => {
+    const [strategy, dim, bucket] = k2.split("|");
+    const s = v.slice().sort((a, b) => a - b);
+    const med = quantile3(s, 0.5);
+    const verdict = s.length >= minN ? med > fav ? "favor" : med < -avd ? "avoid" : "learning" : "learning";
+    return { strategy, dim, bucket, n: s.length, medianNet: med, winRate: s.filter((x) => x > 0).length / s.length, verdict };
+  });
+}
+async function computeKalshiStockShadowStats(userId, force = false) {
+  const hit = _statsCache2.get(userId);
+  if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.stats;
+  await ensureKalshiPerpShadowTables();
+  const { rows } = await pool.query(
+    `SELECT c.strategy, c.ticker, c.direction, c.session_et, c.spread_bps, c.atr_pct, c.funding_rate_at_entry, c.htf_aligned, c.hour_et, c.net_pct
+       FROM kalshi_perp_shadow_context c JOIN kalshi_perp_shadow_trades t ON t.id = c.trade_id
+      WHERE c.user_id=$1 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL AND t.exclude_from_stats IS NOT TRUE
+        AND c.closed_at >= now() - interval '60 days'`,
+    [userId]
+  );
+  const stats = aggregateKalshiStats(rows);
+  _statsCache2.set(userId, { at: Date.now(), stats });
+  return stats;
+}
+async function getKalshiStockShadowReport(userId, days = 30) {
+  const windowDays = Number.isFinite(days) ? Math.max(1, Math.min(365, Math.floor(days))) : 30;
+  await ensureKalshiPerpShadowTables();
+  const validCloseWhere = `user_id=$1 AND status='closed' AND exclude_from_stats IS NOT TRUE
+    AND return_pct IS NOT NULL AND closed_at >= now() - ($2::int * interval '1 day')`;
+  const [summaryRes, byStrategyRes, openRes, recentClosesRes] = await Promise.all([
+    pool.query(
+      `WITH valid_closes AS (
+         SELECT * FROM kalshi_perp_shadow_trades WHERE ${validCloseWhere}
+       )
+       SELECT
+         (SELECT count(*)::int FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='open') AS open_count,
+         count(*)::int AS closed_count,
+         (count(*) FILTER (WHERE return_pct > 0))::int AS wins,
+         CASE WHEN count(*) > 0 THEN (count(*) FILTER (WHERE return_pct > 0))::float / count(*)::float END AS win_rate,
+         avg(r_multiple)::float AS avg_r,
+         COALESCE(sum(notional_usd * return_pct / 100), 0)::float AS est_net_pnl_usd,
+         COALESCE(sum(funding_accrued_usd), 0)::float AS funding_usd,
+         (SELECT max(opened_at) FROM kalshi_perp_shadow_trades
+           WHERE user_id=$1 AND (status='open' OR opened_at >= now() - ($2::int * interval '1 day'))) AS last_opened_at,
+         max(closed_at) AS last_closed_at
+       FROM valid_closes`,
+      [userId, windowDays]
+    ),
+    pool.query(
+      `SELECT strategy,
+         count(*)::int AS trades,
+         (count(*) FILTER (WHERE return_pct > 0))::int AS wins,
+         ((count(*) FILTER (WHERE return_pct > 0))::float / count(*)::float) AS win_rate,
+         avg(r_multiple)::float AS avg_r,
+         avg(return_pct)::float AS avg_net_pct,
+         COALESCE(sum(notional_usd * return_pct / 100), 0)::float AS est_net_pnl_usd,
+         COALESCE(sum(funding_accrued_usd), 0)::float AS funding_usd
+       FROM kalshi_perp_shadow_trades
+       WHERE ${validCloseWhere}
+       GROUP BY strategy
+       ORDER BY trades DESC, strategy ASC`,
+      [userId, windowDays]
+    ),
+    pool.query(
+      `SELECT id, strategy, ticker, underlying, direction, entry_price, stop_loss, take_profit,
+         contracts, notional_usd, funding_accrued_usd, score, max_hours, opened_at, cost_bps
+       FROM kalshi_perp_shadow_trades
+       WHERE user_id=$1 AND status='open'
+       ORDER BY opened_at DESC
+       LIMIT 30`,
+      [userId]
+    ),
+    pool.query(
+      `SELECT t.id, t.strategy, t.ticker, t.underlying, t.direction, t.entry_price, t.exit_price,
+         t.return_pct, t.r_multiple, t.funding_accrued_usd, t.exit_reason, c.hold_minutes, t.closed_at
+       FROM kalshi_perp_shadow_trades t
+       LEFT JOIN kalshi_perp_shadow_context c ON c.trade_id=t.id AND c.user_id=t.user_id
+       WHERE t.user_id=$1 AND t.status='closed' AND t.exclude_from_stats IS NOT TRUE
+         AND t.return_pct IS NOT NULL AND t.closed_at >= now() - ($2::int * interval '1 day')
+       ORDER BY t.closed_at DESC
+       LIMIT 10`,
+      [userId, windowDays]
+    )
+  ]);
+  const s = summaryRes.rows[0] || {};
+  const openRows = openRes.rows || [];
+  const touches = /* @__PURE__ */ new Map();
+  await Promise.all(Array.from(new Set(openRows.map((p2) => String(p2.ticker)))).map(async (ticker) => {
+    touches.set(ticker, await getPerpTouch(ticker).catch(() => null));
+  }));
+  const openPositions = openRows.map((p2) => {
+    const touch = touches.get(String(p2.ticker)) || null;
+    const entry = Number(p2.entry_price);
+    const currentMark = touch ? p2.direction === "short" ? touch.ask : touch.bid : null;
+    let unrealizedNetPct = null;
+    if (currentMark != null && entry > 0) {
+      const grossPct = p2.direction === "short" ? (entry - currentMark) / entry * 100 : (currentMark - entry) / entry * 100;
+      const fundingPct = Number(p2.notional_usd) > 0 ? Number(p2.funding_accrued_usd) / Number(p2.notional_usd) * 100 : 0;
+      unrealizedNetPct = grossPct + fundingPct - (Number(p2.cost_bps) || 0) / 100;
+    }
+    return {
+      id: Number(p2.id),
+      strategy: String(p2.strategy),
+      ticker: String(p2.ticker),
+      underlying: String(p2.underlying),
+      direction: String(p2.direction),
+      entry_price: Number(p2.entry_price),
+      stop_loss: Number(p2.stop_loss),
+      take_profit: Number(p2.take_profit),
+      contracts: Number(p2.contracts),
+      notional_usd: Number(p2.notional_usd),
+      funding_accrued_usd: Number(p2.funding_accrued_usd) || 0,
+      score: p2.score == null ? null : Number(p2.score),
+      max_hours: Number(p2.max_hours),
+      opened_at: toIso(p2.opened_at) || (/* @__PURE__ */ new Date(0)).toISOString(),
+      current_mark: currentMark,
+      unrealized_net_pct: unrealizedNetPct
+    };
+  });
+  return {
+    days: windowDays,
+    summary: {
+      openCount: Number(s.open_count) || 0,
+      closedCount: Number(s.closed_count) || 0,
+      wins: Number(s.wins) || 0,
+      winRate: s.win_rate == null ? null : Number(s.win_rate),
+      avgR: s.avg_r == null ? null : Number(s.avg_r),
+      estNetPnlUsd: Number(s.est_net_pnl_usd) || 0,
+      fundingUsd: Number(s.funding_usd) || 0,
+      lastOpenedAt: toIso(s.last_opened_at),
+      lastClosedAt: toIso(s.last_closed_at),
+      enabled: stockShadowEnabled()
+    },
+    byStrategy: (byStrategyRes.rows || []).map((r) => ({
+      strategy: String(r.strategy),
+      trades: Number(r.trades) || 0,
+      wins: Number(r.wins) || 0,
+      winRate: Number(r.win_rate) || 0,
+      avgR: r.avg_r == null ? null : Number(r.avg_r),
+      avgNetPct: Number(r.avg_net_pct) || 0,
+      estNetPnlUsd: Number(r.est_net_pnl_usd) || 0,
+      fundingUsd: Number(r.funding_usd) || 0
+    })),
+    openPositions,
+    recentCloses: (recentClosesRes.rows || []).map((r) => ({
+      id: Number(r.id),
+      strategy: String(r.strategy),
+      ticker: String(r.ticker),
+      underlying: String(r.underlying),
+      direction: String(r.direction),
+      entry_price: Number(r.entry_price),
+      exit_price: r.exit_price == null ? null : Number(r.exit_price),
+      return_pct: Number(r.return_pct),
+      r_multiple: r.r_multiple == null ? null : Number(r.r_multiple),
+      funding_accrued_usd: Number(r.funding_accrued_usd) || 0,
+      exit_reason: r.exit_reason == null ? null : String(r.exit_reason),
+      hold_minutes: r.hold_minutes == null ? null : Number(r.hold_minutes),
+      closed_at: toIso(r.closed_at) || (/* @__PURE__ */ new Date(0)).toISOString()
+    }))
+  };
+}
+function adviceFor3(stats, strategy, ctx) {
+  const bs2 = kalshiBucketsOf(ctx);
+  const hits = stats.filter((s) => s.strategy === strategy && s.verdict !== "learning" && bs2[s.dim] === s.bucket);
+  if (!hits.length) return "learning";
+  const avoid = hits.filter((s) => s.verdict === "avoid");
+  const f = (s) => `${s.verdict}: ${s.dim} ${s.bucket} (n=${s.n}, median ${s.medianNet.toFixed(1)}%)`;
+  return `${avoid.length ? "avoid" : "favor"} \u2014 ${[...avoid, ...hits.filter((s) => s.verdict === "favor")].map(f).join("; ")}`.slice(0, 500);
+}
+function fxSpec(key, name, timeframe, indicators, long, short, symbol) {
+  return {
+    name: `${name} (mechanical approximation)`,
+    source: "engine",
+    engineStrategyKey: key,
+    symbol,
+    timeframe,
+    indicators,
+    entryLong: { logic: "AND", conditions: long },
+    entryShort: { logic: "AND", conditions: short },
+    risk: { lotSize: 0.1 }
+  };
+}
+function optionsAdapter(ticker) {
+  const inRange = (bars, start, end) => bars.filter((b) => b.t >= start.getTime() && b.t < end.getTime());
+  const shape = (bars, limit) => bars.slice(-limit).map((b) => ({ t: new Date(b.t).toISOString(), o: b.o, h: b.h, l: b.l, c: b.c, v: b.v, vw: b.c, n: 0 }));
+  return {
+    getBars: async (_sym, timeframe, start, end, limit = 1e3) => {
+      const spanMin = Math.max(1, Math.round((end.getTime() - start.getTime()) / 6e4));
+      if (timeframe === "1Day") return shape(inRange(await getPerpCandles(ticker, 1440, Math.min(5e3, spanMin + 1440)), start, end), limit);
+      if (timeframe === "5Min") return shape(inRange(aggregateBars(await getPerpCandles(ticker, 1, Math.min(5e3, spanMin + 30)), 5), start, end), limit);
+      return shape(inRange(await getPerpCandles(ticker, 1, Math.min(5e3, spanMin + 30)), start, end), limit);
+    },
+    getSnapshot: async (_sym) => {
+      const daily = await getPerpCandles(ticker, 1440, 5e3);
+      if (daily.length < 2) return null;
+      const prevClose = daily[daily.length - 2].c;
+      const touch = await getPerpTouch(ticker);
+      const price = touch ? (touch.bid + touch.ask) / 2 : daily[daily.length - 1].c;
+      if (!(prevClose > 0) || !(price > 0)) return null;
+      return { price, prevClose, dailyChangePercent: (price - prevClose) / prevClose * 100 };
+    }
+  };
+}
+async function accrueFunding(t) {
+  const since = Math.max(new Date(t.opened_at).getTime(), Number(t.funding_through_ms) || 0);
+  const rates = await getPerpFundingHistory(t.ticker).catch(() => []);
+  let accrued = Number(t.funding_accrued_usd) || 0;
+  let through = since;
+  for (const r of rates) {
+    if (r.fundingTimeMs <= since || r.fundingTimeMs > Date.now()) continue;
+    const notionalAtFunding = r.markPrice * Number(t.contracts);
+    accrued += (t.direction === "long" ? -1 : 1) * r.rate * notionalAtFunding;
+    through = Math.max(through, r.fundingTimeMs);
+  }
+  if (through !== since) {
+    await pool.query(`UPDATE kalshi_perp_shadow_trades SET funding_accrued_usd=$2, funding_through_ms=$3 WHERE id=$1`, [t.id, accrued, through]);
+  }
+  return accrued;
+}
+async function closeTrade(t, exit, why, fundingUsd, exclude) {
+  const short = t.direction === "short";
+  const gross = exit != null ? (short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price * 100 : null;
+  const fundingPct = gross != null && t.notional_usd > 0 ? fundingUsd / t.notional_usd * 100 : null;
+  const net = gross != null ? gross + (fundingPct ?? 0) - Number(t.cost_bps) / 100 : null;
+  const r = net != null && t.sl_pct > 0 ? net / t.sl_pct : null;
+  const upd = await pool.query(
+    `UPDATE kalshi_perp_shadow_trades SET status='closed', exit_price=$2, exit_reason=$3, gross_return_pct=$4, return_pct=$5,
+       r_multiple=$6, funding_accrued_usd=$7, exclude_from_stats=$8, closed_at=now() WHERE id=$1 AND status='open'`,
+    [t.id, exit, why, gross, net, r, fundingUsd, exclude]
+  );
+  if (!upd.rowCount) return false;
+  const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
+  await pool.query(
+    `UPDATE kalshi_perp_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, net_pct=$4, funding_paid_usd=$5 WHERE trade_id=$1`,
+    [t.id, why, ageH * 60, exclude ? null : net, fundingUsd]
+  ).catch(() => {
+  });
+  return true;
+}
+async function resolveKalshiStockShadowTrades(userId) {
+  await ensureKalshiPerpShadowTables();
+  const { rows } = await pool.query(`SELECT * FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  if (!rows.length) return 0;
+  const actions = await getPerpCorporateActions().catch(() => []);
+  let closed = 0;
+  for (const t of rows) {
+    const funding = await accrueFunding(t).catch(() => Number(t.funding_accrued_usd) || 0);
+    const openedMs = new Date(t.opened_at).getTime();
+    const ca = actions.find((a) => a.ticker === t.ticker && a.status !== "cancelled" && a.status !== "lapsed" && a.effectiveMs != null && a.effectiveMs > openedMs && a.effectiveMs <= Date.now());
+    const minsSinceOpen = Math.max(1, Math.min(5e3, Math.ceil((Date.now() - openedMs) / 6e4) + 5));
+    const candles = await getPerpCandles(t.ticker, 1, minsSinceOpen).catch(() => []);
+    const latest = candles[candles.length - 1];
+    if (ca) {
+      if (await closeTrade(t, latest ? latest.c : Number(t.entry_price), "corporate_action", funding, true)) closed++;
+      continue;
+    }
+    const short = t.direction === "short";
+    const ageH = (Date.now() - openedMs) / 36e5;
+    let exit = null, why = "";
+    if (candles.length) {
+      for (const cd of candles) {
+        if (cd.t + 6e4 <= openedMs) continue;
+        const gain = short ? (t.entry_price - cd.ask.l) / t.entry_price * 100 : (cd.bid.h - t.entry_price) / t.entry_price * 100;
+        if (t.peak_gain_pct == null || gain > t.peak_gain_pct) {
+          await pool.query(`UPDATE kalshi_perp_shadow_trades SET peak_gain_pct=$2 WHERE id=$1`, [t.id, gain]).catch(() => {
+          });
+          t.peak_gain_pct = gain;
+        }
+        if (short ? cd.ask.h >= t.stop_loss : cd.bid.l <= t.stop_loss) {
+          exit = short ? Math.max(t.stop_loss, cd.ask.o) : Math.min(t.stop_loss, cd.bid.o);
+          why = "stop";
+          break;
+        }
+        if (short ? cd.ask.l <= t.take_profit : cd.bid.h >= t.take_profit) {
+          exit = Number(t.take_profit);
+          why = "target";
+          break;
+        }
+      }
+      if (!why && ageH >= t.max_hours) {
+        const touch = await getPerpTouch(t.ticker).catch(() => null);
+        exit = touch ? short ? touch.ask : touch.bid : latest.c;
+        why = "time limit";
+      }
+    } else if (ageH >= t.max_hours + 24) {
+      exit = null;
+      why = "no price";
+    }
+    if (!why) continue;
+    if (await closeTrade(t, exit, why, funding, false)) closed++;
+  }
+  return closed;
+}
+async function runKalshiStockShadowCycle(userId) {
+  if (!stockShadowEnabled()) return { opened: 0, closed: 0 };
+  await ensureKalshiPerpShadowTables();
+  const closed = await resolveKalshiStockShadowTrades(userId).catch((e) => {
+    console.error("[kalshi-stock-shadow] resolver failed (non-fatal):", e?.message ?? e);
+    return 0;
+  });
+  if (Date.now() - (_lastEntryRun.get(userId) || 0) < EVERY_MS2()) return { opened: 0, closed };
+  _lastEntryRun.set(userId, Date.now());
+  const [{ STRATEGY_RUNNERS: STRATEGY_RUNNERS3 }, { OPTIONS_STRATEGY_RUNNERS: OPTIONS_STRATEGY_RUNNERS2 }, { evaluateSpecSignals: evaluateSpecSignals2 }, { paperMaxHoursFor: paperMaxHoursFor2 }, { assessPriceAnomaly: assessPriceAnomaly2 }] = await Promise.all([
+    Promise.resolve().then(() => (init_cryptocom_scanner(), cryptocom_scanner_exports)),
+    Promise.resolve().then(() => (init_options_scanner(), options_scanner_exports)),
+    Promise.resolve().then(() => (init_strategy_backtest(), strategy_backtest_exports)),
+    Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports)),
+    Promise.resolve().then(() => (init_corporateActionGuard(), corporateActionGuard_exports))
+  ]);
+  const stats = await computeKalshiStockShadowStats(userId).catch(() => []);
+  const markets = await getLiquidStockPerps().catch(() => []);
+  if (!markets.length) return { opened: 0, closed };
+  const actions = await getPerpCorporateActions().catch(() => []);
+  const pendingCa = new Set(actions.filter((a) => a.status === "scheduled" && a.effectiveMs != null && a.effectiveMs <= Date.now() + 24 * 36e5).map((a) => a.ticker));
+  const { rows: open } = await pool.query(`SELECT strategy, underlying FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  const { rows: recent } = await pool.query(
+    `SELECT strategy, underlying FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='closed' AND closed_at >= now() - ($2::text || ' milliseconds')::interval`,
+    [userId, String(COOLDOWN_MS2())]
+  );
+  const cryptoCfg = { defiChain: "kalshi", directionFilter: "both", minConfidence: MIN_CONF(), compositeMinEdgeScore: 72 };
+  const optCfg = { ...OPTIONS_CFG, minConfidence: MIN_CONF() };
+  let opened = 0;
+  for (const mkt of markets) {
+    if (open.length >= MAX_OPEN2()) break;
+    if (!mkt.scheduleOpen || pendingCa.has(mkt.ticker)) continue;
+    const symbol = `KALSHI:${mkt.ticker}`;
+    const bars15 = await getPerpBars(mkt.ticker, "15m", 40).catch(() => []);
+    if (bars15.length >= 3 && assessPriceAnomaly2(bars15).suspect) continue;
+    const signals = [];
+    const cryptoResults = await Promise.all(CRYPTO_PORTS.map((k2) => STRATEGY_RUNNERS3[k2](symbol, cryptoCfg).then((r) => ({ k: k2, r })).catch(() => null)));
+    for (const cr of cryptoResults) {
+      if (cr?.r?.decision === "signal" && cr.r.direction) {
+        signals.push({ strategy: cr.k, direction: cr.r.direction === "SELL" ? "short" : "long", score: cr.r.score ?? null });
+      }
+    }
+    const dirs = signals.filter((s) => CRYPTO_PORTS.includes(s.strategy));
+    const longs = dirs.filter((s) => s.direction === "long"), shorts = dirs.filter((s) => s.direction === "short");
+    const side = longs.length > shorts.length ? longs : shorts.length > longs.length ? shorts : [];
+    if (side.length >= 2) {
+      const blend = Math.round(side.reduce((a, s) => a + (s.score ?? 0), 0) / side.length);
+      if (blend >= 72) signals.push({ strategy: "composite_autonomous", direction: side[0].direction, score: blend });
+    }
+    const adapter = optionsAdapter(mkt.ticker);
+    for (const k2 of OPTIONS_PORTS) {
+      const r = await OPTIONS_STRATEGY_RUNNERS2[k2](adapter, mkt.underlying, optCfg).catch(() => null);
+      if (r?.decision === "signal" && r.direction) {
+        signals.push({ strategy: `opt_${k2}`, direction: r.direction === "SELL" || r.direction === "down" ? "short" : "long", score: r.score ?? null });
+      }
+    }
+    for (const fx of FX_PORTS) {
+      const raw = await getPerpBars(mkt.ticker, fx.tf, fx.bars + 2).catch(() => []);
+      const tfMs = (fx.tf === "5m" ? 5 : 60) * 6e4;
+      const closedBars = raw.filter((b) => b.t + tfMs <= Date.now()).slice(-fx.bars);
+      if (closedBars.length < 30) continue;
+      const sig = evaluateSpecSignals2(fx.make(mkt.ticker), closedBars.map((b) => ({ timestamp: b.t, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v })));
+      if (!sig) continue;
+      if (sig.enterLong && !sig.enterShort) signals.push({ strategy: fx.id, direction: "long", score: null });
+      else if (sig.enterShort && !sig.enterLong) signals.push({ strategy: fx.id, direction: "short", score: null });
+    }
+    if (!signals.length) continue;
+    const h1Bars = await getPerpBars(mkt.ticker, "1h", 60).catch(() => []);
+    if (h1Bars.length < 16) continue;
+    const lastClose = h1Bars[h1Bars.length - 1].c;
+    const atr3 = atrOf(h1Bars);
+    if (!atr3 || !(lastClose > 0)) continue;
+    const atrPct = atr3 / lastClose * 100;
+    const h1Trend = trendOf2(h1Bars.map((b) => b.c), 9, 21);
+    const h4Closes = aggregateBars(await getPerpCandles(mkt.ticker, 60, 60 * 60).catch(() => []), 4).map((b) => b.c);
+    const h4Trend = trendOf2(h4Closes, 5, 10);
+    const touch = await getPerpTouch(mkt.ticker).catch(() => null);
+    const bid = touch?.bid ?? mkt.bid, ask = touch?.ask ?? mkt.ask;
+    if (!(bid > 0) || !(ask > bid)) continue;
+    const spreadBps = (ask - bid) / ((ask + bid) / 2) * 1e4;
+    const fundEst = await getPerpFundingEstimate(mkt.ticker).catch(() => null);
+    const slPct = Math.min(SL_HI(), Math.max(SL_LO(), ATR_MULT2() * atrPct));
+    const costBps = FEE_BPS();
+    if (slPct < 3 * (costBps / 100)) continue;
+    const now = Date.now();
+    const et = etParts(now);
+    for (const sig of signals) {
+      if (open.length >= MAX_OPEN2()) break;
+      if (open.filter((o) => o.strategy === sig.strategy).length >= MAX_PER_STRAT2()) continue;
+      if (open.some((o) => o.strategy === sig.strategy && o.underlying === mkt.underlying)) continue;
+      if (recent.some((o) => o.strategy === sig.strategy && o.underlying === mkt.underlying)) continue;
+      const short = sig.direction === "short";
+      const entry = short ? bid : ask;
+      const stop = short ? entry * (1 + slPct / 100) : entry * (1 - slPct / 100);
+      const target = short ? entry * (1 - slPct * RR() / 100) : entry * (1 + slPct * RR() / 100);
+      const contracts = Math.max(1, Math.round(NOTIONAL2() / entry));
+      const notional = contracts * entry;
+      const aligned = h4Trend == null ? null : short ? h4Trend === "BEARISH" : h4Trend === "BULLISH";
+      const agreeing = signals.filter((s) => s.direction === sig.direction).length;
+      const ctx = {
+        session_et: sessionEt(now),
+        ticker: mkt.ticker,
+        spread_bps: spreadBps,
+        atr_pct: atrPct,
+        funding_rate_at_entry: fundEst?.rate ?? null,
+        htf_aligned: aligned,
+        direction: sig.direction,
+        hour_et: et.hour
+      };
+      const tags = [];
+      if (aligned === false) tags.push("against_htf");
+      if (aligned === true) tags.push("htf_aligned");
+      if (agreeing < 2) tags.push("single_runner_no_confluence");
+      if (spreadBps > 25) tags.push("wide_spread");
+      if (ctx.session_et === "overnight") tags.push("overnight_session");
+      const ins = await pool.query(
+        `INSERT INTO kalshi_perp_shadow_trades (user_id, strategy, ticker, underlying, direction, entry_price, entry_bid, entry_ask,
+           stop_loss, take_profit, sl_pct, contracts, notional_usd, cost_bps, cost_model, score, max_hours)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'placeholder',$15,$16) RETURNING id`,
+        [userId, sig.strategy, mkt.ticker, mkt.underlying, sig.direction, entry, bid, ask, stop, target, slPct, contracts, notional, costBps, sig.score, paperMaxHoursFor2(sig.strategy)]
+      );
+      const id = ins.rows[0]?.id;
+      if (!id) continue;
+      await pool.query(
+        `INSERT INTO kalshi_perp_shadow_context (trade_id, user_id, strategy, ticker, direction, spread_bps, volume_24h_usd, open_interest,
+           atr_pct, h1_trend, h4_trend, htf_aligned, funding_rate_at_entry, session_et, hour_utc, hour_et, day_of_week,
+           earnings_within_48h, corporate_action_pending, live_gate_blocked, leverage_estimate, tags, advice_at_entry)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (trade_id) DO NOTHING`,
+        [
+          id,
+          userId,
+          sig.strategy,
+          mkt.ticker,
+          sig.direction,
+          spreadBps,
+          mkt.volume24hNotionalUsd,
+          mkt.openInterest,
+          atrPct,
+          h1Trend,
+          h4Trend,
+          aligned,
+          fundEst?.rate ?? null,
+          ctx.session_et,
+          new Date(now).getUTCHours(),
+          et.hour,
+          et.dow,
+          null,
+          pendingCa.has(mkt.ticker),
+          agreeing < 2,
+          mkt.leverageEstimate,
+          tags,
+          adviceFor3(stats, sig.strategy, ctx)
+        ]
+      ).catch(() => {
+      });
+      open.push({ strategy: sig.strategy, underlying: mkt.underlying });
+      opened++;
+    }
+  }
+  return { opened, closed };
+}
+async function resolveOwnerUserId() {
+  if (_ownerId) return _ownerId;
+  const env = Number(process.env.KALSHI_STOCK_SHADOW_USER_ID);
+  if (Number.isFinite(env) && env > 0) {
+    _ownerId = env;
+    return _ownerId;
+  }
+  try {
+    const { rows } = await pool.query(`SELECT id FROM users WHERE is_admin = true ORDER BY id LIMIT 1`);
+    _ownerId = rows[0]?.id ?? 1;
+  } catch {
+    _ownerId = 1;
+  }
+  return _ownerId;
+}
+function startKalshiStockShadow() {
+  if (_started2) return;
+  _started2 = true;
+  if (!stockShadowEnabled()) {
+    console.log("[kalshi-stock-shadow] disabled (KALSHI_STOCK_SHADOW=off).");
+    return;
+  }
+  const tick3 = async () => {
+    try {
+      const uid2 = await resolveOwnerUserId();
+      if (uid2) await runKalshiStockShadowCycle(uid2);
+    } catch (e) {
+      console.error("[kalshi-stock-shadow] tick failed (non-fatal):", e?.message ?? e);
+    }
+  };
+  setTimeout(tick3, 3 * 6e4).unref?.();
+  setInterval(tick3, 5 * 6e4).unref?.();
+  console.log("[kalshi-stock-shadow] started \u2014 SHADOW lane on public Kalshi perp data (no credentials, no orders).");
+}
+var num7, stockShadowEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started2;
+var init_kalshi_stock_shadow = __esm({
+  "server/services/kalshi-stock-shadow.ts"() {
+    "use strict";
+    init_db();
+    init_ensure_kalshi_perp_shadow_tables();
+    init_kalshi_perps();
+    num7 = (n, d) => {
+      const v = Number(process.env[n]);
+      return Number.isFinite(v) && v > 0 ? v : d;
+    };
+    stockShadowEnabled = () => process.env.KALSHI_STOCK_SHADOW !== "off";
+    MAX_OPEN2 = () => Math.floor(num7("KALSHI_STOCK_SHADOW_MAX_OPEN", 30));
+    MAX_PER_STRAT2 = () => Math.floor(num7("KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY", 3));
+    COOLDOWN_MS2 = () => num7("KALSHI_STOCK_SHADOW_COOLDOWN_MIN", 60) * 6e4;
+    EVERY_MS2 = () => num7("KALSHI_STOCK_SHADOW_EVERY_MIN", 10) * 6e4;
+    NOTIONAL2 = () => num7("KALSHI_STOCK_SHADOW_NOTIONAL_USD", 250);
+    MIN_CONF = () => num7("KALSHI_STOCK_SHADOW_MIN_CONFIDENCE", 70);
+    FEE_BPS = () => num7("KALSHI_STOCK_SHADOW_FEE_BPS", 20);
+    SL_LO = () => num7("KALSHI_STOCK_SHADOW_SL_MIN_PCT", 0.8);
+    SL_HI = () => num7("KALSHI_STOCK_SHADOW_SL_MAX_PCT", 4);
+    ATR_MULT2 = () => num7("KALSHI_STOCK_SHADOW_SL_ATR_MULT", 1.5);
+    RR = () => num7("KALSHI_STOCK_SHADOW_RR", 2);
+    CRYPTO_PORTS = ["breakout", "trend_following", "structure", "divergence", "order_flow", "volume_profile"];
+    OPTIONS_PORTS = ["orb", "volume_profile", "breakout", "momentum", "order_flow"];
+    etFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit", weekday: "short" });
+    _statsCache2 = /* @__PURE__ */ new Map();
+    toIso = (v) => {
+      if (v == null) return null;
+      const d = v instanceof Date ? v : new Date(String(v));
+      return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+    };
+    emaTrend = (fast, slow) => [
+      { id: "emaFast", kind: "EMA", period: fast },
+      { id: "emaSlow", kind: "EMA", period: slow }
+    ];
+    crossUp = { indicatorId: "emaFast", field: "value", operator: "crosses_above", compare: { kind: "indicator", indicatorId: "emaSlow", field: "value" } };
+    crossDown = { indicatorId: "emaFast", field: "value", operator: "crosses_below", compare: { kind: "indicator", indicatorId: "emaSlow", field: "value" } };
+    rsiAbove = (v) => ({ indicatorId: "rsi", field: "value", operator: "above", compare: { kind: "value", value: v } });
+    rsiBelow = (v) => ({ indicatorId: "rsi", field: "value", operator: "below", compare: { kind: "value", value: v } });
+    rsiCrossUp = (v) => ({ indicatorId: "rsi", field: "value", operator: "crosses_above", compare: { kind: "value", value: v } });
+    rsiCrossDown = (v) => ({ indicatorId: "rsi", field: "value", operator: "crosses_below", compare: { kind: "value", value: v } });
+    emaAbove = { indicatorId: "emaFast", field: "value", operator: "above", compare: { kind: "indicator", indicatorId: "emaSlow", field: "value" } };
+    emaBelow = { indicatorId: "emaFast", field: "value", operator: "below", compare: { kind: "indicator", indicatorId: "emaSlow", field: "value" } };
+    FX_PORTS = [
+      { id: "fx_scalping", tf: "5m", bars: 60, make: (s) => fxSpec("scalping", "Scalping", "M5", emaTrend(5, 13), [crossUp], [crossDown], s) },
+      { id: "fx_momentum", tf: "1h", bars: 120, make: (s) => fxSpec("momentum", "Momentum Surfing", "H1", [...emaTrend(9, 21), { id: "rsi", kind: "RSI", period: 14 }], [crossUp, rsiAbove(50)], [crossDown, rsiBelow(50)], s) },
+      { id: "fx_aggressive", tf: "1h", bars: 120, make: (s) => fxSpec("aggressive", "Aggressive Compound", "H1", [...emaTrend(9, 21), { id: "rsi", kind: "RSI", period: 14 }], [crossUp, rsiAbove(50)], [crossDown, rsiBelow(50)], s) },
+      { id: "fx_sniper", tf: "1h", bars: 120, make: (s) => fxSpec("sniper", "Sniper Mode", "H1", [...emaTrend(9, 21), { id: "rsi", kind: "RSI", period: 14 }], [emaAbove, rsiCrossUp(40)], [emaBelow, rsiCrossDown(60)], s) },
+      { id: "fx_prop_firm_sniper", tf: "1h", bars: 120, make: (s) => fxSpec("prop_firm_sniper", "Prop Firm Sniper", "H1", [...emaTrend(9, 21), { id: "rsi", kind: "RSI", period: 14 }], [emaAbove, rsiCrossUp(35)], [emaBelow, rsiCrossDown(65)], s) }
+    ];
+    OPTIONS_CFG = {
+      orbRangeMinutes: 15,
+      volumeProfileLookbackDays: 10,
+      breakoutLookbackDays: 20,
+      directionFilter: "both",
+      strikeSelectionMode: "atm",
+      targetDelta: 0.3,
+      expiryPreference: "weekly"
+    };
+    _lastEntryRun = /* @__PURE__ */ new Map();
+    _ownerId = null;
+    _started2 = false;
+  }
+});
+
+// server/services/all-time-performance.ts
+var all_time_performance_exports = {};
+__export(all_time_performance_exports, {
+  getAllTimePerformance: () => getAllTimePerformance
+});
+async function getAllTimePerformance(userId) {
+  const atrQuery = pool.query(
+    `SELECT
+       CASE WHEN source IN ('tradelocker', 'tradelocker_auto') THEN 'tradelocker' ELSE 'mt5' END AS engine,
+       date_trunc('day', closed_at)::date AS day,
+       sum(profit_loss) AS pnl, count(*) AS trades
+     FROM ai_trade_results
+     WHERE user_id = $1 AND result IS NOT NULL AND result != 'PENDING' AND closed_at IS NOT NULL
+     GROUP BY engine, day`,
+    [userId]
+  );
+  const optQuery = pool.query(
+    `SELECT date_trunc('day', closed_at)::date AS day, sum(realized_pnl) AS pnl, count(*) AS trades
+     FROM options_engine_trades WHERE user_id = $1 AND status = 'closed' AND closed_at IS NOT NULL
+     GROUP BY day`,
+    [userId]
+  );
+  const cryptoQuery = pool.query(
+    `SELECT date_trunc('day', closed_at)::date AS day, sum(realized_pnl) AS pnl, count(*) AS trades
+     FROM cryptocom_engine_trades WHERE user_id = $1 AND status = 'closed' AND closed_at IS NOT NULL
+     GROUP BY day`,
+    [userId]
+  );
+  const futuresQuery = pool.query(
+    `SELECT date_trunc('day', closed_at)::date AS day, sum(realized_pnl) AS pnl, count(*) AS trades
+     FROM futures_engine_trades WHERE user_id = $1 AND status = 'closed' AND closed_at IS NOT NULL
+     GROUP BY day`,
+    [userId]
+  );
+  const [atr3, opt, crypto17, futures] = await Promise.all([
+    atrQuery.catch(() => ({ rows: [] })),
+    optQuery.catch(() => ({ rows: [] })),
+    cryptoQuery.catch(() => ({ rows: [] })),
+    futuresQuery.catch(() => ({ rows: [] }))
+  ]);
+  const byDay = {};
+  const addRows = (rows, engineOverride) => {
+    for (const r of rows) {
+      const day = r.day instanceof Date ? r.day.toISOString().slice(0, 10) : String(r.day).slice(0, 10);
+      const engine = engineOverride ?? r.engine;
+      byDay[day] = byDay[day] || {};
+      byDay[day][engine] = byDay[day][engine] || { pnl: 0, trades: 0 };
+      byDay[day][engine].pnl += Number(r.pnl) || 0;
+      byDay[day][engine].trades += Number(r.trades) || 0;
+    }
+  };
+  addRows(atr3.rows);
+  addRows(opt.rows, "options");
+  addRows(crypto17.rows, "cryptocom");
+  addRows(futures.rows, "futures");
+  const dailyHistory = Object.entries(byDay).map(([date2, engines]) => {
+    const byEngine = Object.entries(engines).map(([engine, v]) => ({
+      engine,
+      pnl: Math.round(v.pnl * 100) / 100,
+      trades: v.trades
+    }));
+    const total = Math.round(byEngine.reduce((s, e) => s + e.pnl, 0) * 100) / 100;
+    return { date: date2, total, byEngine };
+  }).sort((a, b) => a.date.localeCompare(b.date));
+  const biggestDay = dailyHistory.length > 0 ? dailyHistory.reduce((max, d) => d.total > max.total ? d : max, dailyHistory[0]) : null;
+  const allTimeTotal = Math.round(dailyHistory.reduce((s, d) => s + d.total, 0) * 100) / 100;
+  const totalTrades = dailyHistory.reduce((s, d) => s + d.byEngine.reduce((s2, e) => s2 + e.trades, 0), 0);
+  const engineTotals = {};
+  for (const d of dailyHistory) {
+    for (const e of d.byEngine) {
+      engineTotals[e.engine] = engineTotals[e.engine] || { pnl: 0, trades: 0 };
+      engineTotals[e.engine].pnl += e.pnl;
+      engineTotals[e.engine].trades += e.trades;
+    }
+  }
+  const byEngineAllTime = Object.entries(engineTotals).map(([engine, v]) => ({
+    engine,
+    pnl: Math.round(v.pnl * 100) / 100,
+    trades: v.trades
+  }));
+  return { allTimeTotal, totalTrades, biggestDay, dailyHistory, byEngineAllTime };
+}
+var init_all_time_performance = __esm({
+  "server/services/all-time-performance.ts"() {
+    "use strict";
+    init_db();
   }
 });
 
@@ -61983,12 +64115,12 @@ async function getSettingsOverview(userId) {
   }
   return { engines };
 }
-var num7, bool, text2, secs, ENGINES;
+var num8, bool, text2, secs, ENGINES;
 var init_settings_overview = __esm({
   "server/services/settings-overview.ts"() {
     "use strict";
     init_db();
-    num7 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
+    num8 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
     bool = (key, label, standard, from) => ({ key, from, label, standard, fmt: "bool" });
     text2 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "text" });
     secs = (key, label, standard, from) => ({ key, from, label, standard, fmt: "secs" });
@@ -61998,24 +64130,24 @@ var init_settings_overview = __esm({
         name: "FX Engine",
         // Standards: getDefaultConfig() literal in live-trading-engine.ts.
         fields: [
-          num7("minConfidence", "Minimum confidence to trade", 70),
+          num8("minConfidence", "Minimum confidence to trade", 70),
           text2("strategyMode", "Strategy mode", "aggressive"),
-          num7("maxOpenTrades", "Max open trades at once", 5),
-          num7("riskPerTrade", "Risk per trade (%)", 1),
-          num7("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
-          num7("maxDailyLossPct", "Daily loss breaker (%)", 4),
-          num7("dailyLossLimit", "Daily loss limit (%)", 5),
-          num7("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
-          num7("drawdownShieldThreshold", "Drawdown shield (%)", 3),
-          num7("maxLotSize", "Max lot size", 0.1),
-          num7("maxLot", "Absolute lot ceiling (0 = none)", 0),
-          num7("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num7("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
+          num8("maxOpenTrades", "Max open trades at once", 5),
+          num8("riskPerTrade", "Risk per trade (%)", 1),
+          num8("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
+          num8("maxDailyLossPct", "Daily loss breaker (%)", 4),
+          num8("dailyLossLimit", "Daily loss limit (%)", 5),
+          num8("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
+          num8("drawdownShieldThreshold", "Drawdown shield (%)", 3),
+          num8("maxLotSize", "Max lot size", 0.1),
+          num8("maxLot", "Absolute lot ceiling (0 = none)", 0),
+          num8("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num8("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
           bool("trailingStopEnabled", "Trailing stops", true),
           bool("profitLockEnabled", "Profit lock from +1R", true),
-          num7("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
+          num8("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
           bool("propFirmMode", "Prop firm mode", false),
-          num7("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
+          num8("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
           bool("autoFlattenOnBreach", "Close trades when a breaker trips", false),
           bool("brainLearningMode", "Brain learning", true),
           bool("brainShadowEnabled", "Practice results feed the brain", true),
@@ -62032,12 +64164,12 @@ var init_settings_overview = __esm({
         name: "Sol Engine",
         // Standards: DEFAULT_CONFIG in sol-engine.ts.
         fields: [
-          num7("minConfidence", "Minimum confidence to trade", 65),
-          num7("riskPerTradePct", "Risk per trade (%)", 1),
-          num7("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num7("maxTokens", "Max tokens tracked at once", 10),
+          num8("minConfidence", "Minimum confidence to trade", 65),
+          num8("riskPerTradePct", "Risk per trade (%)", 1),
+          num8("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num8("maxTokens", "Max tokens tracked at once", 10),
           bool("shieldEnabled", "Loss shield", true),
-          num7("shieldThreshold", "Shield trips at drawdown (%)", 10),
+          num8("shieldThreshold", "Shield trips at drawdown (%)", 10),
           bool("useKelly", "Kelly position sizing", false),
           text2("directionFilter", "Direction filter", "buy_only"),
           bool("stopOrdersEnabled", "Stop orders", false),
@@ -62056,22 +64188,22 @@ var init_settings_overview = __esm({
         name: "Kalshi Engine",
         // Standards: DEFAULT_CONFIG in kalshi-engine.ts.
         fields: [
-          num7("minConfidence", "Minimum confidence to trade", 70),
-          num7("maxOpenTrades", "Max open trades at once", 3),
-          num7("maxTradesPerDay", "Max trades per day", 10),
-          num7("contractsPerTrade", "Contracts per trade", 5),
-          num7("riskPctPerTrade", "Risk per trade (%)", 5),
-          num7("takeProfitCents", "Take profit (%)", 50),
-          num7("stopLossCents", "Stop loss (%)", 40),
-          num7("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
+          num8("minConfidence", "Minimum confidence to trade", 70),
+          num8("maxOpenTrades", "Max open trades at once", 3),
+          num8("maxTradesPerDay", "Max trades per day", 10),
+          num8("contractsPerTrade", "Contracts per trade", 5),
+          num8("riskPctPerTrade", "Risk per trade (%)", 5),
+          num8("takeProfitCents", "Take profit (%)", 50),
+          num8("stopLossCents", "Stop loss (%)", 40),
+          num8("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
           bool("requireConfluence", "Requires confluence", true),
           bool("ruinGuardEnabled", "Ruin guard (bad-day halt)", true),
-          num7("dailyLossLimitPct", "Daily loss limit (%)", 5),
-          num7("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
+          num8("dailyLossLimitPct", "Daily loss limit (%)", 5),
+          num8("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
           bool("kalshiBrainGating", "Brain can hard-block setups", true),
           bool("brainLearningMode", "Brain learning", true),
           bool("weatherEnabled", "Weather engine", false),
-          num7("cooldownMinutes", "Cooldown between trades (min)", 20)
+          num8("cooldownMinutes", "Cooldown between trades (min)", 20)
         ],
         load: async (userId) => {
           const { getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
@@ -62083,17 +64215,17 @@ var init_settings_overview = __esm({
         name: "Crypto Engine",
         // Standards: column defaults in ensure-cryptocom-engine-tables.ts.
         fields: [
-          num7("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
-          num7("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
-          num7("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
-          num7("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
-          num7("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
-          num7("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
-          num7("leverage", "Leverage", 3, "leverage"),
+          num8("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
+          num8("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
+          num8("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
+          num8("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
+          num8("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
+          num8("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
+          num8("leverage", "Leverage", 3, "leverage"),
           text2("directionFilter", "Direction filter", "both", "direction_filter"),
           bool("brainLearning", "Brain learning", true, "brain_learning_mode"),
           bool("cryptoBrain", "Crypto brain", true, "crypto_brain_enabled"),
-          num7("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
+          num8("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
           bool("autoExecution", "Auto execution", false, "enable_auto_execution"),
           bool("kelly", "Kelly position sizing", false, "use_kelly_criterion"),
           secs("scanInterval", "Scan interval", 12e4, "scan_interval_ms"),
@@ -62121,13 +64253,13 @@ __export(practice_costs_report_exports, {
 });
 function costModelConstants() {
   return {
-    cryptoFeeBps: num8("CRYPTO_PAPER_FEE_BPS", 30),
-    cryptoFeeDeepBps: num8("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
-    cryptoFloorMult: num8("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
-    solSlippagePct: num8("SOL_PAPER_SLIPPAGE_PCT", 0.5),
-    solFeePumpfunPct: num8("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
-    solFeeDefaultPct: num8("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
-    solImpactFallbackPct: num8("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
+    cryptoFeeBps: num9("CRYPTO_PAPER_FEE_BPS", 30),
+    cryptoFeeDeepBps: num9("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
+    cryptoFloorMult: num9("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
+    solSlippagePct: num9("SOL_PAPER_SLIPPAGE_PCT", 0.5),
+    solFeePumpfunPct: num9("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
+    solFeeDefaultPct: num9("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
+    solImpactFallbackPct: num9("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
   };
 }
 async function practiceCostReport(userId, days = 90) {
@@ -62161,12 +64293,12 @@ async function practiceCostReport(userId, days = 90) {
   }
   return out;
 }
-var num8, BANDS;
+var num9, BANDS;
 var init_practice_costs_report = __esm({
   "server/services/practice-costs-report.ts"() {
     "use strict";
     init_db();
-    num8 = (name, dflt) => {
+    num9 = (name, dflt) => {
       const v = Number(process.env[name]);
       return Number.isFinite(v) && v >= 0 ? v : dflt;
     };
@@ -71199,15 +73331,15 @@ async function syncUserDxtradeOutcomes(userId) {
   return added;
 }
 function startDxtradeSync() {
-  if (started3) return;
-  started3 = true;
+  if (started4) return;
+  started4 = true;
   setInterval(() => {
     syncAllDxtradeOutcomes().catch(() => {
     });
   }, SYNC_INTERVAL_MS2);
   console.log("[DX Sync] Background DXtrade outcome sync started (90s interval).");
 }
-var SYNC_INTERVAL_MS2, LOOKBACK_MS, started3, running;
+var SYNC_INTERVAL_MS2, LOOKBACK_MS, started4, running;
 var init_dxtrade_sync = __esm({
   "server/services/dxtrade-sync.ts"() {
     "use strict";
@@ -71215,7 +73347,7 @@ var init_dxtrade_sync = __esm({
     init_storage();
     SYNC_INTERVAL_MS2 = 9e4;
     LOOKBACK_MS = 30 * 24 * 3600 * 1e3;
-    started3 = false;
+    started4 = false;
     running = false;
   }
 });
@@ -71226,8 +73358,8 @@ __export(strategy_runner_exports, {
   startStrategyRunner: () => startStrategyRunner
 });
 function startStrategyRunner() {
-  if (started4) return;
-  started4 = true;
+  if (started5) return;
+  started5 = true;
   setInterval(() => {
     tick().catch(() => {
     });
@@ -71634,7 +73766,7 @@ async function dispatchBreakeven(dep, open, newStop, newTp) {
   }
   return false;
 }
-var TICK_MS3, TF_API, TF_MS, CRYPTOS, CONTRACT_SIZE2, started4, ticking;
+var TICK_MS3, TF_API, TF_MS, CRYPTOS, CONTRACT_SIZE2, started5, ticking;
 var init_strategy_runner = __esm({
   "server/services/strategy-runner.ts"() {
     "use strict";
@@ -71648,7 +73780,7 @@ var init_strategy_runner = __esm({
     TF_MS = { M1: 6e4, M5: 3e5, M15: 9e5, M30: 18e5, H1: 36e5, H4: 144e5, D1: 864e5 };
     CRYPTOS = /* @__PURE__ */ new Set(["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "LTCUSD", "DOGEUSD"]);
     CONTRACT_SIZE2 = { XAUUSD: 100, XAGUSD: 5e3, BTCUSD: 1, ETHUSD: 10, SOLUSD: 100, XRPUSD: 1e4 };
-    started4 = false;
+    started5 = false;
     ticking = false;
   }
 });
@@ -71786,1506 +73918,6 @@ var init_prop_firm_consistency_audit_loop = __esm({
     init_db();
     init_prop_firm_consistency();
     POLL_INTERVAL_MS4 = 3 * 60 * 1e3;
-  }
-});
-
-// server/services/iv-rank.ts
-var iv_rank_exports = {};
-__export(iv_rank_exports, {
-  MIN_IV_SAMPLES: () => MIN_IV_SAMPLES,
-  getIvRank: () => getIvRank,
-  recordDailyIv: () => recordDailyIv
-});
-function todayUtc() {
-  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-}
-async function recordDailyIv(underlyingSymbol, iv) {
-  if (!isFinite(iv) || iv <= 0) return;
-  const day = todayUtc();
-  if (_recordedToday.get(underlyingSymbol) === day) return;
-  _recordedToday.set(underlyingSymbol, day);
-  try {
-    await pool.query(
-      `INSERT INTO options_iv_history (underlying_symbol, iv, observed_date)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (underlying_symbol, observed_date)
-       DO UPDATE SET iv = EXCLUDED.iv`,
-      [underlyingSymbol, iv, day]
-    );
-  } catch (err) {
-    console.error("[IV Rank] recordDailyIv failed (non-fatal):", err?.message ?? err);
-  }
-}
-async function getIvRank(underlyingSymbol, currentIv) {
-  let rows = [];
-  try {
-    const { rows: r } = await pool.query(
-      `SELECT iv FROM options_iv_history
-       WHERE underlying_symbol = $1 AND observed_date >= (CURRENT_DATE - $2::int)`,
-      [underlyingSymbol, IV_WINDOW_DAYS]
-    );
-    rows = r;
-  } catch (err) {
-    console.error("[IV Rank] getIvRank read failed (defaulting to no-data):", err?.message ?? err);
-  }
-  const vals = rows.map((r) => typeof r.iv === "number" ? r.iv : parseFloat(r.iv)).filter((v) => isFinite(v) && v > 0);
-  if (isFinite(currentIv) && currentIv > 0) vals.push(currentIv);
-  if (vals.length < MIN_IV_SAMPLES) {
-    return { ivRank: null, samples: vals.length, min: null, max: null, currentIv };
-  }
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  const ivRank = max > min ? Math.round((currentIv - min) / (max - min) * 100) : 50;
-  return { ivRank: Math.max(0, Math.min(100, ivRank)), samples: vals.length, min, max, currentIv };
-}
-var IV_WINDOW_DAYS, MIN_IV_SAMPLES, _recordedToday;
-var init_iv_rank = __esm({
-  "server/services/iv-rank.ts"() {
-    "use strict";
-    init_db();
-    IV_WINDOW_DAYS = 365;
-    MIN_IV_SAMPLES = 20;
-    _recordedToday = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/options-scanner.ts
-var options_scanner_exports = {};
-__export(options_scanner_exports, {
-  OPTIONS_STRATEGY_RUNNERS: () => OPTIONS_STRATEGY_RUNNERS,
-  runOptionsEngineScan: () => runOptionsEngineScan,
-  startOptionsEngineScanner: () => startOptionsEngineScanner
-});
-function positionBias(optionType, spreadType) {
-  if (spreadType === "bull_put") return "bullish";
-  if (spreadType === "bear_call") return "bearish";
-  const ot = (optionType || "").toLowerCase();
-  if (!spreadType && ot === "call") return "bullish";
-  if (!spreadType && ot === "put") return "bearish";
-  return null;
-}
-function nyOffsetMinutes(date2) {
-  const dtf = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  });
-  const parts = dtf.formatToParts(date2).reduce((acc, p2) => {
-    acc[p2.type] = p2.value;
-    return acc;
-  }, {});
-  const asUTC = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
-  return (asUTC - date2.getTime()) / 6e4;
-}
-function nyMarketOpenUTC(reference) {
-  const dtf = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
-  const parts = dtf.formatToParts(reference).reduce((acc, p2) => {
-    acc[p2.type] = p2.value;
-    return acc;
-  }, {});
-  const y = +parts.year, m = +parts.month, d = +parts.day;
-  const noonUTC = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
-  const offsetMin = nyOffsetMinutes(noonUTC);
-  const utcMinutesSinceMidnight = 9 * 60 + 30 - offsetMin;
-  return new Date(Date.UTC(y, m - 1, d, 0, 0, 0) + utcMinutesSinceMidnight * 6e4);
-}
-function nyMarketCloseUTC(reference) {
-  const open = nyMarketOpenUTC(reference);
-  return new Date(open.getTime() + 6.5 * 60 * 6e4);
-}
-function isWeekday(date2) {
-  const dow = date2.getUTCDay();
-  return dow >= 1 && dow <= 5;
-}
-async function runOrb(service, symbol, cfg) {
-  const now = /* @__PURE__ */ new Date();
-  const open = nyMarketOpenUTC(now);
-  const rangeEnd = new Date(open.getTime() + cfg.orbRangeMinutes * 6e4);
-  if (!isWeekday(now) || now < open) {
-    return { decision: "watching", reasoning: `${symbol}: market is closed \u2014 ORB needs the regular session to be open.`, score: null, price: null, dailyChangePercent: null, strategy: "orb" };
-  }
-  if (now < rangeEnd) {
-    return { decision: "watching", reasoning: `${symbol}: opening range still forming (first ${cfg.orbRangeMinutes} min) \u2014 checking again once it closes.`, score: null, price: null, dailyChangePercent: null, strategy: "orb" };
-  }
-  const bars = await service.getBars(symbol, "1Min", open, now, 500);
-  if (bars.length < cfg.orbRangeMinutes) {
-    return { decision: "error", reasoning: `${symbol}: not enough intraday bars returned to compute the opening range.`, score: null, price: null, dailyChangePercent: null, strategy: "orb" };
-  }
-  const rangeBars = bars.filter((b) => new Date(b.t) < rangeEnd);
-  const afterRangeBars = bars.filter((b) => new Date(b.t) >= rangeEnd);
-  if (rangeBars.length === 0 || afterRangeBars.length === 0) {
-    return { decision: "watching", reasoning: `${symbol}: waiting on more bars to confirm the opening range.`, score: null, price: null, dailyChangePercent: null, strategy: "orb" };
-  }
-  const orHigh = Math.max(...rangeBars.map((b) => b.h));
-  const orLow = Math.min(...rangeBars.map((b) => b.l));
-  const last2 = afterRangeBars[afterRangeBars.length - 1];
-  const avgRangeVolume = rangeBars.reduce((s, b) => s + b.v, 0) / rangeBars.length;
-  const volumeConfirmed = last2.v > avgRangeVolume * 1.2;
-  const brokeUp = last2.c > orHigh;
-  const brokeDown = last2.c < orLow;
-  const direction = brokeUp ? "up" : brokeDown ? "down" : "inside";
-  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
-  const rangeSizePct = (orHigh - orLow) / orLow * 100;
-  const score = Math.min(100, Math.round(50 + rangeSizePct * 10 + (volumeConfirmed ? 15 : 0)));
-  if (direction === "inside") {
-    return { decision: "watching", reasoning: `${symbol}: still trading inside the ${cfg.orbRangeMinutes}-min opening range ($${orLow.toFixed(2)}-$${orHigh.toFixed(2)}) \u2014 no breakout yet.`, score, price: last2.c, dailyChangePercent: null, strategy: "orb" };
-  }
-  if (!directionAllowed) {
-    return { decision: "skipped", reasoning: `${symbol}: broke ${direction} out of the opening range at $${last2.c.toFixed(2)}, but your direction filter is "${cfg.directionFilter}" \u2014 doesn't qualify.`, score, price: last2.c, dailyChangePercent: null, strategy: "orb" };
-  }
-  if (!volumeConfirmed) {
-    return { decision: "watching", reasoning: `${symbol}: broke ${direction} out of the opening range at $${last2.c.toFixed(2)}, but volume (${Math.round(last2.v)}) isn't confirming vs the range average (${Math.round(avgRangeVolume)}) \u2014 watching for confirmation.`, score, price: last2.c, dailyChangePercent: null, strategy: "orb" };
-  }
-  if (score < cfg.minConfidence) {
-    return { decision: "watching", reasoning: `${symbol}: volume-confirmed ${direction} breakout of the opening range, but score ${score}/100 is below your ${cfg.minConfidence} threshold.`, score, price: last2.c, dailyChangePercent: null, strategy: "orb" };
-  }
-  const optType = direction === "up" ? "call" : "put";
-  return {
-    decision: "signal",
-    score,
-    price: last2.c,
-    dailyChangePercent: null,
-    strategy: "orb",
-    direction,
-    reasoning: `${symbol}: volume-confirmed ${direction} breakout of the ${cfg.orbRangeMinutes}-min opening range ($${orLow.toFixed(2)}-$${orHigh.toFixed(2)}), now at $${last2.c.toFixed(2)}. Score ${score}/100. Would target a ${cfg.strikeSelectionMode === "delta_target" ? `~${cfg.targetDelta} delta` : cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
-  };
-}
-async function runVolumeProfile2(service, symbol, cfg) {
-  const now = /* @__PURE__ */ new Date();
-  const start = new Date(now.getTime() - cfg.volumeProfileLookbackDays * 24 * 60 * 6e4);
-  const bars = await service.getBars(symbol, "5Min", start, now, 2e3);
-  if (bars.length < 20) {
-    return { decision: "error", reasoning: `${symbol}: not enough intraday history returned to build a volume profile.`, score: null, price: null, dailyChangePercent: null, strategy: "volume_profile" };
-  }
-  const lo2 = Math.min(...bars.map((b) => b.l));
-  const hi2 = Math.max(...bars.map((b) => b.h));
-  const binCount = 24;
-  const binSize = (hi2 - lo2) / binCount || 1;
-  const volumeByBin = new Array(binCount).fill(0);
-  for (const b of bars) {
-    const mid = (b.h + b.l) / 2;
-    const idx = Math.min(binCount - 1, Math.max(0, Math.floor((mid - lo2) / binSize)));
-    volumeByBin[idx] += b.v;
-  }
-  const totalVolume = volumeByBin.reduce((s, v) => s + v, 0);
-  let pocIdx = 0;
-  for (let i = 1; i < binCount; i++) if (volumeByBin[i] > volumeByBin[pocIdx]) pocIdx = i;
-  const pocPrice = lo2 + (pocIdx + 0.5) * binSize;
-  let sorted = volumeByBin.map((v, i) => ({ i, v })).sort((a, b) => b.v - a.v);
-  let acc = 0;
-  const valueAreaIdx = /* @__PURE__ */ new Set();
-  for (const { i, v } of sorted) {
-    valueAreaIdx.add(i);
-    acc += v;
-    if (acc >= totalVolume * 0.7) break;
-  }
-  const valueAreaIdxArr = Array.from(valueAreaIdx);
-  const vaHighIdx = Math.max(...valueAreaIdxArr);
-  const vaLowIdx = Math.min(...valueAreaIdxArr);
-  const vaHigh = lo2 + (vaHighIdx + 1) * binSize;
-  const vaLow = lo2 + vaLowIdx * binSize;
-  const last2 = bars[bars.length - 1];
-  const price = last2.c;
-  const distFromPocPct = Math.abs((price - pocPrice) / pocPrice) * 100;
-  const aboveVA = price > vaHigh;
-  const belowVA = price < vaLow;
-  const direction = aboveVA ? "up" : belowVA ? "down" : "inside";
-  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
-  const score = Math.min(100, Math.round(40 + distFromPocPct * 8));
-  if (direction === "inside") {
-    return { decision: "watching", reasoning: `${symbol}: trading inside its ${cfg.volumeProfileLookbackDays}-day value area ($${vaLow.toFixed(2)}-$${vaHigh.toFixed(2)}, POC $${pocPrice.toFixed(2)}) \u2014 fair value, no edge either direction.`, score, price, dailyChangePercent: null, strategy: "volume_profile" };
-  }
-  if (!directionAllowed) {
-    return { decision: "skipped", reasoning: `${symbol}: broke ${direction} out of its value area (POC $${pocPrice.toFixed(2)}) at $${price.toFixed(2)}, but your direction filter is "${cfg.directionFilter}" \u2014 doesn't qualify.`, score, price, dailyChangePercent: null, strategy: "volume_profile" };
-  }
-  if (score < cfg.minConfidence) {
-    return { decision: "watching", reasoning: `${symbol}: outside its value area at $${price.toFixed(2)} (POC $${pocPrice.toFixed(2)}), but score ${score}/100 is below your ${cfg.minConfidence} threshold.`, score, price, dailyChangePercent: null, strategy: "volume_profile" };
-  }
-  const optType = direction === "up" ? "call" : "put";
-  return {
-    decision: "signal",
-    score,
-    price,
-    dailyChangePercent: null,
-    strategy: "volume_profile",
-    direction,
-    reasoning: `${symbol}: broke ${direction} out of its ${cfg.volumeProfileLookbackDays}-day value area ($${vaLow.toFixed(2)}-$${vaHigh.toFixed(2)}) \u2014 POC (point of control) at $${pocPrice.toFixed(2)}, now at $${price.toFixed(2)} (${distFromPocPct.toFixed(1)}% away). Score ${score}/100. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
-  };
-}
-async function runBreakout2(service, symbol, cfg) {
-  const now = /* @__PURE__ */ new Date();
-  const start = new Date(now.getTime() - (cfg.breakoutLookbackDays + 3) * 24 * 60 * 6e4);
-  const bars = await service.getBars(symbol, "1Day", start, now, 200);
-  if (bars.length < cfg.breakoutLookbackDays) {
-    return { decision: "error", reasoning: `${symbol}: not enough daily history returned for a ${cfg.breakoutLookbackDays}-day breakout check.`, score: null, price: null, dailyChangePercent: null, strategy: "breakout" };
-  }
-  const priorBars = bars.slice(-cfg.breakoutLookbackDays - 1, -1);
-  const today = bars[bars.length - 1];
-  const priorHigh = Math.max(...priorBars.map((b) => b.h));
-  const priorLow = Math.min(...priorBars.map((b) => b.l));
-  const avgVolume = priorBars.reduce((s, b) => s + b.v, 0) / priorBars.length;
-  const volumeConfirmed = today.v > avgVolume * 1.3;
-  const brokeUp = today.c > priorHigh;
-  const brokeDown = today.c < priorLow;
-  const direction = brokeUp ? "up" : brokeDown ? "down" : "inside";
-  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
-  const breakoutMagnitudePct = direction === "up" ? (today.c - priorHigh) / priorHigh * 100 : direction === "down" ? (priorLow - today.c) / priorLow * 100 : 0;
-  const score = Math.min(100, Math.round(45 + breakoutMagnitudePct * 15 + (volumeConfirmed ? 15 : 0)));
-  if (direction === "inside") {
-    return { decision: "watching", reasoning: `${symbol}: still inside its ${cfg.breakoutLookbackDays}-day range ($${priorLow.toFixed(2)}-$${priorHigh.toFixed(2)}) \u2014 no breakout.`, score, price: today.c, dailyChangePercent: null, strategy: "breakout" };
-  }
-  if (!directionAllowed) {
-    return { decision: "skipped", reasoning: `${symbol}: broke ${direction} out of its ${cfg.breakoutLookbackDays}-day range at $${today.c.toFixed(2)}, but your direction filter is "${cfg.directionFilter}" \u2014 doesn't qualify.`, score, price: today.c, dailyChangePercent: null, strategy: "breakout" };
-  }
-  if (!volumeConfirmed) {
-    return { decision: "watching", reasoning: `${symbol}: broke ${direction} out of its ${cfg.breakoutLookbackDays}-day range at $${today.c.toFixed(2)}, but today's volume isn't confirming (${Math.round(today.v)} vs avg ${Math.round(avgVolume)}) \u2014 watching for follow-through.`, score, price: today.c, dailyChangePercent: null, strategy: "breakout" };
-  }
-  if (score < cfg.minConfidence) {
-    return { decision: "watching", reasoning: `${symbol}: volume-confirmed ${direction} breakout of its ${cfg.breakoutLookbackDays}-day range, but score ${score}/100 is below your ${cfg.minConfidence} threshold.`, score, price: today.c, dailyChangePercent: null, strategy: "breakout" };
-  }
-  const optType = direction === "up" ? "call" : "put";
-  return {
-    decision: "signal",
-    score,
-    price: today.c,
-    dailyChangePercent: null,
-    strategy: "breakout",
-    direction,
-    reasoning: `${symbol}: volume-confirmed ${direction} breakout of its ${cfg.breakoutLookbackDays}-day range ($${priorLow.toFixed(2)}-$${priorHigh.toFixed(2)}), now at $${today.c.toFixed(2)}. Score ${score}/100. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
-  };
-}
-function momentumScore(dailyChangePercent) {
-  const magnitude = Math.min(Math.abs(dailyChangePercent) / 3, 1);
-  return Math.round(50 + magnitude * 50);
-}
-async function runMomentum2(service, symbol, cfg) {
-  const snap = await service.getSnapshot(symbol);
-  if (!snap) {
-    return { decision: "error", reasoning: `${symbol}: no market data returned \u2014 check the symbol is a valid US equity ticker.`, score: null, price: null, dailyChangePercent: null, strategy: "momentum" };
-  }
-  const score = momentumScore(snap.dailyChangePercent);
-  const direction = snap.dailyChangePercent >= 0 ? "up" : "down";
-  const meetsConfidence = score >= cfg.minConfidence;
-  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
-  if (!directionAllowed) {
-    return { decision: "skipped", score, price: snap.price, dailyChangePercent: snap.dailyChangePercent, strategy: "momentum", reasoning: `${symbol} moved ${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today, but your direction filter is "${cfg.directionFilter}" \u2014 this move doesn't qualify.` };
-  }
-  if (meetsConfidence) {
-    const optType = direction === "up" ? "call" : "put";
-    return { decision: "signal", score, price: snap.price, dailyChangePercent: snap.dailyChangePercent, strategy: "momentum", direction, reasoning: `${symbol} moved ${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today \u2014 momentum score ${score}/100 clears your ${cfg.minConfidence} minimum. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.` };
-  }
-  return { decision: "watching", score, price: snap.price, dailyChangePercent: snap.dailyChangePercent, strategy: "momentum", reasoning: `${symbol} at $${snap.price.toFixed(2)} (${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today) \u2014 momentum score ${score}/100 is below your ${cfg.minConfidence} confidence threshold. Watching, not acting.` };
-}
-async function runOrderFlow2(service, symbol, cfg) {
-  const now = /* @__PURE__ */ new Date();
-  const lookback = Math.max(10, cfg.orderFlowLookbackBars);
-  const sessionsNeeded = Math.ceil(lookback / 78);
-  const start = new Date(now.getTime() - (sessionsNeeded + 3) * 24 * 60 * 6e4);
-  const bars = await service.getBars(symbol, "5Min", start, now, 500);
-  if (bars.length < lookback) {
-    return { decision: "error", reasoning: `${symbol}: not enough intraday bars returned to compute an order-flow read (need ${lookback}, got ${bars.length}).`, score: null, price: null, dailyChangePercent: null, strategy: "order_flow" };
-  }
-  const window = bars.slice(-lookback);
-  const deltas = window.map((b) => {
-    const range = b.h - b.l;
-    if (range <= 0) return 0;
-    const closeLocation = (b.c - b.l) / range;
-    return b.v * (closeLocation * 2 - 1);
-  });
-  const mid = Math.floor(deltas.length / 2);
-  const cvdFirstHalf = deltas.slice(0, mid).reduce((s, d) => s + d, 0);
-  const cvdSecondHalf = deltas.slice(mid).reduce((s, d) => s + d, 0);
-  const totalVolume = window.reduce((s, b) => s + b.v, 0) || 1;
-  const cvdShiftPct = (cvdSecondHalf - cvdFirstHalf) / totalVolume * 100;
-  const vwapNum = window.reduce((s, b) => s + b.vw * b.v, 0);
-  const vwap = totalVolume > 0 ? vwapNum / totalVolume : window[window.length - 1].c;
-  const last2 = window[window.length - 1];
-  const price = last2.c;
-  const lastBarBullish = last2.c > last2.o;
-  const lastBarBearish = last2.c < last2.o;
-  const windowHigh = Math.max(...window.map((b) => b.h));
-  const windowLow = Math.min(...window.map((b) => b.l));
-  const rangePct = (windowHigh - windowLow) / windowLow * 100;
-  const imbalanced = rangePct > 0.8;
-  const cvdBull = cvdShiftPct > 2;
-  const cvdBear = cvdShiftPct < -2;
-  const aboveVwap = price > vwap;
-  const belowVwap = price < vwap;
-  let direction = "inside";
-  if (imbalanced && cvdBull && aboveVwap && lastBarBullish) direction = "up";
-  else if (imbalanced && cvdBear && belowVwap && lastBarBearish) direction = "down";
-  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
-  const distFromVwapPct = Math.abs((price - vwap) / vwap) * 100;
-  const cvdStrength = Math.min(30, Math.abs(cvdShiftPct) * 4);
-  const vwapAlign = Math.min(15, distFromVwapPct * 10);
-  const rangeStrength = Math.min(15, Math.max(0, rangePct - 0.8) * 6);
-  const overextPenalty = distFromVwapPct > 1.5 ? Math.min(25, (distFromVwapPct - 1.5) * 12) : 0;
-  const score = Math.max(0, Math.min(100, Math.round(40 + cvdStrength + vwapAlign + rangeStrength - overextPenalty)));
-  if (!imbalanced) {
-    return { decision: "watching", reasoning: `${symbol}: range is tight (${rangePct.toFixed(2)}% over the last ${lookback} bars) \u2014 market looks balanced, not imbalanced. Order flow sits out until price moves out of balance.`, score, price, dailyChangePercent: null, strategy: "order_flow" };
-  }
-  if (direction === "inside") {
-    return { decision: "watching", reasoning: `${symbol}: imbalanced (${rangePct.toFixed(2)}% range) but volume-delta and VWAP aren't aligned yet (CVD shift ${cvdShiftPct.toFixed(1)}%, price $${price.toFixed(2)} vs VWAP $${vwap.toFixed(2)}) \u2014 waiting for a full-candle-close confirmation.`, score, price, dailyChangePercent: null, strategy: "order_flow" };
-  }
-  if (!directionAllowed) {
-    return { decision: "skipped", reasoning: `${symbol}: order-flow read is ${direction} (CVD shift ${cvdShiftPct.toFixed(1)}%, vs VWAP $${vwap.toFixed(2)}), but your direction filter is "${cfg.directionFilter}" \u2014 doesn't qualify.`, score, price, dailyChangePercent: null, strategy: "order_flow" };
-  }
-  if (score < cfg.minConfidence) {
-    return { decision: "watching", reasoning: `${symbol}: ${direction} order-flow read (CVD shift ${cvdShiftPct.toFixed(1)}%, ${distFromVwapPct.toFixed(1)}% from VWAP), but score ${score}/100 is below your ${cfg.minConfidence} threshold.`, score, price, dailyChangePercent: null, strategy: "order_flow" };
-  }
-  const optType = direction === "up" ? "call" : "put";
-  return {
-    decision: "signal",
-    score,
-    price,
-    dailyChangePercent: null,
-    strategy: "order_flow",
-    direction,
-    reasoning: `${symbol}: imbalanced market (${rangePct.toFixed(2)}% range over ${lookback} bars) with a ${direction} volume-delta shift of ${cvdShiftPct.toFixed(1)}%, price $${price.toFixed(2)} ${direction === "up" ? "above" : "below"} VWAP $${vwap.toFixed(2)}, confirmed by a full ${direction === "up" ? "bullish" : "bearish"} candle close. Score ${score}/100. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
-  };
-}
-function quantVerdictFromScore2(score) {
-  if (score === null) return "SKIP";
-  if (score >= 65) return "CONFIRM";
-  if (score >= 40) return "WATCH";
-  return "SKIP";
-}
-async function getOptionsAiConfirmation(userId, symbol, result, cfg) {
-  try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2, hasHiddenReasoningOverhead: hasHiddenReasoningOverhead2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const client2 = await getUniversalAIClientForUser2(userId, { critical: true });
-    const system = 'You are a disciplined options-trading second opinion. Given a technical signal from a rules-based scanner, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string (1-2 sentences)}.';
-    const user = `Underlying: ${symbol}
-Strategy: ${result.strategy}
-Direction: ${result.direction}
-Quant score: ${result.score}/100
-Price: ${result.price}
-Daily change %: ${result.dailyChangePercent}
-Scanner reasoning: ${result.reasoning}
-
-Would you confirm this trade?`;
-    const model = client2.defaultModel || "gpt-4o-mini";
-    const r = await client2.chat.completions.create({
-      model,
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      response_format: { type: "json_object" },
-      // 300 was too tight for gpt-oss/Qwen3 (the current Groq/OpenRouter default
-      // models) — their hidden reasoning tokens alone could consume the whole
-      // budget and leave content empty, which this function's catch block then
-      // reports as a hard failure (confidence 0) indistinguishable from an
-      // actual provider/auth error.
-      max_tokens: hasHiddenReasoningOverhead2(model) ? 1200 : 300,
-      temperature: 0.3
-    });
-    const parsed = JSON.parse(r.choices?.[0]?.message?.content || "{}");
-    return {
-      confirmed: !!parsed.confirmed,
-      confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)),
-      reasoning: String(parsed.reasoning || "")
-    };
-  } catch (err) {
-    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
-  }
-}
-function pushOptionsConsensus(userId, entry) {
-  global.optionsEngineConsensus = global.optionsEngineConsensus || {};
-  const list = global.optionsEngineConsensus[userId] || [];
-  const deduped = list.filter((e) => e.symbol !== entry.symbol);
-  global.optionsEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
-  Promise.resolve().then(() => (init_engine_consensus(), engine_consensus_exports)).then(
-    ({ recordEngineConsensus: recordEngineConsensus2 }) => recordEngineConsensus2(userId, "options", entry)
-  ).catch(() => {
-  });
-}
-async function assembleOptionsConsensus(userId, symbol, result, cfg) {
-  const quantVerdict = quantVerdictFromScore2(result.score);
-  if (cfg.aiMode === "rule_based") {
-    const tradeAllowed2 = quantVerdict !== "SKIP" && (result.score ?? 0) >= cfg.minConfidence;
-    pushOptionsConsensus(userId, {
-      symbol,
-      strategy: result.strategy,
-      quantVerdict,
-      quantScore: result.score ?? 0,
-      aiVerdict: "CONFIRM",
-      aiConfidence: 0,
-      aiReasoning: "Rule-based mode \u2014 AI confirmation skipped.",
-      consensus: quantVerdict === "CONFIRM" ? "STRONG_CONFIRM" : quantVerdict === "SKIP" ? "STRONG_SKIP" : "WATCH",
-      tradeAllowed: tradeAllowed2,
-      timestamp: (/* @__PURE__ */ new Date()).toISOString()
-    });
-    return tradeAllowed2;
-  }
-  const ai = await getOptionsAiConfirmation(userId, symbol, result, cfg);
-  const aiVerdict = ai.confirmed && ai.confidence >= Math.max(60, cfg.minConfidence) ? "CONFIRM" : "SKIP";
-  let consensus;
-  if (quantVerdict === "CONFIRM" && aiVerdict === "CONFIRM") consensus = "STRONG_CONFIRM";
-  else if (quantVerdict === "SKIP" && aiVerdict === "SKIP") consensus = "STRONG_SKIP";
-  else if (quantVerdict === "CONFIRM" && aiVerdict === "SKIP" || quantVerdict === "SKIP" && aiVerdict === "CONFIRM") consensus = "CAUTION";
-  else consensus = "WATCH";
-  const tradeAllowed = consensus !== "STRONG_SKIP" && aiVerdict === "CONFIRM";
-  pushOptionsConsensus(userId, {
-    symbol,
-    strategy: result.strategy,
-    quantVerdict,
-    quantScore: result.score ?? 0,
-    aiVerdict,
-    aiConfidence: ai.confidence,
-    aiReasoning: ai.reasoning,
-    consensus,
-    tradeAllowed,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  });
-  return tradeAllowed;
-}
-async function scanSymbol2(service, symbol, cfg) {
-  const now = /* @__PURE__ */ new Date();
-  if (cfg.sessionFilterEnabled && isWeekday(now)) {
-    const open = nyMarketOpenUTC(now);
-    const close = nyMarketCloseUTC(now);
-    const closeGuardStart = new Date(close.getTime() - cfg.avoidLastMinutesBeforeClose * 6e4);
-    if (now >= close || now < open) {
-      return { decision: "watching", reasoning: `${symbol}: outside regular market hours \u2014 session filter is on.`, score: null, price: null, dailyChangePercent: null, strategy: cfg.strategyMode };
-    }
-    if (now >= closeGuardStart) {
-      return { decision: "watching", reasoning: `${symbol}: within the last ${cfg.avoidLastMinutesBeforeClose} minutes before close \u2014 session filter is skipping new entries (pin-risk/illiquidity guard).`, score: null, price: null, dailyChangePercent: null, strategy: cfg.strategyMode };
-    }
-  }
-  if (cfg.strategyMode === "auto" || cfg.strategyMode === "credit_spread") {
-    const results = await Promise.all(["orb", "volume_profile", "breakout", "momentum", "order_flow"].map((k2) => STRATEGY_RUNNERS2[k2](service, symbol, cfg).catch(() => null)));
-    const valid = results.filter((r) => !!r);
-    const signals = valid.filter((r) => r.decision === "signal").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-    if (signals.length > 0) return signals[0];
-    if (cfg.enableCompositeAutonomous) {
-      const withDirection = valid.filter((r) => (r.decision === "watching" || r.decision === "signal") && typeof r.score === "number");
-      const momentum = valid.find((r) => r.strategy === "momentum");
-      const compositeScore = withDirection.length > 0 ? withDirection.reduce((s, r) => s + (r.score ?? 0), 0) / withDirection.length : 0;
-      if (momentum && momentum.dailyChangePercent !== null && compositeScore >= cfg.compositeMinEdgeScore) {
-        const direction = momentum.dailyChangePercent >= 0 ? "up" : "down";
-        const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
-        if (directionAllowed) {
-          const optType = direction === "up" ? "call" : "put";
-          return {
-            decision: "signal",
-            score: Math.round(compositeScore),
-            price: momentum.price,
-            dailyChangePercent: momentum.dailyChangePercent,
-            strategy: "composite_autonomous",
-            direction,
-            reasoning: `${symbol}: Composite Autonomous Entry \u2014 ${withDirection.length} strategies blended to a ${Math.round(compositeScore)}/100 edge score (floor ${cfg.compositeMinEdgeScore}), consensus direction ${direction} from momentum. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
-          };
-        }
-      }
-    }
-    const watching = valid.filter((r) => r.decision === "watching").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-    if (watching.length > 0) return watching[0];
-    return valid[0] ?? { decision: "error", reasoning: `${symbol}: all strategies failed to return data.`, score: null, price: null, dailyChangePercent: null, strategy: "auto" };
-  }
-  const runner = STRATEGY_RUNNERS2[cfg.strategyMode];
-  if (!runner) {
-    return { decision: "watching", reasoning: `${symbol}: strategy "${cfg.strategyMode}" isn't yet backed by live scanning logic (options-spread strategies like covered_call/credit_spread are on the roadmap) \u2014 no read produced.`, score: null, price: null, dailyChangePercent: null, strategy: cfg.strategyMode };
-  }
-  return runner(service, symbol, cfg);
-}
-function daysUntil(dateStr, from) {
-  const target = /* @__PURE__ */ new Date(dateStr + "T00:00:00Z");
-  return Math.round((target.getTime() - from.getTime()) / (24 * 60 * 6e4));
-}
-function passesLiquidityAndIvGate(c, cfg) {
-  if (!c.bid || c.bid <= 0 || !c.ask || c.ask <= 0) return false;
-  const mid = (c.bid + c.ask) / 2;
-  const spreadPct = mid > 0 ? (c.ask - c.bid) / mid * 100 : Infinity;
-  if (spreadPct > cfg.maxSpreadPct) return false;
-  if (typeof c.openInterest === "number" && c.openInterest < cfg.minOpenInterest) return false;
-  if (typeof c.impliedVolatility === "number" && c.impliedVolatility * 100 > cfg.ivRankMax) return false;
-  return true;
-}
-async function resolveContract(service, underlyingSymbol, direction, cfg) {
-  const optType = direction === "up" ? "call" : "put";
-  const chain = await service.getOptionsChain(underlyingSymbol);
-  const now = /* @__PURE__ */ new Date();
-  let candidates = chain.filter((c) => c.type === optType && c.ask && c.ask > 0);
-  candidates = candidates.filter((c) => {
-    const dte = daysUntil(c.expirationDate, now);
-    return dte >= cfg.minDaysToExpiry && dte <= cfg.maxDaysToExpiry;
-  });
-  candidates = candidates.filter((c) => passesLiquidityAndIvGate(c, cfg));
-  if (candidates.length === 0) return null;
-  const targetDte = cfg.expiryPreference === "0dte" ? 0 : cfg.expiryPreference === "weekly" ? 7 : cfg.expiryPreference === "monthly" ? 30 : 7;
-  const sortedByExpiry = [...candidates].sort((a, b) => Math.abs(daysUntil(a.expirationDate, now) - targetDte) - Math.abs(daysUntil(b.expirationDate, now) - targetDte));
-  const chosenExpiry = sortedByExpiry[0].expirationDate;
-  candidates = candidates.filter((c) => c.expirationDate === chosenExpiry);
-  const snap = await service.getSnapshot(underlyingSymbol);
-  if (!snap) return null;
-  const price = snap.price;
-  const bySpread = (a, b) => {
-    const spreadA = a.bid && a.ask ? (a.ask - a.bid) / ((a.ask + a.bid) / 2) : Infinity;
-    const spreadB = b.bid && b.ask ? (b.ask - b.bid) / ((b.ask + b.bid) / 2) : Infinity;
-    return spreadA - spreadB;
-  };
-  const sortedByStrike = [...candidates].sort((a, b) => a.strikePrice - b.strikePrice);
-  if (cfg.strikeSelectionMode === "delta_target") {
-    const withDelta = sortedByStrike.filter((c) => typeof c.delta === "number");
-    if (withDelta.length > 0) {
-      const byDeltaDistance = withDelta.sort((a, b) => Math.abs(Math.abs(a.delta) - cfg.targetDelta) - Math.abs(Math.abs(b.delta) - cfg.targetDelta));
-      return [...byDeltaDistance.slice(0, 3)].sort(bySpread)[0] ?? byDeltaDistance[0];
-    }
-  }
-  if (cfg.strikeSelectionMode === "itm") {
-    const itm = optType === "call" ? sortedByStrike.filter((c) => c.strikePrice < price) : sortedByStrike.filter((c) => c.strikePrice > price);
-    if (itm.length === 0) return null;
-    const closest = optType === "call" ? itm.slice(-3) : itm.slice(0, 3);
-    return [...closest].sort(bySpread)[0] ?? (optType === "call" ? itm[itm.length - 1] : itm[0]);
-  }
-  if (cfg.strikeSelectionMode === "otm") {
-    const otm = optType === "call" ? sortedByStrike.filter((c) => c.strikePrice > price) : sortedByStrike.filter((c) => c.strikePrice < price);
-    if (otm.length === 0) return null;
-    const closest = optType === "call" ? otm.slice(0, 3) : otm.slice(-3);
-    return [...closest].sort(bySpread)[0] ?? (optType === "call" ? otm[0] : otm[otm.length - 1]);
-  }
-  const nearAtm = [...sortedByStrike].sort((a, b) => Math.abs(a.strikePrice - price) - Math.abs(b.strikePrice - price)).slice(0, 3);
-  return [...nearAtm].sort(bySpread)[0] ?? null;
-}
-async function computeContractQuantity(userId, cfg, equity, askPrice, signalScore = null, brainMultiplier = null, contractIv = null) {
-  if (!askPrice || askPrice <= 0 || equity <= 0) return { quantity: 0, reasoning: "" };
-  const contractCost = askPrice * 100;
-  const riskAmount = equity * (cfg.riskPerTrade / 100);
-  let baseQty = Math.max(0, Math.min(Math.floor(riskAmount / contractCost), cfg.maxContractsPerTrade));
-  const notes = [];
-  const stats = await storage.getOptionsEngineTradeStats(userId);
-  if (cfg.volatileCapMode === "risk_scaled" && typeof contractIv === "number" && contractIv > 0.5 && baseQty > 1) {
-    baseQty = Math.max(1, Math.floor(baseQty / 2));
-    notes.push(`Volatile Cap: high IV (${(contractIv * 100).toFixed(0)}%) halved base size to ${baseQty}`);
-  }
-  const finalize = (qty, reason) => {
-    if (stats.lossStreak >= 3 && qty > 1) {
-      const relocked = qty > 0 ? 1 : 0;
-      return { quantity: relocked, reasoning: `${reason} \u26A0\uFE0F Loss-streak re-lock: ${stats.lossStreak} losses in a row \u2014 capped to ${relocked} contract.` };
-    }
-    return { quantity: qty, reasoning: [reason, ...notes].filter(Boolean).join(" ") };
-  };
-  if (cfg.highConfidenceOverride && (signalScore ?? 0) >= 90) {
-    const qty = brainMultiplier != null ? Math.max(0, Math.min(cfg.maxContractsPerTrade, Math.round(baseQty * brainMultiplier))) : baseQty;
-    return finalize(qty, `\u26A1 High Confidence Override: ${signalScore}/100 score bypasses Brain Learning lock \u2014 ${qty} contracts.`);
-  }
-  if (cfg.brainLearningMode) {
-    const brainLocked = stats.totalClosed < 10 || stats.winRate < 60;
-    if (brainLocked) {
-      const lockedQty = baseQty > 0 ? 1 : 0;
-      return finalize(lockedQty, `\u{1F9E0} Learning Mode: contracts locked at 1 (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR) \u2014 full sizing unlocks automatically.`);
-    }
-    if (cfg.useKellyCriterion && brainMultiplier != null) {
-      const kellyQty = Math.max(0, Math.min(cfg.maxContractsPerTrade, Math.round(baseQty * brainMultiplier)));
-      return finalize(kellyQty, `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + real Kelly sizing (${brainMultiplier.toFixed(2)}x): ${kellyQty} contracts.`);
-    }
-    return finalize(baseQty, `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) \u2014 full risk sizing active.`);
-  }
-  if (cfg.useKellyCriterion && brainMultiplier != null) {
-    const kellyQty = Math.max(0, Math.min(cfg.maxContractsPerTrade, Math.round(baseQty * brainMultiplier)));
-    return finalize(kellyQty, `Kelly Criterion sizing (${brainMultiplier.toFixed(2)}x, ${stats.winRate}% WR over ${stats.totalClosed} trades): ${kellyQty} contracts.`);
-  }
-  return finalize(baseQty, "");
-}
-async function checkSafetyGates2(userId, cfg, equity, connectionId, connectionType = "alpaca", symbol, unrealizedPnl = 0, directionBias) {
-  if (cfg.maxDailyTrades > 0) {
-    const count = await storage.getTodayOptionsEngineTradeCount(userId, connectionId);
-    if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) already reached`, riskMultiplier: 1 };
-  }
-  const openTrades = await storage.getOpenOptionsEngineTrades(userId, connectionId);
-  if (openTrades.length >= cfg.maxOpenPositions) return { allowed: false, reason: `max open positions (${cfg.maxOpenPositions}) already reached`, riskMultiplier: 1 };
-  if (symbol) {
-    const act = await storage.getOptionsEngineSymbolActivity(userId, symbol, connectionId);
-    if (act.openCount >= MAX_OPEN_PER_SYMBOL2) {
-      return { allowed: false, reason: `concentration cap \u2014 already ${act.openCount} open position(s) on ${symbol} (max ${MAX_OPEN_PER_SYMBOL2})`, riskMultiplier: 1 };
-    }
-    if (act.todayEntryCount >= MAX_DAILY_ENTRIES_PER_SYMBOL2) {
-      return { allowed: false, reason: `concentration cap \u2014 already ${act.todayEntryCount} entries on ${symbol} today (max ${MAX_DAILY_ENTRIES_PER_SYMBOL2})`, riskMultiplier: 1 };
-    }
-    if (act.lastEntryAt) {
-      const sinceMs = Date.now() - act.lastEntryAt.getTime();
-      if (sinceMs < SYMBOL_COOLDOWN_MS2) {
-        return { allowed: false, reason: `cooldown \u2014 last ${symbol} entry ${Math.round(sinceMs / 6e4)} min ago (min gap ${Math.round(SYMBOL_COOLDOWN_MS2 / 6e4)} min)`, riskMultiplier: 1 };
-      }
-    }
-    if (directionBias) {
-      const basket = CORRELATED_BASKETS.find((b) => b.includes(symbol.toUpperCase()));
-      if (basket) {
-        const sameBias = openTrades.filter(
-          (t) => basket.includes((t.underlyingSymbol || "").toUpperCase()) && positionBias(t.optionType, t.spreadType) === directionBias
-        ).length;
-        if (sameBias >= CORRELATED_BASKET_CAP) {
-          return { allowed: false, reason: `correlated-basket cap \u2014 already ${sameBias} ${directionBias} position(s) across the ${basket[0]}-group (max ${CORRELATED_BASKET_CAP})`, riskMultiplier: 1 };
-        }
-      }
-    }
-  }
-  let riskMultiplier = 1;
-  if (equity > 0) {
-    const todayPnl = await storage.getTodayOptionsEngineRealizedPnl(userId, connectionId) + unrealizedPnl;
-    if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
-      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached \u2014 incl. open positions`, riskMultiplier: 1 };
-    }
-    const propState = await storage.getPropFirmAccountState(connectionId, connectionType);
-    if (propState) {
-      const isFunded = propState.phase === "funded";
-      const activeDrawdownPct = isFunded ? propState.fundedDailyDrawdownPct : propState.challengeDailyDrawdownPct;
-      const activeConsistencyEnabled = isFunded ? propState.fundedConsistencyEnabled : propState.challengeConsistencyEnabled;
-      const activeConsistencyThreshold = isFunded ? propState.fundedConsistencyThresholdPct : propState.challengeConsistencyThresholdPct;
-      if (activeDrawdownPct > 0 && todayPnl <= -(equity * activeDrawdownPct / 100)) {
-        return { allowed: false, reason: `prop-firm ${propState.phase} daily drawdown limit (${activeDrawdownPct}%) reached`, riskMultiplier: 1 };
-      }
-      const { getConsistencyStatus: getConsistencyStatus2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
-      const consistency = await getConsistencyStatus2(connectionId, connectionType, activeConsistencyThreshold, activeConsistencyEnabled);
-      if (consistency.hardBlocked) {
-        return { allowed: false, reason: consistency.guidance, riskMultiplier: 1 };
-      }
-      riskMultiplier = Math.min(riskMultiplier, consistency.sizeMultiplier);
-    } else if (cfg.propFirmMode && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
-      return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached`, riskMultiplier: 1 };
-    }
-    if (cfg.dailyProfitTarget > 0 && todayPnl >= equity * cfg.dailyProfitTarget / 100) {
-      return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached \u2014 locking in gains`, riskMultiplier: 1 };
-    }
-    const peak = Math.max(sessionPeakEquity2.get(connectionId) ?? equity, equity);
-    sessionPeakEquity2.set(connectionId, peak);
-    const ddFromPeakPct = peak > 0 ? (peak - equity) / peak * 100 : 0;
-    if (ddFromPeakPct >= cfg.drawdownShieldThreshold) {
-      riskMultiplier = Math.min(riskMultiplier, 0.25);
-    }
-    if (!propState && cfg.consistencyEnforcementEnabled && cfg.propFirmMode) {
-      const history = await storage.getOptionsEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays, connectionId);
-      const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-      history[today] = todayPnl;
-      const recentKeys = Object.keys(history).sort().slice(-cfg.consistencyPeriodDays);
-      const profitableDays = recentKeys.filter((k2) => (history[k2] ?? 0) > 0).length;
-      const tradingDays = recentKeys.length;
-      const daysRemaining = cfg.consistencyPeriodDays - tradingDays;
-      const todayIsLosing = todayPnl < 0;
-      const daysNeeded = cfg.consistencyMinProfitableDays - profitableDays;
-      const mustWinRemaining = todayIsLosing ? daysNeeded : Math.max(0, daysNeeded - 1);
-      if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 1) {
-        riskMultiplier = Math.min(riskMultiplier, 0.25);
-      } else if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 3) {
-        riskMultiplier = Math.min(riskMultiplier, 0.5);
-      }
-      if (cfg.maxDailyProfitPctOfTotal > 0) {
-        const totalProfitAllTime = Object.values(history).reduce((s, v) => s + Math.max(0, v ?? 0), 0);
-        const todayProfit = Math.max(0, todayPnl);
-        if (totalProfitAllTime > 0 && todayProfit > 0) {
-          const todayPctOfTotal = todayProfit / totalProfitAllTime * 100;
-          if (todayPctOfTotal >= cfg.maxDailyProfitPctOfTotal) {
-            return { allowed: false, reason: `consistency rule \u2014 today's profit is already ${todayPctOfTotal.toFixed(0)}% of total challenge profit (limit ${cfg.maxDailyProfitPctOfTotal}%)`, riskMultiplier: 1 };
-          }
-        }
-      }
-    }
-  }
-  return { allowed: true, riskMultiplier };
-}
-async function buildCreditSpread(service, underlyingSymbol, direction, cfg) {
-  const spreadType = direction === "up" ? "bull_put" : "bear_call";
-  const optType = spreadType === "bull_put" ? "put" : "call";
-  const now = /* @__PURE__ */ new Date();
-  const chain = await service.getOptionsChain(underlyingSymbol);
-  const inBand = chain.filter((c) => {
-    if (c.type !== optType) return false;
-    const d = daysUntil(c.expirationDate, now);
-    if (d < cfg.creditSpreadDteMin || d > cfg.creditSpreadDteMax) return false;
-    if (typeof c.delta !== "number" || typeof c.bid !== "number" || typeof c.ask !== "number") return false;
-    if (c.bid <= 0 || c.ask <= 0) return false;
-    if (typeof c.openInterest === "number" && c.openInterest < cfg.minOpenInterest) return false;
-    return true;
-  });
-  if (!inBand.length) return { spread: null, reason: `no ${optType}s with delta/quotes in the ${cfg.creditSpreadDteMin}-${cfg.creditSpreadDteMax} DTE band` };
-  const byExpiryDist = [...inBand].sort((a, b) => Math.abs(daysUntil(a.expirationDate, now) - cfg.creditSpreadDte) - Math.abs(daysUntil(b.expirationDate, now) - cfg.creditSpreadDte));
-  const targetExpiry = byExpiryDist[0].expirationDate;
-  const sameExpiry = inBand.filter((c) => c.expirationDate === targetExpiry);
-  const shortLeg = [...sameExpiry].sort((a, b) => Math.abs(Math.abs(a.delta) - cfg.creditSpreadShortDelta) - Math.abs(Math.abs(b.delta) - cfg.creditSpreadShortDelta))[0];
-  if (!shortLeg) return { spread: null, reason: "could not resolve a short leg near target delta" };
-  const { recordDailyIv: recordDailyIv2, getIvRank: getIvRank2 } = await Promise.resolve().then(() => (init_iv_rank(), iv_rank_exports));
-  const atm = [...sameExpiry].sort((a, b) => Math.abs(a.strikePrice - byExpiryDist[0].strikePrice) - Math.abs(b.strikePrice - byExpiryDist[0].strikePrice))[0];
-  const atmIv = (typeof atm?.impliedVolatility === "number" ? atm.impliedVolatility : shortLeg.impliedVolatility) ?? 0;
-  if (atmIv > 0) await recordDailyIv2(underlyingSymbol, atmIv).catch(() => {
-  });
-  let capturedIvRank = null;
-  const shortIv = shortLeg.impliedVolatility;
-  if (typeof shortIv === "number" && shortIv > 0) {
-    const { ivRank, samples } = await getIvRank2(underlyingSymbol, shortIv).catch(() => ({ ivRank: null, samples: 0 }));
-    capturedIvRank = ivRank;
-    if (ivRank !== null) {
-      if (ivRank < cfg.creditSpreadMinIvRank) {
-        return { spread: null, reason: `IV Rank ${ivRank} below the ${cfg.creditSpreadMinIvRank} floor (${samples} days of history) \u2014 premium not rich enough vs this name's own range` };
-      }
-    } else if (shortIv < cfg.creditSpreadMinIv) {
-      return { spread: null, reason: `IV ${(shortIv * 100).toFixed(0)}% below the ${(cfg.creditSpreadMinIv * 100).toFixed(0)}% floor (building IV-rank history: ${samples}/20 days)` };
-    }
-  }
-  const targetLongStrike = spreadType === "bull_put" ? shortLeg.strikePrice - cfg.creditSpreadWidthDollars : shortLeg.strikePrice + cfg.creditSpreadWidthDollars;
-  const longLeg = [...sameExpiry].sort((a, b) => Math.abs(a.strikePrice - targetLongStrike) - Math.abs(b.strikePrice - targetLongStrike))[0];
-  if (!longLeg || longLeg.strikePrice === shortLeg.strikePrice) {
-    return { spread: null, reason: "no distinct protective long strike ~1 width OTM available" };
-  }
-  const width = Math.abs(shortLeg.strikePrice - longLeg.strikePrice);
-  const credit = Math.round((shortLeg.bid - longLeg.ask) * 100) / 100;
-  if (credit <= 0) return { spread: null, reason: `spread would be a net debit (${credit}) \u2014 not a credit spread` };
-  const creditPct = credit / width * 100;
-  if (creditPct < cfg.creditSpreadMinCreditPct) {
-    return { spread: null, reason: `credit $${credit.toFixed(2)} is only ${creditPct.toFixed(0)}% of the $${width} width (need \u2265${cfg.creditSpreadMinCreditPct}%) \u2014 reward/risk too poor` };
-  }
-  const maxLoss = Math.round((width - credit) * 100 * 100) / 100;
-  const dte = daysUntil(shortLeg.expirationDate, now);
-  return { spread: { spreadType, optType, shortLeg, longLeg, credit, width, maxLoss, creditPct, dte, ivRank: capturedIvRank }, reason: "" };
-}
-async function executeCreditSpread(service, connection2, userId, underlyingSymbol, result, cfg, account, gate) {
-  const dir = result.direction;
-  const { spread, reason } = await buildCreditSpread(service, underlyingSymbol, dir, cfg).catch((err) => ({ spread: null, reason: err?.message || "build error" }));
-  if (!spread) {
-    await storage.createOptionsEngineActivity({
-      userId,
-      symbol: underlyingSymbol,
-      decision: "skipped",
-      strategy: `${result.strategy}:credit_spread`,
-      reasoning: `${underlyingSymbol}: credit-spread signal (${dir === "up" ? "bull put" : "bear call"}) but ${reason}.`,
-      score: result.score,
-      price: result.price,
-      dailyChangePercent: result.dailyChangePercent,
-      source: "alpaca"
-    });
-    return;
-  }
-  const equity = account.equity > 0 ? account.equity : cfg.accountBalance;
-  const riskPct = cfg.creditSpreadRiskPct / 100 * (gate.riskMultiplier < 1 ? gate.riskMultiplier : 1);
-  const riskDollars = equity * riskPct;
-  const quantity = Math.max(0, Math.floor(riskDollars / spread.maxLoss));
-  if (quantity < 1) {
-    await storage.createOptionsEngineActivity({
-      userId,
-      symbol: underlyingSymbol,
-      decision: "skipped",
-      strategy: `${result.strategy}:credit_spread`,
-      reasoning: `${underlyingSymbol}: ${spread.spreadType} spread has max loss $${spread.maxLoss.toFixed(0)}/spread, but ${cfg.creditSpreadRiskPct}% of $${equity.toFixed(0)} ($${riskDollars.toFixed(0)}) doesn't cover even one.`,
-      score: result.score,
-      price: result.price,
-      dailyChangePercent: result.dailyChangePercent,
-      source: "alpaca"
-    });
-    return;
-  }
-  const legs = [
-    { optionSymbol: spread.shortLeg.symbol, side: "sell", ratioQty: 1, positionIntent: "sell_to_open" },
-    { optionSymbol: spread.longLeg.symbol, side: "buy", ratioQty: 1, positionIntent: "buy_to_open" }
-  ];
-  let order;
-  try {
-    order = await service.placeMultiLegOrder({ legs, quantity, netLimitPrice: -spread.credit, timeInForce: "day" });
-  } catch (err) {
-    await storage.createOptionsEngineActivity({
-      userId,
-      symbol: underlyingSymbol,
-      decision: "error",
-      strategy: `${result.strategy}:credit_spread`,
-      reasoning: `${underlyingSymbol}: ${spread.spreadType} spread order failed (${spread.shortLeg.symbol} / ${spread.longLeg.symbol} x${quantity}): ${err.message}`,
-      score: result.score,
-      price: result.price,
-      dailyChangePercent: result.dailyChangePercent,
-      source: "alpaca"
-    });
-    return;
-  }
-  await storage.createOptionsEngineTrade({
-    userId,
-    connectionId: connection2.id,
-    broker: "alpaca",
-    underlyingSymbol,
-    optionSymbol: spread.shortLeg.symbol,
-    strategy: `${result.strategy}:credit_spread`,
-    optionType: spread.optType,
-    quantity,
-    entryPrice: spread.credit,
-    entryOrderId: order.orderId,
-    entryReasoning: result.reasoning,
-    status: "open",
-    entryConfidence: result.score,
-    dte: spread.dte,
-    ivAtEntry: spread.shortLeg.impliedVolatility ?? null,
-    underlyingPriceAtEntry: result.price,
-    bidAskSpreadPct: null,
-    spreadType: spread.spreadType,
-    longLegSymbol: spread.longLeg.symbol,
-    netCredit: spread.credit,
-    maxLossPerSpread: spread.maxLoss
-  });
-  await storage.createOptionsEngineActivity({
-    userId,
-    symbol: underlyingSymbol,
-    decision: "signal",
-    strategy: `${result.strategy}:credit_spread`,
-    reasoning: `${underlyingSymbol}: EXECUTED ${spread.spreadType.replace("_", " ")} x${quantity} \u2014 sold ${spread.shortLeg.strikePrice}${spread.optType[0].toUpperCase()} / bought ${spread.longLeg.strikePrice}${spread.optType[0].toUpperCase()} exp ${spread.shortLeg.expirationDate} (${spread.dte} DTE). Net credit $${spread.credit.toFixed(2)} on $${spread.width} width (${spread.creditPct.toFixed(0)}% of width), max loss $${spread.maxLoss.toFixed(0)}/spread. Short IV ${((spread.shortLeg.impliedVolatility ?? 0) * 100).toFixed(0)}%${spread.ivRank !== null ? ` (IV Rank ${spread.ivRank})` : " (IV-rank history building)"}, ~${(Math.abs(spread.shortLeg.delta ?? 0) * 100).toFixed(0)}\u0394. Target: buy back at ${cfg.creditSpreadProfitTakePct}% of credit. ${result.reasoning}`,
-    score: result.score,
-    price: result.price,
-    dailyChangePercent: result.dailyChangePercent,
-    source: "alpaca"
-  });
-}
-async function executeSignal2(service, connection2, userId, underlyingSymbol, result, cfg, brainMultiplier, bestStrategies) {
-  if (!result.direction) return;
-  let account;
-  try {
-    account = await service.getAccountInfo();
-  } catch (err) {
-    await storage.createOptionsEngineActivity({
-      userId,
-      symbol: underlyingSymbol,
-      decision: "error",
-      strategy: result.strategy,
-      reasoning: `${underlyingSymbol}: couldn't fetch account info before sizing the trade: ${err.message}`,
-      score: null,
-      price: null,
-      dailyChangePercent: null,
-      source: "alpaca"
-    });
-    return;
-  }
-  const gateEquity = account.equity > 0 ? account.equity : cfg.accountBalance;
-  let unrealizedPnl = 0;
-  try {
-    const positions = await service.getPositions();
-    unrealizedPnl = positions.reduce((s, p2) => s + (p2.unrealizedPl || 0), 0);
-  } catch {
-  }
-  const _dirBias = result.direction === "up" ? "bullish" : "bearish";
-  const gate = await checkSafetyGates2(userId, cfg, gateEquity, connection2.id, "alpaca", underlyingSymbol, unrealizedPnl, _dirBias);
-  if (!gate.allowed) {
-    await storage.createOptionsEngineActivity({
-      userId,
-      symbol: underlyingSymbol,
-      decision: "skipped",
-      reasoning: `${underlyingSymbol}: signal confirmed (${result.strategy}), but execution blocked \u2014 ${gate.reason}.`,
-      score: result.score,
-      price: result.price,
-      dailyChangePercent: result.dailyChangePercent,
-      source: "alpaca",
-      strategy: result.strategy
-    });
-    return;
-  }
-  if (gate.riskMultiplier < 1) {
-    if ((result.score ?? 0) < 80) {
-      await storage.createOptionsEngineActivity({
-        userId,
-        symbol: underlyingSymbol,
-        decision: "skipped",
-        strategy: result.strategy,
-        reasoning: `${underlyingSymbol}: Drawdown Shield active \u2014 only 80%+ confidence setups allowed during drawdown (this signal: ${result.score}/100).`,
-        score: result.score,
-        price: result.price,
-        dailyChangePercent: result.dailyChangePercent,
-        source: "alpaca"
-      });
-      return;
-    }
-    if (bestStrategies.length > 0 && !bestStrategies.includes(result.strategy)) {
-      await storage.createOptionsEngineActivity({
-        userId,
-        symbol: underlyingSymbol,
-        decision: "skipped",
-        strategy: result.strategy,
-        reasoning: `${underlyingSymbol}: Drawdown Shield active \u2014 only this symbol's best-performing strategies (${bestStrategies.join(", ")}) are allowed during drawdown ("${result.strategy}" isn't one of them).`,
-        score: result.score,
-        price: result.price,
-        dailyChangePercent: result.dailyChangePercent,
-        source: "alpaca"
-      });
-      return;
-    }
-  }
-  const forceSpread = result.strategy === "order_flow";
-  if (cfg.creditSpreadEnabled || cfg.strategyMode === "credit_spread" || forceSpread) {
-    await executeCreditSpread(service, connection2, userId, underlyingSymbol, result, cfg, account, gate);
-    return;
-  }
-  const contract = await resolveContract(service, underlyingSymbol, result.direction, cfg).catch(() => null);
-  if (!contract || !contract.ask) {
-    await storage.createOptionsEngineActivity({
-      userId,
-      symbol: underlyingSymbol,
-      decision: "skipped",
-      strategy: result.strategy,
-      reasoning: `${underlyingSymbol}: signal confirmed, but no matching option contract cleared the liquidity/spread filter for expiry preference "${cfg.expiryPreference}" / strike mode "${cfg.strikeSelectionMode}" within ${cfg.minDaysToExpiry}-${cfg.maxDaysToExpiry} days to expiry (max spread ${cfg.maxSpreadPct}%, min OI ${cfg.minOpenInterest}).`,
-      score: result.score,
-      price: result.price,
-      dailyChangePercent: result.dailyChangePercent,
-      source: "alpaca"
-    });
-    return;
-  }
-  const dte = daysUntil(contract.expirationDate, /* @__PURE__ */ new Date());
-  const minSafeDte = cfg.expiryPreference === "0dte" ? 0 : 2;
-  if (dte < minSafeDte) {
-    await storage.createOptionsEngineActivity({
-      userId,
-      symbol: underlyingSymbol,
-      decision: "skipped",
-      strategy: result.strategy,
-      reasoning: `${underlyingSymbol}: signal confirmed, but the resolved contract is ${dte}-DTE \u2014 below the ${minSafeDte}-DTE theta-safety floor for long premium (0-1 DTE won only 29% / -$4.2k historically; the 2-7 DTE band won 74%). Set expiry preference to "0dte" to override.`,
-      score: result.score,
-      price: result.price,
-      dailyChangePercent: result.dailyChangePercent,
-      source: "alpaca"
-    });
-    return;
-  }
-  const sizingCfg = gate.riskMultiplier < 1 ? { ...cfg, riskPerTrade: cfg.riskPerTrade * gate.riskMultiplier } : cfg;
-  const { quantity, reasoning: sizingReasoningRaw } = await computeContractQuantity(
-    userId,
-    sizingCfg,
-    account.equity,
-    contract.ask,
-    result.score,
-    brainMultiplier,
-    contract.impliedVolatility ?? null
-  );
-  const sizingReasoning = gate.riskMultiplier < 1 ? `${sizingReasoningRaw} \u26A0\uFE0F Risk reduced to ${Math.round(gate.riskMultiplier * 100)}% of normal (Drawdown Shield / consistency rule active).` : sizingReasoningRaw;
-  if (quantity < 1) {
-    await storage.createOptionsEngineActivity({
-      userId,
-      symbol: underlyingSymbol,
-      decision: "skipped",
-      strategy: result.strategy,
-      reasoning: `${underlyingSymbol}: signal confirmed, but ${cfg.riskPerTrade}% of equity ($${account.equity.toFixed(0)}) doesn't cover even 1 contract at $${contract.ask.toFixed(2)} ($${(contract.ask * 100).toFixed(0)}/contract).`,
-      score: result.score,
-      price: result.price,
-      dailyChangePercent: result.dailyChangePercent,
-      source: "alpaca"
-    });
-    return;
-  }
-  const entryMid = contract.bid ? Math.round((contract.bid + contract.ask) / 2 * 100) / 100 : contract.ask;
-  const entrySpreadPct = contract.bid ? (contract.ask - contract.bid) / entryMid * 100 : 0;
-  let order;
-  try {
-    order = await service.placeOrder({ optionSymbol: contract.symbol, side: "buy", quantity, type: "limit", limitPrice: entryMid, timeInForce: "day" });
-  } catch (err) {
-    await storage.createOptionsEngineActivity({
-      userId,
-      symbol: underlyingSymbol,
-      decision: "error",
-      strategy: result.strategy,
-      reasoning: `${underlyingSymbol}: order placement failed for ${contract.symbol} x${quantity}: ${err.message}`,
-      score: result.score,
-      price: result.price,
-      dailyChangePercent: result.dailyChangePercent,
-      source: "alpaca"
-    });
-    return;
-  }
-  await storage.createOptionsEngineTrade({
-    userId,
-    connectionId: connection2.id,
-    broker: "alpaca",
-    underlyingSymbol,
-    optionSymbol: contract.symbol,
-    strategy: result.strategy,
-    optionType: result.direction === "up" ? "call" : "put",
-    quantity,
-    entryPrice: entryMid,
-    entryOrderId: order.orderId,
-    entryReasoning: result.reasoning,
-    status: "open",
-    entryConfidence: result.score,
-    dte,
-    ivAtEntry: contract.impliedVolatility ?? null,
-    underlyingPriceAtEntry: result.price,
-    bidAskSpreadPct: entrySpreadPct
-  });
-  await storage.createOptionsEngineActivity({
-    userId,
-    symbol: underlyingSymbol,
-    decision: "signal",
-    strategy: result.strategy,
-    reasoning: `${underlyingSymbol}: EXECUTED \u2014 bought ${quantity}x ${contract.symbol} (${contract.type}, strike $${contract.strikePrice}, exp ${contract.expirationDate}, ${dte} DTE) @ ~$${entryMid.toFixed(2)}/contract (limit, mid of $${contract.bid?.toFixed(2) ?? "?"}/$${contract.ask.toFixed(2)}). ${result.reasoning}${sizingReasoning ? ` ${sizingReasoning}` : ""}`,
-    score: result.score,
-    price: result.price,
-    dailyChangePercent: result.dailyChangePercent,
-    source: "alpaca"
-  });
-}
-function computeTrailFloorPercent(cfg, peakPnlPercent) {
-  switch (cfg.trailMethod) {
-    case "fixed_pct":
-      return peakPnlPercent - cfg.trailFixedPct;
-    case "stepped_fixed": {
-      const steps = Math.floor(peakPnlPercent / cfg.trailStepPct);
-      return (steps - 1) * cfg.trailStepPct;
-    }
-    case "profit_lock":
-      return peakPnlPercent * (cfg.trailProfitLockPct / 100);
-    case "chandelier":
-      return peakPnlPercent - cfg.trailFixedPct * 1.5;
-    case "parabolic_sar": {
-      const af = Math.min(cfg.trailSarMaxAF, cfg.trailSarInitialAF + peakPnlPercent / 100 * cfg.trailSarInitialAF);
-      return peakPnlPercent * (1 - af);
-    }
-    case "r_multiple":
-      return cfg.trailActivationPct + (peakPnlPercent - cfg.trailActivationPct) * 0.5;
-    case "swing_structure":
-      return peakPnlPercent - cfg.trailFixedPct * 0.75;
-    default:
-      return -Infinity;
-  }
-}
-async function manageCreditSpread(service, userId, cfg, connectionId, trade) {
-  const shortSym = trade.optionSymbol;
-  const longSym = trade.longLegSymbol;
-  const credit = trade.netCredit ?? trade.entryPrice;
-  const qty = trade.quantity;
-  const [sq, lq] = await Promise.all([
-    service.getOptionQuote(shortSym).catch(() => null),
-    service.getOptionQuote(longSym).catch(() => null)
-  ]);
-  if (!sq || !lq || sq.ask <= 0) {
-    const { expirationDate } = parseOccSymbol(shortSym, trade.underlyingSymbol);
-    const isPastExpiry = (/* @__PURE__ */ new Date(expirationDate + "T21:00:00Z")).getTime() < Date.now();
-    if (isPastExpiry) {
-      const live = await service.getPositions().catch(() => []);
-      const stillOpen = live.some((p2) => p2.symbol === shortSym || p2.symbol === longSym);
-      if (!stillOpen) {
-        await storage.markOptionsEngineTradeFailed(trade.id, `credit spread expired ${expirationDate} \u2014 settled by broker; realized P&L not tracked here, check the Alpaca statement`);
-      }
-    }
-    return;
-  }
-  const closeCost = Math.round((sq.ask - lq.bid) * 100) / 100;
-  const closeMid = Math.round((sq.mid - lq.mid) * 100) / 100;
-  const capturedPct = credit > 0 ? (credit - closeCost) / credit * 100 : 0;
-  const dte = daysUntil(parseOccSymbol(shortSym, trade.underlyingSymbol).expirationDate, /* @__PURE__ */ new Date());
-  let exitReason = null;
-  if (closeCost <= credit * (1 - cfg.creditSpreadProfitTakePct / 100)) exitReason = "profit_target";
-  else if (closeCost >= credit * cfg.creditSpreadStopMultiple) exitReason = "stop_loss";
-  else if (dte <= 1) exitReason = "expiry_close";
-  if (!exitReason) return;
-  const legs = [
-    { optionSymbol: shortSym, side: "buy", ratioQty: 1, positionIntent: "buy_to_close" },
-    { optionSymbol: longSym, side: "sell", ratioQty: 1, positionIntent: "sell_to_close" }
-  ];
-  let closeOrder;
-  try {
-    closeOrder = await service.placeMultiLegOrder({ legs, quantity: qty, netLimitPrice: Math.max(0.01, closeCost), timeInForce: "day" });
-  } catch (err) {
-    await storage.createOptionsEngineActivity({
-      userId,
-      symbol: trade.underlyingSymbol,
-      decision: "error",
-      strategy: trade.strategy,
-      reasoning: `${trade.underlyingSymbol}: failed to close ${trade.spreadType} spread (${shortSym}/${longSym}): ${err.message}`,
-      score: null,
-      price: null,
-      dailyChangePercent: null,
-      source: "alpaca"
-    });
-    return;
-  }
-  const closeFill = closeMid > 0 ? closeMid : closeCost;
-  const realizedPnl = Math.round((credit - closeFill) * 100 * qty * 100) / 100;
-  await storage.closeOptionsEngineTrade(trade.id, { exitPrice: closeFill, exitOrderId: closeOrder.orderId, exitReason, realizedPnl });
-  try {
-    const { recordRealizedPnl: recordRealizedPnl2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
-    await recordRealizedPnl2(userId, connectionId, "alpaca", realizedPnl);
-  } catch {
-  }
-  await storage.createOptionsEngineActivity({
-    userId,
-    symbol: trade.underlyingSymbol,
-    decision: "signal",
-    strategy: trade.strategy,
-    reasoning: `${trade.underlyingSymbol}: CLOSED ${trade.spreadType} x${qty} @ net $${closeFill.toFixed(2)} debit (captured ${capturedPct.toFixed(0)}% of the $${credit.toFixed(2)} credit, ${exitReason.replace("_", " ")}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
-    score: null,
-    price: null,
-    dailyChangePercent: null,
-    source: "alpaca"
-  });
-  try {
-    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { optionsBrainOutcomes: optionsBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const entered = trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now();
-    await db2.insert(optionsBrainOutcomes2).values({
-      userId,
-      underlyingSymbol: trade.underlyingSymbol,
-      optionType: trade.optionType,
-      strategy: trade.strategy,
-      direction: trade.spreadType === "bull_put" ? "bullish" : "bearish",
-      entryConfidence: trade.entryConfidence ?? null,
-      returnPct: capturedPct,
-      hourUtc: (/* @__PURE__ */ new Date()).getUTCHours(),
-      holdingMinutes: Math.max(0, Math.round((Date.now() - entered) / 6e4)),
-      exitReason,
-      result: realizedPnl > 0 ? "WIN" : realizedPnl < 0 ? "LOSS" : "BREAKEVEN",
-      profitLoss: realizedPnl,
-      contracts: qty,
-      source: "live",
-      closedAt: /* @__PURE__ */ new Date()
-    });
-  } catch {
-  }
-}
-async function monitorOpenPositions2(service, userId, cfg, connectionId) {
-  const openTrades = await storage.getOpenOptionsEngineTrades(userId, connectionId);
-  const alpacaTrades = openTrades.filter((t) => t.broker === "alpaca");
-  for (const trade of alpacaTrades) {
-    try {
-      if (trade.spreadType && trade.longLegSymbol) {
-        await manageCreditSpread(service, userId, cfg, connectionId, trade);
-        continue;
-      }
-      const quote = await service.getOptionQuote(trade.optionSymbol);
-      if (!quote || quote.mid <= 0) {
-        const { expirationDate } = parseOccSymbol(trade.optionSymbol, trade.underlyingSymbol);
-        const isPastExpiry = (/* @__PURE__ */ new Date(expirationDate + "T21:00:00Z")).getTime() < Date.now();
-        if (isPastExpiry) {
-          const livePositions = await service.getPositions();
-          const stillOpenAtBroker = livePositions.some((p2) => p2.symbol === trade.optionSymbol);
-          if (!stillOpenAtBroker) {
-            await storage.markOptionsEngineTradeFailed(trade.id, `expired ${expirationDate} \u2014 settled by broker (worthless or exercised/assigned), real P&L not tracked here; check the Alpaca account statement`);
-            await storage.createOptionsEngineActivity({
-              userId,
-              symbol: trade.underlyingSymbol,
-              decision: "error",
-              strategy: trade.strategy,
-              reasoning: `${trade.underlyingSymbol}: ${trade.optionSymbol} expired ${expirationDate} and no longer appears in the broker's open positions \u2014 closed out of tracking. P&L wasn't captured by this reconciliation; check the Alpaca account statement for the actual settlement amount.`,
-              score: null,
-              price: null,
-              dailyChangePercent: null,
-              source: "alpaca"
-            });
-          }
-        }
-        continue;
-      }
-      const pnlPercent = (quote.mid - trade.entryPrice) / trade.entryPrice * 100;
-      let exitReason = null;
-      if (cfg.trailMethod === "none") {
-        if (pnlPercent >= cfg.profitTargetPercent) exitReason = "profit_target";
-        else if (pnlPercent <= -cfg.stopLossPercent) exitReason = "stop_loss";
-      } else {
-        const peakPnlPercent = Math.max(trade.peakPnlPercent, pnlPercent);
-        const armed = trade.trailArmed || peakPnlPercent >= cfg.trailActivationPct;
-        if (pnlPercent <= -cfg.stopLossPercent) {
-          exitReason = "stop_loss";
-        } else if (armed) {
-          const rawFloor = computeTrailFloorPercent(cfg, peakPnlPercent);
-          const floor = Math.max(rawFloor, cfg.breakevenBufferPct);
-          if (pnlPercent <= floor) exitReason = "trailing_stop";
-        }
-        if (!exitReason && (peakPnlPercent !== trade.peakPnlPercent || armed !== trade.trailArmed)) {
-          await storage.updateOptionsEngineTradeTrailState(trade.id, { peakPnlPercent, trailArmed: armed });
-        }
-      }
-      if (!exitReason) continue;
-      const exitLimitPrice = quote.bid > 0 ? quote.bid : quote.mid;
-      const closeOrder = await service.placeOrder({ optionSymbol: trade.optionSymbol, side: "sell", quantity: trade.quantity, type: "limit", limitPrice: exitLimitPrice, timeInForce: "day" });
-      const realizedPnl = (exitLimitPrice - trade.entryPrice) * 100 * trade.quantity;
-      await storage.closeOptionsEngineTrade(trade.id, { exitPrice: exitLimitPrice, exitOrderId: closeOrder.orderId, exitReason, realizedPnl });
-      try {
-        const { recordRealizedPnl: recordRealizedPnl2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
-        await recordRealizedPnl2(userId, connectionId, "alpaca", realizedPnl);
-      } catch {
-      }
-      await storage.createOptionsEngineActivity({
-        userId,
-        symbol: trade.underlyingSymbol,
-        decision: "signal",
-        strategy: trade.strategy,
-        reasoning: `${trade.underlyingSymbol}: CLOSED ${trade.optionSymbol} x${trade.quantity} @ ~$${quote.mid.toFixed(2)} (${pnlPercent >= 0 ? "+" : ""}${pnlPercent.toFixed(1)}% of premium, ${exitReason.replace("_", " ")}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
-        score: null,
-        price: quote.mid,
-        dailyChangePercent: null,
-        source: "alpaca"
-      });
-      try {
-        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-        const { optionsBrainOutcomes: optionsBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const entered = trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now();
-        await db2.insert(optionsBrainOutcomes2).values({
-          userId,
-          underlyingSymbol: trade.underlyingSymbol,
-          optionType: trade.optionType,
-          strategy: trade.strategy,
-          direction: trade.optionType === "call" ? "bullish" : "bearish",
-          entryConfidence: trade.entryConfidence ?? null,
-          returnPct: pnlPercent,
-          hourUtc: (/* @__PURE__ */ new Date()).getUTCHours(),
-          holdingMinutes: Math.max(0, Math.round((Date.now() - entered) / 6e4)),
-          exitReason,
-          result: realizedPnl > 0 ? "WIN" : realizedPnl < 0 ? "LOSS" : "BREAKEVEN",
-          profitLoss: realizedPnl,
-          contracts: trade.quantity,
-          source: "live"
-        });
-        const { runOptionsBrainLearning: runOptionsBrainLearning2 } = await Promise.resolve().then(() => (init_options_brain(), options_brain_exports));
-        await runOptionsBrainLearning2(userId).catch(() => {
-        });
-      } catch (e) {
-        console.error("[options-scanner] brain outcome record failed (non-critical):", e?.message ?? e);
-      }
-    } catch (err) {
-      console.error(`[options-scanner] failed to monitor/close trade ${trade.id}:`, err.message);
-    }
-  }
-}
-async function scanOneUser2(userId) {
-  const config = await storage.getUserOptionsEngineConfig(userId);
-  if (!config || !config.isActive) return;
-  const now = Date.now();
-  const last2 = lastScanAt2.get(userId) || 0;
-  if (now - last2 < Math.max(MIN_SCAN_INTERVAL_MS2, config.scanIntervalMs)) return;
-  lastScanAt2.set(userId, now);
-  const alpacaConns = await storage.getUserAlpacaConnections(userId);
-  const activeConns = alpacaConns.filter((c) => c.isActive);
-  if (activeConns.length === 0) {
-    await storage.createOptionsEngineActivity({
-      userId,
-      symbol: "\u2014",
-      decision: "error",
-      reasoning: "No active Alpaca connection \u2014 market data requires at least one connected Alpaca account. TastyTrade/Crypto.com orders can still execute, but symbol scanning needs Alpaca for now.",
-      score: null,
-      price: null,
-      dailyChangePercent: null,
-      source: "none",
-      strategy: null
-    });
-    return;
-  }
-  const primaryConn = activeConns[0];
-  let service;
-  try {
-    const secret = decryptApiSecret2(primaryConn.encryptedApiSecret);
-    service = new AlpacaService(primaryConn.accountType, primaryConn.apiKeyId, secret);
-  } catch (err) {
-    await storage.createOptionsEngineActivity({
-      userId,
-      symbol: "\u2014",
-      decision: "error",
-      reasoning: `Could not decrypt Alpaca credentials: ${err.message}`,
-      score: null,
-      price: null,
-      dailyChangePercent: null,
-      source: "alpaca",
-      strategy: null
-    });
-    return;
-  }
-  const connServices = /* @__PURE__ */ new Map();
-  connServices.set(primaryConn.id, service);
-  for (const conn of activeConns) {
-    if (connServices.has(conn.id)) continue;
-    try {
-      const secret = decryptApiSecret2(conn.encryptedApiSecret);
-      connServices.set(conn.id, new AlpacaService(conn.accountType, conn.apiKeyId, secret));
-    } catch (err) {
-      await storage.createOptionsEngineActivity({
-        userId,
-        symbol: "\u2014",
-        decision: "error",
-        reasoning: `Could not decrypt credentials for Alpaca connection "${conn.propFirmName || conn.accountId || conn.id}": ${err.message}`,
-        score: null,
-        price: null,
-        dailyChangePercent: null,
-        source: "alpaca",
-        strategy: null
-      });
-    }
-  }
-  for (const conn of activeConns) {
-    const connSvc = connServices.get(conn.id);
-    if (!connSvc) continue;
-    await monitorOpenPositions2(connSvc, userId, config, conn.id).catch(
-      (e) => console.error(`[options-scanner] monitorOpenPositions failed for user ${userId} connection ${conn.id}:`, e.message)
-    );
-  }
-  const todayDow = (/* @__PURE__ */ new Date()).getUTCDay();
-  const allowedDows = Array.isArray(config.tradingDaysOfWeek) ? config.tradingDaysOfWeek : [1, 2, 3, 4, 5];
-  if (!allowedDows.includes(todayDow)) return;
-  const symbolDaySchedule = config.symbolDaySchedule || {};
-  const symbolDirectionOverrides = config.symbolDirectionOverrides || {};
-  const symbolContractOverrides = config.symbolContractOverrides || {};
-  const brain = await getOrRefreshOptionsBrain(userId).catch(() => null);
-  const symbols = Array.isArray(config.symbols) ? config.symbols : [];
-  for (const symbol of symbols) {
-    try {
-      const symbolDays = symbolDaySchedule[symbol];
-      if (Array.isArray(symbolDays) && symbolDays.length > 0 && !symbolDays.includes(todayDow)) {
-        continue;
-      }
-      let symbolCfg = config;
-      if (symbolDirectionOverrides[symbol] || symbolContractOverrides[symbol]) {
-        symbolCfg = {
-          ...config,
-          directionFilter: symbolDirectionOverrides[symbol] || config.directionFilter,
-          maxContractsPerTrade: symbolContractOverrides[symbol] || config.maxContractsPerTrade
-        };
-      }
-      if (config.smartSymbolEscalation) {
-        const recentForSymbol = (await storage.getUserOptionsEngineTrades(userId, 50)).filter((t) => t.underlyingSymbol === symbol && t.status === "closed").sort((a, b) => new Date(b.closedAt ?? 0).getTime() - new Date(a.closedAt ?? 0).getTime());
-        if (recentForSymbol[0] && (recentForSymbol[0].realizedPnl ?? 0) > 0) {
-          symbolCfg = { ...symbolCfg, minConfidence: Math.max(50, symbolCfg.minConfidence - 5) };
-        }
-      }
-      let result = await scanSymbol2(service, symbol, symbolCfg);
-      const symbolKnowledge = brain?.contractKnowledge?.[symbol];
-      if (result.decision === "signal" && symbolKnowledge) {
-        const stratStats = symbolKnowledge.strategyWinRates?.[result.strategy];
-        if (stratStats && stratStats.total >= 5 && stratStats.winRate < 45) {
-          result = {
-            ...result,
-            decision: "skipped",
-            reasoning: `${symbol}: ${result.reasoning} \u2014 BLOCKED by brain: "${result.strategy}" has only a ${stratStats.winRate}% win rate on ${symbol} over ${stratStats.total} trades.`
-          };
-        } else if (symbolKnowledge.preferredDirection !== "both" && symbolKnowledge.totalTrades >= 5 && (symbolKnowledge.preferredDirection === "call" && result.direction === "down" || symbolKnowledge.preferredDirection === "put" && result.direction === "up") && (result.score ?? 0) < symbolCfg.minConfidence + 15) {
-          result = {
-            ...result,
-            decision: "watching",
-            reasoning: `${symbol}: ${result.reasoning} \u2014 brain shows a strong ${symbolKnowledge.preferredDirection.toUpperCase()} bias on ${symbol}; this counter-bias signal needs ${symbolCfg.minConfidence + 15}%+ confidence (has ${result.score}/100).`
-          };
-        }
-      }
-      await storage.createOptionsEngineActivity({
-        userId,
-        symbol,
-        decision: result.decision,
-        reasoning: result.reasoning,
-        score: result.score,
-        price: result.price,
-        dailyChangePercent: result.dailyChangePercent,
-        source: "alpaca",
-        strategy: result.strategy
-      });
-      const executingConns = activeConns.filter(
-        (c) => c.autoExecute && (config.executionSource === "alpaca" || config.executionSource === "auto") && connServices.has(c.id)
-      );
-      if (result.decision === "signal" && executingConns.length > 0) {
-        const tradeAllowed = await assembleOptionsConsensus(userId, symbol, result, symbolCfg).catch((e) => {
-          console.error(`[options-scanner] consensus check failed for ${symbol}:`, e.message);
-          return false;
-        });
-        if (tradeAllowed) {
-          const brainMultiplier = symbolKnowledge && symbolKnowledge.totalTrades >= 10 ? symbolKnowledge.recommendedContractMultiplier : null;
-          const bestStrategies = symbolKnowledge?.bestStrategies ?? [];
-          for (const conn of executingConns) {
-            const connSvc = connServices.get(conn.id);
-            await executeSignal2(connSvc, conn, userId, symbol, result, symbolCfg, brainMultiplier, bestStrategies).catch(
-              (e) => console.error(`[options-scanner] executeSignal failed for ${symbol} on connection ${conn.id}:`, e.message)
-            );
-          }
-        } else {
-          await storage.createOptionsEngineActivity({
-            userId,
-            symbol,
-            decision: "skipped",
-            strategy: result.strategy,
-            reasoning: `${symbol}: signal confirmed by quant scan, but Dual-Vote Consensus blocked execution (AI second opinion disagreed).`,
-            score: result.score,
-            price: result.price,
-            dailyChangePercent: result.dailyChangePercent,
-            source: "alpaca"
-          });
-        }
-      }
-    } catch (err) {
-      await storage.createOptionsEngineActivity({
-        userId,
-        symbol,
-        decision: "error",
-        reasoning: `Scan failed for ${symbol}: ${err.message}`,
-        score: null,
-        price: null,
-        dailyChangePercent: null,
-        source: "alpaca",
-        strategy: config.strategyMode
-      });
-    }
-  }
-}
-async function runOptionsEngineScan() {
-  if (optionsScanRunning) return;
-  optionsScanRunning = true;
-  try {
-    const configs = await storage.getAllActiveOptionsEngineConfigs();
-    const k2 = configs.length ? optionsCycle++ % configs.length : 0;
-    for (const config of configs.slice(k2).concat(configs.slice(0, k2))) {
-      const uid2 = config.userId;
-      if (optionsUserInFlight.has(uid2)) {
-        console.warn(`[options-scanner] user ${uid2} still running from a previous pass \u2014 skipping this pass`);
-        continue;
-      }
-      optionsUserInFlight.add(uid2);
-      const work = scanOneUser2(uid2).catch((e) => console.error(`[options-scanner] user ${uid2} scan failed:`, e.message)).finally(() => optionsUserInFlight.delete(uid2));
-      let timer;
-      const outcome = await Promise.race([
-        work.then(() => "done"),
-        new Promise((r) => {
-          timer = setTimeout(() => r("timeout"), OPTIONS_USER_BUDGET_MS);
-        })
-      ]);
-      if (timer) clearTimeout(timer);
-      if (outcome === "timeout") console.error(`[options-scanner] user ${uid2} exceeded ${OPTIONS_USER_BUDGET_MS / 1e3}s \u2014 moving on (it keeps running in the background)`);
-    }
-  } catch (err) {
-    console.error("[options-scanner] runOptionsEngineScan failed:", err.message);
-  } finally {
-    optionsScanRunning = false;
-  }
-}
-function startOptionsEngineScanner() {
-  if (started5) return;
-  started5 = true;
-  const LOOP_INTERVAL_MS = 6e4;
-  setInterval(() => {
-    runOptionsEngineScan().catch(() => {
-    });
-  }, LOOP_INTERVAL_MS);
-  console.log("[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/order_flow/auto).");
-}
-var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, CORRELATED_BASKET_CAP, CORRELATED_BASKETS, STRATEGY_RUNNERS2, OPTIONS_STRATEGY_RUNNERS, sessionPeakEquity2, OPTIONS_USER_BUDGET_MS, optionsUserInFlight, optionsScanRunning, optionsCycle, started5;
-var init_options_scanner = __esm({
-  "server/services/options-scanner.ts"() {
-    "use strict";
-    init_storage();
-    init_alpaca();
-    init_options_brain();
-    MIN_SCAN_INTERVAL_MS2 = 3e4;
-    lastScanAt2 = /* @__PURE__ */ new Map();
-    MAX_OPEN_PER_SYMBOL2 = 3;
-    MAX_DAILY_ENTRIES_PER_SYMBOL2 = 4;
-    SYMBOL_COOLDOWN_MS2 = 20 * 60 * 1e3;
-    CORRELATED_BASKET_CAP = 4;
-    CORRELATED_BASKETS = [
-      ["NVDA", "TSLA", "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "AMD", "AVGO", "SMH", "QQQ", "NAS100", "NDX"],
-      // mega-cap tech / Nasdaq
-      ["SPY", "SPX", "US500", "ES", "VOO"],
-      // S&P 500
-      ["DIA", "US30", "YM"],
-      // Dow
-      ["BTCUSD", "ETHUSD", "MSTR", "COIN"]
-      // crypto-beta
-    ];
-    STRATEGY_RUNNERS2 = {
-      orb: runOrb,
-      volume_profile: runVolumeProfile2,
-      breakout: runBreakout2,
-      momentum: runMomentum2,
-      order_flow: runOrderFlow2
-    };
-    OPTIONS_STRATEGY_RUNNERS = STRATEGY_RUNNERS2;
-    sessionPeakEquity2 = /* @__PURE__ */ new Map();
-    OPTIONS_USER_BUDGET_MS = 45e3;
-    optionsUserInFlight = /* @__PURE__ */ new Set();
-    optionsScanRunning = false;
-    optionsCycle = 0;
-    started5 = false;
   }
 });
 
@@ -73442,495 +74074,6 @@ var init_fx_paper_monitor = __esm({
     TICK_MS4 = 3 * 60 * 1e3;
     MAX_HOLD_MS = 3 * 24 * 60 * 60 * 1e3;
     started6 = false;
-  }
-});
-
-// server/services/kalshi-stock-shadow.ts
-var kalshi_stock_shadow_exports = {};
-__export(kalshi_stock_shadow_exports, {
-  aggregateKalshiStats: () => aggregateKalshiStats,
-  computeKalshiStockShadowStats: () => computeKalshiStockShadowStats,
-  kalshiBucketsOf: () => kalshiBucketsOf,
-  resolveKalshiStockShadowTrades: () => resolveKalshiStockShadowTrades,
-  runKalshiStockShadowCycle: () => runKalshiStockShadowCycle,
-  sessionEt: () => sessionEt,
-  startKalshiStockShadow: () => startKalshiStockShadow,
-  stockShadowEnabled: () => stockShadowEnabled
-});
-function etParts(ts) {
-  const parts = etFmt.formatToParts(new Date(ts));
-  const g = (t) => parts.find((p2) => p2.type === t)?.value || "";
-  const dowMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  return { hour: Number(g("hour")) % 24, minute: Number(g("minute")), dow: dowMap[g("weekday")] ?? 0 };
-}
-function sessionEt(ts) {
-  const { hour, minute } = etParts(ts);
-  const m = hour * 60 + minute;
-  if (m >= 240 && m < 570) return "premarket";
-  if (m >= 570 && m < 960) return "regular";
-  if (m >= 960 && m < 1200) return "after_hours";
-  return "overnight";
-}
-function ema6(vals, n) {
-  if (vals.length < n) return null;
-  const k2 = 2 / (n + 1);
-  let e = vals.slice(0, n).reduce((a, b) => a + b, 0) / n;
-  for (let i = n; i < vals.length; i++) e = vals[i] * k2 + e * (1 - k2);
-  return e;
-}
-function trendOf2(closes, fast, slow) {
-  const f = ema6(closes, fast), s = ema6(closes, slow);
-  if (f == null || s == null) return null;
-  return f > s * 1.002 ? "BULLISH" : f < s * 0.998 ? "BEARISH" : "NEUTRAL";
-}
-function atrOf(bars, n = 14) {
-  if (bars.length < n + 1) return null;
-  const trs = [];
-  for (let i = bars.length - n; i < bars.length; i++) {
-    const b = bars[i], pc = bars[i - 1].c;
-    trs.push(Math.max(b.h - b.l, Math.abs(b.h - pc), Math.abs(b.l - pc)));
-  }
-  return trs.reduce((a, b) => a + b, 0) / n;
-}
-function kalshiBucketsOf(c) {
-  const b = {};
-  if (c.session_et) b.session = c.session_et;
-  if (c.ticker) b.ticker = c.ticker;
-  if (c.direction) b.side = c.direction;
-  if (c.spread_bps != null) b.spread = c.spread_bps < 10 ? "<10bps" : c.spread_bps < 25 ? "10-25bps" : c.spread_bps < 50 ? "25-50bps" : "50bps+";
-  if (c.atr_pct != null) b.volatility = c.atr_pct < 0.5 ? "atr<0.5%" : c.atr_pct < 1 ? "atr0.5-1%" : c.atr_pct < 2 ? "atr1-2%" : "atr2%+";
-  if (c.funding_rate_at_entry != null) b.funding = c.funding_rate_at_entry < 0 ? "negative" : c.funding_rate_at_entry > 0 ? "positive" : "zero";
-  if (c.htf_aligned != null) b.htf = c.htf_aligned ? "aligned" : "against";
-  if (c.hour_et != null) {
-    const s = Math.floor(c.hour_et / 4) * 4;
-    b.hourEt = `${String(s).padStart(2, "0")}-${String(s + 4).padStart(2, "0")}ET`;
-  }
-  return b;
-}
-function quantile3(s, q) {
-  if (!s.length) return 0;
-  const p2 = (s.length - 1) * q, lo2 = Math.floor(p2), hi2 = Math.ceil(p2);
-  return s[lo2] + (s[hi2] - s[lo2]) * (p2 - lo2);
-}
-function aggregateKalshiStats(rows) {
-  const g = /* @__PURE__ */ new Map();
-  for (const r of rows) {
-    const v = Number(r.net_pct);
-    if (!Number.isFinite(v)) continue;
-    for (const [dim, bucket] of Object.entries({ ...kalshiBucketsOf(r), all: "all" })) {
-      const k2 = `${r.strategy}|${dim}|${bucket}`;
-      (g.get(k2) ?? g.set(k2, []).get(k2)).push(v);
-    }
-  }
-  const minN = num9("KALSHI_STOCK_SHADOW_STATS_MIN_N", 15), fav = num9("KALSHI_STOCK_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num9("KALSHI_STOCK_SHADOW_AVOID_MEDIAN_PCT", 1);
-  return Array.from(g.entries()).map(([k2, v]) => {
-    const [strategy, dim, bucket] = k2.split("|");
-    const s = v.slice().sort((a, b) => a - b);
-    const med = quantile3(s, 0.5);
-    const verdict = s.length >= minN ? med > fav ? "favor" : med < -avd ? "avoid" : "learning" : "learning";
-    return { strategy, dim, bucket, n: s.length, medianNet: med, winRate: s.filter((x) => x > 0).length / s.length, verdict };
-  });
-}
-async function computeKalshiStockShadowStats(userId, force = false) {
-  const hit = _statsCache2.get(userId);
-  if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.stats;
-  await ensureKalshiPerpShadowTables();
-  const { rows } = await pool.query(
-    `SELECT c.strategy, c.ticker, c.direction, c.session_et, c.spread_bps, c.atr_pct, c.funding_rate_at_entry, c.htf_aligned, c.hour_et, c.net_pct
-       FROM kalshi_perp_shadow_context c JOIN kalshi_perp_shadow_trades t ON t.id = c.trade_id
-      WHERE c.user_id=$1 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL AND t.exclude_from_stats IS NOT TRUE
-        AND c.closed_at >= now() - interval '60 days'`,
-    [userId]
-  );
-  const stats = aggregateKalshiStats(rows);
-  _statsCache2.set(userId, { at: Date.now(), stats });
-  return stats;
-}
-function adviceFor3(stats, strategy, ctx) {
-  const bs2 = kalshiBucketsOf(ctx);
-  const hits = stats.filter((s) => s.strategy === strategy && s.verdict !== "learning" && bs2[s.dim] === s.bucket);
-  if (!hits.length) return "learning";
-  const avoid = hits.filter((s) => s.verdict === "avoid");
-  const f = (s) => `${s.verdict}: ${s.dim} ${s.bucket} (n=${s.n}, median ${s.medianNet.toFixed(1)}%)`;
-  return `${avoid.length ? "avoid" : "favor"} \u2014 ${[...avoid, ...hits.filter((s) => s.verdict === "favor")].map(f).join("; ")}`.slice(0, 500);
-}
-function fxSpec(key, name, timeframe, indicators, long, short, symbol) {
-  return {
-    name: `${name} (mechanical approximation)`,
-    source: "engine",
-    engineStrategyKey: key,
-    symbol,
-    timeframe,
-    indicators,
-    entryLong: { logic: "AND", conditions: long },
-    entryShort: { logic: "AND", conditions: short },
-    risk: { lotSize: 0.1 }
-  };
-}
-function optionsAdapter(ticker) {
-  const inRange = (bars, start, end) => bars.filter((b) => b.t >= start.getTime() && b.t < end.getTime());
-  const shape = (bars, limit) => bars.slice(-limit).map((b) => ({ t: new Date(b.t).toISOString(), o: b.o, h: b.h, l: b.l, c: b.c, v: b.v, vw: b.c, n: 0 }));
-  return {
-    getBars: async (_sym, timeframe, start, end, limit = 1e3) => {
-      const spanMin = Math.max(1, Math.round((end.getTime() - start.getTime()) / 6e4));
-      if (timeframe === "1Day") return shape(inRange(await getPerpCandles(ticker, 1440, Math.min(5e3, spanMin + 1440)), start, end), limit);
-      if (timeframe === "5Min") return shape(inRange(aggregateBars(await getPerpCandles(ticker, 1, Math.min(5e3, spanMin + 30)), 5), start, end), limit);
-      return shape(inRange(await getPerpCandles(ticker, 1, Math.min(5e3, spanMin + 30)), start, end), limit);
-    },
-    getSnapshot: async (_sym) => {
-      const daily = await getPerpCandles(ticker, 1440, 5e3);
-      if (daily.length < 2) return null;
-      const prevClose = daily[daily.length - 2].c;
-      const touch = await getPerpTouch(ticker);
-      const price = touch ? (touch.bid + touch.ask) / 2 : daily[daily.length - 1].c;
-      if (!(prevClose > 0) || !(price > 0)) return null;
-      return { price, prevClose, dailyChangePercent: (price - prevClose) / prevClose * 100 };
-    }
-  };
-}
-async function accrueFunding(t) {
-  const since = Math.max(new Date(t.opened_at).getTime(), Number(t.funding_through_ms) || 0);
-  const rates = await getPerpFundingHistory(t.ticker).catch(() => []);
-  let accrued = Number(t.funding_accrued_usd) || 0;
-  let through = since;
-  for (const r of rates) {
-    if (r.fundingTimeMs <= since || r.fundingTimeMs > Date.now()) continue;
-    const notionalAtFunding = r.markPrice * Number(t.contracts);
-    accrued += (t.direction === "long" ? -1 : 1) * r.rate * notionalAtFunding;
-    through = Math.max(through, r.fundingTimeMs);
-  }
-  if (through !== since) {
-    await pool.query(`UPDATE kalshi_perp_shadow_trades SET funding_accrued_usd=$2, funding_through_ms=$3 WHERE id=$1`, [t.id, accrued, through]);
-  }
-  return accrued;
-}
-async function closeTrade(t, exit, why, fundingUsd, exclude) {
-  const short = t.direction === "short";
-  const gross = exit != null ? (short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price * 100 : null;
-  const fundingPct = gross != null && t.notional_usd > 0 ? fundingUsd / t.notional_usd * 100 : null;
-  const net = gross != null ? gross + (fundingPct ?? 0) - Number(t.cost_bps) / 100 : null;
-  const r = net != null && t.sl_pct > 0 ? net / t.sl_pct : null;
-  const upd = await pool.query(
-    `UPDATE kalshi_perp_shadow_trades SET status='closed', exit_price=$2, exit_reason=$3, gross_return_pct=$4, return_pct=$5,
-       r_multiple=$6, funding_accrued_usd=$7, exclude_from_stats=$8, closed_at=now() WHERE id=$1 AND status='open'`,
-    [t.id, exit, why, gross, net, r, fundingUsd, exclude]
-  );
-  if (!upd.rowCount) return false;
-  const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
-  await pool.query(
-    `UPDATE kalshi_perp_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, net_pct=$4, funding_paid_usd=$5 WHERE trade_id=$1`,
-    [t.id, why, ageH * 60, exclude ? null : net, fundingUsd]
-  ).catch(() => {
-  });
-  return true;
-}
-async function resolveKalshiStockShadowTrades(userId) {
-  await ensureKalshiPerpShadowTables();
-  const { rows } = await pool.query(`SELECT * FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
-  if (!rows.length) return 0;
-  const actions = await getPerpCorporateActions().catch(() => []);
-  let closed = 0;
-  for (const t of rows) {
-    const funding = await accrueFunding(t).catch(() => Number(t.funding_accrued_usd) || 0);
-    const openedMs = new Date(t.opened_at).getTime();
-    const ca = actions.find((a) => a.ticker === t.ticker && a.status !== "cancelled" && a.status !== "lapsed" && a.effectiveMs != null && a.effectiveMs > openedMs && a.effectiveMs <= Date.now());
-    const minsSinceOpen = Math.max(1, Math.min(5e3, Math.ceil((Date.now() - openedMs) / 6e4) + 5));
-    const candles = await getPerpCandles(t.ticker, 1, minsSinceOpen).catch(() => []);
-    const latest = candles[candles.length - 1];
-    if (ca) {
-      if (await closeTrade(t, latest ? latest.c : Number(t.entry_price), "corporate_action", funding, true)) closed++;
-      continue;
-    }
-    const short = t.direction === "short";
-    const ageH = (Date.now() - openedMs) / 36e5;
-    let exit = null, why = "";
-    if (candles.length) {
-      for (const cd of candles) {
-        if (cd.t + 6e4 <= openedMs) continue;
-        const gain = short ? (t.entry_price - cd.ask.l) / t.entry_price * 100 : (cd.bid.h - t.entry_price) / t.entry_price * 100;
-        if (t.peak_gain_pct == null || gain > t.peak_gain_pct) {
-          await pool.query(`UPDATE kalshi_perp_shadow_trades SET peak_gain_pct=$2 WHERE id=$1`, [t.id, gain]).catch(() => {
-          });
-          t.peak_gain_pct = gain;
-        }
-        if (short ? cd.ask.h >= t.stop_loss : cd.bid.l <= t.stop_loss) {
-          exit = short ? Math.max(t.stop_loss, cd.ask.o) : Math.min(t.stop_loss, cd.bid.o);
-          why = "stop";
-          break;
-        }
-        if (short ? cd.ask.l <= t.take_profit : cd.bid.h >= t.take_profit) {
-          exit = Number(t.take_profit);
-          why = "target";
-          break;
-        }
-      }
-      if (!why && ageH >= t.max_hours) {
-        const touch = await getPerpTouch(t.ticker).catch(() => null);
-        exit = touch ? short ? touch.ask : touch.bid : latest.c;
-        why = "time limit";
-      }
-    } else if (ageH >= t.max_hours + 24) {
-      exit = null;
-      why = "no price";
-    }
-    if (!why) continue;
-    if (await closeTrade(t, exit, why, funding, false)) closed++;
-  }
-  return closed;
-}
-async function runKalshiStockShadowCycle(userId) {
-  if (!stockShadowEnabled()) return { opened: 0, closed: 0 };
-  await ensureKalshiPerpShadowTables();
-  const closed = await resolveKalshiStockShadowTrades(userId).catch((e) => {
-    console.error("[kalshi-stock-shadow] resolver failed (non-fatal):", e?.message ?? e);
-    return 0;
-  });
-  if (Date.now() - (_lastEntryRun.get(userId) || 0) < EVERY_MS2()) return { opened: 0, closed };
-  _lastEntryRun.set(userId, Date.now());
-  const [{ STRATEGY_RUNNERS: STRATEGY_RUNNERS3 }, { OPTIONS_STRATEGY_RUNNERS: OPTIONS_STRATEGY_RUNNERS2 }, { evaluateSpecSignals: evaluateSpecSignals2 }, { paperMaxHoursFor: paperMaxHoursFor2 }, { assessPriceAnomaly: assessPriceAnomaly2 }] = await Promise.all([
-    Promise.resolve().then(() => (init_cryptocom_scanner(), cryptocom_scanner_exports)),
-    Promise.resolve().then(() => (init_options_scanner(), options_scanner_exports)),
-    Promise.resolve().then(() => (init_strategy_backtest(), strategy_backtest_exports)),
-    Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports)),
-    Promise.resolve().then(() => (init_corporateActionGuard(), corporateActionGuard_exports))
-  ]);
-  const stats = await computeKalshiStockShadowStats(userId).catch(() => []);
-  const markets = await getLiquidStockPerps().catch(() => []);
-  if (!markets.length) return { opened: 0, closed };
-  const actions = await getPerpCorporateActions().catch(() => []);
-  const pendingCa = new Set(actions.filter((a) => a.status === "scheduled" && a.effectiveMs != null && a.effectiveMs <= Date.now() + 24 * 36e5).map((a) => a.ticker));
-  const { rows: open } = await pool.query(`SELECT strategy, underlying FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
-  const { rows: recent } = await pool.query(
-    `SELECT strategy, underlying FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='closed' AND closed_at >= now() - ($2::text || ' milliseconds')::interval`,
-    [userId, String(COOLDOWN_MS2())]
-  );
-  const cryptoCfg = { defiChain: "kalshi", directionFilter: "both", minConfidence: MIN_CONF(), compositeMinEdgeScore: 72 };
-  const optCfg = { ...OPTIONS_CFG, minConfidence: MIN_CONF() };
-  let opened = 0;
-  for (const mkt of markets) {
-    if (open.length >= MAX_OPEN2()) break;
-    if (!mkt.scheduleOpen || pendingCa.has(mkt.ticker)) continue;
-    const symbol = `KALSHI:${mkt.ticker}`;
-    const bars15 = await getPerpBars(mkt.ticker, "15m", 40).catch(() => []);
-    if (bars15.length >= 3 && assessPriceAnomaly2(bars15).suspect) continue;
-    const signals = [];
-    const cryptoResults = await Promise.all(CRYPTO_PORTS.map((k2) => STRATEGY_RUNNERS3[k2](symbol, cryptoCfg).then((r) => ({ k: k2, r })).catch(() => null)));
-    for (const cr of cryptoResults) {
-      if (cr?.r?.decision === "signal" && cr.r.direction) {
-        signals.push({ strategy: cr.k, direction: cr.r.direction === "SELL" ? "short" : "long", score: cr.r.score ?? null });
-      }
-    }
-    const dirs = signals.filter((s) => CRYPTO_PORTS.includes(s.strategy));
-    const longs = dirs.filter((s) => s.direction === "long"), shorts = dirs.filter((s) => s.direction === "short");
-    const side = longs.length > shorts.length ? longs : shorts.length > longs.length ? shorts : [];
-    if (side.length >= 2) {
-      const blend = Math.round(side.reduce((a, s) => a + (s.score ?? 0), 0) / side.length);
-      if (blend >= 72) signals.push({ strategy: "composite_autonomous", direction: side[0].direction, score: blend });
-    }
-    const adapter = optionsAdapter(mkt.ticker);
-    for (const k2 of OPTIONS_PORTS) {
-      const r = await OPTIONS_STRATEGY_RUNNERS2[k2](adapter, mkt.underlying, optCfg).catch(() => null);
-      if (r?.decision === "signal" && r.direction) {
-        signals.push({ strategy: `opt_${k2}`, direction: r.direction === "SELL" || r.direction === "down" ? "short" : "long", score: r.score ?? null });
-      }
-    }
-    for (const fx of FX_PORTS) {
-      const raw = await getPerpBars(mkt.ticker, fx.tf, fx.bars + 2).catch(() => []);
-      const tfMs = (fx.tf === "5m" ? 5 : 60) * 6e4;
-      const closedBars = raw.filter((b) => b.t + tfMs <= Date.now()).slice(-fx.bars);
-      if (closedBars.length < 30) continue;
-      const sig = evaluateSpecSignals2(fx.make(mkt.ticker), closedBars.map((b) => ({ timestamp: b.t, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v })));
-      if (!sig) continue;
-      if (sig.enterLong && !sig.enterShort) signals.push({ strategy: fx.id, direction: "long", score: null });
-      else if (sig.enterShort && !sig.enterLong) signals.push({ strategy: fx.id, direction: "short", score: null });
-    }
-    if (!signals.length) continue;
-    const h1Bars = await getPerpBars(mkt.ticker, "1h", 60).catch(() => []);
-    if (h1Bars.length < 16) continue;
-    const lastClose = h1Bars[h1Bars.length - 1].c;
-    const atr3 = atrOf(h1Bars);
-    if (!atr3 || !(lastClose > 0)) continue;
-    const atrPct = atr3 / lastClose * 100;
-    const h1Trend = trendOf2(h1Bars.map((b) => b.c), 9, 21);
-    const h4Closes = aggregateBars(await getPerpCandles(mkt.ticker, 60, 60 * 60).catch(() => []), 4).map((b) => b.c);
-    const h4Trend = trendOf2(h4Closes, 5, 10);
-    const touch = await getPerpTouch(mkt.ticker).catch(() => null);
-    const bid = touch?.bid ?? mkt.bid, ask = touch?.ask ?? mkt.ask;
-    if (!(bid > 0) || !(ask > bid)) continue;
-    const spreadBps = (ask - bid) / ((ask + bid) / 2) * 1e4;
-    const fundEst = await getPerpFundingEstimate(mkt.ticker).catch(() => null);
-    const slPct = Math.min(SL_HI(), Math.max(SL_LO(), ATR_MULT2() * atrPct));
-    const costBps = FEE_BPS();
-    if (slPct < 3 * (costBps / 100)) continue;
-    const now = Date.now();
-    const et = etParts(now);
-    for (const sig of signals) {
-      if (open.length >= MAX_OPEN2()) break;
-      if (open.filter((o) => o.strategy === sig.strategy).length >= MAX_PER_STRAT2()) continue;
-      if (open.some((o) => o.strategy === sig.strategy && o.underlying === mkt.underlying)) continue;
-      if (recent.some((o) => o.strategy === sig.strategy && o.underlying === mkt.underlying)) continue;
-      const short = sig.direction === "short";
-      const entry = short ? bid : ask;
-      const stop = short ? entry * (1 + slPct / 100) : entry * (1 - slPct / 100);
-      const target = short ? entry * (1 - slPct * RR() / 100) : entry * (1 + slPct * RR() / 100);
-      const contracts = Math.max(1, Math.round(NOTIONAL2() / entry));
-      const notional = contracts * entry;
-      const aligned = h4Trend == null ? null : short ? h4Trend === "BEARISH" : h4Trend === "BULLISH";
-      const agreeing = signals.filter((s) => s.direction === sig.direction).length;
-      const ctx = {
-        session_et: sessionEt(now),
-        ticker: mkt.ticker,
-        spread_bps: spreadBps,
-        atr_pct: atrPct,
-        funding_rate_at_entry: fundEst?.rate ?? null,
-        htf_aligned: aligned,
-        direction: sig.direction,
-        hour_et: et.hour
-      };
-      const tags = [];
-      if (aligned === false) tags.push("against_htf");
-      if (aligned === true) tags.push("htf_aligned");
-      if (agreeing < 2) tags.push("single_runner_no_confluence");
-      if (spreadBps > 25) tags.push("wide_spread");
-      if (ctx.session_et === "overnight") tags.push("overnight_session");
-      const ins = await pool.query(
-        `INSERT INTO kalshi_perp_shadow_trades (user_id, strategy, ticker, underlying, direction, entry_price, entry_bid, entry_ask,
-           stop_loss, take_profit, sl_pct, contracts, notional_usd, cost_bps, cost_model, score, max_hours)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'placeholder',$15,$16) RETURNING id`,
-        [userId, sig.strategy, mkt.ticker, mkt.underlying, sig.direction, entry, bid, ask, stop, target, slPct, contracts, notional, costBps, sig.score, paperMaxHoursFor2(sig.strategy)]
-      );
-      const id = ins.rows[0]?.id;
-      if (!id) continue;
-      await pool.query(
-        `INSERT INTO kalshi_perp_shadow_context (trade_id, user_id, strategy, ticker, direction, spread_bps, volume_24h_usd, open_interest,
-           atr_pct, h1_trend, h4_trend, htf_aligned, funding_rate_at_entry, session_et, hour_utc, hour_et, day_of_week,
-           earnings_within_48h, corporate_action_pending, live_gate_blocked, leverage_estimate, tags, advice_at_entry)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (trade_id) DO NOTHING`,
-        [
-          id,
-          userId,
-          sig.strategy,
-          mkt.ticker,
-          sig.direction,
-          spreadBps,
-          mkt.volume24hNotionalUsd,
-          mkt.openInterest,
-          atrPct,
-          h1Trend,
-          h4Trend,
-          aligned,
-          fundEst?.rate ?? null,
-          ctx.session_et,
-          new Date(now).getUTCHours(),
-          et.hour,
-          et.dow,
-          null,
-          pendingCa.has(mkt.ticker),
-          agreeing < 2,
-          mkt.leverageEstimate,
-          tags,
-          adviceFor3(stats, sig.strategy, ctx)
-        ]
-      ).catch(() => {
-      });
-      open.push({ strategy: sig.strategy, underlying: mkt.underlying });
-      opened++;
-    }
-  }
-  return { opened, closed };
-}
-async function resolveOwnerUserId() {
-  if (_ownerId) return _ownerId;
-  const env = Number(process.env.KALSHI_STOCK_SHADOW_USER_ID);
-  if (Number.isFinite(env) && env > 0) {
-    _ownerId = env;
-    return _ownerId;
-  }
-  try {
-    const { rows } = await pool.query(`SELECT id FROM users WHERE is_admin = true ORDER BY id LIMIT 1`);
-    _ownerId = rows[0]?.id ?? 1;
-  } catch {
-    _ownerId = 1;
-  }
-  return _ownerId;
-}
-function startKalshiStockShadow() {
-  if (_started2) return;
-  _started2 = true;
-  if (!stockShadowEnabled()) {
-    console.log("[kalshi-stock-shadow] disabled (KALSHI_STOCK_SHADOW=off).");
-    return;
-  }
-  const tick3 = async () => {
-    try {
-      const uid2 = await resolveOwnerUserId();
-      if (uid2) await runKalshiStockShadowCycle(uid2);
-    } catch (e) {
-      console.error("[kalshi-stock-shadow] tick failed (non-fatal):", e?.message ?? e);
-    }
-  };
-  setTimeout(tick3, 3 * 6e4).unref?.();
-  setInterval(tick3, 5 * 6e4).unref?.();
-  console.log("[kalshi-stock-shadow] started \u2014 SHADOW lane on public Kalshi perp data (no credentials, no orders).");
-}
-var num9, stockShadowEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started2;
-var init_kalshi_stock_shadow = __esm({
-  "server/services/kalshi-stock-shadow.ts"() {
-    "use strict";
-    init_db();
-    init_ensure_kalshi_perp_shadow_tables();
-    init_kalshi_perps();
-    num9 = (n, d) => {
-      const v = Number(process.env[n]);
-      return Number.isFinite(v) && v > 0 ? v : d;
-    };
-    stockShadowEnabled = () => process.env.KALSHI_STOCK_SHADOW !== "off";
-    MAX_OPEN2 = () => Math.floor(num9("KALSHI_STOCK_SHADOW_MAX_OPEN", 30));
-    MAX_PER_STRAT2 = () => Math.floor(num9("KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY", 3));
-    COOLDOWN_MS2 = () => num9("KALSHI_STOCK_SHADOW_COOLDOWN_MIN", 60) * 6e4;
-    EVERY_MS2 = () => num9("KALSHI_STOCK_SHADOW_EVERY_MIN", 10) * 6e4;
-    NOTIONAL2 = () => num9("KALSHI_STOCK_SHADOW_NOTIONAL_USD", 250);
-    MIN_CONF = () => num9("KALSHI_STOCK_SHADOW_MIN_CONFIDENCE", 70);
-    FEE_BPS = () => num9("KALSHI_STOCK_SHADOW_FEE_BPS", 20);
-    SL_LO = () => num9("KALSHI_STOCK_SHADOW_SL_MIN_PCT", 0.8);
-    SL_HI = () => num9("KALSHI_STOCK_SHADOW_SL_MAX_PCT", 4);
-    ATR_MULT2 = () => num9("KALSHI_STOCK_SHADOW_SL_ATR_MULT", 1.5);
-    RR = () => num9("KALSHI_STOCK_SHADOW_RR", 2);
-    CRYPTO_PORTS = ["breakout", "trend_following", "structure", "divergence", "order_flow", "volume_profile"];
-    OPTIONS_PORTS = ["orb", "volume_profile", "breakout", "momentum", "order_flow"];
-    etFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit", weekday: "short" });
-    _statsCache2 = /* @__PURE__ */ new Map();
-    emaTrend = (fast, slow) => [
-      { id: "emaFast", kind: "EMA", period: fast },
-      { id: "emaSlow", kind: "EMA", period: slow }
-    ];
-    crossUp = { indicatorId: "emaFast", field: "value", operator: "crosses_above", compare: { kind: "indicator", indicatorId: "emaSlow", field: "value" } };
-    crossDown = { indicatorId: "emaFast", field: "value", operator: "crosses_below", compare: { kind: "indicator", indicatorId: "emaSlow", field: "value" } };
-    rsiAbove = (v) => ({ indicatorId: "rsi", field: "value", operator: "above", compare: { kind: "value", value: v } });
-    rsiBelow = (v) => ({ indicatorId: "rsi", field: "value", operator: "below", compare: { kind: "value", value: v } });
-    rsiCrossUp = (v) => ({ indicatorId: "rsi", field: "value", operator: "crosses_above", compare: { kind: "value", value: v } });
-    rsiCrossDown = (v) => ({ indicatorId: "rsi", field: "value", operator: "crosses_below", compare: { kind: "value", value: v } });
-    emaAbove = { indicatorId: "emaFast", field: "value", operator: "above", compare: { kind: "indicator", indicatorId: "emaSlow", field: "value" } };
-    emaBelow = { indicatorId: "emaFast", field: "value", operator: "below", compare: { kind: "indicator", indicatorId: "emaSlow", field: "value" } };
-    FX_PORTS = [
-      { id: "fx_scalping", tf: "5m", bars: 60, make: (s) => fxSpec("scalping", "Scalping", "M5", emaTrend(5, 13), [crossUp], [crossDown], s) },
-      { id: "fx_momentum", tf: "1h", bars: 120, make: (s) => fxSpec("momentum", "Momentum Surfing", "H1", [...emaTrend(9, 21), { id: "rsi", kind: "RSI", period: 14 }], [crossUp, rsiAbove(50)], [crossDown, rsiBelow(50)], s) },
-      { id: "fx_aggressive", tf: "1h", bars: 120, make: (s) => fxSpec("aggressive", "Aggressive Compound", "H1", [...emaTrend(9, 21), { id: "rsi", kind: "RSI", period: 14 }], [crossUp, rsiAbove(50)], [crossDown, rsiBelow(50)], s) },
-      { id: "fx_sniper", tf: "1h", bars: 120, make: (s) => fxSpec("sniper", "Sniper Mode", "H1", [...emaTrend(9, 21), { id: "rsi", kind: "RSI", period: 14 }], [emaAbove, rsiCrossUp(40)], [emaBelow, rsiCrossDown(60)], s) },
-      { id: "fx_prop_firm_sniper", tf: "1h", bars: 120, make: (s) => fxSpec("prop_firm_sniper", "Prop Firm Sniper", "H1", [...emaTrend(9, 21), { id: "rsi", kind: "RSI", period: 14 }], [emaAbove, rsiCrossUp(35)], [emaBelow, rsiCrossDown(65)], s) }
-    ];
-    OPTIONS_CFG = {
-      orbRangeMinutes: 15,
-      volumeProfileLookbackDays: 10,
-      breakoutLookbackDays: 20,
-      directionFilter: "both",
-      strikeSelectionMode: "atm",
-      targetDelta: 0.3,
-      expiryPreference: "weekly"
-    };
-    _lastEntryRun = /* @__PURE__ */ new Map();
-    _ownerId = null;
-    _started2 = false;
   }
 });
 
@@ -74538,9 +74681,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "2909969-dirty";
-var BUILD_BRANCH = "feat/abba-voice-yusuf";
-var BUILT_AT = "2026-11-09T05:09:55.774Z";
+var BUILD_COMMIT = "cd8c75aa-dirty";
+var BUILD_BRANCH = "feat/kalshi-shadow-panel";
+var BUILT_AT = "2026-11-09T05:42:51.378Z";
 
 // server/stripe.ts
 init_db();
@@ -92413,6 +92556,17 @@ Rules:
     try {
       const { shadowLedgerSummary: shadowLedgerSummary2 } = await Promise.resolve().then(() => (init_shadow_ledger(), shadow_ledger_exports));
       res2.json(await shadowLedgerSummary2(req.user.id, Number(req.query.days) || 30));
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/kalshi-stock-shadow", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const rawDays = Number(req.query.days);
+      const days = Number.isFinite(rawDays) ? Math.max(1, Math.min(365, Math.floor(rawDays))) : 30;
+      const { getKalshiStockShadowReport: getKalshiStockShadowReport2 } = await Promise.resolve().then(() => (init_kalshi_stock_shadow(), kalshi_stock_shadow_exports));
+      res2.json(await getKalshiStockShadowReport2(req.user.id, days));
     } catch (err) {
       res2.status(500).json({ error: err.message });
     }

@@ -36,6 +36,7 @@ import ConnectedAccountPicker, {
 import { TradePerformanceCard, TodayReviewPanel } from "@/components/trade-performance-card";
 import { FxModelsPanel } from "@/components/fx-models-panel";
 import { EngineSafeguardsPanel, SkippedTradesPanel, GuardFireRatesPanel, SettingsOverviewPanel, PromotedRulesPanel, PracticeCostPanel, TrailStudyPanel } from "@/components/engine-safeguards-panel";
+import { KalshiShadowPanel } from "@/components/kalshi-shadow-panel";
 
 const POPULAR_PAIRS = [
   "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "NZDUSD", "USDCAD",
@@ -5062,6 +5063,7 @@ export default function WeeklyStrategyPage() {
                   <GuardFireRatesPanel className="mt-3" />
                   <SettingsOverviewPanel className="mt-3" />
                   <PromotedRulesPanel className="mt-3" />
+                  <KalshiShadowPanel className="mt-3" />
                   <PracticeCostPanel className="mt-3" />
                   <TrailStudyPanel className="mt-3" />
                   {brainStatus.learningInsights?.length > 0 && (
