@@ -160,6 +160,236 @@ export async function computeKalshiStockShadowStats(userId: number, force = fals
   _statsCache.set(userId, { at: Date.now(), stats });
   return stats;
 }
+export interface KalshiStockShadowSummary {
+  openCount: number;
+  closedCount: number;
+  wins: number;
+  winRate: number | null;
+  avgR: number | null;
+  estNetPnlUsd: number;
+  fundingUsd: number;
+  lastOpenedAt: string | null;
+  lastClosedAt: string | null;
+  enabled: boolean;
+}
+
+export interface KalshiStockShadowStrategyStat {
+  strategy: string;
+  trades: number;
+  wins: number;
+  winRate: number;
+  avgR: number | null;
+  avgNetPct: number;
+  estNetPnlUsd: number;
+  fundingUsd: number;
+}
+
+export interface KalshiStockShadowOpenPosition {
+  id: number;
+  strategy: string;
+  ticker: string;
+  underlying: string;
+  direction: string;
+  entry_price: number;
+  stop_loss: number;
+  take_profit: number;
+  contracts: number;
+  notional_usd: number;
+  funding_accrued_usd: number;
+  score: number | null;
+  max_hours: number;
+  opened_at: string;
+  current_mark: number | null;
+  unrealized_net_pct: number | null;
+}
+
+export interface KalshiStockShadowRecentClose {
+  id: number;
+  strategy: string;
+  ticker: string;
+  underlying: string;
+  direction: string;
+  entry_price: number;
+  exit_price: number | null;
+  return_pct: number;
+  r_multiple: number | null;
+  funding_accrued_usd: number;
+  exit_reason: string | null;
+  hold_minutes: number | null;
+  closed_at: string;
+}
+
+export interface KalshiStockShadowReport {
+  days: number;
+  summary: KalshiStockShadowSummary;
+  byStrategy: KalshiStockShadowStrategyStat[];
+  openPositions: KalshiStockShadowOpenPosition[];
+  recentCloses: KalshiStockShadowRecentClose[];
+}
+
+const toIso = (v: unknown): string | null => {
+  if (v == null) return null;
+  const d = v instanceof Date ? v : new Date(String(v));
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+};
+
+/**
+ * Read-only report for the dedicated Kalshi stock-perp shadow panel.
+ *
+ * Semantics are deliberately aligned with closeTrade(): return_pct is NET
+ * (gross move + signed funding P&L - modeled round-trip cost), and
+ * funding_accrued_usd is itself a signed P&L contribution. Corporate-action
+ * closes carry exclude_from_stats=true and are omitted from every statistic
+ * and list below. SELECTs only — this function never resolves or mutates a
+ * shadow position.
+ */
+export async function getKalshiStockShadowReport(userId: number, days = 30): Promise<KalshiStockShadowReport> {
+  const windowDays = Number.isFinite(days) ? Math.max(1, Math.min(365, Math.floor(days))) : 30;
+  await ensureKalshiPerpShadowTables();
+
+  const validCloseWhere = `user_id=$1 AND status='closed' AND exclude_from_stats IS NOT TRUE
+    AND return_pct IS NOT NULL AND closed_at >= now() - ($2::int * interval '1 day')`;
+  const [summaryRes, byStrategyRes, openRes, recentClosesRes] = await Promise.all([
+    pool.query(
+      `WITH valid_closes AS (
+         SELECT * FROM kalshi_perp_shadow_trades WHERE ${validCloseWhere}
+       )
+       SELECT
+         (SELECT count(*)::int FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='open') AS open_count,
+         count(*)::int AS closed_count,
+         (count(*) FILTER (WHERE return_pct > 0))::int AS wins,
+         CASE WHEN count(*) > 0 THEN (count(*) FILTER (WHERE return_pct > 0))::float / count(*)::float END AS win_rate,
+         avg(r_multiple)::float AS avg_r,
+         COALESCE(sum(notional_usd * return_pct / 100), 0)::float AS est_net_pnl_usd,
+         COALESCE(sum(funding_accrued_usd), 0)::float AS funding_usd,
+         (SELECT max(opened_at) FROM kalshi_perp_shadow_trades
+           WHERE user_id=$1 AND (status='open' OR opened_at >= now() - ($2::int * interval '1 day'))) AS last_opened_at,
+         max(closed_at) AS last_closed_at
+       FROM valid_closes`,
+      [userId, windowDays]),
+    pool.query(
+      `SELECT strategy,
+         count(*)::int AS trades,
+         (count(*) FILTER (WHERE return_pct > 0))::int AS wins,
+         ((count(*) FILTER (WHERE return_pct > 0))::float / count(*)::float) AS win_rate,
+         avg(r_multiple)::float AS avg_r,
+         avg(return_pct)::float AS avg_net_pct,
+         COALESCE(sum(notional_usd * return_pct / 100), 0)::float AS est_net_pnl_usd,
+         COALESCE(sum(funding_accrued_usd), 0)::float AS funding_usd
+       FROM kalshi_perp_shadow_trades
+       WHERE ${validCloseWhere}
+       GROUP BY strategy
+       ORDER BY trades DESC, strategy ASC`,
+      [userId, windowDays]),
+    pool.query(
+      `SELECT id, strategy, ticker, underlying, direction, entry_price, stop_loss, take_profit,
+         contracts, notional_usd, funding_accrued_usd, score, max_hours, opened_at, cost_bps
+       FROM kalshi_perp_shadow_trades
+       WHERE user_id=$1 AND status='open'
+       ORDER BY opened_at DESC
+       LIMIT 30`,
+      [userId]),
+    pool.query(
+      `SELECT t.id, t.strategy, t.ticker, t.underlying, t.direction, t.entry_price, t.exit_price,
+         t.return_pct, t.r_multiple, t.funding_accrued_usd, t.exit_reason, c.hold_minutes, t.closed_at
+       FROM kalshi_perp_shadow_trades t
+       LEFT JOIN kalshi_perp_shadow_context c ON c.trade_id=t.id AND c.user_id=t.user_id
+       WHERE t.user_id=$1 AND t.status='closed' AND t.exclude_from_stats IS NOT TRUE
+         AND t.return_pct IS NOT NULL AND t.closed_at >= now() - ($2::int * interval '1 day')
+       ORDER BY t.closed_at DESC
+       LIMIT 10`,
+      [userId, windowDays]),
+  ]);
+
+  const s = summaryRes.rows[0] || {};
+  const openRows: any[] = openRes.rows || [];
+
+  // Current exit marks are a display enhancement, never a panel dependency:
+  // one fail-soft public orderbook read per distinct ticker (longs mark to
+  // the bid they would exit at; shorts mark to the ask). Any failure leaves
+  // that position's mark and unrealized estimate null.
+  const touches = new Map<string, { bid: number; ask: number } | null>();
+  await Promise.all(Array.from(new Set(openRows.map((p) => String(p.ticker)))).map(async (ticker) => {
+    touches.set(ticker, await getPerpTouch(ticker).catch(() => null));
+  }));
+
+  const openPositions = openRows.map((p: any): KalshiStockShadowOpenPosition => {
+    const touch = touches.get(String(p.ticker)) || null;
+    const entry = Number(p.entry_price);
+    const currentMark = touch ? (p.direction === 'short' ? touch.ask : touch.bid) : null;
+    let unrealizedNetPct: number | null = null;
+    if (currentMark != null && entry > 0) {
+      const grossPct = p.direction === 'short'
+        ? ((entry - currentMark) / entry) * 100
+        : ((currentMark - entry) / entry) * 100;
+      const fundingPct = Number(p.notional_usd) > 0
+        ? (Number(p.funding_accrued_usd) / Number(p.notional_usd)) * 100
+        : 0;
+      unrealizedNetPct = grossPct + fundingPct - (Number(p.cost_bps) || 0) / 100;
+    }
+    return {
+      id: Number(p.id),
+      strategy: String(p.strategy),
+      ticker: String(p.ticker),
+      underlying: String(p.underlying),
+      direction: String(p.direction),
+      entry_price: Number(p.entry_price),
+      stop_loss: Number(p.stop_loss),
+      take_profit: Number(p.take_profit),
+      contracts: Number(p.contracts),
+      notional_usd: Number(p.notional_usd),
+      funding_accrued_usd: Number(p.funding_accrued_usd) || 0,
+      score: p.score == null ? null : Number(p.score),
+      max_hours: Number(p.max_hours),
+      opened_at: toIso(p.opened_at) || new Date(0).toISOString(),
+      current_mark: currentMark,
+      unrealized_net_pct: unrealizedNetPct,
+    };
+  });
+
+  return {
+    days: windowDays,
+    summary: {
+      openCount: Number(s.open_count) || 0,
+      closedCount: Number(s.closed_count) || 0,
+      wins: Number(s.wins) || 0,
+      winRate: s.win_rate == null ? null : Number(s.win_rate),
+      avgR: s.avg_r == null ? null : Number(s.avg_r),
+      estNetPnlUsd: Number(s.est_net_pnl_usd) || 0,
+      fundingUsd: Number(s.funding_usd) || 0,
+      lastOpenedAt: toIso(s.last_opened_at),
+      lastClosedAt: toIso(s.last_closed_at),
+      enabled: stockShadowEnabled(),
+    },
+    byStrategy: (byStrategyRes.rows || []).map((r: any): KalshiStockShadowStrategyStat => ({
+      strategy: String(r.strategy),
+      trades: Number(r.trades) || 0,
+      wins: Number(r.wins) || 0,
+      winRate: Number(r.win_rate) || 0,
+      avgR: r.avg_r == null ? null : Number(r.avg_r),
+      avgNetPct: Number(r.avg_net_pct) || 0,
+      estNetPnlUsd: Number(r.est_net_pnl_usd) || 0,
+      fundingUsd: Number(r.funding_usd) || 0,
+    })),
+    openPositions,
+    recentCloses: (recentClosesRes.rows || []).map((r: any): KalshiStockShadowRecentClose => ({
+      id: Number(r.id),
+      strategy: String(r.strategy),
+      ticker: String(r.ticker),
+      underlying: String(r.underlying),
+      direction: String(r.direction),
+      entry_price: Number(r.entry_price),
+      exit_price: r.exit_price == null ? null : Number(r.exit_price),
+      return_pct: Number(r.return_pct),
+      r_multiple: r.r_multiple == null ? null : Number(r.r_multiple),
+      funding_accrued_usd: Number(r.funding_accrued_usd) || 0,
+      exit_reason: r.exit_reason == null ? null : String(r.exit_reason),
+      hold_minutes: r.hold_minutes == null ? null : Number(r.hold_minutes),
+      closed_at: toIso(r.closed_at) || new Date(0).toISOString(),
+    })),
+  };
+}
+
 function adviceFor(stats: KalshiBucketStat[], strategy: string, ctx: Parameters<typeof kalshiBucketsOf>[0]): string {
   const bs = kalshiBucketsOf(ctx);
   const hits = stats.filter((s) => s.strategy === strategy && s.verdict !== 'learning' && bs[s.dim] === s.bucket);

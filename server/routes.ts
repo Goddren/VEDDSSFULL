@@ -17480,6 +17480,19 @@ Rules:
       res.json(await shadowLedgerSummary((req.user as User).id, Number(req.query.days) || 30));
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
+  // Kalshi stock-perp SHADOW lane (Phase 1): the session user's dedicated
+  // panel report — current opens, windowed net results by strategy, and
+  // recent closes. Read-only; return_pct is already net and
+  // funding_accrued_usd is a signed funding P&L contribution. ?days=30 (1–365).
+  app.get("/api/kalshi-stock-shadow", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const rawDays = Number(req.query.days);
+      const days = Number.isFinite(rawDays) ? Math.max(1, Math.min(365, Math.floor(rawDays))) : 30;
+      const { getKalshiStockShadowReport } = await import('./services/kalshi-stock-shadow');
+      res.json(await getKalshiStockShadowReport((req.user as User).id, days));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
   app.get("/api/crypto-paper", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {
