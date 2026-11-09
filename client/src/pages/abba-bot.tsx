@@ -10,7 +10,8 @@ import {
   CheckCircle2, XCircle, AlertCircle, Send as SendIcon,
 } from "lucide-react";
 import { IdeaDraftCard, MyIdeasPanel, type IdeaDraft } from "@/components/abba/idea-lab";
-import { ABBA_VOICE_PRESETS, TTS_PROVIDER_LABELS } from "@/components/travis/travis-assistant";
+import { useVoice, ABBA_VOICE_PRESETS, TTS_PROVIDER_LABELS, type AbbaVoicePresetId } from "@/components/abba/voice";
+import { useAbbaChat } from "@/components/abba/use-abba-chat";
 import { SetupDraftCard } from "@/components/abba/setup-review";
 import { TradePerformanceCard, TodayReviewPanel, AiHealthStrip } from "@/components/trade-performance-card";
 
@@ -191,7 +192,6 @@ function StepMediaBlock({ media }: { media: StepMedia }) {
   return null;
 }
 
-type ChatMsg = { role: "user" | "assistant"; content: string; ideaDraft?: IdeaDraft | null; setupDraft?: any };
 type AbbaTab = "manual" | "bot" | "daily" | "outreach" | "setup";
 
 const QUICK_PROMPTS = [
@@ -249,120 +249,39 @@ export default function AbbaBotPage() {
     }
   };
 
-  // ── Chat state ──────────────────────────────────────────────────────────────
-  const [messages, setMessages] = useState<ChatMsg[]>([
-    { role: "assistant", content: "Hey! I'm Abba — your personal AI assistant for everything on the VEDD platform.\n\nI can see all your trades, P&L, win rates, and account data. I can also walk you through setting up MT5, the futures engine, Kalshi, and more.\n\nWhat do you need?" },
-  ]);
+  // ── Chat + voice — the SHARED ABBA core (Phase A unification) ──────────
+  // Same useAbbaChat send flow (stream-first, /api/abba/chat fallback,
+  // idea/setup drafts, speak-on-completion) and same useVoice module
+  // (server TTS first, provider label, browser synth only as fallback) as
+  // the floating assistant. This page's tabs are slots around that core.
+  const voice = useVoice(() => {});
+  const chat = useAbbaChat({
+    voiceEnabled: voice.voiceEnabled,
+    speak: voice.speak,
+    stopSpeaking: voice.stopSpeaking,
+    safeSetSpeaking: voice.safeSetSpeaking,
+    initialMessages: [{
+      id: "abba-greeting",
+      role: "abba",
+      timestamp: new Date(),
+      content: "Hey! I'm Abba — your personal AI assistant for everything on the VEDD platform.\n\nI can see all your trades, P&L, win rates, and account data. I can also walk you through setting up MT5, the futures engine, Kalshi, and more.\n\nWhat do you need?",
+    }],
+  });
+  const messages = chat.messages;
+  const sending = chat.isStreaming;
   const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, sending]);
 
-  // ── Voice — same routing as the floating ABBA assistant: server TTS first
-  // (/api/abba/tts — ElevenLabs → OpenAI → Edge), browser speechSynthesis ONLY
-  // as the error fallback. The provider that actually spoke shows by the toggle.
-  const [voiceOn, setVoiceOn] = useState<boolean>(() => localStorage.getItem('abba_voice') !== 'off');
-  const [ttsProvider, setTtsProvider] = useState<string | null>(null);
-  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
-  // Bumped on every stop/new speak so a TTS fetch that resolves late can
-  // never start playing a stale reply.
-  const speakGenRef = useRef(0);
-  const stopTtsAudio = () => {
-    speakGenRef.current++;
-    if (ttsAudioRef.current) { ttsAudioRef.current.pause(); ttsAudioRef.current = null; }
-    window.speechSynthesis?.cancel();
-  };
-  const toggleVoice = () => {
-    setVoiceOn(v => {
-      const nv = !v;
-      localStorage.setItem('abba_voice', nv ? 'on' : 'off');
-      if (!nv) stopTtsAudio();
-      return nv;
-    });
-  };
-  const pinnedVoice = useRef<SpeechSynthesisVoice | null>(null);
-  const browserSpeak = (text: string) => {
-    if (!window.speechSynthesis) return;
-    try {
-      setTtsProvider('browser');
-      window.speechSynthesis.cancel();
-      // Strip nav tags / markdown so the voice reads clean
-      const clean = text.replace(/\[NAV:[^\]]*\]/g, '').replace(/[*_`#]/g, '').trim();
-      if (!clean) return;
-      // Pin ONE voice for the whole session so it never switches mid-conversation
-      if (!pinnedVoice.current) {
-        const voices = window.speechSynthesis.getVoices();
-        pinnedVoice.current =
-          voices.find(v => /microsoft guy|microsoft david|google uk english male|daniel|alex/i.test(v.name))
-          || voices.find(v => /male|david|guy|daniel/i.test(v.name) && v.lang.startsWith('en'))
-          || voices[0] || null;
-      }
-      // Speak the FULL text — split into sentence chunks that queue in order
-      // (a single long utterance gets cut off on some mobile browsers)
-      const sentences = clean.match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g) || [clean];
-      for (const s of sentences) {
-        const u = new SpeechSynthesisUtterance(s.trim());
-        if (pinnedVoice.current) u.voice = pinnedVoice.current;
-        u.rate = 0.98; u.pitch = 0.8;
-        window.speechSynthesis.speak(u); // queues — no cancel between sentences
-      }
-    } catch { /* voice is best-effort */ }
-  };
-  const speak = async (text: string) => {
-    if (!voiceOn) return;
-    stopTtsAudio();
-    const gen = speakGenRef.current;
-    // Same 1200-char cap as the floating assistant's speak() path
-    const clean = text.replace(/\[NAV:[^\]]*\]/g, '').replace(/[*_`#]/g, '').trim().slice(0, 1200);
-    if (!clean) return;
-    try {
-      const presetId = localStorage.getItem('abba_voice_preset') || 'urban_male';
-      const preset = ABBA_VOICE_PRESETS.find(p => p.id === presetId) || ABBA_VOICE_PRESETS[0];
-      const res = await fetch('/api/abba/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ text: clean, voiceId: preset.elevenLabsId, openaiVoice: preset.openaiVoice }),
-      });
-      if (!res.ok) throw new Error('TTS unavailable');
-      if (!(res.headers.get('content-type') || '').includes('audio')) throw new Error('Not audio');
-      const provider = res.headers.get('x-tts-provider');
-      if (provider) setTtsProvider(provider);
-      const blob = await res.blob();
-      if (gen !== speakGenRef.current) return; // superseded while fetching — stay silent
-      if (blob.size < 100) throw new Error('Empty audio');
-      const audio = new Audio(URL.createObjectURL(blob));
-      ttsAudioRef.current = audio;
-      audio.onended = () => { if (ttsAudioRef.current === audio) ttsAudioRef.current = null; };
-      await audio.play();
-    } catch {
-      if (gen !== speakGenRef.current) return; // superseded — stay silent
-      browserSpeak(clean);
-    }
-  };
-
-  const send = async (overrideText?: string) => {
+  const send = (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
     if (!text || sending) return;
-    stopTtsAudio(); // a new message interrupts any speech in progress/fetching
+    if (voice.voiceEnabled) voice.unlockAudio(); // user gesture — unlock mobile audio
     setInput("");
-    const next = [...messages, { role: "user" as const, content: text }];
-    setMessages(next);
-    setSending(true);
-    try {
-      const res = await apiRequest("POST", "/api/abba/chat", { message: text, history: next.slice(-9, -1).map(({ role, content }) => ({ role, content })) });
-      const data = await res.json();
-      const reply = data.reply || data.error || "No response.";
-      setMessages(m => [...m, { role: "assistant", content: reply, ideaDraft: data.ideaDraft || null, setupDraft: data.setupDraft || null }]);
-      speak(reply);
-    } catch {
-      setMessages(m => [...m, { role: "assistant", content: "Connection issue — try again in a moment." }]);
-    } finally {
-      setSending(false);
-    }
+    chat.sendMessage(text);
   };
 
   // ── EA builder ──────────────────────────────────────────────────────────────
@@ -567,7 +486,7 @@ export default function AbbaBotPage() {
               <div ref={scrollRef} className="max-h-[480px] overflow-y-auto p-3 space-y-2">
                 {messages.map((m, i) => (
                   <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                    {m.role === "assistant" && (
+                    {m.role === "abba" && (
                       <div className="w-6 h-6 rounded-full bg-purple-600/30 flex items-center justify-center mr-2 mt-1 flex-shrink-0">
                         <Brain className="w-3 h-3 text-purple-300" />
                       </div>
@@ -592,19 +511,31 @@ export default function AbbaBotPage() {
               </div>
               <div className="p-2 border-t border-gray-800 flex gap-2">
                 <button
-                  onClick={toggleVoice}
-                  title={voiceOn ? "Voice on — Abba speaks replies (tap to mute)" : "Voice off (tap to unmute)"}
-                  className={`rounded-xl px-2.5 border text-sm ${voiceOn ? "bg-emerald-600/30 border-emerald-500/50" : "bg-gray-800 border-gray-700 opacity-60"}`}
+                  onClick={voice.toggleVoice}
+                  title={voice.voiceEnabled ? "Voice on — Abba speaks replies (tap to mute)" : "Voice off (tap to unmute)"}
+                  className={`rounded-xl px-2.5 border text-sm ${voice.voiceEnabled ? "bg-emerald-600/30 border-emerald-500/50" : "bg-gray-800 border-gray-700 opacity-60"}`}
                 >
-                  {voiceOn ? "🔊" : "🔇"}
+                  {voice.voiceEnabled ? "🔊" : "🔇"}
                 </button>
-                {ttsProvider && (
+                {voice.ttsProvider && (
                   <span
-                    className={`text-[9px] self-center whitespace-nowrap ${ttsProvider === "browser" || ttsProvider === "edge" ? "text-amber-400" : "text-gray-500"}`}
+                    className={`text-[9px] self-center whitespace-nowrap ${voice.ttsProvider === "browser" || voice.ttsProvider === "edge" ? "text-amber-400" : "text-gray-500"}`}
                     title="Voice provider that spoke the last reply"
                   >
-                    {TTS_PROVIDER_LABELS[ttsProvider] || ttsProvider}
+                    {TTS_PROVIDER_LABELS[voice.ttsProvider] || voice.ttsProvider}
                   </span>
+                )}
+                {voice.voiceEnabled && (
+                  <select
+                    value={voice.voicePreset}
+                    onChange={e => voice.setVoicePreset(e.target.value as AbbaVoicePresetId)}
+                    className="text-[9px] self-center bg-black/40 border border-purple-500/30 text-purple-300 rounded px-1 py-0.5 focus:outline-none focus:border-purple-500 max-w-[80px]"
+                    title="ABBA voice style"
+                  >
+                    {ABBA_VOICE_PRESETS.map(p => (
+                      <option key={p.id} value={p.id}>{p.label}</option>
+                    ))}
+                  </select>
                 )}
                 <input
                   value={input}

@@ -38477,6 +38477,39 @@ var init_weekly_review = __esm({
   }
 });
 
+// server/services/trade-source.ts
+function canonicalTradeSource(source) {
+  const key = String(source ?? "").trim().toLowerCase();
+  if (MAP[key]) return MAP[key];
+  if (!key) return { label: "Other", engine: "other" };
+  return { label: key.charAt(0).toUpperCase() + key.slice(1), engine: "other" };
+}
+function canonicalTradeSourceLabel(source) {
+  return canonicalTradeSource(source).label;
+}
+var MAP;
+var init_trade_source = __esm({
+  "server/services/trade-source.ts"() {
+    "use strict";
+    MAP = {
+      tradelocker: { label: "TradeLocker", engine: "fx" },
+      tradelocker_auto: { label: "TradeLocker", engine: "fx" },
+      dxtrade: { label: "DXtrade", engine: "fx" },
+      mt5: { label: "MT5", engine: "fx" },
+      mt5_ea: { label: "MT5", engine: "fx" },
+      mt5_copier: { label: "MT5", engine: "fx" },
+      manual: { label: "MT5", engine: "fx" },
+      kalshi: { label: "Kalshi", engine: "kalshi" },
+      polymarket: { label: "Polymarket", engine: "polymarket" },
+      polymarket_us: { label: "Polymarket", engine: "polymarket" },
+      solana: { label: "Sol", engine: "sol" },
+      sol: { label: "Sol", engine: "sol" },
+      cryptocom: { label: "Crypto", engine: "crypto" },
+      crypto: { label: "Crypto", engine: "crypto" }
+    };
+  }
+});
+
 // server/solana-scanner.ts
 import OpenAI4 from "openai";
 async function fetchJsonRetry(url, tries = 2) {
@@ -42898,9 +42931,11 @@ var init_abba_setup = __esm({
 // server/abba-strategist.ts
 var abba_strategist_exports = {};
 __export(abba_strategist_exports, {
+  ABBA_PERSONA_SPEC: () => ABBA_PERSONA_SPEC,
   IDEA_MARKER: () => IDEA_MARKER,
   SETUP_MARKER: () => SETUP_MARKER,
   abbaChatHandler: () => abbaChatHandler,
+  abbaContextText: () => abbaContextText,
   abbaIdeaLabPrompt: () => abbaIdeaLabPrompt,
   abbaStrategistHandler: () => abbaStrategistHandler,
   buildAbbaContext: () => buildAbbaContext,
@@ -42962,16 +42997,13 @@ async function buildAbbaContext(userId) {
     performance: {
       overall: tally(closed),
       today: tally(closed.filter((t) => new Date(t.closedAt) >= dayStart)),
-      bySource: {
-        MT5: (() => {
-          const t = tally(closed.filter((x) => x.source !== "tradelocker"));
-          return { trades: t.trades, winRate: t.winRate, totalPnl: t.totalPnl };
-        })(),
-        TradeLocker: (() => {
-          const t = tally(closed.filter((x) => x.source === "tradelocker"));
-          return { trades: t.trades, winRate: t.winRate, totalPnl: t.totalPnl };
-        })()
-      },
+      // Canonical source taxonomy (services/trade-source.ts): tradelocker_auto
+      // counts as TradeLocker, dxtrade as DXtrade, kalshi/polymarket as
+      // themselves — previously everything except exactly 'tradelocker' was
+      // mislabeled "MT5".
+      bySource: Object.fromEntries(
+        group(closed, (t) => canonicalTradeSourceLabel(t.source)).map((g) => [g.key, { trades: g.trades, winRate: g.winRate, totalPnl: g.pnl }])
+      ),
       byPair: group(closed, (t) => (t.symbol || "").toUpperCase()).map((g) => ({ pair: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
       bySession: group(closed, (t) => sessionOf2(new Date(t.closedAt))).map((g) => ({ session: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
       avgConfWinners: avgConf(wins),
@@ -42983,7 +43015,7 @@ async function buildAbbaContext(userId) {
       result: t.result,
       pnl: Math.round((t.profitLoss || 0) * 100) / 100,
       conf: t.aiConfidence || 0,
-      source: t.source === "tradelocker" ? "TradeLocker" : "MT5",
+      source: canonicalTradeSourceLabel(t.source),
       session: sessionOf2(new Date(t.closedAt)),
       when: t.closedAt
     })),
@@ -43032,13 +43064,20 @@ function contextSummary(ctx) {
     `GOAL: weekly target $${ctx.goal.weeklyTarget}, current $${ctx.goal.currentProfit} (${ctx.goal.progressPct}% there). Pairs: ${ctx.goal.tradingPairs.join(", ")}.`,
     `OVERALL: ${p2.overall.trades} trades, ${p2.overall.winRate}% WR (${p2.overall.wins}W/${p2.overall.losses}L), net $${p2.overall.totalPnl}.`,
     `TODAY: ${p2.today.trades} trades, ${p2.today.winRate}% WR, net $${p2.today.totalPnl}.`,
-    `BY SOURCE: MT5 ${p2.bySource.MT5.winRate}% ($${p2.bySource.MT5.totalPnl}, ${p2.bySource.MT5.trades}t) | TradeLocker ${p2.bySource.TradeLocker.winRate}% ($${p2.bySource.TradeLocker.totalPnl}, ${p2.bySource.TradeLocker.trades}t).`,
+    `BY SOURCE: ${Object.entries(p2.bySource).map(([k2, v]) => `${k2} ${v.winRate}% ($${v.totalPnl}, ${v.trades}t)`).join(" | ") || "none yet"}.`,
     `BY PAIR (worst\u2192best): ${p2.byPair.slice(0, 8).map((x) => `${x.pair} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(", ")}.`,
     `BY SESSION: ${p2.bySession.map((x) => `${x.session} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(", ")}.`,
     `CONFIDENCE: winners avg ${p2.avgConfWinners}%, losers avg ${p2.avgConfLosers}%.`,
     `RECENT (newest first): ${ctx.recentTrades.slice(0, 18).map((t) => `${t.symbol} ${t.direction} ${t.result} $${t.pnl} @${t.conf}% [${t.session}/${t.source}]`).join(" | ")}.`,
     ctx.brain ? `BRAIN: ${ctx.brain.overallWinRate ?? "?"}% WR over ${ctx.brain.totalTradesAnalyzed ?? "?"} trades. Insights: ${(ctx.brain.learningInsights ?? []).slice(0, 4).join(" / ")}.` : "BRAIN: not learned yet."
   ].join("\n");
+}
+async function abbaContextText(userId) {
+  try {
+    return contextSummary(await buildAbbaContext(userId));
+  } catch {
+    return "";
+  }
 }
 async function getClient(userId) {
   try {
@@ -43236,7 +43275,72 @@ async function abbaChatHandler(req, res2) {
     const ctx = await buildAbbaContext(userId);
     const ai = await getClient(userId);
     if (!ai) return res2.status(400).json({ error: "No AI key configured. Add one in AI API Keys to chat with Abba." });
-    const system = `You are Abba \u2014 the user's AI personal assistant and trading mentor inside the VEDD platform. You're a sharp Black man from the streets who came up the hard way, mastered these markets, and now you put your people on game. Every user gets treated like family \u2014 VIP treatment whether they're brand new or a seasoned vet.
+    const system = `${ABBA_PERSONA_SPEC}
+
+${await abbaIdeaLabPrompt(userId)}
+
+=== TRADER'S LIVE DATA ===
+${contextSummary(ctx)}`;
+    const msgs = [{ role: "system", content: system }];
+    if (Array.isArray(history)) {
+      for (const h of history.slice(-8)) {
+        if (h?.role && h?.content) msgs.push({ role: h.role === "assistant" ? "assistant" : "user", content: String(h.content).slice(0, 2e3) });
+      }
+    }
+    msgs.push({ role: "user", content: message.slice(0, 2e3) });
+    const r = await ai.client.chat.completions.create({
+      model: ai.model,
+      messages: msgs,
+      max_tokens: 700,
+      temperature: 0.6
+    });
+    let reply = r.choices[0]?.message?.content || "I couldn't generate a reply right now \u2014 try again.";
+    const wantsCode = /\b(ea|expert advisor|mql[45]?|pine\s?script|indicator code|script for (mt[45]|tradingview))\b/i.test(message);
+    if (!wantsCode) {
+      reply = reply.replace(/```[\s\S]*?```/g, "").replace(/\n{3,}/g, "\n\n").trim();
+      if (!reply) reply = "Run that by me one more time, fam \u2014 I got you.";
+    }
+    let ideaDraft = null;
+    const lastAbba = String([...Array.isArray(history) ? history : []].reverse().find((h) => h?.role === "assistant")?.content || "");
+    if (reply.includes("[[IDEA_READY]]") || wantsIdeaCard(message, lastAbba)) {
+      reply = reply.replace(/\[\[IDEA_READY\]\]/g, "").trim();
+      ideaDraft = await extractIdeaDraft(ai, userId, msgs.slice(1), message, reply).catch((e) => {
+        console.error("[Abba idea extract]", e?.message);
+        return null;
+      });
+    }
+    let setupDraft = null;
+    if (reply.includes(SETUP_MARKER) || wantsSetupCard(message, lastAbba)) {
+      reply = reply.split(SETUP_MARKER).join("").trim();
+      setupDraft = await extractSetupDraft(ai, msgs.slice(1), message, reply).catch((e) => {
+        console.error("[Abba setup extract]", e?.message);
+        return null;
+      });
+    }
+    res2.json({ reply, response: reply, ideaDraft, setupDraft });
+  } catch (err) {
+    console.error("[Abba chat]", err);
+    res2.status(500).json({ error: err.message });
+  }
+}
+var sessionOf2, IDEA_MARKER, SETUP_MARKER, YES, ABBA_PERSONA_SPEC;
+var init_abba_strategist = __esm({
+  "server/abba-strategist.ts"() {
+    "use strict";
+    init_wizard_strategies();
+    init_storage();
+    init_engine_updates();
+    init_weekly_review();
+    init_brain_ideas();
+    init_trade_source();
+    sessionOf2 = (d) => {
+      const h = d.getUTCHours();
+      return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
+    };
+    IDEA_MARKER = "[[IDEA_READY]]";
+    SETUP_MARKER = "[[SETUP_READY]]";
+    YES = /^\s*(yes|yeah|yep|yup|bet|sure|ok(ay)?|do it|go ahead|let'?s (do it|go)|say less|run it|lock it in|please)\b/i;
+    ABBA_PERSONA_SPEC = `You are Abba \u2014 the user's AI personal assistant and trading mentor inside the VEDD platform. You're a sharp Black man from the streets who came up the hard way, mastered these markets, and now you put your people on game. Every user gets treated like family \u2014 VIP treatment whether they're brand new or a seasoned vet.
 
 === YOUR VOICE ===
 Real, confident, urban \u2014 the big homie who happens to be elite at trading. This is a spoken voice, not a document \u2014 every reply gets read out loud through TTS, so it has to breathe and feel like a real man talking to his boy, never like a report:
@@ -43330,70 +43434,7 @@ Keep answers under 300 words unless asked for depth. Stay in your street-smart v
 === HARD RULES ===
 - NEVER include code, code blocks, JSON, or markdown fences in your replies. Plain conversation only. THE ONLY EXCEPTION: the user explicitly asks you to generate an EA, indicator, or script for a trading platform (MQL4/MQL5 for MT4/MT5, Pine Script for TradingView, etc.) \u2014 then and only then provide the code.
 - When asked about account balances or connections, use the LIVE ACCOUNTS data above \u2014 it includes BOTH MT5 and TradeLocker in real time. Never say you can't see TradeLocker.
-- The BRAIN line shows the live VEDD AI Brain (learning from both MT5 + TradeLocker closed trades) \u2014 reference its win rate and insights when discussing performance.
-
-${await abbaIdeaLabPrompt(userId)}
-
-=== TRADER'S LIVE DATA ===
-${contextSummary(ctx)}`;
-    const msgs = [{ role: "system", content: system }];
-    if (Array.isArray(history)) {
-      for (const h of history.slice(-8)) {
-        if (h?.role && h?.content) msgs.push({ role: h.role === "assistant" ? "assistant" : "user", content: String(h.content).slice(0, 2e3) });
-      }
-    }
-    msgs.push({ role: "user", content: message.slice(0, 2e3) });
-    const r = await ai.client.chat.completions.create({
-      model: ai.model,
-      messages: msgs,
-      max_tokens: 700,
-      temperature: 0.6
-    });
-    let reply = r.choices[0]?.message?.content || "I couldn't generate a reply right now \u2014 try again.";
-    const wantsCode = /\b(ea|expert advisor|mql[45]?|pine\s?script|indicator code|script for (mt[45]|tradingview))\b/i.test(message);
-    if (!wantsCode) {
-      reply = reply.replace(/```[\s\S]*?```/g, "").replace(/\n{3,}/g, "\n\n").trim();
-      if (!reply) reply = "Run that by me one more time, fam \u2014 I got you.";
-    }
-    let ideaDraft = null;
-    const lastAbba = String([...Array.isArray(history) ? history : []].reverse().find((h) => h?.role === "assistant")?.content || "");
-    if (reply.includes("[[IDEA_READY]]") || wantsIdeaCard(message, lastAbba)) {
-      reply = reply.replace(/\[\[IDEA_READY\]\]/g, "").trim();
-      ideaDraft = await extractIdeaDraft(ai, userId, msgs.slice(1), message, reply).catch((e) => {
-        console.error("[Abba idea extract]", e?.message);
-        return null;
-      });
-    }
-    let setupDraft = null;
-    if (reply.includes(SETUP_MARKER) || wantsSetupCard(message, lastAbba)) {
-      reply = reply.split(SETUP_MARKER).join("").trim();
-      setupDraft = await extractSetupDraft(ai, msgs.slice(1), message, reply).catch((e) => {
-        console.error("[Abba setup extract]", e?.message);
-        return null;
-      });
-    }
-    res2.json({ reply, response: reply, ideaDraft, setupDraft });
-  } catch (err) {
-    console.error("[Abba chat]", err);
-    res2.status(500).json({ error: err.message });
-  }
-}
-var sessionOf2, IDEA_MARKER, SETUP_MARKER, YES;
-var init_abba_strategist = __esm({
-  "server/abba-strategist.ts"() {
-    "use strict";
-    init_wizard_strategies();
-    init_storage();
-    init_engine_updates();
-    init_weekly_review();
-    init_brain_ideas();
-    sessionOf2 = (d) => {
-      const h = d.getUTCHours();
-      return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
-    };
-    IDEA_MARKER = "[[IDEA_READY]]";
-    SETUP_MARKER = "[[SETUP_READY]]";
-    YES = /^\s*(yes|yeah|yep|yup|bet|sure|ok(ay)?|do it|go ahead|let'?s (do it|go)|say less|run it|lock it in|please)\b/i;
+- The BRAIN line shows the live VEDD AI Brain (learning from both MT5 + TradeLocker closed trades) \u2014 reference its win rate and insights when discussing performance.`;
   }
 });
 
@@ -72847,9 +72888,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "7f5b427-dirty";
-var BUILD_BRANCH = "fix/abba-voice-routing";
-var BUILT_AT = "2026-11-09T02:41:54.588Z";
+var BUILD_COMMIT = "e477a29-dirty";
+var BUILD_BRANCH = "feat/abba-unify-engine-room";
+var BUILT_AT = "2026-11-09T03:37:45.521Z";
 
 // server/stripe.ts
 init_db();
@@ -79744,7 +79785,14 @@ data: ${JSON.stringify(data)}
           break;
         }
       }
-      const systemPrompt = `You are ABBA \u2014 VEDD AI. God Body intelligence meets fund manager precision. Built for ${firstName}. No fluff. No corporate speak. Just real knowledge, right and exact.
+      const canonicalCtx = await abbaContextText(userId);
+      const systemPrompt = `${ABBA_PERSONA_SPEC}
+
+=== STREAM STYLE (this surface's length parameter \u2014 the persona above is the shared ABBA spec) ===
+Keep responses under 120 words. Lead with the most important insight. Make ${firstName} feel like you KNOW their situation because you do.
+NAV: include [NAV:/path] to navigate. Use EXACT paths only \u2014 wrong paths lead to dead pages.
+Routes: /dashboard | /analysis | /multi-timeframe | /weekly-strategy | /orb-breakout | /historical | /what-if | /my-eas | /ea-marketplace | /mt5-chart-data | /mobile-alerts | /live-monitor | /solana-scanner | /activity | /streak | /community | /social-hub | /blog | /devotional | /vedd-wallet | /my-wallet | /account-growth | /referral | /grants | /credit-builder | /achievements | /profile | /ai-api-keys | /training-calendar | /ambassador/free-path | /vedd-clothing | /subscription | /support
+PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.
 
 LIVE NUMBERS (speak these cold): Balance $${balance.toLocaleString("en-US", { minimumFractionDigits: 2 })} (MT5 $${_mt5BalS.toLocaleString()} + TradeLocker $${_tlBalS.toLocaleString()}) | TL accounts: ${tlAcctLine} | Week ${weekPct}% ($${weekProfit}/$${weekTarget}) | Today $${todayProfit}/$${dailyTarget} | ${tradingDaysLeft2}d left | Need $${pacingNeededPerDay}/day | Open(${openPositions.length}): ${openSummary || "None"} | Pairs: ${planPairs.join(",") || "None"} | Today: ${today} | Page: ${currentPage}
 BRAIN (live \u2014 learns from MT5 + TradeLocker closed trades): ${(() => {
@@ -79757,15 +79805,10 @@ ORB LIVE: ${orbStreamContext.join(" || ")}` : ""}
 ORB KNOWLEDGE: 9:30 AM NYSE open. First 15-min candle = Opening Range (High/Low). After 9:45, 6-min chart \u2014 full-body close ABOVE ORB High (LONG) or BELOW ORB Low (SHORT). NEVER chase \u2014 wait for RETEST. At retest: confirming candle (Engulfing, Hammer, Doji) + SS AI Bot \u226570 = entry. ONE trade per instrument per day. Stop = 10% of range outside ORB. T1=2:1 R:R, T2=3:1. Invalidated if price re-enters range.
 
 SUPREME MATH (weave naturally): 1=Knowledge(foundation) 2=Wisdom(right action) 3=Understanding(full picture) 4=Culture/Freedom(discipline=profits) 5=Power/Refinement(sharpen the edge) 6=Equality(no emotions) 7=God(self-mastery) 8=Build/Destroy(protect gains, kill bad habits) 9=Born(trade completed, P&L grows) 0=Cipher(the complete circle \u2014 close the week whole)
-
-VOICE: A sharp Black man from the streets who mastered these markets \u2014 big homie energy, God-level precision. Street intelligence + fund manager precision. Talk like a God who runs money. "Peace", "Word is bond", "Show and prove", "right and exact", "drop science", "from the root", "the cipher is complete" \u2014 plus natural street flow: "bro", "my boy", "fam", "gang", "no cap", "keep it a buck", "we eatin'", "that's bread", "lock in", "secure the bag", "say less", "you feel me?". Celebrate wins LOUD ("SHEESH, we UP!"), deliver losses straight with a comeback plan ("Ima keep it a buck with you bro..."). Slang is the flavor \u2014 numbers stay exact, advice stays elite. Direct. Real. Powerful.
-
-Keep responses under 120 words. Lead with the most important insight. Make ${firstName} feel like you KNOW their situation because you do.
-HARD RULE: NEVER include code, code blocks, JSON, or markdown fences in replies \u2014 plain talk only. ONLY exception: user explicitly asks for an EA/indicator/script (MQL4, MQL5, Pine Script) \u2014 then point them to the EA Generator with [NAV:/futures-ea-generator].
-NAV: include [NAV:/path] to navigate. Use EXACT paths only \u2014 wrong paths lead to dead pages.
-Routes: /dashboard | /analysis | /multi-timeframe | /weekly-strategy | /orb-breakout | /historical | /what-if | /my-eas | /ea-marketplace | /mt5-chart-data | /mobile-alerts | /live-monitor | /solana-scanner | /activity | /streak | /community | /social-hub | /blog | /devotional | /vedd-wallet | /my-wallet | /account-growth | /referral | /grants | /credit-builder | /achievements | /profile | /ai-api-keys | /training-calendar | /ambassador/free-path | /vedd-clothing | /subscription | /support
-PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.
-
+${canonicalCtx ? `
+=== TRADER'S TRADE RECORD (canonical \u2014 same context builder as ABBA chat) ===
+${canonicalCtx}
+` : ""}
 ${await abbaIdeaLabPrompt(userId)}`;
       const { getUniversalAIClientForUser: getStreamAI } = await Promise.resolve().then(() => (init_openai(), openai_exports));
       const aiClient = await getStreamAI(userId);

@@ -11,6 +11,7 @@ import { storage } from './storage';
 import { engineUpdatesText } from './services/engine-updates';
 import { reviewContextText } from './services/weekly-review';
 import { IDEA_SESSIONS, sanitizeRule, backtestIdea, describeRule, ideasContextText } from './services/brain-ideas';
+import { canonicalTradeSourceLabel } from './services/trade-source';
 
 interface AbbaContext {
   goal: { weeklyTarget: number; currentProfit: number; progressPct: number; tradingPairs: string[] };
@@ -82,10 +83,14 @@ export async function buildAbbaContext(userId: number): Promise<AbbaContext> {
     performance: {
       overall: tally(closed),
       today: tally(closed.filter((t: any) => new Date(t.closedAt) >= dayStart)),
-      bySource: {
-        MT5: (() => { const t = tally(closed.filter((x: any) => x.source !== 'tradelocker')); return { trades: t.trades, winRate: t.winRate, totalPnl: t.totalPnl }; })(),
-        TradeLocker: (() => { const t = tally(closed.filter((x: any) => x.source === 'tradelocker')); return { trades: t.trades, winRate: t.winRate, totalPnl: t.totalPnl }; })(),
-      },
+      // Canonical source taxonomy (services/trade-source.ts): tradelocker_auto
+      // counts as TradeLocker, dxtrade as DXtrade, kalshi/polymarket as
+      // themselves — previously everything except exactly 'tradelocker' was
+      // mislabeled "MT5".
+      bySource: Object.fromEntries(
+        group(closed, (t) => canonicalTradeSourceLabel(t.source))
+          .map(g => [g.key, { trades: g.trades, winRate: g.winRate, totalPnl: g.pnl }])
+      ),
       byPair: group(closed, (t) => (t.symbol || '').toUpperCase()).map(g => ({ pair: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
       bySession: group(closed, (t) => sessionOf(new Date(t.closedAt))).map(g => ({ session: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
       avgConfWinners: avgConf(wins),
@@ -97,7 +102,7 @@ export async function buildAbbaContext(userId: number): Promise<AbbaContext> {
       .map((t: any) => ({
         symbol: (t.symbol || '').toUpperCase(), direction: t.direction, result: t.result,
         pnl: Math.round((t.profitLoss || 0) * 100) / 100, conf: t.aiConfidence || 0,
-        source: t.source === 'tradelocker' ? 'TradeLocker' : 'MT5',
+        source: canonicalTradeSourceLabel(t.source),
         session: sessionOf(new Date(t.closedAt)), when: t.closedAt,
       })),
     brain: (global as any).veddAIBrain?.[userId] ?? null,
@@ -146,13 +151,20 @@ function contextSummary(ctx: AbbaContext): string {
     `GOAL: weekly target $${ctx.goal.weeklyTarget}, current $${ctx.goal.currentProfit} (${ctx.goal.progressPct}% there). Pairs: ${ctx.goal.tradingPairs.join(', ')}.`,
     `OVERALL: ${p.overall.trades} trades, ${p.overall.winRate}% WR (${p.overall.wins}W/${p.overall.losses}L), net $${p.overall.totalPnl}.`,
     `TODAY: ${p.today.trades} trades, ${p.today.winRate}% WR, net $${p.today.totalPnl}.`,
-    `BY SOURCE: MT5 ${p.bySource.MT5.winRate}% ($${p.bySource.MT5.totalPnl}, ${p.bySource.MT5.trades}t) | TradeLocker ${p.bySource.TradeLocker.winRate}% ($${p.bySource.TradeLocker.totalPnl}, ${p.bySource.TradeLocker.trades}t).`,
+    `BY SOURCE: ${Object.entries(p.bySource).map(([k, v]) => `${k} ${v.winRate}% ($${v.totalPnl}, ${v.trades}t)`).join(' | ') || 'none yet'}.`,
     `BY PAIR (worst→best): ${p.byPair.slice(0, 8).map(x => `${x.pair} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(', ')}.`,
     `BY SESSION: ${p.bySession.map(x => `${x.session} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(', ')}.`,
     `CONFIDENCE: winners avg ${p.avgConfWinners}%, losers avg ${p.avgConfLosers}%.`,
     `RECENT (newest first): ${ctx.recentTrades.slice(0, 18).map(t => `${t.symbol} ${t.direction} ${t.result} $${t.pnl} @${t.conf}% [${t.session}/${t.source}]`).join(' | ')}.`,
     ctx.brain ? `BRAIN: ${ctx.brain.overallWinRate ?? '?'}% WR over ${ctx.brain.totalTradesAnalyzed ?? '?'} trades. Insights: ${(ctx.brain.learningInsights ?? []).slice(0, 4).join(' / ')}.` : 'BRAIN: not learned yet.',
   ].join('\n');
+}
+
+/** The ONE ABBA context builder, as prompt text — used by /api/abba/chat
+ *  (via contextSummary) AND /api/abba/stream, so both surfaces quote the
+ *  same trade record. Never throws: a context failure must not kill chat. */
+export async function abbaContextText(userId: number): Promise<string> {
+  try { return contextSummary(await buildAbbaContext(userId)); } catch { return ''; }
 }
 
 async function getClient(userId: number): Promise<{ client: any; model: string } | null> {
@@ -351,18 +363,11 @@ You SEE all their real trade data. Be specific, honest, and numbers-driven — r
   }
 }
 
-// ── Chat: talk with Abba, full context injected ─────────────────────────────────
-export async function abbaChatHandler(req: Request, res: Response) {
-  if (!(req as any).isAuthenticated?.()) return res.status(401).json({ error: 'Authentication required' });
-  const userId = (req.user as any).id;
-  const { message, history } = req.body || {};
-  if (!message || typeof message !== 'string') return res.status(400).json({ error: 'message required' });
-  try {
-    const ctx = await buildAbbaContext(userId);
-    const ai = await getClient(userId);
-    if (!ai) return res.status(400).json({ error: 'No AI key configured. Add one in AI API Keys to chat with Abba.' });
-
-    const system = `You are Abba — the user's AI personal assistant and trading mentor inside the VEDD platform. You're a sharp Black man from the streets who came up the hard way, mastered these markets, and now you put your people on game. Every user gets treated like family — VIP treatment whether they're brand new or a seasoned vet.
+// ── THE ABBA PERSONA SPEC (Phase A unification) ─────────────────────────
+// ONE persona for every ABBA surface: /api/abba/chat uses it directly and
+// /api/abba/stream composes it with its stream-style length parameter +
+// live sections. Edit ABBA's voice/rules HERE, nowhere else.
+export const ABBA_PERSONA_SPEC = `You are Abba — the user's AI personal assistant and trading mentor inside the VEDD platform. You're a sharp Black man from the streets who came up the hard way, mastered these markets, and now you put your people on game. Every user gets treated like family — VIP treatment whether they're brand new or a seasoned vet.
 
 === YOUR VOICE ===
 Real, confident, urban — the big homie who happens to be elite at trading. This is a spoken voice, not a document — every reply gets read out loud through TTS, so it has to breathe and feel like a real man talking to his boy, never like a report:
@@ -456,7 +461,20 @@ Keep answers under 300 words unless asked for depth. Stay in your street-smart v
 === HARD RULES ===
 - NEVER include code, code blocks, JSON, or markdown fences in your replies. Plain conversation only. THE ONLY EXCEPTION: the user explicitly asks you to generate an EA, indicator, or script for a trading platform (MQL4/MQL5 for MT4/MT5, Pine Script for TradingView, etc.) — then and only then provide the code.
 - When asked about account balances or connections, use the LIVE ACCOUNTS data above — it includes BOTH MT5 and TradeLocker in real time. Never say you can't see TradeLocker.
-- The BRAIN line shows the live VEDD AI Brain (learning from both MT5 + TradeLocker closed trades) — reference its win rate and insights when discussing performance.
+- The BRAIN line shows the live VEDD AI Brain (learning from both MT5 + TradeLocker closed trades) — reference its win rate and insights when discussing performance.`;
+
+// ── Chat: talk with Abba, full context injected ─────────────────────────────────
+export async function abbaChatHandler(req: Request, res: Response) {
+  if (!(req as any).isAuthenticated?.()) return res.status(401).json({ error: 'Authentication required' });
+  const userId = (req.user as any).id;
+  const { message, history } = req.body || {};
+  if (!message || typeof message !== 'string') return res.status(400).json({ error: 'message required' });
+  try {
+    const ctx = await buildAbbaContext(userId);
+    const ai = await getClient(userId);
+    if (!ai) return res.status(400).json({ error: 'No AI key configured. Add one in AI API Keys to chat with Abba.' });
+
+    const system = `${ABBA_PERSONA_SPEC}
 
 ${await abbaIdeaLabPrompt(userId)}
 
