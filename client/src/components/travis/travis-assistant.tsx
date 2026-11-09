@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { IdeaDraftCard, type IdeaDraft } from "@/components/abba/idea-lab";
 import { SetupDraftCard } from "@/components/abba/setup-review";
-import { useVoice, ABBA_VOICE_PRESETS, TTS_PROVIDER_LABELS, hasSpeechRecognition, hasSpeechSynthesis, loadVoices, type AbbaVoicePresetId } from "@/components/abba/voice";
+import { useVoice, ABBA_VOICE_PRESETS, TTS_PROVIDER_LABELS, buildAbbaTtsRequestBody, hasSpeechRecognition, hasSpeechSynthesis, loadVoices, type AbbaVoicePresetId } from "@/components/abba/voice";
 import { useAbbaChat, type AbbaChatMessage, type PlanProposal } from "@/components/abba/use-abba-chat";
 import { EngineRoomCard } from "@/components/abba/engine-room-card";
 // Re-exported for compatibility — the canonical definitions live in
@@ -571,34 +571,31 @@ export function AbbaAssistant() {
   // silently in the background, store the blob URL, then play it INSTANTLY
   // (synchronously) when the user taps the orb — no network wait, no block.
   const greetingAudioUrlRef = useRef<string | null>(null);
-  const greetingAudioFetchedRef = useRef(false);
+  const greetingAudioPresetRef = useRef<AbbaVoicePresetId | null>(null);
   useEffect(() => {
-    if (greetingAudioFetchedRef.current) return;
-    greetingAudioFetchedRef.current = true;
+    let cancelled = false;
+    const requestedPreset = voicePreset;
+    // A blob generated for another preset is not a valid greeting anymore:
+    // revoke and discard it before fetching the active preset's greeting.
+    if (greetingAudioUrlRef.current) URL.revokeObjectURL(greetingAudioUrlRef.current);
+    greetingAudioUrlRef.current = null;
+    greetingAudioPresetRef.current = null;
     const shortGreet = `Peace. ABBA in the cipher — locked in and ready. What you building today?`;
     fetch('/api/abba/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ text: shortGreet }),
+      body: JSON.stringify(buildAbbaTtsRequestBody(shortGreet, requestedPreset)),
     }).then(async res => {
-      if (res.ok && res.headers.get('content-type')?.includes('audio')) {
-        const blob = await res.blob();
-        if (blob.size > 100) {
-          greetingAudioUrlRef.current = URL.createObjectURL(blob);
-          // If the panel is already open and no audio is playing yet,
-          // try playing immediately via the primed element (works if user
-          // tapped the orb and the context is already unlocked)
-          if (primedAudioRef.current && !audioRef.current) {
-            const a = primedAudioRef.current;
-            a.src = greetingAudioUrlRef.current;
-            a.volume = 1.0;
-            a.play().catch(() => {});
-          }
-        }
-      }
+      if (cancelled || !res.ok || !res.headers.get('content-type')?.includes('audio')) return;
+      const blob = await res.blob();
+      // The preset may have changed again while this request was in flight.
+      if (cancelled || blob.size <= 100) return;
+      greetingAudioUrlRef.current = URL.createObjectURL(blob);
+      greetingAudioPresetRef.current = requestedPreset;
     }).catch(() => {});
-  }, []);
+    return () => { cancelled = true; };
+  }, [voicePreset]);
 
   // Listen for external open-ABBA events (e.g., from dashboard card)
   useEffect(() => {
@@ -769,6 +766,12 @@ export function AbbaAssistant() {
                   // Play pre-fetched greeting audio INSTANTLY inside the gesture window.
                   // No network latency = iOS autoplay policy satisfied.
                   // If pre-fetch hasn't completed yet, useEffect greeting fallback fires instead.
+                  // Never play a blob fetched for a different preset.
+                  if (greetingAudioUrlRef.current && greetingAudioPresetRef.current !== voicePreset) {
+                    URL.revokeObjectURL(greetingAudioUrlRef.current);
+                    greetingAudioUrlRef.current = null;
+                    greetingAudioPresetRef.current = null;
+                  }
                   if (greetingAudioUrlRef.current) {
                     const greetAudio = new Audio(greetingAudioUrlRef.current);
                     greetAudio.volume = 1.0;
@@ -776,7 +779,8 @@ export function AbbaAssistant() {
                       safeSetSpeaking(true);
                       greetAudio.onended = () => safeSetSpeaking(false);
                     }).catch(() => {});
-                    greetingAudioUrlRef.current = null; // consume — refetched next mount
+                    greetingAudioUrlRef.current = null; // consume — the preset-keyed effect refetches on preset change
+                    greetingAudioPresetRef.current = null;
                     playedPreFetch = true;
                   }
                 }

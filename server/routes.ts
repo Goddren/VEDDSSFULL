@@ -4922,6 +4922,32 @@ IMPORTANT:
     // The ElevenLabs voice this request resolved (body → env → Adam) — also
     // drives the OpenRouter ElevenLabs step's voice mapping below.
     const ELEVENLABS_VOICE_ID = (req.body.voiceId as string | undefined) || process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB'; // Adam (male)
+    const OPENAI_VOICE = (req.body.openaiVoice as string | undefined) || 'onyx';
+    // Gender consistency for fallbacks whose voices are selected by name
+    // (notably Edge). The client's explicit voiceGender wins; otherwise the
+    // preset id, then the resolved ElevenLabs voice ID, identifies one of
+    // the four bundled presets. Unknown/library IDs default to male only
+    // when the request gives no other gender signal.
+    const ABBA_PRESET_GENDER: Record<string, 'male' | 'female'> = {
+      urban_male: 'male',
+      street_male: 'male',
+      deep_male: 'male',
+      female: 'female',
+    };
+    const ABBA_ELEVENLABS_PRESET_GENDER: Record<string, 'male' | 'female'> = {
+      'nJvj5shg2xu1GKGxqfkE': 'male',   // Yusuf Hakeem Kiser — Urban Male
+      'TxGEqnHWrfWFTfGW9XjX': 'male',   // Josh — Street Male
+      '2EiwWnXFnvU5JabPnv8n': 'male',   // Clyde — Deep Male
+      '21m00Tcm4TlvDq8ikWAM': 'female', // Rachel — Female
+      'pNInz6obpgDQGcFmaJgB': 'male',   // Adam — server default
+    };
+    const explicitVoiceGender = req.body.voiceGender === 'female' || req.body.voiceGender === 'male'
+      ? req.body.voiceGender as 'male' | 'female'
+      : undefined;
+    const requestedVoiceGender = explicitVoiceGender
+      || (typeof req.body.preset === 'string' ? ABBA_PRESET_GENDER[req.body.preset] : undefined)
+      || ABBA_ELEVENLABS_PRESET_GENDER[ELEVENLABS_VOICE_ID]
+      || 'male';
 
     try {
       const allKeys = await storage.getUserApiKeys(userId);
@@ -5061,8 +5087,8 @@ IMPORTANT:
       if (openaiKey) {
         try {
           const ttsClient = new OpenAILib({ apiKey: openaiKey });
-          // 'onyx' = deep, authoritative male voice — matches ABBA's urban street-intelligence persona
-          const ttsVoice = (req.body.openaiVoice as string) || 'onyx';
+          // Use the request's preset voice ('onyx' only when the client sent none).
+          const ttsVoice = OPENAI_VOICE;
           const mp3 = await ttsClient.audio.speech.create({ model: 'tts-1-hd', voice: ttsVoice as any, input: clean, speed: 1.0 });
           const buffer = Buffer.from(await mp3.arrayBuffer());
           console.log(`[ABBA TTS] OpenAI OK — ${buffer.length} bytes`);
@@ -5077,14 +5103,16 @@ IMPORTANT:
 
       // ── 2.5 OpenAI TTS via OpenRouter — gpt-4o-mini-tts on the OpenRouter balance ──
       if (orEnabled) {
-        if (await tryOpenRouterSpeech('OpenAI TTS via OpenRouter', 'openai-openrouter', process.env.ABBA_TTS_OR_OAI_MODEL || 'openai/gpt-4o-mini-tts-2025-12-15', (req.body.openaiVoice as string) || 'onyx')) return;
+        if (await tryOpenRouterSpeech('OpenAI TTS via OpenRouter', 'openai-openrouter', process.env.ABBA_TTS_OR_OAI_MODEL || 'openai/gpt-4o-mini-tts-2025-12-15', OPENAI_VOICE)) return;
       }
 
       // ── 3. Microsoft Edge TTS — free last resort (robotic but functional) ───
       try {
         const { MsEdgeTTS, OUTPUT_FORMAT } = await import('msedge-tts');
         const tts = new MsEdgeTTS();
-        const voice = process.env.EDGE_TTS_VOICE || 'en-US-GuyNeural';
+        // EDGE_TTS_VOICE is an operator override and wins when set; otherwise
+        // keep Edge gender-consistent with the requested ABBA preset.
+        const voice = process.env.EDGE_TTS_VOICE || (requestedVoiceGender === 'female' ? 'en-US-JennyNeural' : 'en-US-GuyNeural');
         await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
         const { audioStream } = tts.toStream(clean);
         const chunks: Buffer[] = [];
