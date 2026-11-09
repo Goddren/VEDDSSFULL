@@ -4,9 +4,13 @@
 // with balances + freshness, open positions, and recent closes — all from
 // GET /api/abba/engine-room (session user only). Nothing here can start,
 // stop, or reconfigure anything; it displays and refreshes, that's all.
+// The card is COLLAPSIBLE (collapsed by default on both chat surfaces, with
+// a counts summary in the header) and its expanded body scrolls inside a
+// bounded max-height — it can never crowd out the chat around it again.
 
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, Wallet, Layers, RefreshCw } from 'lucide-react';
+import { Activity, Wallet, Layers, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 
 type EngineStateKind = 'running' | 'stopped' | 'gated' | 'silent' | 'no_data' | 'unknown';
 
@@ -43,22 +47,53 @@ function fmtMoney(v: number | null, currency: string | null): string {
   return `${currency === 'SOL' ? '' : '$'}${v.toLocaleString('en-US', { maximumFractionDigits: 2 })}${currency === 'SOL' ? ' SOL' : ''}`;
 }
 
-export function EngineRoomCard() {
+interface EngineRoomCardProps {
+  /** Start expanded? Both chat surfaces keep the card COLLAPSED by default so
+      the conversation stays the primary surface; it opens on tap. */
+  defaultExpanded?: boolean;
+  /** Tailwind max-height for the expanded body's own scroll region — the
+      bound that guarantees the card can never consume the layout around it. */
+  expandedMaxHeightClass?: string;
+}
+
+export function EngineRoomCard({ defaultExpanded = false, expandedMaxHeightClass = 'max-h-[420px]' }: EngineRoomCardProps = {}) {
   const { data, isLoading, isError, refetch, isFetching } = useQuery<EngineRoomData>({
     queryKey: ['/api/abba/engine-room'],
     refetchInterval: 60_000,
     retry: false,
   });
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  // One-line summary for the collapsed header — counts only, computed from
+  // the same snapshot the body renders. Falls back to the static subtitle
+  // until the first snapshot lands, so the header stays compact while
+  // loading and on error.
+  const summary = data
+    ? `${data.engines.filter((e) => e.state === 'running').length}/${data.engines.length} engines running · ${data.accounts.length} account${data.accounts.length === 1 ? '' : 's'} · ${data.openPositions.length} open`
+    : 'your engines · accounts · positions';
 
   return (
     <div className="rounded-2xl border border-white/10 bg-black/30 overflow-hidden" data-testid="abba-engine-room">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
-        <Activity className="w-3.5 h-3.5 text-cyan-300" />
-        <span className="text-[11px] font-bold tracking-wide text-white/90">ENGINE ROOM</span>
-        <span className="text-[9px] text-white/40">your engines · accounts · positions</span>
+      <div className="flex items-center gap-1 px-3 py-2 border-b border-white/10">
         <button
-          onClick={() => refetch()}
-          className="ml-auto p-1 rounded-md hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="flex items-center gap-2 flex-1 min-w-0 text-left rounded-md px-1 py-0.5 -mx-1 hover:bg-white/5 transition-colors"
+          title={expanded ? 'Collapse engine room' : 'Expand engine room'}
+          data-testid="button-engine-room-toggle"
+        >
+          <Activity className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+          <span className="text-[11px] font-bold tracking-wide text-white/90 shrink-0">ENGINE ROOM</span>
+          <span className="text-[9px] text-white/40 truncate">{summary}</span>
+          {expanded
+            ? <ChevronUp className="w-3.5 h-3.5 text-white/50 shrink-0 ml-auto" />
+            : <ChevronDown className="w-3.5 h-3.5 text-white/50 shrink-0 ml-auto" />}
+        </button>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); refetch(); }}
+          className="p-1 rounded-md hover:bg-white/10 text-white/50 hover:text-white transition-colors shrink-0"
           title="Refresh engine room"
           data-testid="button-engine-room-refresh"
         >
@@ -66,10 +101,12 @@ export function EngineRoomCard() {
         </button>
       </div>
 
-      {isLoading && <div className="px-3 py-3 text-[11px] text-white/50">Reading your engines and accounts…</div>}
-      {isError && <div className="px-3 py-3 text-[11px] text-red-300">Engine room unavailable right now — your engines are unaffected.</div>}
+      {expanded && (
+        <div className={`${expandedMaxHeightClass} overflow-y-auto`}>
+          {isLoading && <div className="px-3 py-3 text-[11px] text-white/50">Reading your engines and accounts…</div>}
+          {isError && <div className="px-3 py-3 text-[11px] text-red-300">Engine room unavailable right now — your engines are unaffected.</div>}
 
-      {data && (
+          {data && (
         <div className="px-3 py-2 space-y-2.5">
           {/* Engines */}
           <div className="space-y-1">
@@ -159,6 +196,8 @@ export function EngineRoomCard() {
               </div>
             )}
           </div>
+        </div>
+          )}
         </div>
       )}
     </div>

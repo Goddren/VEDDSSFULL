@@ -913,10 +913,14 @@ export function AbbaAssistant() {
               <ContextBar ctx={context} />
               {/* Platform sync status */}
               {user && <PlatformSyncBar userId={user.id} />}
-              {/* Engine Room (Phase B) — same card as the ABBA page */}
+              {/* Engine Room (Phase B) — same card as the ABBA page.
+                  Collapsed by default (one-line summary strip) and wrapped
+                  flex-shrink-0; even expanded, its body is bounded to 40vh
+                  with its own scroll, so the messages region, quick prompts
+                  and composer always stay on screen. */}
               {user && (
-                <div className="mx-3 mt-2">
-                  <EngineRoomCard />
+                <div className="mx-3 mt-2 flex-shrink-0">
+                  <EngineRoomCard defaultExpanded={false} expandedMaxHeightClass="max-h-[40vh]" />
                 </div>
               )}
 
@@ -971,9 +975,12 @@ export function AbbaAssistant() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Quick prompts */}
+              {/* Quick prompts — min-h-0 + overflow-y-auto lets this block
+                  yield (and scroll internally) when the column is squeezed
+                  (short viewport, Engine Room expanded), so the composer
+                  below can never be pushed off the panel. */}
               {showQuick && messages.length <= 1 && !isStreaming && (
-                <div className="px-3 pb-2">
+                <div className="px-3 pb-2 min-h-0 overflow-y-auto">
                   <p className="text-[10px] text-gray-600 mb-1.5 flex items-center gap-1">
                     <Zap className="h-2.5 w-2.5 text-red-500" /> Quick commands
                   </p>
@@ -1023,7 +1030,7 @@ export function AbbaAssistant() {
                     onChange={e => setInput(e.target.value)}
                     placeholder={isListening ? 'Listening…' : hasSpeechRecognition ? 'Ask ABBA or tap mic…' : 'Ask ABBA anything…'}
                     disabled={isStreaming}
-                    className="flex-1 bg-[#12121f] border border-red-900/30 rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-gray-600 outline-none focus:border-red-700/60 transition-colors"
+                    className="flex-1 min-w-0 bg-[#12121f] border border-red-900/30 rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-gray-600 outline-none focus:border-red-700/60 transition-colors"
                     style={isListening ? { borderColor: 'rgba(239,68,68,0.6)' } : {}}
                   />
                   {/* Mic button — only shown on supporting browsers */}

@@ -461,32 +461,30 @@ export default function AbbaBotPage() {
         {/* ── Chat tab ──────────────────────────────────────────────────────── */}
         {activeTab === "bot" && (
           <div className="space-y-4">
-            {/* Quick prompts */}
-            <div className="flex gap-2 flex-wrap">
+            {/* Quick prompts — ONE horizontally scrollable rail (both prompt
+                sets), so the choices stay visible in a single slim row
+                instead of two stacked wrapping rows above the chat */}
+            <div className="flex gap-2 flex-nowrap overflow-x-auto pb-1 -mx-1 px-1" data-testid="abba-prompt-rail">
               {QUICK_PROMPTS.slice(0, 6).map(q => (
                 <button key={q} onClick={() => send(q)} disabled={sending}
-                  className="text-[10px] px-2.5 py-1.5 rounded-lg bg-gray-800/70 border border-gray-700 text-gray-300 hover:border-purple-500/50 hover:text-purple-200 transition-all disabled:opacity-40">
+                  className="flex-shrink-0 whitespace-nowrap text-[10px] px-2.5 py-1.5 rounded-lg bg-gray-800/70 border border-gray-700 text-gray-300 hover:border-purple-500/50 hover:text-purple-200 transition-all disabled:opacity-40">
                   {q}
                 </button>
               ))}
-            </div>
-
-            <div className="flex flex-wrap gap-2">
               {["How did my last week go?", "What would have made last week profitable?", "Plan my next week with me", "Put this plan on the review screen", "What's new in the FX engine?", "Help me add a strategy idea to my brain"].map((q) => (
                 <button key={q} onClick={() => send(q)} disabled={sending}
-                  className="rounded-full border border-purple-700/50 bg-purple-900/20 px-3 py-1 text-[11px] text-purple-200 hover:bg-purple-800/30">{q}</button>
+                  className="flex-shrink-0 whitespace-nowrap rounded-full border border-purple-700/50 bg-purple-900/20 px-3 py-1 text-[11px] text-purple-200 hover:bg-purple-800/30">{q}</button>
               ))}
             </div>
-            {/* Engine Room (Phase B) — same card as the floating ABBA panel */}
-            <EngineRoomCard />
-            {/* Chat window */}
+            {/* Chat window — FIRST on this tab; the Engine Room card now
+                sits below it, collapsed by default */}
             <div className="rounded-2xl border border-purple-800/40 bg-gray-900/40 overflow-hidden">
               <div className="px-4 py-2 border-b border-gray-800 flex items-center gap-2">
                 <Brain className="w-4 h-4 text-purple-300" />
                 <span className="text-sm font-bold text-purple-200">Talk to Abba</span>
                 <span className="ml-auto text-[10px] text-gray-600">Knows your trades · your plan · every platform feature</span>
               </div>
-              <div ref={scrollRef} className="max-h-[480px] overflow-y-auto p-3 space-y-2">
+              <div ref={scrollRef} className="h-[52dvh] min-h-[260px] max-h-[560px] overflow-y-auto p-3 space-y-2">
                 {messages.map((m, i) => (
                   <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                     {m.role === "abba" && (
@@ -512,48 +510,62 @@ export default function AbbaBotPage() {
                   </div>
                 )}
               </div>
-              <div className="p-2 border-t border-gray-800 flex gap-2">
-                <button
-                  onClick={voice.toggleVoice}
-                  title={voice.voiceEnabled ? "Voice on — Abba speaks replies (tap to mute)" : "Voice off (tap to unmute)"}
-                  className={`rounded-xl px-2.5 border text-sm ${voice.voiceEnabled ? "bg-emerald-600/30 border-emerald-500/50" : "bg-gray-800 border-gray-700 opacity-60"}`}
-                >
-                  {voice.voiceEnabled ? "🔊" : "🔇"}
-                </button>
-                {voice.ttsProvider && (
-                  <span
-                    className={`text-[9px] self-center whitespace-nowrap ${voice.ttsProvider === "browser" || voice.ttsProvider === "edge" ? "text-amber-400" : "text-gray-500"}`}
-                    title={voice.ttsError || "Voice provider that spoke the last reply"}
+              {/* Composer — two rows so Send can never be squeezed off a
+                  narrow screen: row 1 is input + fixed-size Send, row 2 is
+                  the voice controls with a truncating provider status */}
+              <div className="p-2 border-t border-gray-800 space-y-1.5">
+                <div className="flex gap-2">
+                  <input
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && send()}
+                    placeholder="Ask anything — trades, setup, strategy, platform help…"
+                    className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-[12px] text-white outline-none focus:border-purple-500"
+                  />
+                  <button onClick={() => send()} disabled={sending || !input.trim()}
+                    className="shrink-0 w-10 h-10 flex items-center justify-center bg-purple-600/40 hover:bg-purple-600/60 border border-purple-500/40 rounded-xl disabled:opacity-50"
+                    title="Send">
+                    <Send className="w-4 h-4 text-purple-200" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 min-w-0">
+                  <button
+                    onClick={voice.toggleVoice}
+                    title={voice.voiceEnabled ? "Voice on — Abba speaks replies (tap to mute)" : "Voice off (tap to unmute)"}
+                    className={`shrink-0 rounded-xl px-2.5 py-1 border text-sm ${voice.voiceEnabled ? "bg-emerald-600/30 border-emerald-500/50" : "bg-gray-800 border-gray-700 opacity-60"}`}
                   >
-                    {TTS_PROVIDER_LABELS[voice.ttsProvider] || voice.ttsProvider}
-                    {voice.ttsError && (voice.ttsProvider === "browser" || voice.ttsProvider === "edge") ? ` · ${voice.ttsError}` : ""}
-                  </span>
-                )}
-                {voice.voiceEnabled && (
-                  <select
-                    value={voice.voicePreset}
-                    onChange={e => voice.setVoicePreset(e.target.value as AbbaVoicePresetId)}
-                    className="text-[9px] self-center bg-black/40 border border-purple-500/30 text-purple-300 rounded px-1 py-0.5 focus:outline-none focus:border-purple-500 max-w-[80px]"
-                    title="ABBA voice style"
-                  >
-                    {ABBA_VOICE_PRESETS.map(p => (
-                      <option key={p.id} value={p.id}>{p.label}</option>
-                    ))}
-                  </select>
-                )}
-                <input
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && send()}
-                  placeholder="Ask anything — trades, setup, strategy, platform help…"
-                  className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-[12px] text-white outline-none focus:border-purple-500"
-                />
-                <button onClick={() => send()} disabled={sending || !input.trim()}
-                  className="bg-purple-600/40 hover:bg-purple-600/60 border border-purple-500/40 rounded-xl px-3 disabled:opacity-50">
-                  <Send className="w-4 h-4 text-purple-200" />
-                </button>
+                    {voice.voiceEnabled ? "🔊" : "🔇"}
+                  </button>
+                  {voice.ttsProvider && (
+                    <span
+                      className={`text-[9px] truncate min-w-0 flex-1 ${voice.ttsProvider === "browser" || voice.ttsProvider === "edge" ? "text-amber-400" : "text-gray-500"}`}
+                      title={voice.ttsError || "Voice provider that spoke the last reply"}
+                    >
+                      {TTS_PROVIDER_LABELS[voice.ttsProvider] || voice.ttsProvider}
+                      {voice.ttsError && (voice.ttsProvider === "browser" || voice.ttsProvider === "edge") ? ` · ${voice.ttsError}` : ""}
+                    </span>
+                  )}
+                  {voice.voiceEnabled && (
+                    <select
+                      value={voice.voicePreset}
+                      onChange={e => voice.setVoicePreset(e.target.value as AbbaVoicePresetId)}
+                      className="text-[9px] shrink-0 ml-auto bg-black/40 border border-purple-500/30 text-purple-300 rounded px-1 py-0.5 focus:outline-none focus:border-purple-500 max-w-[80px]"
+                      title="ABBA voice style"
+                    >
+                      {ABBA_VOICE_PRESETS.map(p => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
               </div>
             </div>
+
+            {/* Engine Room (Phase B) — same card as the floating ABBA panel.
+                Below the chat window and collapsed by default (summary strip
+                only; body bounded at 420px with its own scroll when opened),
+                so the chat stays the primary surface on this tab. */}
+            <EngineRoomCard defaultExpanded={false} expandedMaxHeightClass="max-h-[420px]" />
 
             <MyIdeasPanel />
 
