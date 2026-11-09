@@ -4,9 +4,18 @@
 // with balances + freshness, open positions, and recent closes — all from
 // GET /api/abba/engine-room (session user only). Nothing here can start,
 // stop, or reconfigure anything; it displays and refreshes, that's all.
+// The card is COLLAPSIBLE (collapsed by default on both chat surfaces, with
+// a counts summary in the header) and its expanded body scrolls inside a
+// bounded max-height — it can never crowd out the chat around it again.
+// It is also REMOVABLE: the header's X hides it entirely (persisted per
+// user in localStorage, shared by both surfaces), leaving only a slim
+// one-row "Engine Room" chip to bring it back. While hidden the card body
+// — and its engine-room query — is not mounted at all.
 
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, Wallet, Layers, RefreshCw } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Activity, Wallet, Layers, RefreshCw, ChevronDown, ChevronUp, X, Plus } from 'lucide-react';
 
 type EngineStateKind = 'running' | 'stopped' | 'gated' | 'silent' | 'no_data' | 'unknown';
 
@@ -43,33 +52,154 @@ function fmtMoney(v: number | null, currency: string | null): string {
   return `${currency === 'SOL' ? '' : '$'}${v.toLocaleString('en-US', { maximumFractionDigits: 2 })}${currency === 'SOL' ? ' SOL' : ''}`;
 }
 
-export function EngineRoomCard() {
+// ─── Hidden-state (shared by BOTH surfaces) ─────────────────────────────────
+// Persisted per user in localStorage so hiding the Engine Room in the
+// floating panel hides it on the ABBA page too, and vice versa. A custom
+// event keeps simultaneously mounted instances (panel + page) in sync.
+const ENGINE_ROOM_HIDDEN_KEY = 'abba_engine_room_hidden';
+const ENGINE_ROOM_VISIBILITY_EVENT = 'abba-engine-room-visibility';
+
+function readEngineRoomHidden(): boolean {
+  try { return localStorage.getItem(ENGINE_ROOM_HIDDEN_KEY) === '1'; } catch { return false; }
+}
+
+function useEngineRoomHidden(): [boolean, (hidden: boolean) => void] {
+  const [hidden, setHiddenState] = useState<boolean>(readEngineRoomHidden);
+  useEffect(() => {
+    const sync = () => setHiddenState(readEngineRoomHidden());
+    window.addEventListener('storage', sync);
+    window.addEventListener(ENGINE_ROOM_VISIBILITY_EVENT, sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener(ENGINE_ROOM_VISIBILITY_EVENT, sync);
+    };
+  }, []);
+  const setHidden = (v: boolean) => {
+    try {
+      if (v) localStorage.setItem(ENGINE_ROOM_HIDDEN_KEY, '1');
+      else localStorage.removeItem(ENGINE_ROOM_HIDDEN_KEY);
+    } catch { /* private mode etc. — the in-memory state still applies */ }
+    setHiddenState(v);
+    window.dispatchEvent(new Event(ENGINE_ROOM_VISIBILITY_EVENT));
+  };
+  return [hidden, setHidden];
+}
+
+interface EngineRoomCardProps {
+  /** Start expanded? Both chat surfaces keep the card COLLAPSED by default so
+      the conversation stays the primary surface; it opens on tap. */
+  defaultExpanded?: boolean;
+  /** Tailwind max-height for the expanded body's own scroll region — the
+      bound that guarantees the card can never consume the layout around it. */
+  expandedMaxHeightClass?: string;
+}
+
+/** Public entry point (both ABBA surfaces render this). Owns the persisted
+    hidden state: hidden ⇒ ONLY the slim add-back chip renders — the card
+    body and its React Query are not mounted, so nothing fetches. The swap
+    animates height + opacity so the chat around it never jumps. */
+export function EngineRoomCard(props: EngineRoomCardProps = {}) {
+  const [hidden, setHidden] = useEngineRoomHidden();
+  return (
+    <AnimatePresence initial={false} mode="wait">
+      {hidden ? (
+        <motion.div
+          key="engine-room-chip"
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.18, ease: 'easeOut' }}
+          className="overflow-hidden"
+        >
+          <button
+            type="button"
+            onClick={() => setHidden(false)}
+            className="flex w-full h-7 items-center gap-1.5 px-2.5 rounded-xl border border-dashed border-white/15 bg-black/20 text-white/55 hover:text-white hover:border-white/30 transition-colors"
+            title="Show the Engine Room — your engines, accounts and positions"
+            data-testid="button-engine-room-show"
+          >
+            <Activity className="w-3 h-3 text-cyan-300/70 shrink-0" />
+            <span className="text-[10px] font-bold tracking-wide">ENGINE ROOM</span>
+            <span className="text-[9px] text-white/35">hidden</span>
+            <Plus className="w-3 h-3 ml-auto shrink-0" />
+          </button>
+        </motion.div>
+      ) : (
+        <motion.div
+          key="engine-room-card"
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.18, ease: 'easeOut' }}
+          className="overflow-hidden"
+        >
+          <EngineRoomCardBody {...props} onHide={() => setHidden(true)} />
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function EngineRoomCardBody({ defaultExpanded = false, expandedMaxHeightClass = 'max-h-[420px]', onHide }: EngineRoomCardProps & { onHide: () => void }) {
   const { data, isLoading, isError, refetch, isFetching } = useQuery<EngineRoomData>({
     queryKey: ['/api/abba/engine-room'],
     refetchInterval: 60_000,
     retry: false,
   });
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  // One-line summary for the collapsed header — counts only, computed from
+  // the same snapshot the body renders. Falls back to the static subtitle
+  // until the first snapshot lands, so the header stays compact while
+  // loading and on error.
+  const summary = data
+    ? `${data.engines.filter((e) => e.state === 'running').length}/${data.engines.length} engines running · ${data.accounts.length} account${data.accounts.length === 1 ? '' : 's'} · ${data.openPositions.length} open`
+    : 'your engines · accounts · positions';
 
   return (
     <div className="rounded-2xl border border-white/10 bg-black/30 overflow-hidden" data-testid="abba-engine-room">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
-        <Activity className="w-3.5 h-3.5 text-cyan-300" />
-        <span className="text-[11px] font-bold tracking-wide text-white/90">ENGINE ROOM</span>
-        <span className="text-[9px] text-white/40">your engines · accounts · positions</span>
+      <div className="flex items-center gap-1 px-3 py-2 border-b border-white/10">
         <button
-          onClick={() => refetch()}
-          className="ml-auto p-1 rounded-md hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="flex items-center gap-2 flex-1 min-w-0 text-left rounded-md px-1 py-0.5 -mx-1 hover:bg-white/5 transition-colors"
+          title={expanded ? 'Collapse engine room' : 'Expand engine room'}
+          data-testid="button-engine-room-toggle"
+        >
+          <Activity className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+          <span className="text-[11px] font-bold tracking-wide text-white/90 shrink-0">ENGINE ROOM</span>
+          <span className="text-[9px] text-white/40 truncate">{summary}</span>
+          {expanded
+            ? <ChevronUp className="w-3.5 h-3.5 text-white/50 shrink-0 ml-auto" />
+            : <ChevronDown className="w-3.5 h-3.5 text-white/50 shrink-0 ml-auto" />}
+        </button>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); refetch(); }}
+          className="p-1 rounded-md hover:bg-white/10 text-white/50 hover:text-white transition-colors shrink-0"
           title="Refresh engine room"
           data-testid="button-engine-room-refresh"
         >
           <RefreshCw className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} />
         </button>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onHide(); }}
+          className="p-1 rounded-md hover:bg-white/10 text-white/50 hover:text-white transition-colors shrink-0"
+          title="Hide engine room — get it out of the way (bring it back from the Engine Room chip)"
+          data-testid="button-engine-room-hide"
+        >
+          <X className="w-3 h-3" />
+        </button>
       </div>
 
-      {isLoading && <div className="px-3 py-3 text-[11px] text-white/50">Reading your engines and accounts…</div>}
-      {isError && <div className="px-3 py-3 text-[11px] text-red-300">Engine room unavailable right now — your engines are unaffected.</div>}
+      {expanded && (
+        <div className={`${expandedMaxHeightClass} overflow-y-auto`}>
+          {isLoading && <div className="px-3 py-3 text-[11px] text-white/50">Reading your engines and accounts…</div>}
+          {isError && <div className="px-3 py-3 text-[11px] text-red-300">Engine room unavailable right now — your engines are unaffected.</div>}
 
-      {data && (
+          {data && (
         <div className="px-3 py-2 space-y-2.5">
           {/* Engines */}
           <div className="space-y-1">
@@ -159,6 +289,8 @@ export function EngineRoomCard() {
               </div>
             )}
           </div>
+        </div>
+          )}
         </div>
       )}
     </div>
