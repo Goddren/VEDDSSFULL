@@ -54,6 +54,7 @@ const PLANS: Plan[] = [
     'Signal webhooks', 'VEDD SS AI Brain Engine', 'Paper Trade AI Journal',
     'Brain Data Marketplace', 'Achievements, streaks & XP', 'Ambassador Training & 44-Day Journey',
     'Referral Hub', 'Bring Your Own AI Key (BYOK)', '25 social shares per month',
+    'Strategy Studio — build & backtest your own strategies',
   ] },
   { name: 'Premium', price: '$149.99', per: '/mo', cls: 'pop', badge: 'Most popular', cta: 'Choose Premium', href: '/subscription', solid: true, feats: [
     'ABBA AI assistant (full context)', 'Unlimited chart analyses', 'Everything in Starter',
@@ -65,12 +66,26 @@ const PLANS: Plan[] = [
     'Business Credit Builder & Business Builder', 'Grants Hub', 'Multi-agent AI consensus',
     'Crypto AI Engine — DeFi hot-wallet (on-chain token swaps) + CeFi wallets (Coinbase, Kraken, Gemini, Crypto.com perps)',
     'Bring Your Own AI Key (BYOK)', 'Unlimited social shares',
+    'Strategy Studio — visual strategy builder, backtests on real data, MT5 EA download & deploy to MT5 / DXtrade / TradeLocker',
+    'Advanced strategy toolkit — volume profile, ICT, opening-range breakout, VWAP, Ichimoku, Supertrend & 13+ presets',
+    'Blocked-trade receipts — see what the trades the engine skipped would have done',
+    'Lessons that graduate into hard guards — proven losing patterns get blocked',
+    'Trail guards — trailing stops that learn from your results',
+    '24/7 engine watchdog — every engine’s health, monitored around the clock',
+    'Shadow practice lanes — new strategies prove themselves in shadow trading before real money (e.g. Pump Scalp 60 on Solana)',
+    'ABBA Engine Room — every connected account, every engine’s status, your full trade journal & per-trade drill-down',
+    'Settings vs Standard — every engine setting shows the built-in standard beside your value',
+    'Content Studio — AI clips & reels for your brand',
   ] },
   { name: 'Yearly', price: '$999.99', per: '/yr', cls: 'best', badge: 'Best value', cta: 'Choose Yearly', href: '/subscription', feats: [
     'Everything in Premium — yearly renewal', 'Business Credit Builder + Biz Builder', 'Grants Hub',
     'Copy Trading — paper & real-broker', 'Deep Reasoning + Prop Firm Toolkit', 'ORB Breakout Engine',
     'Polymarket prediction engine', 'NFC Wear-to-Earn VEDD clothing rewards', 'Innovation Lab (beta)',
     'All future feature updates', 'Early access to beta features', 'Priority support', 'Transferable membership',
+    'Strategy Studio — build, backtest & deploy your own strategies',
+    'ABBA Engine Room — every account, engine status & trade journal in one view',
+    'Self-learning guards — blocked-trade receipts, lesson-to-guard promotion & learned trailing stops',
+    'Shadow practice lanes — strategies prove themselves before real money',
   ] },
 ];
 
@@ -82,7 +97,7 @@ export default function PricingPage() {
         <div className="hd">
           <div className="kicker">Plans</div>
           <h1>Simple, transparent pricing.</h1>
-          <p className="lead">Start free. Upgrade when the engine is paying off. One subscription, no hidden fees — pay with card, VEDD tokens, or ambassador credits.</p>
+          <p className="lead">A self-learning trading engine, a Strategy Studio to build and backtest your own strategies, and ABBA — your AI assistant with a live view of every engine and account. Start free, upgrade when you're ready. One subscription, no hidden fees — pay with card, VEDD tokens, or ambassador credits.</p>
         </div>
 
         <div className="grid">

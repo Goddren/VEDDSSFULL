@@ -157,6 +157,18 @@ const GROUPS: { group: string; items: Item[] }[] = [
     ],
   },
   {
+    group: 'The Self-Learning Engine',
+    items: [
+      { icon: '🧾', vis: 'checks', name: 'Blocked-trade receipts', badge: 'NEW', desc: 'Every trade the engine skips is kept on record and followed up — you can see exactly what it would have done, so no guard decision is a black box.', ex: 'A skipped EUR/USD long is tracked to its would-be outcome and shown right next to the guard that blocked it.' },
+      { icon: '🎓', vis: 'brain', name: 'Lessons that become guards', badge: 'NEW', desc: 'When a pattern proves itself a loser over a real track record, its lesson graduates into a hard guard that blocks the setup outright.', ex: 'A pair-and-hour combo with a proven losing record stops getting traded — the engine enforces what it learned.' },
+      { icon: '🪢', vis: 'chart', name: 'Trail guards', badge: 'NEW', desc: 'Trailing-stop profiles that adapt from your own closed trades — tightening when trades peak then fade, locking in the profiles that hold up.', ex: 'If your crypto trades keep giving back their peaks, the trail tightens for that strategy group automatically.' },
+      { icon: '🐕', vis: 'radar', name: 'Engine watchdog', badge: 'NEW', desc: 'A watchdog monitors every engine around the clock — silence, stalls and stale data get flagged instead of quietly going unnoticed.', ex: 'An engine that goes quiet longer than it should gets raised before your next session, not after it.' },
+      { icon: '👻', vis: 'radar', name: 'Shadow practice lanes', badge: 'NEW', desc: 'New strategies trade virtually first — real market data, zero real money — and only earn promotion on proven shadow results.', ex: 'Pump Scalp 60 runs in shadow on Solana, building its track record before a dollar is ever risked.' },
+      { icon: '🗄️', vis: 'flow', name: 'ABBA Engine Room', badge: 'NEW', star: true, desc: 'One view inside ABBA: every connected account, every engine’s live status and your full trade journal — plus a drill-down on any trade showing which strategy and reasoning produced it.', ex: 'Ask ABBA “why did we take that gold trade?” and get the strategy, the signals and the reasoning behind it.' },
+      { icon: '🏗️', vis: 'flow', name: 'Strategy Studio', badge: 'NEW', star: true, desc: 'Build your own strategies with a visual condition builder, backtest them on real data, download them as an MT5 Expert Advisor, and deploy to your MT5, DXtrade or TradeLocker account. Advanced toolkit included: volume profile, ICT concepts, opening-range breakout, VWAP, Ichimoku, Supertrend and more — 13+ presets to start from.', ex: 'Assemble a VWAP + Supertrend strategy in the builder, backtest it, then deploy it to your TradeLocker account.' },
+    ],
+  },
+  {
     group: 'ABBA — your personal AI',
     items: [
       { icon: '🤖', vis: 'verdict', name: 'ABBA AI assistant', badge: 'NEW', star: true, desc: 'Your JARVIS for trading — monitors live P&L, weekly-goal progress, open positions and pair strategy, advising you like a personal fund manager.', ex: '“You’re $120 from your weekly goal — one clean NAS100 setup should do it.”' },
