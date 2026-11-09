@@ -10,6 +10,12 @@ import { InfoExplainer } from "@/components/info-explainer";
 // live UNDER the title (never in a right-hand slot), and flex children
 // carry min-w-0 / wrap classes, so nothing can push past the card border
 // on a phone-width screen.
+//
+// The header root is flex-WRAP and the explainer is rendered as a direct
+// child (no wrapper element): InfoExplainer returns a fragment — its
+// button joins this row, and its expandable block (order-last,
+// basis-full) wraps onto its own full-width line directly beneath the
+// row, expanding inline inside the panel card.
 function PanelHeader({ icon, tint, title, subtitle, explainer, compact = false }: {
   icon: ReactNode;
   tint: string;
@@ -19,13 +25,13 @@ function PanelHeader({ icon, tint, title, subtitle, explainer, compact = false }
   compact?: boolean;
 }) {
   return (
-    <div className="flex items-start gap-2.5 mb-2">
+    <div className="flex flex-wrap items-start gap-x-2.5 mb-2">
       <span className={`shrink-0 inline-flex items-center justify-center rounded-lg ${compact ? "w-6 h-6" : "w-7 h-7"} ${tint}`} aria-hidden="true">{icon}</span>
       <div className="min-w-0 flex-1">
         <div className={`${compact ? "text-[11px]" : "text-sm"} font-bold text-gray-100 leading-tight`}>{title}</div>
         {subtitle ? <div className="text-[10px] leading-snug text-gray-500 mt-0.5">{subtitle}</div> : null}
       </div>
-      {explainer ? <span className="shrink-0 pt-0.5">{explainer}</span> : null}
+      {explainer ?? null}
     </div>
   );
 }
@@ -87,7 +93,7 @@ export function SkippedTradesPanel({ className = "" }: { className?: string }) {
         tint="bg-amber-500/15 text-amber-300"
         title="Why trades were skipped"
         subtitle="Signals the engine wanted to take but deliberately didn't — and why."
-        explainer={<InfoExplainer title="Why trades were skipped">
+        explainer={<InfoExplainer title="Why trades were skipped" accent="border-l-amber-300/60">
           <p>These are signals the engine <b>wanted</b> to trade but deliberately passed on — a guard or quality check said no. Each row names the reason: chasing a moved price, fighting the higher-timeframe trend, a range-bound day, a stale entry, and so on.</p>
           <p>Skips are the system working as designed, not missed chances by default. If one guard seems to skip everything, check its would-be results in Guard fire rates — blocked trades are scored later against real prices.</p>
         </InfoExplainer>}
@@ -280,7 +286,7 @@ export function PromotedRulesPanel({ className = "" }: { className?: string }) {
         tint="bg-violet-500/15 text-violet-300"
         title="Proven lessons → real guards"
         subtitle="Bar: 50+ practice trades · avg R ≤ −0.2 · ≤40% wins · no winning week."
-        explainer={<InfoExplainer title="Proven lessons → real guards">
+        explainer={<InfoExplainer title="Proven lessons → real guards" accent="border-l-violet-300/60">
           <p>Your engines practice constantly in shadow mode — every signal is scored against real prices without risking money. Patterns in those results become <b>lessons</b>.</p>
           <p>Most lessons stay advice. But a pattern that has proven itself a loser — 50 or more practice trades, losing at least 0.2R on average, winning 40% or less, and not one winning week in the last 30 days — can be promoted into a <b>real guard</b>: the FX engine will refuse live trades matching it.</p>
           <p>Promotion is always your tap, one guard at a time, and the server re-checks the evidence when you tap. Retire a guard anytime and matching trades flow again. Promoted guards' blocks are also scored as would-be results, so you can see whether each guard keeps earning its place.</p>
@@ -349,7 +355,7 @@ export function PracticeCostPanel({ className = "" }: { className?: string }) {
         tint="bg-emerald-500/15 text-emerald-300"
         title="Practice cost check"
         subtitle={`Last ${data.days} days · crypto paper trades.`}
-        explainer={<InfoExplainer title="Practice cost check">
+        explainer={<InfoExplainer title="Practice cost check" accent="border-l-emerald-300/60">
           <p>Practice trades are charged simulated fees and slippage so their results stay honest. This panel measures what those charges actually were: the average charge in basis points (100 bps = 1%), what a typical trade paid, and how much return the costs ate.</p>
           <p><b>Flipped trades</b> are the warning sign — trades that would have won before costs but lost after. A lot of flips in thin pools usually means the cost model is doing its job of warning you off bad fills, not that it is too harsh.</p>
           <p>Live fills carry their costs inside the execution price, so there is no separate live cost series to compare against — this panel is the practice side, measured exactly.</p>
@@ -541,7 +547,7 @@ export function EngineSafeguardsPanel({ className = "" }: { className?: string }
         tint="bg-emerald-500/15 text-emerald-300"
         title="Engine safeguards"
         subtitle="What the protections did — stops kept tight, sizes kept inside your caps, risky closes refused. Last 7 days."
-        explainer={<InfoExplainer title="Engine safeguards">
+        explainer={<InfoExplainer title="Engine safeguards" accent="border-l-emerald-300/60">
           <p>This is the receipt feed for your engines' safety systems. Every time a protection steps in — refusing to loosen a stop, capping a position size to your limits, refusing a risky close, retrying a flatten — it is written here.</p>
           <p>Nothing here is an error. A busy feed on a wild day means the guards were doing their job while the market moved.</p>
           <p>The chips at the top count each kind of action over the last 7 days, newest events below.</p>
