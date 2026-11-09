@@ -12,6 +12,7 @@ import {
 import { IdeaDraftCard, MyIdeasPanel, type IdeaDraft } from "@/components/abba/idea-lab";
 import { useVoice, ABBA_VOICE_PRESETS, TTS_PROVIDER_LABELS, type AbbaVoicePresetId } from "@/components/abba/voice";
 import { useAbbaChat } from "@/components/abba/use-abba-chat";
+import { EngineRoomCard } from "@/components/abba/engine-room-card";
 import { SetupDraftCard } from "@/components/abba/setup-review";
 import { TradePerformanceCard, TodayReviewPanel, AiHealthStrip } from "@/components/trade-performance-card";
 
@@ -476,6 +477,8 @@ export default function AbbaBotPage() {
                   className="rounded-full border border-purple-700/50 bg-purple-900/20 px-3 py-1 text-[11px] text-purple-200 hover:bg-purple-800/30">{q}</button>
               ))}
             </div>
+            {/* Engine Room (Phase B) — same card as the floating ABBA panel */}
+            <EngineRoomCard />
             {/* Chat window */}
             <div className="rounded-2xl border border-purple-800/40 bg-gray-900/40 overflow-hidden">
               <div className="px-4 py-2 border-b border-gray-800 flex items-center gap-2">

@@ -38,7 +38,10 @@ const REPORT_EMAIL = process.env.REPORT_EMAIL || 'donchismkos@gmail.com';
 
 // FX market hours — the same window the app's own market_closed_skip guard
 // uses: the market is closed Friday 21:00 UTC → Sunday 21:00 UTC.
-function isFxMarketOpenAt(d: Date): boolean {
+/** Exported for the per-user ABBA engine room (Phase B): the SAME market-
+ *  hours semantics as the platform watchdog, reused as a helper only — the
+ *  watchdog's platform-wide status data is never presented as a user's. */
+export function isFxMarketOpenAt(d: Date): boolean {
   const day = d.getUTCDay();
   const hour = d.getUTCHours();
   if (day === 6) return false;               // Saturday
@@ -48,7 +51,7 @@ function isFxMarketOpenAt(d: Date): boolean {
 }
 
 /** Hours between two instants counting only FX market-open time. */
-function fxMarketHoursBetween(from: Date, to: Date): number {
+export function fxMarketHoursBetween(from: Date, to: Date): number {
   if (to.getTime() <= from.getTime()) return 0;
   const STEP_MS = 5 * 60 * 1000;
   let openMs = 0;

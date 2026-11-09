@@ -27,6 +27,7 @@ import { checkUserAchievements } from "./achievement-tracker";
 import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
 import { tradingCoachHandler, tradingTipsHandler } from "./trading-coach";
 import { abbaStrategistHandler, abbaChatHandler, abbaIdeaLabPrompt, extractIdeaDraft, IDEA_MARKER, extractSetupDraft, SETUP_MARKER, wantsSetupCard, wantsIdeaCard, ABBA_PERSONA_SPEC, abbaContextText } from "./abba-strategist";
+import { buildEngineRoom, engineRoomContextText } from "./services/abba-engine-room";
 import { marketInsightsHandler, contextualInsightHandler } from "./market-insights";
 import { createStopOrder, checkBreakoutTriggers, cancelStopOrder, getStopOrdersForUser } from "./services/stopOrderService";
 import { insertStopOrderSchema, stopOrders } from "@shared/schema";
@@ -4366,6 +4367,9 @@ Respond ONLY in valid JSON format with these exact keys:
       }
 
       const canonicalCtx = await abbaContextText(userId);
+      // Phase B: per-user engine room snapshot (read-only; never blocks chat).
+      let engineRoomText = '';
+      try { engineRoomText = engineRoomContextText(await buildEngineRoom(userId)); } catch { engineRoomText = ''; }
       const systemPrompt = `${ABBA_PERSONA_SPEC}
 
 === STREAM STYLE (this surface's length parameter — the persona above is the shared ABBA spec) ===
@@ -4384,6 +4388,9 @@ SUPREME MATH (weave naturally): 1=Knowledge(foundation) 2=Wisdom(right action) 3
 ${canonicalCtx ? `
 === TRADER'S TRADE RECORD (canonical — same context builder as ABBA chat) ===
 ${canonicalCtx}
+` : ''}${engineRoomText ? `
+=== ENGINE ROOM (per-user, read-only) ===
+${engineRoomText}
 ` : ''}
 ${await abbaIdeaLabPrompt(userId)}`;
 
@@ -4823,6 +4830,22 @@ IMPORTANT:
     }
   });
   
+  // ABBA Engine Room (Phase B) — per-user, READ-ONLY snapshot: this user's
+  // engine states, accounts, open positions, recent closes, guard pressure.
+  // userId comes from the session only; the snapshot builders never call
+  // engine start/stop or config-apply paths.
+  app.get('/api/abba/engine-room', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    const userId = (req.user as User).id;
+    try {
+      const room = await buildEngineRoom(userId);
+      res.json(room);
+    } catch (err) {
+      console.error('[ABBA] engine-room failed:', err);
+      res.status(500).json({ error: 'Engine room unavailable' });
+    }
+  });
+
   // ABBA platform sync status
   app.get('/api/abba/platform-sync', async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });

@@ -3,6 +3,7 @@ import { IdeaDraftCard, type IdeaDraft } from "@/components/abba/idea-lab";
 import { SetupDraftCard } from "@/components/abba/setup-review";
 import { useVoice, ABBA_VOICE_PRESETS, TTS_PROVIDER_LABELS, hasSpeechRecognition, hasSpeechSynthesis, loadVoices, type AbbaVoicePresetId } from "@/components/abba/voice";
 import { useAbbaChat, type AbbaChatMessage, type PlanProposal } from "@/components/abba/use-abba-chat";
+import { EngineRoomCard } from "@/components/abba/engine-room-card";
 // Re-exported for compatibility — the canonical definitions live in
 // @/components/abba/voice (Phase A unification).
 export { ABBA_VOICE_PRESETS, TTS_PROVIDER_LABELS } from "@/components/abba/voice";
@@ -908,6 +909,12 @@ export function AbbaAssistant() {
               <ContextBar ctx={context} />
               {/* Platform sync status */}
               {user && <PlatformSyncBar userId={user.id} />}
+              {/* Engine Room (Phase B) — same card as the ABBA page */}
+              {user && (
+                <div className="mx-3 mt-2">
+                  <EngineRoomCard />
+                </div>
+              )}
 
               {/* AI key nudge */}
               {needsKey && (

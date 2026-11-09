@@ -474,12 +474,22 @@ export async function abbaChatHandler(req: Request, res: Response) {
     const ai = await getClient(userId);
     if (!ai) return res.status(400).json({ error: 'No AI key configured. Add one in AI API Keys to chat with Abba.' });
 
+    // Phase B: per-user engine room snapshot (read-only; never blocks chat).
+    let engineRoomText = '';
+    try {
+      const { buildEngineRoom, engineRoomContextText } = await import('./services/abba-engine-room');
+      engineRoomText = engineRoomContextText(await buildEngineRoom(userId));
+    } catch { engineRoomText = ''; }
+
     const system = `${ABBA_PERSONA_SPEC}
 
 ${await abbaIdeaLabPrompt(userId)}
 
 === TRADER'S LIVE DATA ===
-${contextSummary(ctx)}`;
+${contextSummary(ctx)}${engineRoomText ? `
+
+=== ENGINE ROOM (per-user, read-only) ===
+${engineRoomText}` : ''}`;
 
     const msgs: any[] = [{ role: 'system', content: system }];
     if (Array.isArray(history)) {
