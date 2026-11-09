@@ -78,6 +78,14 @@ function topDefiUniverse(chain: string, n: number): Array<{ symbol: string; pool
 
 /** Candles for a symbol from whichever venue owns it, on THIS chain. */
 async function fetchBars(symbol: string, timeframe: string, count: number, chain: string): Promise<{ t: number; o: number; h: number; l: number; c: number; v: number }[]> {
+  // Kalshi stock perps ('KALSHI:KXAAPLPERP'): bars come from the public
+  // Kalshi margin API (kalshi-perps.ts) — the seam the Kalshi stock-perp
+  // SHADOW lane (kalshi-stock-shadow.ts) uses to run these same runners on
+  // a stock-perp price series. Public data only; no trading path.
+  if (symbol.toUpperCase().startsWith('KALSHI:')) {
+    const { getPerpBars } = await import('./kalshi-perps');
+    return getPerpBars(symbol.slice(7), timeframe, count);
+  }
   // Hyperliquid perps ('HL:BTC'): signals come from Hyperliquid's own mainnet
   // book, the market the position actually trades against.
   if (symbol.toUpperCase().startsWith('HL:')) {
@@ -475,7 +483,10 @@ async function getHtfBias(symbol: string, chain: string): Promise<'BUY' | 'SELL'
   }
 }
 
-const STRATEGY_RUNNERS: Record<string, (sym: string, cfg: CryptocomEngineConfig) => Promise<StrategyResult>> = {
+/** Exported for the Kalshi stock-perp shadow lane (kalshi-stock-shadow.ts),
+ *  which runs these exact runners on Kalshi perp bars via the KALSHI: prefix
+ *  in fetchBars — same functions, no copies. */
+export const STRATEGY_RUNNERS: Record<string, (sym: string, cfg: CryptocomEngineConfig) => Promise<StrategyResult>> = {
   trend_following: runTrendFollowing,
   momentum: runMomentum,
   order_flow: runOrderFlow,

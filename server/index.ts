@@ -1286,6 +1286,7 @@ async function withRetry<T>(
       await db.execute(sql`ALTER TABLE sol_engine_positions ADD COLUMN IF NOT EXISTS exit_reason text`);
       await import('./services/sol-shadow-stats').then((m) => m.ensureSolShadowContextTable());
       await import('./services/crypto-shadow').then((m) => m.ensureCryptoShadowTables()).catch((e: any) => console.error('[startup] crypto shadow tables (non-fatal):', e?.message ?? e));
+      await import('./services/ensure-kalshi-perp-shadow-tables').then((m) => m.ensureKalshiPerpShadowTables()).catch((e: any) => console.error('[startup] kalshi perp shadow tables (non-fatal):', e?.message ?? e));
       console.log('[startup] SOL Engine tables created/verified.');
     } catch (err) {
       console.error('[startup] SOL Engine tables migration (non-fatal):', (err as Error).message);
@@ -1620,6 +1621,12 @@ async function withRetry<T>(
     // stall like Oct 30 – Nov 2, 2026 is a same-day alert, not a user report.
     const { startEngineWatchdog } = await import('./services/engine-watchdog');
     startEngineWatchdog();
+
+    // Kalshi stock-perp SHADOW lane — virtual positions on public Kalshi
+    // margin market data for the owner account. No credentials, no orders;
+    // kill switch KALSHI_STOCK_SHADOW=off.
+    const { startKalshiStockShadow } = await import('./services/kalshi-stock-shadow');
+    startKalshiStockShadow();
 
     // SOL engine — AUTO-RESUME for users who left auto-trade on. Previously the
     // Sol engine had NO boot-resume (unlike FX/futures/options), so its scan loop

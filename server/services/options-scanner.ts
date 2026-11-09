@@ -524,6 +524,13 @@ const STRATEGY_RUNNERS: Record<string, (s: AlpacaService, sym: string, c: Option
   order_flow: runOrderFlow,
 };
 
+/** Exported for the Kalshi stock-perp shadow lane (kalshi-stock-shadow.ts),
+ *  which runs these underlying-price runners against a Kalshi-backed
+ *  Alpaca-shaped bar adapter — same functions, no copies. The options
+ *  chain strategies (covered_call / credit_spread / long_call / long_put)
+ *  have no runner here and are NOT exported: a perp has no options chain. */
+export const OPTIONS_STRATEGY_RUNNERS = STRATEGY_RUNNERS;
+
 async function scanSymbol(service: AlpacaService, symbol: string, cfg: OptionsEngineConfig): Promise<StrategyResult> {
   const now = new Date();
 

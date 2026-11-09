@@ -6951,9 +6951,9 @@ function calculateFibonacci(candles, lookback = 50) {
   let nearestIdx = 0;
   let nearestDist = Infinity;
   levels.forEach((l, i) => {
-    const dist = Math.abs(currentPrice - l.price);
-    if (dist < nearestDist) {
-      nearestDist = dist;
+    const dist2 = Math.abs(currentPrice - l.price);
+    if (dist2 < nearestDist) {
+      nearestDist = dist2;
       nearestIdx = i;
     }
   });
@@ -8681,6 +8681,256 @@ var init_cefi_executor = __esm({
   }
 });
 
+// server/services/kalshi-perps.ts
+var kalshi_perps_exports = {};
+__export(kalshi_perps_exports, {
+  aggregateBars: () => aggregateBars,
+  getLiquidStockPerps: () => getLiquidStockPerps,
+  getPerpBars: () => getPerpBars,
+  getPerpCandles: () => getPerpCandles,
+  getPerpCorporateActions: () => getPerpCorporateActions,
+  getPerpFundingEstimate: () => getPerpFundingEstimate,
+  getPerpFundingHistory: () => getPerpFundingHistory,
+  getPerpMarkets: () => getPerpMarkets,
+  getPerpRiskParams: () => getPerpRiskParams,
+  getPerpTouch: () => getPerpTouch,
+  indexExcludeSet: () => indexExcludeSet,
+  perpHost: () => perpHost,
+  underlyingOfPerpTicker: () => underlyingOfPerpTicker
+});
+function perpHost() {
+  return process.env.KALSHI_PERP_HOST === "demo" ? DEMO_HOST : PROD_HOST;
+}
+async function getJson(path2) {
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 15e3);
+  try {
+    const res2 = await fetch(`${perpHost()}${path2}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
+    if (!res2.ok) throw new Error(`kalshi-perps GET ${path2} -> ${res2.status}`);
+    return await res2.json();
+  } finally {
+    clearTimeout(to);
+  }
+}
+function underlyingOfPerpTicker(ticker) {
+  const m = /^KX([A-Z][A-Z0-9.]*)PERP1?$/.exec(ticker || "");
+  return m ? m[1] : null;
+}
+function indexExcludeSet() {
+  const env = (process.env.KALSHI_STOCK_PERP_EXCLUDE || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+  return env.length ? new Set(env) : DEFAULT_INDEX_EXCLUDE;
+}
+async function getPerpMarkets() {
+  if (_marketsCache && Date.now() - _marketsCache.at < MARKETS_TTL_MS) return _marketsCache.markets;
+  const out = [];
+  let cursor = null;
+  for (let page = 0; page < 10; page++) {
+    const q = `/margin/markets?limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+    const data = await getJson(q);
+    for (const m of data?.markets ?? []) {
+      out.push({
+        ticker: String(m.ticker || ""),
+        underlying: underlyingOfPerpTicker(String(m.ticker || "")) || "",
+        title: String(m.title || ""),
+        status: String(m.status || ""),
+        bid: num(m.bid),
+        ask: num(m.ask),
+        price: num(m.price),
+        contractSize: num(m.contract_size),
+        leverageEstimate: num(m.leverage_estimate),
+        volume24hContracts: num(m.volume_24h),
+        volume24hNotionalUsd: num(m.volume_24h_notional_value_dollars),
+        openInterest: num(m.open_interest),
+        openInterestNotionalUsd: num(m.open_interest_notional_value_dollars),
+        tickSize: num(m.tick_size),
+        fundingCap: num(m.funding_cap),
+        scheduleOpen: m.schedule?.is_open !== false,
+        haltSources: Array.isArray(m.halt_sources) ? m.halt_sources.map(String) : []
+      });
+    }
+    cursor = data?.cursor || null;
+    if (!cursor) break;
+  }
+  _marketsCache = { at: Date.now(), markets: out };
+  return out;
+}
+async function getLiquidStockPerps() {
+  const minVol = Number(process.env.KALSHI_STOCK_SHADOW_MIN_VOL24_USD ?? 25e3);
+  const minOi = Number(process.env.KALSHI_STOCK_SHADOW_MIN_OI_USD ?? 1e4);
+  const maxTickers = Math.max(1, Math.floor(Number(process.env.KALSHI_STOCK_SHADOW_MAX_TICKERS ?? 20)));
+  const exclude = indexExcludeSet();
+  const all = await getPerpMarkets();
+  return all.filter((m) => m.status === "active" && m.underlying && !exclude.has(m.underlying)).filter((m) => m.price > 0 && m.bid > 0 && m.ask > m.bid).filter((m) => m.volume24hNotionalUsd >= minVol && m.openInterestNotionalUsd >= minOi).sort((a, b) => b.volume24hNotionalUsd - a.volume24hNotionalUsd).slice(0, maxTickers);
+}
+async function getPerpRiskParams() {
+  if (_riskCache && Date.now() - _riskCache.at < 10 * 6e4) return _riskCache.map;
+  const data = await getJson("/margin/risk_parameters");
+  const map = /* @__PURE__ */ new Map();
+  const src = data?.risk_parameters ?? data ?? {};
+  for (const [ticker, v] of Object.entries(src)) {
+    map.set(ticker, {
+      initialMarginMultiplier: v?.initial_margin_multiplier != null ? num(v.initial_margin_multiplier) : null,
+      liquidationThreshold: v?.liquidation_margin_ratio_threshold != null ? num(v.liquidation_margin_ratio_threshold) : null
+    });
+  }
+  _riskCache = { at: Date.now(), map };
+  return map;
+}
+function dist(d) {
+  const f = (x) => x == null || x === "" ? null : num(x);
+  return { o: f(d?.open), h: f(d?.high), l: f(d?.low), c: f(d?.close) };
+}
+function toBar(raw, intervalMin) {
+  const endTs = Number(raw?.end_period_ts);
+  if (!Number.isFinite(endTs) || endTs <= 0) return null;
+  const bid = dist(raw.bid), ask = dist(raw.ask), px = dist(raw.price);
+  const prev = raw.price?.previous != null && raw.price.previous !== "" ? num(raw.price.previous) : null;
+  const mid = bid.c != null && ask.c != null ? (bid.c + ask.c) / 2 : bid.c ?? ask.c;
+  const c = px.c ?? prev ?? mid;
+  if (c == null || !(c > 0)) return null;
+  const o = px.o ?? prev ?? c;
+  const h = px.h ?? Math.max(o, c);
+  const l = px.l ?? Math.min(o, c);
+  const z2 = { o: 0, h: 0, l: 0, c: 0 };
+  return {
+    t: (endTs - intervalMin * 60) * 1e3,
+    o,
+    h,
+    l,
+    c,
+    v: num(raw.volume),
+    bid: { o: bid.o ?? c, h: bid.h ?? c, l: bid.l ?? c, c: bid.c ?? c },
+    ask: { o: ask.o ?? c, h: ask.h ?? c, l: ask.l ?? c, c: ask.c ?? c },
+    openInterest: num(raw.open_interest)
+  };
+}
+async function getPerpCandles(ticker, intervalMin, minutesBack) {
+  const capped = Math.min(Math.max(intervalMin, minutesBack), 5e3 * intervalMin);
+  const key = `${ticker}|${intervalMin}|${capped}`;
+  const hit = _candleCache.get(key);
+  if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.bars;
+  const end = Math.floor(Date.now() / 1e3);
+  const start = end - capped * 60;
+  const data = await getJson(`/margin/markets/${encodeURIComponent(ticker)}/candlesticks?start_ts=${start}&end_ts=${end}&period_interval=${intervalMin}`);
+  const bars = (data?.candlesticks ?? []).map((r) => toBar(r, intervalMin)).filter((b) => !!b).sort((a, b) => a.t - b.t);
+  _candleCache.set(key, { at: Date.now(), bars });
+  return bars;
+}
+function aggregateBars(bars, factor) {
+  if (factor <= 1) return bars;
+  const span = factor * 6e4;
+  const out = [];
+  let cur = null;
+  let bucket = -1;
+  for (const b of bars) {
+    const bk = Math.floor(b.t / span);
+    if (!cur || bk !== bucket) {
+      if (cur) out.push(cur);
+      bucket = bk;
+      cur = { ...b, bid: { ...b.bid }, ask: { ...b.ask } };
+    } else {
+      cur.h = Math.max(cur.h, b.h);
+      cur.l = Math.min(cur.l, b.l);
+      cur.c = b.c;
+      cur.v += b.v;
+      cur.bid.h = Math.max(cur.bid.h, b.bid.h);
+      cur.bid.l = Math.min(cur.bid.l, b.bid.l);
+      cur.bid.c = b.bid.c;
+      cur.ask.h = Math.max(cur.ask.h, b.ask.h);
+      cur.ask.l = Math.min(cur.ask.l, b.ask.l);
+      cur.ask.c = b.ask.c;
+      cur.openInterest = b.openInterest;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+async function getPerpBars(ticker, timeframe, count) {
+  const tf = TF_MINUTES[timeframe] ?? 15;
+  const strip = (bars2) => bars2.slice(-count).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+  if (tf === 60 || tf === 1440) {
+    const bars2 = await getPerpCandles(ticker, tf === 60 ? 60 : 1440, (count + 6) * tf);
+    return strip(bars2);
+  }
+  if (tf === 240) {
+    const bars2 = await getPerpCandles(ticker, 60, (Math.ceil(count / 4) + 6) * 60);
+    return strip(aggregateBars(bars2, 4));
+  }
+  let minutes = Math.min(5e3, Math.ceil(count * tf * 2));
+  let bars = aggregateBars(await getPerpCandles(ticker, 1, minutes), tf);
+  if (bars.length < count && minutes < 5e3) {
+    minutes = 5e3;
+    bars = aggregateBars(await getPerpCandles(ticker, 1, minutes), tf);
+  }
+  return strip(bars);
+}
+async function getPerpTouch(ticker) {
+  try {
+    const data = await getJson(`/margin/markets/${encodeURIComponent(ticker)}/orderbook`);
+    const bids = data?.orderbook?.bids ?? [];
+    const asks = data?.orderbook?.asks ?? [];
+    const bid = bids.reduce((mx, lvl) => Math.max(mx, num(lvl?.[0])), 0);
+    const ask = asks.reduce((mn, lvl) => {
+      const p = num(lvl?.[0]);
+      return p > 0 && (mn === 0 || p < mn) ? p : mn;
+    }, 0);
+    return bid > 0 && ask > bid ? { bid, ask } : null;
+  } catch {
+    return null;
+  }
+}
+async function getPerpFundingHistory(ticker) {
+  const data = await getJson(`/margin/funding_rates/historical?ticker=${encodeURIComponent(ticker)}`);
+  return (data?.funding_rates ?? []).map((r) => ({ fundingTimeMs: new Date(r.funding_time).getTime(), rate: num(r.funding_rate), markPrice: num(r.mark_price) })).filter((r) => Number.isFinite(r.fundingTimeMs) && r.fundingTimeMs > 0).sort((a, b) => a.fundingTimeMs - b.fundingTimeMs);
+}
+async function getPerpFundingEstimate(ticker) {
+  try {
+    const data = await getJson(`/margin/funding_rates/estimate?ticker=${encodeURIComponent(ticker)}`);
+    const next = new Date(data?.next_funding_time).getTime();
+    return { rate: num(data?.funding_rate), nextFundingTimeMs: Number.isFinite(next) ? next : 0 };
+  } catch {
+    return null;
+  }
+}
+async function getPerpCorporateActions() {
+  if (_caCache && Date.now() - _caCache.at < 10 * 6e4) return _caCache.actions;
+  const data = await getJson("/margin/corporate_actions");
+  const list = Array.isArray(data) ? data : data?.corporate_actions ?? data?.notices ?? [];
+  const actions = list.map((a) => {
+    const t = a?.effective_ts ?? a?.effective_time ?? a?.scheduled_ts ?? a?.scheduled_time ?? a?.ex_date ?? a?.pay_date ?? a?.record_date ?? null;
+    const ms = t == null ? null : typeof t === "number" ? t > 1e12 ? t : t * 1e3 : new Date(t).getTime();
+    return {
+      ticker: String(a?.market_ticker ?? a?.ticker ?? ""),
+      type: String(a?.type ?? a?.action_type ?? ""),
+      status: String(a?.status ?? "").toLowerCase(),
+      effectiveMs: ms != null && Number.isFinite(ms) ? ms : null,
+      raw: a
+    };
+  }).filter((a) => !!a.ticker);
+  _caCache = { at: Date.now(), actions };
+  return actions;
+}
+var PROD_HOST, DEMO_HOST, num, DEFAULT_INDEX_EXCLUDE, _marketsCache, MARKETS_TTL_MS, _riskCache, _candleCache, CANDLE_TTL_MS, TF_MINUTES, _caCache;
+var init_kalshi_perps = __esm({
+  "server/services/kalshi-perps.ts"() {
+    "use strict";
+    PROD_HOST = "https://external-api.kalshi.com/trade-api/v2";
+    DEMO_HOST = "https://external-api.demo.kalshi.co/trade-api/v2";
+    num = (v) => {
+      const n = typeof v === "string" ? parseFloat(v) : Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+    DEFAULT_INDEX_EXCLUDE = /* @__PURE__ */ new Set(["SPY", "QQQ", "DIA", "IWM", "US500", "USTECH100", "SPX", "NDX", "VIX"]);
+    _marketsCache = null;
+    MARKETS_TTL_MS = 6e4;
+    _riskCache = null;
+    _candleCache = /* @__PURE__ */ new Map();
+    CANDLE_TTL_MS = 45e3;
+    TF_MINUTES = { "1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440 };
+    _caCache = null;
+  }
+});
+
 // server/services/hyperliquid.ts
 var hyperliquid_exports = {};
 __export(hyperliquid_exports, {
@@ -9177,19 +9427,19 @@ function priceImpactPct(notionalUsd, liquidityUsd) {
 }
 function solDexFeePct(dex) {
   const d = (dex || "").toLowerCase();
-  if (d.startsWith("pumpswap")) return num("SOL_PAPER_FEE_PUMPSWAP_PCT", 0.25);
-  if (d.startsWith("pump")) return num("SOL_PAPER_FEE_PUMPFUN_PCT", 1);
-  if (d.startsWith("raydium")) return num("SOL_PAPER_FEE_RAYDIUM_PCT", 0.25);
-  if (d.startsWith("orca")) return num("SOL_PAPER_FEE_ORCA_PCT", 0.3);
-  if (d.startsWith("meteora")) return num("SOL_PAPER_FEE_METEORA_PCT", 0.3);
-  return num("SOL_PAPER_FEE_DEFAULT_PCT", 0.3);
+  if (d.startsWith("pumpswap")) return num2("SOL_PAPER_FEE_PUMPSWAP_PCT", 0.25);
+  if (d.startsWith("pump")) return num2("SOL_PAPER_FEE_PUMPFUN_PCT", 1);
+  if (d.startsWith("raydium")) return num2("SOL_PAPER_FEE_RAYDIUM_PCT", 0.25);
+  if (d.startsWith("orca")) return num2("SOL_PAPER_FEE_ORCA_PCT", 0.3);
+  if (d.startsWith("meteora")) return num2("SOL_PAPER_FEE_METEORA_PCT", 0.3);
+  return num2("SOL_PAPER_FEE_DEFAULT_PCT", 0.3);
 }
 function estimateSolRoundTripCost(i) {
   const feePct = solDexFeePct(i.dex);
-  const slippagePct = num("SOL_PAPER_SLIPPAGE_PCT", 0.5);
+  const slippagePct = num2("SOL_PAPER_SLIPPAGE_PCT", 0.5);
   const notionalUsd = i.solUsd && i.solUsd > 0 ? i.sizeSol * i.solUsd : 0;
-  const impactPct = priceImpactPct(notionalUsd, i.liquidityUsd) ?? num("SOL_PAPER_IMPACT_FALLBACK_PCT", 1);
-  const txSol = num("SOL_PAPER_TX_FEE_SOL", 1e-4);
+  const impactPct = priceImpactPct(notionalUsd, i.liquidityUsd) ?? num2("SOL_PAPER_IMPACT_FALLBACK_PCT", 1);
+  const txSol = num2("SOL_PAPER_TX_FEE_SOL", 1e-4);
   const networkPct = i.sizeSol > 0 ? Math.min(5, txSol / i.sizeSol * 100) : 0;
   const side = feePct + slippagePct + impactPct + networkPct;
   return { roundTripPct: 2 * side, perSide: { feePct, slippagePct, impactPct, networkPct } };
@@ -9198,22 +9448,22 @@ function estimateCryptoRoundTripBps(i) {
   const cap = Math.max(0, i.slippageCapBps || 0);
   const liq = i.liquidityUsd && i.liquidityUsd > 0 ? i.liquidityUsd : null;
   if (!liq) {
-    const perSide2 = num("CRYPTO_PAPER_FEE_BPS", 30) + cap / 2;
+    const perSide2 = num2("CRYPTO_PAPER_FEE_BPS", 30) + cap / 2;
     return { roundTripBps: 2 * perSide2, perSideBps: perSide2, liquidityKnown: false };
   }
-  const deep = liq >= num("CRYPTO_PAPER_DEEP_LIQ_USD", 5e6);
-  const feeBps = deep ? num("CRYPTO_PAPER_FEE_DEEP_BPS", 5) : num("CRYPTO_PAPER_FEE_BPS", 30);
-  const slipBps = num("CRYPTO_PAPER_SLIPPAGE_BPS", 5);
+  const deep = liq >= num2("CRYPTO_PAPER_DEEP_LIQ_USD", 5e6);
+  const feeBps = deep ? num2("CRYPTO_PAPER_FEE_DEEP_BPS", 5) : num2("CRYPTO_PAPER_FEE_BPS", 30);
+  const slipBps = num2("CRYPTO_PAPER_SLIPPAGE_BPS", 5);
   const impactBps = Math.min(cap || Infinity, (priceImpactPct(i.notionalUsd, liq) ?? 0) * 100);
-  const gasBps = i.notionalUsd > 0 ? Math.min(100, num("CRYPTO_PAPER_GAS_USD", 0.02) / i.notionalUsd * 1e4) : 0;
+  const gasBps = i.notionalUsd > 0 ? Math.min(100, num2("CRYPTO_PAPER_GAS_USD", 0.02) / i.notionalUsd * 1e4) : 0;
   const perSide = feeBps + slipBps + impactBps + gasBps;
   return { roundTripBps: 2 * perSide, perSideBps: perSide, liquidityKnown: true };
 }
-var num;
+var num2;
 var init_paper_costs = __esm({
   "server/services/paper-costs.ts"() {
     "use strict";
-    num = (name, dflt) => {
+    num2 = (name, dflt) => {
       const v = Number(process.env[name]);
       return Number.isFinite(v) && v >= 0 ? v : dflt;
     };
@@ -17585,7 +17835,7 @@ function logDecisionShadow(r) {
     _seen.set(k, Date.now());
     if (_seen.size > 5e3) _seen.clear();
   }
-  const num4 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  const num5 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
   void ensureDecisionShadowTable().then(() => pool.query(
     `INSERT INTO fx_decision_shadow (user_id, scan_id, symbol, session, hour_utc, lane, mode, acted, picked, ai_status,
        direction, score, terms, entry, sl, tp, gate_result)
@@ -17602,11 +17852,11 @@ function logDecisionShadow(r) {
       !!r.picked,
       r.aiStatus ?? null,
       r.direction ?? null,
-      num4(r.score),
+      num5(r.score),
       r.terms == null ? null : JSON.stringify(r.terms),
-      num4(r.entry),
-      num4(r.sl),
-      num4(r.tp),
+      num5(r.entry),
+      num5(r.sl),
+      num5(r.tp),
       r.gateResult ?? null
     ]
   )).catch(() => {
@@ -19156,7 +19406,7 @@ function aggregate(rows) {
       (g.get(k) ?? g.set(k, []).get(k)).push(v);
     }
   }
-  const minN = num2("CRYPTO_SHADOW_STATS_MIN_N", 15), fav = num2("CRYPTO_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num2("CRYPTO_SHADOW_AVOID_MEDIAN_PCT", 1);
+  const minN = num3("CRYPTO_SHADOW_STATS_MIN_N", 15), fav = num3("CRYPTO_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num3("CRYPTO_SHADOW_AVOID_MEDIAN_PCT", 1);
   return Array.from(g.entries()).map(([k, v]) => {
     const [strategy, dim, bucket] = k.split("|");
     const s = v.slice().sort((a, b) => a - b);
@@ -19261,7 +19511,7 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
   );
   const btc = deps.universe("CBBTC") ? await deps.h1("CBBTC").catch(() => null) : null;
   const btcChange = btc ? pctChange(oldestFirst(btc.bars), 24) : null;
-  const lo = num2("CRYPTO_PAPER_SL_MIN", 1.5), hi = num2("CRYPTO_PAPER_SL_MAX", 12), atrMult = num2("CRYPTO_SL_ATR_MULT", 1.5), rr = num2("CRYPTO_MIN_RR", 2);
+  const lo = num3("CRYPTO_PAPER_SL_MIN", 1.5), hi = num3("CRYPTO_PAPER_SL_MAX", 12), atrMult = num3("CRYPTO_SL_ATR_MULT", 1.5), rr = num3("CRYPTO_MIN_RR", 2);
   const floorMult = Number(process.env.CRYPTO_PAPER_COST_FLOOR_MULT ?? 3);
   let opened = 0;
   const shadowCfg = { ...cfg, directionFilter: "both" };
@@ -19387,31 +19637,72 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
   }
   return { opened, closed };
 }
-var num2, shadowAllEnabled, MAX_OPEN, MAX_PER_STRAT, COOLDOWN_MS, EVERY_MS, NOTIONAL, _ensured2, _statsCache, _lastRun;
+var num3, shadowAllEnabled, MAX_OPEN, MAX_PER_STRAT, COOLDOWN_MS, EVERY_MS, NOTIONAL, _ensured2, _statsCache, _lastRun;
 var init_crypto_shadow = __esm({
   "server/services/crypto-shadow.ts"() {
     "use strict";
     init_db();
-    num2 = (n, d) => {
+    num3 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
     shadowAllEnabled = () => process.env.CRYPTO_SHADOW_ALL !== "off";
-    MAX_OPEN = () => Math.floor(num2("CRYPTO_SHADOW_MAX_OPEN", 30));
-    MAX_PER_STRAT = () => Math.floor(num2("CRYPTO_SHADOW_MAX_PER_STRATEGY", 3));
-    COOLDOWN_MS = () => num2("CRYPTO_SHADOW_COOLDOWN_MIN", 60) * 6e4;
-    EVERY_MS = () => num2("CRYPTO_SHADOW_EVERY_MIN", 10) * 6e4;
-    NOTIONAL = () => num2("CRYPTO_SHADOW_NOTIONAL_USD", 20);
+    MAX_OPEN = () => Math.floor(num3("CRYPTO_SHADOW_MAX_OPEN", 30));
+    MAX_PER_STRAT = () => Math.floor(num3("CRYPTO_SHADOW_MAX_PER_STRATEGY", 3));
+    COOLDOWN_MS = () => num3("CRYPTO_SHADOW_COOLDOWN_MIN", 60) * 6e4;
+    EVERY_MS = () => num3("CRYPTO_SHADOW_EVERY_MIN", 10) * 6e4;
+    NOTIONAL = () => num3("CRYPTO_SHADOW_NOTIONAL_USD", 20);
     _ensured2 = null;
     _statsCache = /* @__PURE__ */ new Map();
     _lastRun = /* @__PURE__ */ new Map();
   }
 });
 
+// server/services/ensure-kalshi-perp-shadow-tables.ts
+var ensure_kalshi_perp_shadow_tables_exports = {};
+__export(ensure_kalshi_perp_shadow_tables_exports, {
+  ensureKalshiPerpShadowTables: () => ensureKalshiPerpShadowTables
+});
+function ensureKalshiPerpShadowTables() {
+  if (!_ensured3) {
+    _ensured3 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_shadow_trades (
+      id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, ticker text NOT NULL, underlying text NOT NULL,
+      direction text NOT NULL,
+      entry_price double precision NOT NULL, entry_bid double precision, entry_ask double precision,
+      stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
+      sl_pct double precision NOT NULL, contracts double precision NOT NULL, notional_usd double precision NOT NULL,
+      cost_bps double precision NOT NULL, cost_model text NOT NULL DEFAULT 'placeholder',
+      funding_accrued_usd double precision NOT NULL DEFAULT 0, funding_through_ms bigint NOT NULL DEFAULT 0,
+      score real, max_hours double precision NOT NULL, status text NOT NULL DEFAULT 'open',
+      exit_price double precision, exit_reason text, gross_return_pct double precision, return_pct double precision,
+      r_multiple double precision, peak_gain_pct double precision, exclude_from_stats boolean NOT NULL DEFAULT false,
+      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_shadow_trades_user_status ON kalshi_perp_shadow_trades (user_id, status)`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_shadow_context (
+      trade_id int PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, ticker text NOT NULL, direction text NOT NULL,
+      spread_bps double precision, volume_24h_usd double precision, open_interest double precision,
+      atr_pct double precision, h1_trend text, h4_trend text, htf_aligned boolean,
+      funding_rate_at_entry double precision, session_et text, hour_utc int, hour_et int, day_of_week int,
+      earnings_within_48h boolean, corporate_action_pending boolean, live_gate_blocked boolean,
+      leverage_estimate double precision, tags text[], advice_at_entry text,
+      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision, funding_paid_usd double precision)`)).then(() => void 0).catch((e) => {
+      _ensured3 = null;
+      throw e;
+    });
+  }
+  return _ensured3;
+}
+var _ensured3;
+var init_ensure_kalshi_perp_shadow_tables = __esm({
+  "server/services/ensure-kalshi-perp-shadow-tables.ts"() {
+    "use strict";
+    init_db();
+    _ensured3 = null;
+  }
+});
+
 // server/services/shadow-ledger.ts
 function ensureShadowLedger() {
-  if (!_ensured3) {
-    _ensured3 = (async () => {
+  if (!_ensured4) {
+    _ensured4 = (async () => {
       try {
         const { ensurePaperTable: ensurePaperTable2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
         await ensurePaperTable2();
@@ -19422,15 +19713,20 @@ function ensureShadowLedger() {
         await ensureCryptoShadowTables2();
       } catch {
       }
+      try {
+        const { ensureKalshiPerpShadowTables: ensureKalshiPerpShadowTables2 } = await Promise.resolve().then(() => (init_ensure_kalshi_perp_shadow_tables(), ensure_kalshi_perp_shadow_tables_exports));
+        await ensureKalshiPerpShadowTables2();
+      } catch {
+      }
       await pool.query(VIEW_SQL);
     })().catch((e) => {
-      _ensured3 = null;
+      _ensured4 = null;
       throw e;
     });
   }
-  return _ensured3;
+  return _ensured4;
 }
-var SESSION_SQL, VIEW_SQL, _ensured3;
+var SESSION_SQL, VIEW_SQL, _ensured4;
 var init_shadow_ledger = __esm({
   "server/services/shadow-ledger.ts"() {
     "use strict";
@@ -19508,8 +19804,27 @@ CREATE OR REPLACE VIEW shadow_ledger AS
     FROM crypto_shadow_trades x
     LEFT JOIN crypto_shadow_context xc ON xc.trade_id = x.id
    WHERE x.status = 'closed' AND x.return_pct IS NOT NULL
+  UNION ALL
+  -- Kalshi stock-perp shadow lane (kalshi-stock-shadow.ts). Perps short
+  -- natively, so shorts are real reads, not hypothetical. Corporate-action
+  -- closes are excluded (the price series adjusts across the action \u2014 any
+  -- return spanning it is fiction), as are sub-2-minute \u226540% prints (the
+  -- Sol quarantine discipline: a large-cap perp does not legitimately move
+  -- 40% in 2 minutes outside a split print, and splits are handled above).
+  SELECT ('kalshi_stock_shadow:' || k.id)::text, 'kalshi_stock_shadow', 'kalshi_perp', k.user_id,
+         k.strategy, k.ticker, CASE WHEN k.direction = 'short' THEN 'SHORT' ELSE 'LONG' END,
+         k.opened_at, k.closed_at,
+         extract(hour from k.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(k.opened_at AT TIME ZONE 'UTC')")},
+         NULL, kc.h1_trend, kc.h4_trend, kc.htf_aligned, true,
+         CASE WHEN k.exit_reason = 'time limit' THEN 'EXPIRED' WHEN k.r_multiple > 0 THEN 'WIN' WHEN k.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         k.r_multiple::float, k.return_pct::float
+    FROM kalshi_perp_shadow_trades k
+    LEFT JOIN kalshi_perp_shadow_context kc ON kc.trade_id = k.id
+   WHERE k.status = 'closed' AND k.return_pct IS NOT NULL AND k.exclude_from_stats IS NOT TRUE
+     AND NOT (abs(k.return_pct) >= 40 AND extract(epoch from (k.closed_at - k.opened_at)) < 120)
 `;
-    _ensured3 = null;
+    _ensured4 = null;
   }
 });
 
@@ -28136,7 +28451,7 @@ async function runFxModelsCycle(userId, ctx) {
          ON CONFLICT (user_id, symbol, day, hour_utc) DO UPDATE SET day_type=EXCLUDED.day_type, auto_model=EXCLUDED.auto_model,
            trend_score=EXCLUDED.trend_score, adx_m15=EXCLUDED.adx_m15, rel_volume=EXCLUDED.rel_volume, atr=EXCLUDED.atr,
            h1_trend=EXCLUDED.h1_trend, h4_trend=EXCLUDED.h4_trend, features=EXCLUDED.features`,
-        [userId, symbol, day, hour, session2, cls.dayType, cls.autoModel, cls.score, num3(snap.adx), num3(snap.relativeVolume), num3(snap.atr), h1?.trend ?? null, h4?.trend ?? null, JSON.stringify(features)]
+        [userId, symbol, day, hour, session2, cls.dayType, cls.autoModel, cls.score, num4(snap.adx), num4(snap.relativeVolume), num4(snap.atr), h1?.trend ?? null, h4?.trend ?? null, JSON.stringify(features)]
       ).catch(() => {
       });
       const candle = Math.floor(now.getTime() / 36e5);
@@ -28160,7 +28475,7 @@ async function runFxModelsCycle(userId, ctx) {
     console.error("[fx-models] cycle failed (non-fatal):", e?.message || e);
   }
 }
-function num3(x) {
+function num4(x) {
   const n = Number(x);
   return Number.isFinite(n) ? n : null;
 }
@@ -28752,7 +29067,7 @@ async function runCryptoModelsCycle(userId, symbols) {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11,$12,$13::jsonb,'crypto')
          ON CONFLICT (user_id, symbol, day, hour_utc) DO UPDATE SET day_type=EXCLUDED.day_type, auto_model=EXCLUDED.auto_model, trend_score=EXCLUDED.trend_score,
            adx_m15=EXCLUDED.adx_m15, rel_volume=EXCLUDED.rel_volume, h1_trend=EXCLUDED.h1_trend, h4_trend=EXCLUDED.h4_trend, features=EXCLUDED.features, engine='crypto'`,
-        [userId, symbol, day, hour, session2, cls.dayType, cls.autoModel, cls.score, num3(adx), num3(relVolume), t1, t4, JSON.stringify(features)]
+        [userId, symbol, day, hour, session2, cls.dayType, cls.autoModel, cls.score, num4(adx), num4(relVolume), t1, t4, JSON.stringify(features)]
       ).catch(() => {
       });
       lastShadowCandle.set(key, candle);
@@ -33942,6 +34257,10 @@ function topDefiUniverse(chain, n) {
   return Array.from(defiUniverse.entries()).filter(([k]) => k.startsWith(pre)).sort((a, b) => (b[1].liquidityUsd || 0) - (a[1].liquidityUsd || 0)).slice(0, n).map(([k, v]) => ({ symbol: k.slice(pre.length), poolAddress: v.poolAddress, address: v.address, liquidityUsd: v.liquidityUsd || 0 }));
 }
 async function fetchBars(symbol, timeframe, count, chain) {
+  if (symbol.toUpperCase().startsWith("KALSHI:")) {
+    const { getPerpBars: getPerpBars2 } = await Promise.resolve().then(() => (init_kalshi_perps(), kalshi_perps_exports));
+    return getPerpBars2(symbol.slice(7), timeframe, count);
+  }
   if (symbol.toUpperCase().startsWith("HL:")) {
     const { getCandles: getCandles2 } = await Promise.resolve().then(() => (init_hyperliquid(), hyperliquid_exports));
     return getCandles2(symbol.slice(3), timeframe, count, false);
@@ -34161,8 +34480,8 @@ async function runVolumeProfile(symbol, cfg) {
   if (price > VAH && volConfirm) direction = "BUY";
   else if (price < VAL && volConfirm) direction = "SELL";
   if (!direction) return { decision: "watching", reasoning: `${symbol}: inside/at value area $${VAL.toFixed(2)}\u2013$${VAH.toFixed(2)} or volume not confirming \u2014 no VP edge.`, score: 46, price, dailyChangePercent, strategy: "volume_profile" };
-  const dist = direction === "BUY" ? (price - VAH) / binSize : (VAL - price) / binSize;
-  const score = Math.round(Math.max(55, Math.min(90, 60 + dist * 8)));
+  const dist2 = direction === "BUY" ? (price - VAH) / binSize : (VAL - price) / binSize;
+  const score = Math.round(Math.max(55, Math.min(90, 60 + dist2 * 8)));
   const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
   if (!directionAllowed) return { decision: "skipped", reasoning: `${symbol}: ${direction} VP breakout, but direction filter is "${cfg.directionFilter}".`, score, price, dailyChangePercent, strategy: "volume_profile" };
   if (score < cfg.minConfidence) return { decision: "watching", reasoning: `${symbol}: ${direction} VP breakout but score ${score}/100 below ${cfg.minConfidence}.`, score, price, dailyChangePercent, strategy: "volume_profile" };
