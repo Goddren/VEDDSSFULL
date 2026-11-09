@@ -4890,11 +4890,47 @@ IMPORTANT:
 
     if (!clean) return res.status(400).json({ error: 'No speakable text' });
 
+    // ── Exact-error readout: every provider attempt is recorded (name,
+    // HTTP status, the provider's own sanitized error detail — never keys,
+    // headers, or request bodies; capped at 160 chars). On total failure the
+    // 503 body carries this list so the client can show the REAL reason
+    // (e.g. "ElevenLabs: quota_exceeded") instead of a generic fallback.
+    type TtsAttempt = { name: string; slug: string; status: number | null; error: string };
+    const attempts: TtsAttempt[] = [];
+    const cleanErr = (s: string) => (s || 'unknown error').replace(/\s+/g, ' ').trim().slice(0, 160);
+    const recordAttempt = (name: string, slug: string, status: number | null, rawError: string) => {
+      attempts.push({ name, slug, status, error: cleanErr(rawError) });
+    };
+    const parseErrBody = (bodyText: string): string => {
+      if (!bodyText) return 'empty error response';
+      try {
+        const j: any = JSON.parse(bodyText);
+        const detail = j?.detail;
+        const code = (detail && typeof detail === 'object' ? (detail.code || detail.status) : null) || j?.error?.code || null;
+        const rawMsg = (typeof detail === 'string' ? detail : null) || detail?.message || (typeof j?.error === 'string' ? j.error : j?.error?.message) || j?.message || '';
+        const msg = typeof rawMsg === 'string' ? rawMsg : JSON.stringify(rawMsg);
+        return code && msg && !msg.toLowerCase().includes(String(code).toLowerCase()) ? `${code}: ${msg}` : (msg || bodyText);
+      } catch { return bodyText; }
+    };
+    const sendAudio = (buffer: Buffer, slug: string) => {
+      const headers: Record<string, string> = { 'Content-Type': 'audio/mpeg', 'Content-Length': String(buffer.length), 'Cache-Control': 'no-cache', 'X-TTS-Provider': slug };
+      const failed = attempts.map(a => a.slug).join(',');
+      if (failed) headers['X-TTS-Attempts'] = failed;
+      res.set(headers);
+      return res.send(buffer);
+    };
+    // The ElevenLabs voice this request resolved (body → env → Adam) — also
+    // drives the OpenRouter ElevenLabs step's voice mapping below.
+    const ELEVENLABS_VOICE_ID = (req.body.voiceId as string | undefined) || process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB'; // Adam (male)
+
     try {
       const allKeys = await storage.getUserApiKeys(userId);
 
-      // ── Priority order: ElevenLabs (if key saved) → OpenAI → Edge TTS fallback ──
+      // ── Priority order: ElevenLabs → ElevenLabs via OpenRouter → OpenAI
+      // → OpenAI TTS via OpenRouter → Edge TTS (free last resort) ──
       // ElevenLabs goes FIRST when a key is present — it's by far the most realistic.
+      // The OpenRouter steps ride the OpenRouter balance the engines already
+      // use, so an exhausted direct ElevenLabs account no longer mutes ABBA.
       // Edge TTS is free but robotic and is only used as a last resort.
 
       // ── 1. ElevenLabs — most realistic, used whenever a key is configured ────
@@ -4914,8 +4950,6 @@ IMPORTANT:
           // Lower stability + higher style = wider emotional range per-sentence (hype, concern,
           // pride) instead of a flat, evenly-modulated read — the "sounds like a real person
           // reacting" quality, not a narrator quality.
-          const requestedVoiceId = req.body.voiceId as string | undefined;
-          const ELEVENLABS_VOICE_ID = requestedVoiceId || process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB'; // Adam (male)
           const elRes = await fetch(
             `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
             {
@@ -4936,15 +4970,82 @@ IMPORTANT:
           if (elRes.ok) {
             const buffer = Buffer.from(await elRes.arrayBuffer());
             console.log(`[ABBA TTS] ElevenLabs OK — ${buffer.length} bytes`);
-            res.set({ 'Content-Type': 'audio/mpeg', 'Content-Length': String(buffer.length), 'Cache-Control': 'no-cache', 'X-TTS-Provider': 'elevenlabs' });
-            return res.send(buffer);
+            return sendAudio(buffer, 'elevenlabs');
           } else {
             const errText = await elRes.text().catch(() => '');
+            recordAttempt('ElevenLabs', 'elevenlabs', elRes.status, parseErrBody(errText));
             console.warn(`[ABBA TTS] ElevenLabs ${elRes.status}:`, errText.slice(0, 200), '— falling back');
           }
         } catch (elErr: any) {
+          recordAttempt('ElevenLabs', 'elevenlabs', null, elErr?.message || 'request failed');
           console.warn('[ABBA TTS] ElevenLabs error:', elErr?.message, '— falling back');
         }
+      } else {
+        recordAttempt('ElevenLabs', 'elevenlabs', null, 'no ElevenLabs API key configured');
+      }
+
+      // ── OpenRouter speech steps ─────────────────────────────────────────
+      // Key resolution mirrors server/openai.ts: the user's stored
+      // OpenRouter key first (storage lookup), then the platform
+      // OPENROUTER_API_KEY env. Kill switch: ABBA_TTS_OPENROUTER=off.
+      const orEnabled = process.env.ABBA_TTS_OPENROUTER !== 'off';
+      const orKey = allKeys.find((k: any) => k.provider === 'openrouter' && k.isActive)?.apiKey
+        || process.env.OPENROUTER_API_KEY;
+      // OpenRouter's ElevenLabs models take NAMED voices from the model's
+      // supported_voices list (models API) — raw ElevenLabs voice IDs are
+      // NOT portable. Map each built-in preset's voice ID to its named
+      // equivalent; Josh/Clyde/Rachel aren't in the list, so the closest
+      // listed voice stands in (exact identity is impossible via OpenRouter).
+      const OR_ELEVENLABS_VOICE_BY_ID: Record<string, string> = {
+        'pNInz6obpgDQGcFmaJgB': 'adam',    // Adam — exact match in supported_voices
+        'TxGEqnHWrfWFTfGW9XjX': 'charlie', // Josh (not listed) → closest young American male
+        '2EiwWnXFnvU5JabPnv8n': 'bill',    // Clyde (not listed) → closest mature American male
+        '21m00Tcm4TlvDq8ikWAM': 'sarah',   // Rachel (not listed) → closest young American female
+      };
+      const tryOpenRouterSpeech = async (name: string, slug: string, model: string, voice: string): Promise<boolean> => {
+        if (!orKey) { recordAttempt(name, slug, null, 'no OpenRouter API key configured'); return false; }
+        try {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 20000);
+          let orRes: Awaited<ReturnType<typeof fetch>>;
+          try {
+            orRes = await fetch('https://openrouter.ai/api/v1/audio/speech', {
+              method: 'POST',
+              signal: ctrl.signal,
+              headers: { 'Authorization': `Bearer ${orKey}`, 'Content-Type': 'application/json' },
+              // response_format pinned to mp3 — the endpoint defaults to pcm.
+              // voice_settings are not part of the OpenAI-compatible speech
+              // schema and are not forwarded.
+              body: JSON.stringify({ model, input: clean, voice, response_format: 'mp3' }),
+            });
+          } finally { clearTimeout(timer); }
+          if (!orRes.ok) {
+            const errText = await orRes.text().catch(() => '');
+            recordAttempt(name, slug, orRes.status, parseErrBody(errText));
+            console.warn(`[ABBA TTS] ${name} ${orRes.status}:`, errText.slice(0, 200), '— falling back');
+            return false;
+          }
+          const ct = orRes.headers.get('content-type') || '';
+          const buffer = Buffer.from(await orRes.arrayBuffer());
+          if (!ct.includes('audio') || buffer.length < 100) {
+            recordAttempt(name, slug, orRes.status, `returned no usable audio (${ct || 'unknown content type'}, ${buffer.length} bytes)`);
+            return false;
+          }
+          console.log(`[ABBA TTS] ${name} OK — ${buffer.length} bytes`);
+          sendAudio(buffer, slug);
+          return true;
+        } catch (e: any) {
+          recordAttempt(name, slug, null, e?.name === 'AbortError' ? 'request timed out (20s)' : (e?.message || 'request failed'));
+          console.warn(`[ABBA TTS] ${name} error:`, e?.message, '— falling back');
+          return false;
+        }
+      };
+
+      // ── 1.5 ElevenLabs via OpenRouter — same model family (turbo v2.5),
+      // billed to the OpenRouter balance instead of the direct account ─────
+      if (orEnabled) {
+        const orElVoice = OR_ELEVENLABS_VOICE_BY_ID[ELEVENLABS_VOICE_ID] || 'adam';
+        if (await tryOpenRouterSpeech('ElevenLabs via OpenRouter', 'elevenlabs-openrouter', process.env.ABBA_TTS_OR_EL_MODEL || 'elevenlabs/eleven-turbo-v2.5', orElVoice)) return;
       }
 
       // ── 2. OpenAI TTS — high quality fallback ──────────────────────────────
@@ -4960,11 +5061,18 @@ IMPORTANT:
           const mp3 = await ttsClient.audio.speech.create({ model: 'tts-1-hd', voice: ttsVoice as any, input: clean, speed: 1.0 });
           const buffer = Buffer.from(await mp3.arrayBuffer());
           console.log(`[ABBA TTS] OpenAI OK — ${buffer.length} bytes`);
-          res.set({ 'Content-Type': 'audio/mpeg', 'Content-Length': String(buffer.length), 'Cache-Control': 'no-cache', 'X-TTS-Provider': 'openai' });
-          return res.send(buffer);
+          return sendAudio(buffer, 'openai');
         } catch (oaiErr: any) {
-          console.warn('[ABBA TTS] OpenAI error:', oaiErr?.message, '— falling back to Edge TTS');
+          recordAttempt('OpenAI', 'openai', typeof oaiErr?.status === 'number' ? oaiErr.status : null, oaiErr?.message || 'request failed');
+          console.warn('[ABBA TTS] OpenAI error:', oaiErr?.message, '— falling back');
         }
+      } else {
+        recordAttempt('OpenAI', 'openai', null, 'no OpenAI API key configured');
+      }
+
+      // ── 2.5 OpenAI TTS via OpenRouter — gpt-4o-mini-tts on the OpenRouter balance ──
+      if (orEnabled) {
+        if (await tryOpenRouterSpeech('OpenAI TTS via OpenRouter', 'openai-openrouter', process.env.ABBA_TTS_OR_OAI_MODEL || 'openai/gpt-4o-mini-tts-2025-12-15', (req.body.openaiVoice as string) || 'onyx')) return;
       }
 
       // ── 3. Microsoft Edge TTS — free last resort (robotic but functional) ───
@@ -4984,17 +5092,21 @@ IMPORTANT:
         const buffer = Buffer.concat(chunks);
         if (buffer.length < 100) throw new Error('Edge TTS returned empty audio');
         console.log(`[ABBA TTS] Edge TTS fallback — ${buffer.length} bytes, voice: ${voice}`);
-        res.set({ 'Content-Type': 'audio/mpeg', 'Content-Length': String(buffer.length), 'Cache-Control': 'no-cache', 'X-TTS-Provider': 'edge' });
-        return res.send(buffer);
+        return sendAudio(buffer, 'edge');
       } catch (edgeErr: any) {
+        recordAttempt('Edge TTS', 'edge', null, edgeErr?.message || 'request failed');
         console.warn('[ABBA TTS] Edge TTS failed:', edgeErr?.message);
       }
 
-      return res.status(503).json({ error: 'No TTS available. Add an ElevenLabs or OpenAI key in Settings → AI API Keys.', fallback: true });
+      return res.status(503).json({
+        error: 'No TTS available. Add an ElevenLabs or OpenAI key in Settings → AI API Keys.',
+        fallback: true,
+        providers: attempts.map(({ name, status, error }) => ({ name, status, error })),
+      });
 
     } catch (err: any) {
       console.error('[ABBA TTS] Error:', err?.message);
-      res.status(500).json({ error: 'TTS unavailable', fallback: true });
+      res.status(500).json({ error: 'TTS unavailable', fallback: true, providers: attempts.map(({ name, status, error }) => ({ name, status, error })) });
     }
   });
 

@@ -1,7 +1,7 @@
 // ─── ABBA shared voice module ─────────────────────────────────────────────
 // ONE voice implementation for every ABBA surface (floating assistant +
 // the dedicated ABBA page): speech recognition, the server-TTS-first speak
-// path (/api/abba/tts — ElevenLabs → OpenAI → Edge) with browser
+// path (/api/abba/tts — ElevenLabs → OpenRouter → OpenAI → Edge) with browser
 // speechSynthesis ONLY as the error fallback, voice presets, and the
 // X-TTS-Provider label so a fallback is always visible. Extracted from
 // travis-assistant.tsx in the Phase A unification so both surfaces sound
@@ -45,7 +45,9 @@ export type AbbaVoicePresetId = typeof ABBA_VOICE_PRESETS[number]['id'];
 // Surfaced in the header so a silent fallback to a robotic voice is visible.
 export const TTS_PROVIDER_LABELS: Record<string, string> = {
   elevenlabs: 'ElevenLabs',
+  'elevenlabs-openrouter': 'ElevenLabs · OpenRouter',
   openai: 'OpenAI voice',
+  'openai-openrouter': 'OpenAI TTS · OpenRouter',
   edge: 'Edge voice (fallback)',
   browser: 'Browser voice (fallback)',
 };
@@ -64,10 +66,15 @@ export function useVoice(onTranscript: (text: string, isFinal: boolean) => void)
   const [isListening,  setIsListening]  = useState(false);
   const [isSpeaking,   setIsSpeaking]   = useState(false);
   const [ttsProvider,  setTtsProvider]  = useState<string | null>(null);
-  // Why the last speak() fell back (e.g. "TTS request failed (503)") — shown
-  // beside the fallback label so a server-side TTS failure is distinguishable
-  // from an on-device playback block (live-test evidence, PR #36 follow-up).
+  // Why the last speak() fell back — on a server 503 this is the FIRST
+  // provider's own rejection from the server's per-provider readout (e.g.
+  // "Voice fell back — ElevenLabs: quota_exceeded: …" + "+N more"), shown
+  // beside the fallback label so a server-side TTS failure is
+  // distinguishable from an on-device playback block.
   const [ttsError,     setTtsError]     = useState<string | null>(null);
+  // Slugs of providers that failed before the winner served audio
+  // (X-TTS-Attempts) — a silent recovery is visible here, not hidden.
+  const [ttsAttempts,  setTtsAttempts]  = useState<string[]>([]);
   const [voiceEnabled, setVoiceEnabled] = useState(() => {
     try { return localStorage.getItem('abba_voice') !== 'off'; } catch { return true; }
   });
@@ -206,12 +213,31 @@ export function useVoice(onTranscript: (text: string, isFinal: boolean) => void)
         body: JSON.stringify({ text: trimmed, voiceId: activePreset.elevenLabsId, openaiVoice: activePreset.openaiVoice }),
       });
 
-      if (!res.ok) { setTtsError(`TTS request failed (${res.status})`); throw new Error('TTS unavailable'); }
+      if (!res.ok) {
+        // Exact-error readout: the server's failure body lists every
+        // provider it tried with that provider's own rejection — show the
+        // first one verbatim and count the rest, instead of a bare status.
+        let reason = `TTS request failed (${res.status})`;
+        try {
+          const data: any = await res.json();
+          const providers: any[] = Array.isArray(data?.providers) ? data.providers : [];
+          if (providers.length > 0) {
+            const first = providers[0];
+            reason = `Voice fell back — ${first.name}: ${first.error}`;
+            if (providers.length > 1) reason += ` +${providers.length - 1} more`;
+            if (reason.length > 140) reason = reason.slice(0, 137) + '…';
+          }
+        } catch { /* keep the status-based reason */ }
+        setTtsError(reason);
+        throw new Error('TTS unavailable');
+      }
       const contentType = res.headers.get('content-type') || '';
       if (!contentType.includes('audio')) { setTtsError('TTS returned no audio'); throw new Error('Not audio'); }
       // Surface which provider in the chain actually served this audio
       const provider = res.headers.get('x-tts-provider');
       if (provider) setTtsProvider(provider);
+      const attemptsHeader = res.headers.get('x-tts-attempts');
+      setTtsAttempts(attemptsHeader ? attemptsHeader.split(',').filter(Boolean) : []);
 
       const blob = await res.blob();
       if (gen !== speakGenRef.current) return; // superseded while fetching — stay silent
@@ -308,6 +334,6 @@ export function useVoice(onTranscript: (text: string, isFinal: boolean) => void)
     });
   }, [safeSetSpeaking]);
 
-  return { isListening, isSpeaking, ttsProvider, ttsError, voiceEnabled, voicePreset, setVoicePreset, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, audioSourceRef, safeSetSpeaking, primedAudioRef, browserSpeak };
+  return { isListening, isSpeaking, ttsProvider, ttsError, ttsAttempts, voiceEnabled, voicePreset, setVoicePreset, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, audioSourceRef, safeSetSpeaking, primedAudioRef, browserSpeak };
 }
 
