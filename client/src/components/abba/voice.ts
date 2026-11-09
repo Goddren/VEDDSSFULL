@@ -64,6 +64,10 @@ export function useVoice(onTranscript: (text: string, isFinal: boolean) => void)
   const [isListening,  setIsListening]  = useState(false);
   const [isSpeaking,   setIsSpeaking]   = useState(false);
   const [ttsProvider,  setTtsProvider]  = useState<string | null>(null);
+  // Why the last speak() fell back (e.g. "TTS request failed (503)") — shown
+  // beside the fallback label so a server-side TTS failure is distinguishable
+  // from an on-device playback block (live-test evidence, PR #36 follow-up).
+  const [ttsError,     setTtsError]     = useState<string | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(() => {
     try { return localStorage.getItem('abba_voice') !== 'off'; } catch { return true; }
   });
@@ -202,16 +206,17 @@ export function useVoice(onTranscript: (text: string, isFinal: boolean) => void)
         body: JSON.stringify({ text: trimmed, voiceId: activePreset.elevenLabsId, openaiVoice: activePreset.openaiVoice }),
       });
 
-      if (!res.ok) throw new Error('TTS unavailable');
+      if (!res.ok) { setTtsError(`TTS request failed (${res.status})`); throw new Error('TTS unavailable'); }
       const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('audio')) throw new Error('Not audio');
+      if (!contentType.includes('audio')) { setTtsError('TTS returned no audio'); throw new Error('Not audio'); }
       // Surface which provider in the chain actually served this audio
       const provider = res.headers.get('x-tts-provider');
       if (provider) setTtsProvider(provider);
 
       const blob = await res.blob();
       if (gen !== speakGenRef.current) return; // superseded while fetching — stay silent
-      if (blob.size < 100) throw new Error('Empty audio');
+      if (blob.size < 100) { setTtsError('TTS returned empty audio'); throw new Error('Empty audio'); }
+      setTtsError(null); // server audio arrived — any fallback from here is a playback block, labeled below
 
       // Store blob URL on message for tap-to-play button
       const url = URL.createObjectURL(blob);
@@ -250,9 +255,10 @@ export function useVoice(onTranscript: (text: string, isFinal: boolean) => void)
       audio.volume = 1.0;
       audioRef.current = audio;
       audio.onended = () => { safeSetSpeaking(false); audioRef.current = null; };
-      audio.onerror = () => { if (gen !== speakGenRef.current) return; safeSetSpeaking(false); audioRef.current = null; browserSpeak(trimmed); };
+      audio.onerror = () => { if (gen !== speakGenRef.current) return; setTtsError('Audio playback failed on this device'); safeSetSpeaking(false); audioRef.current = null; browserSpeak(trimmed); };
       await audio.play().catch(async () => {
         if (gen !== speakGenRef.current) return; // superseded — don't fall back for a stale reply
+        setTtsError('Audio playback blocked on this device');
         safeSetSpeaking(false);
         audioRef.current = null;
         await browserSpeak(trimmed);
@@ -302,6 +308,6 @@ export function useVoice(onTranscript: (text: string, isFinal: boolean) => void)
     });
   }, [safeSetSpeaking]);
 
-  return { isListening, isSpeaking, ttsProvider, voiceEnabled, voicePreset, setVoicePreset, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, audioSourceRef, safeSetSpeaking, primedAudioRef, browserSpeak };
+  return { isListening, isSpeaking, ttsProvider, ttsError, voiceEnabled, voicePreset, setVoicePreset, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, audioSourceRef, safeSetSpeaking, primedAudioRef, browserSpeak };
 }
 

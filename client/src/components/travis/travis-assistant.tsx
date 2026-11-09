@@ -531,7 +531,7 @@ export function AbbaAssistant() {
   const { toast } = useToast();
 
   // Voice hook — STT + TTS
-  const { isListening, isSpeaking, ttsProvider, voiceEnabled, voicePreset, setVoicePreset, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, audioSourceRef, safeSetSpeaking, primedAudioRef, browserSpeak } = useVoice(
+  const { isListening, isSpeaking, ttsProvider, ttsError, voiceEnabled, voicePreset, setVoicePreset, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, audioSourceRef, safeSetSpeaking, primedAudioRef, browserSpeak } = useVoice(
     useCallback((transcript: string, isFinal: boolean) => {
       setInput(transcript);
       setInterimText(isFinal ? '' : transcript);
@@ -852,11 +852,11 @@ export function AbbaAssistant() {
                       VEDD AI
                     </span>
                   </div>
-                  <p className="text-[10px] tracking-wide" style={{ color: isSpeaking ? '#a855f7' : (ttsProvider === 'browser' || ttsProvider === 'edge') ? '#f59e0b' : '#6b7280' }}>
+                  <p className="text-[10px] tracking-wide" title={ttsError || undefined} style={{ color: isSpeaking ? '#a855f7' : (ttsProvider === 'browser' || ttsProvider === 'edge') ? '#f59e0b' : '#6b7280' }}>
                     {isSpeaking
                       ? `🔊 Speaking…${ttsProvider ? ` · ${TTS_PROVIDER_LABELS[ttsProvider] || ttsProvider}` : ''}`
                       : (ttsProvider === 'browser' || ttsProvider === 'edge')
-                        ? `⚠ Voice fell back to ${TTS_PROVIDER_LABELS[ttsProvider]}`
+                        ? `⚠ Voice fell back to ${TTS_PROVIDER_LABELS[ttsProvider]}${ttsError ? ` · ${ttsError}` : ''}`
                         : 'Personal Trading Intelligence'}
                   </p>
                 </div>

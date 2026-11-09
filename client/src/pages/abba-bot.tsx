@@ -523,9 +523,10 @@ export default function AbbaBotPage() {
                 {voice.ttsProvider && (
                   <span
                     className={`text-[9px] self-center whitespace-nowrap ${voice.ttsProvider === "browser" || voice.ttsProvider === "edge" ? "text-amber-400" : "text-gray-500"}`}
-                    title="Voice provider that spoke the last reply"
+                    title={voice.ttsError || "Voice provider that spoke the last reply"}
                   >
                     {TTS_PROVIDER_LABELS[voice.ttsProvider] || voice.ttsProvider}
+                    {voice.ttsError && (voice.ttsProvider === "browser" || voice.ttsProvider === "edge") ? ` · ${voice.ttsError}` : ""}
                   </span>
                 )}
                 {voice.voiceEnabled && (
