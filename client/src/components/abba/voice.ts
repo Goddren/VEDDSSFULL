@@ -34,7 +34,7 @@ export function loadVoices(): Promise<SpeechSynthesisVoice[]> {
 
 // ── Voice style presets ───────────────────────────────────────────────────────
 export const ABBA_VOICE_PRESETS = [
-  { id: 'urban_male',   label: 'Urban Male',   openaiVoice: 'onyx',    elevenLabsId: 'pNInz6obpgDQGcFmaJgB', description: 'Deep, authoritative — ABBA default' },
+  { id: 'urban_male',   label: 'Urban Male',   openaiVoice: 'onyx',    elevenLabsId: 'nJvj5shg2xu1GKGxqfkE', description: 'Yusuf Hakeem Kiser — smooth, rich, deep — ABBA default' },
   { id: 'street_male',  label: 'Street Male',  openaiVoice: 'fable',   elevenLabsId: 'TxGEqnHWrfWFTfGW9XjX', description: 'Younger, casual male energy' },
   { id: 'deep_male',    label: 'Deep Male',    openaiVoice: 'echo',    elevenLabsId: '2EiwWnXFnvU5JabPnv8n', description: 'Mature, warm, commanding' },
   { id: 'female',       label: 'Female',       openaiVoice: 'nova',    elevenLabsId: '21m00Tcm4TlvDq8ikWAM', description: 'Clear, intelligent female voice' },

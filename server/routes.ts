@@ -4991,11 +4991,16 @@ IMPORTANT:
       const orEnabled = process.env.ABBA_TTS_OPENROUTER !== 'off';
       const orKey = allKeys.find((k: any) => k.provider === 'openrouter' && k.isActive)?.apiKey
         || process.env.OPENROUTER_API_KEY;
-      // OpenRouter's ElevenLabs models take NAMED voices from the model's
-      // supported_voices list (models API) — raw ElevenLabs voice IDs are
-      // NOT portable. Map each built-in preset's voice ID to its named
-      // equivalent; Josh/Clyde/Rachel aren't in the list, so the closest
-      // listed voice stands in (exact identity is impossible via OpenRouter).
+      // OpenRouter's ElevenLabs models take the premade voices by NAME from
+      // the model's supported_voices list (models API), AND — per
+      // OpenRouter's own ElevenLabs announcement — any other ElevenLabs
+      // Voice Library voice by its raw voice ID (only privately
+      // cloned/designed voices need BYOK). The named mappings below remain
+      // ONLY for the stock presets whose OpenRouter behavior was verified in
+      // PR #39 (Adam exact; Josh/Clyde/Rachel aren't listed, so the closest
+      // listed voice stands in for those). Every other ID — e.g. a Voice
+      // Library pick like Yusuf Hakeem Kiser (urban_male) — passes through
+      // RAW below instead of being silently swapped for 'adam'.
       const OR_ELEVENLABS_VOICE_BY_ID: Record<string, string> = {
         'pNInz6obpgDQGcFmaJgB': 'adam',    // Adam — exact match in supported_voices
         'TxGEqnHWrfWFTfGW9XjX': 'charlie', // Josh (not listed) → closest young American male
@@ -5044,7 +5049,7 @@ IMPORTANT:
       // ── 1.5 ElevenLabs via OpenRouter — same model family (turbo v2.5),
       // billed to the OpenRouter balance instead of the direct account ─────
       if (orEnabled) {
-        const orElVoice = OR_ELEVENLABS_VOICE_BY_ID[ELEVENLABS_VOICE_ID] || 'adam';
+        const orElVoice = OR_ELEVENLABS_VOICE_BY_ID[ELEVENLABS_VOICE_ID] || ELEVENLABS_VOICE_ID;
         if (await tryOpenRouterSpeech('ElevenLabs via OpenRouter', 'elevenlabs-openrouter', process.env.ABBA_TTS_OR_EL_MODEL || 'elevenlabs/eleven-turbo-v2.5', orElVoice)) return;
       }
 

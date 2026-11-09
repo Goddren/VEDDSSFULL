@@ -74538,9 +74538,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "46c4f3b-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-09T04:45:50.391Z";
+var BUILD_COMMIT = "2909969-dirty";
+var BUILD_BRANCH = "feat/abba-voice-yusuf";
+var BUILT_AT = "2026-11-09T05:09:55.774Z";
 
 // server/stripe.ts
 init_db();
@@ -82035,7 +82035,7 @@ IMPORTANT:
         }
       };
       if (orEnabled) {
-        const orElVoice = OR_ELEVENLABS_VOICE_BY_ID[ELEVENLABS_VOICE_ID] || "adam";
+        const orElVoice = OR_ELEVENLABS_VOICE_BY_ID[ELEVENLABS_VOICE_ID] || ELEVENLABS_VOICE_ID;
         if (await tryOpenRouterSpeech("ElevenLabs via OpenRouter", "elevenlabs-openrouter", process.env.ABBA_TTS_OR_EL_MODEL || "elevenlabs/eleven-turbo-v2.5", orElVoice)) return;
       }
       const OpenAILib = (await import("openai")).default;
