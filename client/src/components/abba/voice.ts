@@ -33,13 +33,32 @@ export function loadVoices(): Promise<SpeechSynthesisVoice[]> {
 
 
 // ── Voice style presets ───────────────────────────────────────────────────────
+export type AbbaVoiceGender = 'male' | 'female';
 export const ABBA_VOICE_PRESETS = [
-  { id: 'urban_male',   label: 'Urban Male',   openaiVoice: 'onyx',    elevenLabsId: 'nJvj5shg2xu1GKGxqfkE', description: 'Yusuf Hakeem Kiser — smooth, rich, deep — ABBA default' },
-  { id: 'street_male',  label: 'Street Male',  openaiVoice: 'fable',   elevenLabsId: 'TxGEqnHWrfWFTfGW9XjX', description: 'Younger, casual male energy' },
-  { id: 'deep_male',    label: 'Deep Male',    openaiVoice: 'echo',    elevenLabsId: '2EiwWnXFnvU5JabPnv8n', description: 'Mature, warm, commanding' },
-  { id: 'female',       label: 'Female',       openaiVoice: 'nova',    elevenLabsId: '21m00Tcm4TlvDq8ikWAM', description: 'Clear, intelligent female voice' },
+  { id: 'urban_male',   label: 'Urban Male',   gender: 'male' as AbbaVoiceGender,   openaiVoice: 'onyx',    elevenLabsId: 'nJvj5shg2xu1GKGxqfkE', description: 'Yusuf Hakeem Kiser — smooth, rich, deep — ABBA default' },
+  { id: 'street_male',  label: 'Street Male',  gender: 'male' as AbbaVoiceGender,   openaiVoice: 'fable',   elevenLabsId: 'TxGEqnHWrfWFTfGW9XjX', description: 'Younger, casual male energy' },
+  { id: 'deep_male',    label: 'Deep Male',    gender: 'male' as AbbaVoiceGender,   openaiVoice: 'echo',    elevenLabsId: '2EiwWnXFnvU5JabPnv8n', description: 'Mature, warm, commanding' },
+  { id: 'female',       label: 'Female',       gender: 'female' as AbbaVoiceGender, openaiVoice: 'nova',    elevenLabsId: '21m00Tcm4TlvDq8ikWAM', description: 'Clear, intelligent female voice' },
 ] as const;
 export type AbbaVoicePresetId = typeof ABBA_VOICE_PRESETS[number]['id'];
+
+export function getAbbaVoicePreset(presetId: AbbaVoicePresetId) {
+  return ABBA_VOICE_PRESETS.find(p => p.id === presetId) || ABBA_VOICE_PRESETS[0];
+}
+
+// Every server-TTS request carries the full active preset identity. In
+// particular, preset + voiceGender keep downstream fallbacks (notably Edge)
+// gender-consistent when the ElevenLabs/OpenAI voice alone is not enough.
+export function buildAbbaTtsRequestBody(text: string, presetId: AbbaVoicePresetId) {
+  const preset = getAbbaVoicePreset(presetId);
+  return {
+    text,
+    voiceId: preset.elevenLabsId,
+    openaiVoice: preset.openaiVoice,
+    preset: preset.id,
+    voiceGender: preset.gender,
+  };
+}
 
 // ── Which provider actually produced the last spoken audio (X-TTS-Provider) ──
 // Surfaced in the header so a silent fallback to a robotic voice is visible.
@@ -168,14 +187,19 @@ export function useVoice(onTranscript: (text: string, isFinal: boolean) => void)
       const clean = text.replace(/[*_~`#>]/g, '').replace(/\[.*?\]/g, '').trim().slice(0, 1000);
       if (!clean) { safeSetSpeaking(false); return; }
       const voices = await loadVoices();
-      // Prioritise deep male voices for ABBA's authoritative street tone
-      const preferred = voices.find(v => /microsoft guy|microsoft david|google uk english male|daniel|alex|reed|liam|james/i.test(v.name))
-                     || voices.find(v => /en-US/i.test(v.lang) && /male/i.test(v.name))
-                     || voices.find(v => /male/i.test(v.name))
-                     || voices[0];
+      const activePreset = getAbbaVoicePreset(voicePreset);
+      // Best-effort gender matching for the emergency browser voice. A
+      // gender-labelled/named voice wins first; an unlabelled voice is next,
+      // so an explicitly opposite-gender voice is never chosen while a
+      // matching or neutral option exists.
+      const isFemaleBrowserVoice = (v: SpeechSynthesisVoice) => /female|samantha|zira|aria|jenny/i.test(v.name) || v.name === 'Google US English';
+      const isMaleBrowserVoice = (v: SpeechSynthesisVoice) => !isFemaleBrowserVoice(v) && (/\bmale\b|microsoft guy|microsoft david|microsoft christopher|google uk english male|daniel|alex|reed|liam|james/i.test(v.name));
+      const matchingVoice = voices.find(v => activePreset.gender === 'female' ? isFemaleBrowserVoice(v) : isMaleBrowserVoice(v));
+      const unlabelledVoice = voices.find(v => !isFemaleBrowserVoice(v) && !isMaleBrowserVoice(v));
+      const preferred = matchingVoice || unlabelledVoice || voices[0];
       const utt    = new SpeechSynthesisUtterance(clean);
       utt.rate     = 0.92; // slightly slower = more authoritative delivery
-      utt.pitch    = 0.78; // lower pitch = deeper, more commanding voice
+      utt.pitch    = activePreset.gender === 'female' ? 1.0 : 0.78;
       utt.volume   = 1.0;
       if (preferred) utt.voice = preferred;
       utt.onend    = () => safeSetSpeaking(false);
@@ -185,7 +209,7 @@ export function useVoice(onTranscript: (text: string, isFinal: boolean) => void)
     } catch {
       safeSetSpeaking(false);
     }
-  }, [safeSetSpeaking]);
+  }, [safeSetSpeaking, voicePreset]);
 
   // ── Primary TTS — fetches audio from server, plays via Web Audio API (mobile-safe) ──
   // Web Audio API (AudioContext) works on iOS/Android AFTER unlockAudio() has been called
@@ -205,12 +229,11 @@ export function useVoice(onTranscript: (text: string, isFinal: boolean) => void)
     safeSetSpeaking(true);
 
     try {
-      const activePreset = ABBA_VOICE_PRESETS.find(p => p.id === voicePreset) || ABBA_VOICE_PRESETS[0];
       const res = await fetch('/api/abba/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ text: trimmed, voiceId: activePreset.elevenLabsId, openaiVoice: activePreset.openaiVoice }),
+        body: JSON.stringify(buildAbbaTtsRequestBody(trimmed, voicePreset)),
       });
 
       if (!res.ok) {
@@ -294,7 +317,7 @@ export function useVoice(onTranscript: (text: string, isFinal: boolean) => void)
       safeSetSpeaking(false);
       await browserSpeak(trimmed);
     }
-  }, [voiceEnabled, browserSpeak, safeSetSpeaking]);
+  }, [voiceEnabled, voicePreset, browserSpeak, safeSetSpeaking]);
 
   // ── Play a stored audio URL on user tap (bypasses autoplay policy) ───────────
   const playStoredAudio = useCallback((url: string) => {

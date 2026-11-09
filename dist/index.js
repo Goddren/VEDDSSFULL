@@ -74681,9 +74681,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "cd8c75aa-dirty";
-var BUILD_BRANCH = "feat/kalshi-shadow-panel";
-var BUILT_AT = "2026-11-09T05:42:51.378Z";
+var BUILD_COMMIT = "1fd2d559-dirty";
+var BUILD_BRANCH = "fix/abba-voice-gender-consistency";
+var BUILT_AT = "2026-11-09T07:00:06.056Z";
 
 // server/stripe.ts
 init_db();
@@ -82082,6 +82082,27 @@ IMPORTANT:
       return res2.send(buffer);
     };
     const ELEVENLABS_VOICE_ID = req.body.voiceId || process.env.ELEVENLABS_VOICE_ID || "pNInz6obpgDQGcFmaJgB";
+    const OPENAI_VOICE = req.body.openaiVoice || "onyx";
+    const ABBA_PRESET_GENDER = {
+      urban_male: "male",
+      street_male: "male",
+      deep_male: "male",
+      female: "female"
+    };
+    const ABBA_ELEVENLABS_PRESET_GENDER = {
+      "nJvj5shg2xu1GKGxqfkE": "male",
+      // Yusuf Hakeem Kiser — Urban Male
+      "TxGEqnHWrfWFTfGW9XjX": "male",
+      // Josh — Street Male
+      "2EiwWnXFnvU5JabPnv8n": "male",
+      // Clyde — Deep Male
+      "21m00Tcm4TlvDq8ikWAM": "female",
+      // Rachel — Female
+      "pNInz6obpgDQGcFmaJgB": "male"
+      // Adam — server default
+    };
+    const explicitVoiceGender = req.body.voiceGender === "female" || req.body.voiceGender === "male" ? req.body.voiceGender : void 0;
+    const requestedVoiceGender = explicitVoiceGender || (typeof req.body.preset === "string" ? ABBA_PRESET_GENDER[req.body.preset] : void 0) || ABBA_ELEVENLABS_PRESET_GENDER[ELEVENLABS_VOICE_ID] || "male";
     try {
       const allKeys = await storage.getUserApiKeys(userId);
       const elKey = allKeys.find((k2) => k2.provider === "elevenlabs" && k2.isActive)?.apiKey || process.env.ELEVENLABS_API_KEY;
@@ -82186,7 +82207,7 @@ IMPORTANT:
       if (openaiKey) {
         try {
           const ttsClient = new OpenAILib({ apiKey: openaiKey });
-          const ttsVoice = req.body.openaiVoice || "onyx";
+          const ttsVoice = OPENAI_VOICE;
           const mp3 = await ttsClient.audio.speech.create({ model: "tts-1-hd", voice: ttsVoice, input: clean, speed: 1 });
           const buffer = Buffer.from(await mp3.arrayBuffer());
           console.log(`[ABBA TTS] OpenAI OK \u2014 ${buffer.length} bytes`);
@@ -82199,12 +82220,12 @@ IMPORTANT:
         recordAttempt("OpenAI", "openai", null, "no OpenAI API key configured");
       }
       if (orEnabled) {
-        if (await tryOpenRouterSpeech("OpenAI TTS via OpenRouter", "openai-openrouter", process.env.ABBA_TTS_OR_OAI_MODEL || "openai/gpt-4o-mini-tts-2025-12-15", req.body.openaiVoice || "onyx")) return;
+        if (await tryOpenRouterSpeech("OpenAI TTS via OpenRouter", "openai-openrouter", process.env.ABBA_TTS_OR_OAI_MODEL || "openai/gpt-4o-mini-tts-2025-12-15", OPENAI_VOICE)) return;
       }
       try {
         const { MsEdgeTTS, OUTPUT_FORMAT } = await import("msedge-tts");
         const tts = new MsEdgeTTS();
-        const voice = process.env.EDGE_TTS_VOICE || "en-US-GuyNeural";
+        const voice = process.env.EDGE_TTS_VOICE || (requestedVoiceGender === "female" ? "en-US-JennyNeural" : "en-US-GuyNeural");
         await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
         const { audioStream } = tts.toStream(clean);
         const chunks = [];
