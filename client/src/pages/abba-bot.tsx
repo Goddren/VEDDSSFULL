@@ -10,6 +10,7 @@ import {
   CheckCircle2, XCircle, AlertCircle, Send as SendIcon,
 } from "lucide-react";
 import { IdeaDraftCard, MyIdeasPanel, type IdeaDraft } from "@/components/abba/idea-lab";
+import { ABBA_VOICE_PRESETS, TTS_PROVIDER_LABELS } from "@/components/travis/travis-assistant";
 import { SetupDraftCard } from "@/components/abba/setup-review";
 import { TradePerformanceCard, TodayReviewPanel, AiHealthStrip } from "@/components/trade-performance-card";
 
@@ -260,20 +261,33 @@ export default function AbbaBotPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, sending]);
 
-  // ── Voice — same as the floating ABBA assistant (browser speechSynthesis) ──
+  // ── Voice — same routing as the floating ABBA assistant: server TTS first
+  // (/api/abba/tts — ElevenLabs → OpenAI → Edge), browser speechSynthesis ONLY
+  // as the error fallback. The provider that actually spoke shows by the toggle.
   const [voiceOn, setVoiceOn] = useState<boolean>(() => localStorage.getItem('abba_voice') !== 'off');
+  const [ttsProvider, setTtsProvider] = useState<string | null>(null);
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Bumped on every stop/new speak so a TTS fetch that resolves late can
+  // never start playing a stale reply.
+  const speakGenRef = useRef(0);
+  const stopTtsAudio = () => {
+    speakGenRef.current++;
+    if (ttsAudioRef.current) { ttsAudioRef.current.pause(); ttsAudioRef.current = null; }
+    window.speechSynthesis?.cancel();
+  };
   const toggleVoice = () => {
     setVoiceOn(v => {
       const nv = !v;
       localStorage.setItem('abba_voice', nv ? 'on' : 'off');
-      if (!nv) window.speechSynthesis?.cancel();
+      if (!nv) stopTtsAudio();
       return nv;
     });
   };
   const pinnedVoice = useRef<SpeechSynthesisVoice | null>(null);
-  const speak = (text: string) => {
-    if (!voiceOn || !window.speechSynthesis) return;
+  const browserSpeak = (text: string) => {
+    if (!window.speechSynthesis) return;
     try {
+      setTtsProvider('browser');
       window.speechSynthesis.cancel();
       // Strip nav tags / markdown so the voice reads clean
       const clean = text.replace(/\[NAV:[^\]]*\]/g, '').replace(/[*_`#]/g, '').trim();
@@ -297,10 +311,43 @@ export default function AbbaBotPage() {
       }
     } catch { /* voice is best-effort */ }
   };
+  const speak = async (text: string) => {
+    if (!voiceOn) return;
+    stopTtsAudio();
+    const gen = speakGenRef.current;
+    // Same 1200-char cap as the floating assistant's speak() path
+    const clean = text.replace(/\[NAV:[^\]]*\]/g, '').replace(/[*_`#]/g, '').trim().slice(0, 1200);
+    if (!clean) return;
+    try {
+      const presetId = localStorage.getItem('abba_voice_preset') || 'urban_male';
+      const preset = ABBA_VOICE_PRESETS.find(p => p.id === presetId) || ABBA_VOICE_PRESETS[0];
+      const res = await fetch('/api/abba/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ text: clean, voiceId: preset.elevenLabsId, openaiVoice: preset.openaiVoice }),
+      });
+      if (!res.ok) throw new Error('TTS unavailable');
+      if (!(res.headers.get('content-type') || '').includes('audio')) throw new Error('Not audio');
+      const provider = res.headers.get('x-tts-provider');
+      if (provider) setTtsProvider(provider);
+      const blob = await res.blob();
+      if (gen !== speakGenRef.current) return; // superseded while fetching — stay silent
+      if (blob.size < 100) throw new Error('Empty audio');
+      const audio = new Audio(URL.createObjectURL(blob));
+      ttsAudioRef.current = audio;
+      audio.onended = () => { if (ttsAudioRef.current === audio) ttsAudioRef.current = null; };
+      await audio.play();
+    } catch {
+      if (gen !== speakGenRef.current) return; // superseded — stay silent
+      browserSpeak(clean);
+    }
+  };
 
   const send = async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
     if (!text || sending) return;
+    stopTtsAudio(); // a new message interrupts any speech in progress/fetching
     setInput("");
     const next = [...messages, { role: "user" as const, content: text }];
     setMessages(next);
@@ -551,6 +598,14 @@ export default function AbbaBotPage() {
                 >
                   {voiceOn ? "🔊" : "🔇"}
                 </button>
+                {ttsProvider && (
+                  <span
+                    className={`text-[9px] self-center whitespace-nowrap ${ttsProvider === "browser" || ttsProvider === "edge" ? "text-amber-400" : "text-gray-500"}`}
+                    title="Voice provider that spoke the last reply"
+                  >
+                    {TTS_PROVIDER_LABELS[ttsProvider] || ttsProvider}
+                  </span>
+                )}
                 <input
                   value={input}
                   onChange={e => setInput(e.target.value)}

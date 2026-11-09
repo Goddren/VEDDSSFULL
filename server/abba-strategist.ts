@@ -496,7 +496,10 @@ ${contextSummary(ctx)}`;
       reply = reply.split(SETUP_MARKER).join('').trim();
       setupDraft = await extractSetupDraft(ai, msgs.slice(1), message, reply).catch((e) => { console.error('[Abba setup extract]', e?.message); return null; });
     }
-    res.json({ reply, ideaDraft, setupDraft });
+    // `response` mirrors `reply`: the floating assistant's non-stream fallback
+    // (and the ABBA page's older code path) read `data.response`, so both
+    // shapes are served from this one handler.
+    res.json({ reply, response: reply, ideaDraft, setupDraft });
   } catch (err: any) {
     console.error('[Abba chat]', err);
     res.status(500).json({ error: err.message });
