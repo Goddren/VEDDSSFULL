@@ -1,6 +1,13 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { IdeaDraftCard, type IdeaDraft } from "@/components/abba/idea-lab";
 import { SetupDraftCard } from "@/components/abba/setup-review";
+import { useVoice, ABBA_VOICE_PRESETS, TTS_PROVIDER_LABELS, hasSpeechRecognition, hasSpeechSynthesis, loadVoices, type AbbaVoicePresetId } from "@/components/abba/voice";
+import { useAbbaChat, type AbbaChatMessage, type PlanProposal } from "@/components/abba/use-abba-chat";
+import { EngineRoomCard } from "@/components/abba/engine-room-card";
+// Re-exported for compatibility — the canonical definitions live in
+// @/components/abba/voice (Phase A unification).
+export { ABBA_VOICE_PRESETS, TTS_PROVIDER_LABELS } from "@/components/abba/voice";
+export type { AbbaVoicePresetId } from "@/components/abba/voice";
 import { useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -16,35 +23,9 @@ import {
 import { useToast } from '@/hooks/use-toast';
 
 // ── Types ────────────────────────────────────────────────────────────────────
-interface PlanProposal {
-  pairs: string[];
-  sessions: string[];
-  direction: 'BUY' | 'SELL' | 'BOTH';
-  strategyType: string;
-  profitTarget: number | null;
-  accountBalance: number | null;
-  lotSize: number | null;
-  riskLevel: string;
-  tradingDays: string[];
-  maxTradesPerDay: number | null;
-  notes: string;
-  missingFields: string[];
-  summary: string;
-}
+type AbbaMessage = AbbaChatMessage;
 
-interface AbbaMessage {
-  id: string;
-  role: 'user' | 'abba';
-  content: string;
-  timestamp: Date;
-  navigateTo?: string | null;
-  planProposal?: PlanProposal | null;
-  ideaDraft?: IdeaDraft | null;
-  setupDraft?: any;
-  suggestions?: string[];
-  audioUrl?: string; // blob URL for tap-to-play
-}
-
+// Shape of GET /api/abba/context — this surface's header context bar data.
 interface AbbaContext {
   weekPct: number;
   weekProfit: number;
@@ -67,306 +48,6 @@ interface AbbaContext {
 }
 
 const genId = () => Math.random().toString(36).slice(2, 10);
-
-// ── Browser speech support detection ─────────────────────────────────────────
-const hasSpeechRecognition = typeof window !== 'undefined' &&
-  !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
-const hasSpeechSynthesis = typeof window !== 'undefined' && !!window.speechSynthesis;
-
-// ── Async voice loader — Chrome/Edge load voices lazily; getVoices() returns [] on first call ──
-function loadVoices(): Promise<SpeechSynthesisVoice[]> {
-  return new Promise(resolve => {
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length > 0) return resolve(voices);
-    const handler = () => {
-      window.speechSynthesis.removeEventListener('voiceschanged', handler);
-      resolve(window.speechSynthesis.getVoices());
-    };
-    window.speechSynthesis.addEventListener('voiceschanged', handler);
-    // Safety: some browsers never fire voiceschanged
-    setTimeout(() => {
-      window.speechSynthesis.removeEventListener('voiceschanged', handler);
-      resolve(window.speechSynthesis.getVoices());
-    }, 2000);
-  });
-}
-
-// ── Pending TTS audio ──────────────────────────────────────────────────────────
-let pendingTTSBlob: Blob | null = null;
-
-// ── Voice hook — STT + TTS (OpenAI Onyx + browser fallback) ──────────────────
-// ── Voice style presets ───────────────────────────────────────────────────────
-export const ABBA_VOICE_PRESETS = [
-  { id: 'urban_male',   label: 'Urban Male',   openaiVoice: 'onyx',    elevenLabsId: 'pNInz6obpgDQGcFmaJgB', description: 'Deep, authoritative — ABBA default' },
-  { id: 'street_male',  label: 'Street Male',  openaiVoice: 'fable',   elevenLabsId: 'TxGEqnHWrfWFTfGW9XjX', description: 'Younger, casual male energy' },
-  { id: 'deep_male',    label: 'Deep Male',    openaiVoice: 'echo',    elevenLabsId: '2EiwWnXFnvU5JabPnv8n', description: 'Mature, warm, commanding' },
-  { id: 'female',       label: 'Female',       openaiVoice: 'nova',    elevenLabsId: '21m00Tcm4TlvDq8ikWAM', description: 'Clear, intelligent female voice' },
-] as const;
-export type AbbaVoicePresetId = typeof ABBA_VOICE_PRESETS[number]['id'];
-
-// ── Which provider actually produced the last spoken audio (X-TTS-Provider) ──
-// Surfaced in the header so a silent fallback to a robotic voice is visible.
-export const TTS_PROVIDER_LABELS: Record<string, string> = {
-  elevenlabs: 'ElevenLabs',
-  openai: 'OpenAI voice',
-  edge: 'Edge voice (fallback)',
-  browser: 'Browser voice (fallback)',
-};
-
-function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
-  const recognitionRef    = useRef<any>(null);
-  const audioRef          = useRef<HTMLAudioElement | null>(null);
-  const primedAudioRef    = useRef<HTMLAudioElement | null>(null); // pre-unlocked element for iOS fallback
-  const audioCtxRef       = useRef<AudioContext | null>(null);
-  const audioSourceRef    = useRef<AudioBufferSourceNode | null>(null);
-  const speakingTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Monotonic speak generation — every speak()/stopSpeaking() bumps it, so a
-  // TTS fetch that resolves after the user stopped or sent a new message can
-  // never start playing the stale reply.
-  const speakGenRef       = useRef(0);
-  const [isListening,  setIsListening]  = useState(false);
-  const [isSpeaking,   setIsSpeaking]   = useState(false);
-  const [ttsProvider,  setTtsProvider]  = useState<string | null>(null);
-  const [voiceEnabled, setVoiceEnabled] = useState(() => {
-    try { return localStorage.getItem('abba_voice') !== 'off'; } catch { return true; }
-  });
-  const [voicePreset, setVoicePresetState] = useState<AbbaVoicePresetId>(() => {
-    try { return (localStorage.getItem('abba_voice_preset') as AbbaVoicePresetId) || 'urban_male'; } catch { return 'urban_male'; }
-  });
-
-  const setVoicePreset = useCallback((preset: AbbaVoicePresetId) => {
-    setVoicePresetState(preset);
-    try { localStorage.setItem('abba_voice_preset', preset); } catch {}
-  }, []);
-
-  // ── Audio unlock — MUST be called directly inside a user gesture (tap/click) ─
-  // On iOS Safari and Android Chrome, audio is blocked until the AudioContext
-  // is resumed AND a buffer is played while the gesture is still active.
-  // Called on EVERY gesture (not just first) so the primed element stays fresh.
-  const unlockAudio = useCallback(() => {
-    // ── 1. Web Audio API unlock (synchronous silent buffer during gesture) ──
-    try {
-      const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
-      if (AC) {
-        if (!audioCtxRef.current) audioCtxRef.current = new AC();
-        const ctx = audioCtxRef.current;
-        if (!ctx) return;
-        if (ctx.state === 'suspended') ctx.resume();
-        const buf = ctx.createBuffer(1, 1, 22050);
-        const src = ctx.createBufferSource();
-        src.buffer = buf;
-        src.connect(ctx.destination);
-        src.start(0);
-      }
-    } catch { /* ignore */ }
-    // ── 2. HTML5 Audio element unlock — re-primed on EVERY gesture ──
-    // iOS Safari allows future audio.src = url; audio.play() on an element
-    // that was .play()'d during a user gesture. We refresh on every tap so the
-    // element stays authorised for the CURRENT message, not just the first one.
-    try {
-      const silent = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAA=';
-      // Reuse existing element if idle, otherwise create a fresh one
-      const a = (primedAudioRef.current && !audioRef.current) ? primedAudioRef.current : new Audio(silent);
-      a.src = silent;
-      a.volume = 0.001;
-      a.play().then(() => { a.pause(); a.volume = 1.0; }).catch(() => {});
-      primedAudioRef.current = a;
-    } catch { /* ignore */ }
-  }, []);
-
-  // Safety: always clear the isSpeaking flag after a max duration
-  const safeSetSpeaking = useCallback((val: boolean) => {
-    setIsSpeaking(val);
-    if (val) {
-      if (speakingTimerRef.current) clearTimeout(speakingTimerRef.current);
-      speakingTimerRef.current = setTimeout(() => setIsSpeaking(false), 60_000);
-    } else {
-      if (speakingTimerRef.current) { clearTimeout(speakingTimerRef.current); speakingTimerRef.current = null; }
-    }
-  }, []);
-
-  // ── STT ───────────────────────────────────────────────────────────────────
-  const startListening = useCallback(() => {
-    if (!hasSpeechRecognition) return;
-    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    const rec = new SpeechRec();
-    rec.continuous     = false;
-    rec.interimResults = true;
-    rec.lang           = 'en-US';
-    rec.onstart  = () => setIsListening(true);
-    rec.onend    = () => setIsListening(false);
-    rec.onerror  = () => setIsListening(false);
-    rec.onresult = (e: any) => {
-      const transcript = Array.from(e.results as any[])
-        .map((r: any) => r[0].transcript).join('');
-      const isFinal = e.results[e.results.length - 1]?.isFinal ?? false;
-      onTranscript(transcript, isFinal);
-    };
-    recognitionRef.current = rec;
-    rec.start();
-  }, [onTranscript]);
-
-  const stopListening = useCallback(() => {
-    recognitionRef.current?.stop();
-    setIsListening(false);
-  }, []);
-
-  // ── Browser TTS fallback — loads voices async (fixes Chrome empty-array bug) ─
-  const browserSpeak = useCallback(async (text: string) => {
-    setTtsProvider('browser');
-    if (!hasSpeechSynthesis) { safeSetSpeaking(false); return; }
-    try {
-      window.speechSynthesis.cancel();
-      const clean = text.replace(/[*_~`#>]/g, '').replace(/\[.*?\]/g, '').trim().slice(0, 1000);
-      if (!clean) { safeSetSpeaking(false); return; }
-      const voices = await loadVoices();
-      // Prioritise deep male voices for ABBA's authoritative street tone
-      const preferred = voices.find(v => /microsoft guy|microsoft david|google uk english male|daniel|alex|reed|liam|james/i.test(v.name))
-                     || voices.find(v => /en-US/i.test(v.lang) && /male/i.test(v.name))
-                     || voices.find(v => /male/i.test(v.name))
-                     || voices[0];
-      const utt    = new SpeechSynthesisUtterance(clean);
-      utt.rate     = 0.92; // slightly slower = more authoritative delivery
-      utt.pitch    = 0.78; // lower pitch = deeper, more commanding voice
-      utt.volume   = 1.0;
-      if (preferred) utt.voice = preferred;
-      utt.onend    = () => safeSetSpeaking(false);
-      utt.onerror  = () => safeSetSpeaking(false);
-      safeSetSpeaking(true);
-      window.speechSynthesis.speak(utt);
-    } catch {
-      safeSetSpeaking(false);
-    }
-  }, [safeSetSpeaking]);
-
-  // ── Primary TTS — fetches audio from server, plays via Web Audio API (mobile-safe) ──
-  // Web Audio API (AudioContext) works on iOS/Android AFTER unlockAudio() has been called
-  // once in a gesture. Unlike new Audio().play(), it is NOT blocked by autoplay policies
-  // in subsequent async calls once the context is running.
-  const speak = useCallback(async (text: string, msgId?: string, onAudioReady?: (url: string) => void) => {
-    if (!voiceEnabled) return;
-    if (!text?.trim()) return;
-    const gen = ++speakGenRef.current;
-
-    // Stop any current playback
-    if (audioSourceRef.current) { try { audioSourceRef.current.stop(); } catch {} audioSourceRef.current = null; }
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-    if (hasSpeechSynthesis) window.speechSynthesis.cancel();
-
-    const trimmed = text.replace(/[*_~`#>]/g, '').replace(/\[.*?\]/g, '').trim().slice(0, 1200);
-    safeSetSpeaking(true);
-
-    try {
-      const activePreset = ABBA_VOICE_PRESETS.find(p => p.id === voicePreset) || ABBA_VOICE_PRESETS[0];
-      const res = await fetch('/api/abba/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ text: trimmed, voiceId: activePreset.elevenLabsId, openaiVoice: activePreset.openaiVoice }),
-      });
-
-      if (!res.ok) throw new Error('TTS unavailable');
-      const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('audio')) throw new Error('Not audio');
-      // Surface which provider in the chain actually served this audio
-      const provider = res.headers.get('x-tts-provider');
-      if (provider) setTtsProvider(provider);
-
-      const blob = await res.blob();
-      if (gen !== speakGenRef.current) return; // superseded while fetching — stay silent
-      if (blob.size < 100) throw new Error('Empty audio');
-
-      // Store blob URL on message for tap-to-play button
-      const url = URL.createObjectURL(blob);
-      if (onAudioReady) onAudioReady(url);
-
-      // ── Try Web Audio API first (works on iOS/Android once unlocked) ──
-      // We call ctx.resume() here too — once the context was user-activated via
-      // unlockAudio() during a gesture, subsequent resume() calls succeed even
-      // outside a gesture. This covers the case where ctx.state is still
-      // 'suspended' because the earlier resume() promise hadn't resolved yet.
-      const ctx = audioCtxRef.current;
-      if (ctx) {
-        try {
-          if (ctx.state !== 'running') await ctx.resume();
-          const arrayBuffer = await blob.arrayBuffer();
-          const decoded = await ctx.decodeAudioData(arrayBuffer);
-          if (gen !== speakGenRef.current) return; // superseded while decoding
-          const src = ctx.createBufferSource();
-          src.buffer = decoded;
-          src.connect(ctx.destination);
-          src.onended = () => { safeSetSpeaking(false); audioSourceRef.current = null; };
-          audioSourceRef.current = src;
-          src.start(0);
-          return; // Successfully playing via Web Audio API
-        } catch {
-          // Web Audio failed — fall through to HTML5 Audio
-        }
-      }
-
-      // ── Fallback: HTML5 Audio — reuse the primed element if available ──
-      // The primed element was .play()'d during a user gesture so iOS allows
-      // subsequent src-swap + play() calls without a new gesture.
-      // Do NOT null it out — keep the reference alive for the next message.
-      const audio = primedAudioRef.current || new Audio();
-      audio.src = url;
-      audio.volume = 1.0;
-      audioRef.current = audio;
-      audio.onended = () => { safeSetSpeaking(false); audioRef.current = null; };
-      audio.onerror = () => { if (gen !== speakGenRef.current) return; safeSetSpeaking(false); audioRef.current = null; browserSpeak(trimmed); };
-      await audio.play().catch(async () => {
-        if (gen !== speakGenRef.current) return; // superseded — don't fall back for a stale reply
-        safeSetSpeaking(false);
-        audioRef.current = null;
-        await browserSpeak(trimmed);
-      });
-    } catch {
-      if (gen !== speakGenRef.current) return; // superseded — stay silent
-      safeSetSpeaking(false);
-      await browserSpeak(trimmed);
-    }
-  }, [voiceEnabled, browserSpeak, safeSetSpeaking]);
-
-  // ── Play a stored audio URL on user tap (bypasses autoplay policy) ───────────
-  const playStoredAudio = useCallback((url: string) => {
-    // Stop ALL active audio sources before playing — prevents overlap on double-press
-    if (audioSourceRef.current) { try { audioSourceRef.current.stop(); } catch {} audioSourceRef.current = null; }
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-    if (hasSpeechSynthesis) window.speechSynthesis.cancel();
-    const audio = new Audio(url);
-    audio.volume = 1.0;
-    audioRef.current = audio;
-    safeSetSpeaking(true);
-    audio.onended = () => { safeSetSpeaking(false); audioRef.current = null; };
-    audio.onerror = () => { safeSetSpeaking(false); audioRef.current = null; };
-    audio.play().catch(() => safeSetSpeaking(false));
-  }, [safeSetSpeaking]);
-
-  const stopSpeaking = useCallback(() => {
-    speakGenRef.current++; // invalidate any in-flight TTS fetch for the old reply
-    if (audioSourceRef.current) { try { audioSourceRef.current.stop(); } catch {} audioSourceRef.current = null; }
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-    if (hasSpeechSynthesis) window.speechSynthesis.cancel();
-    safeSetSpeaking(false);
-  }, [safeSetSpeaking]);
-
-  const toggleVoice = useCallback(() => {
-    setVoiceEnabled(prev => {
-      const next = !prev;
-      try { localStorage.setItem('abba_voice', next ? 'on' : 'off'); } catch {}
-      if (!next) {
-        speakGenRef.current++; // invalidate any in-flight TTS fetch
-        if (audioSourceRef.current) { try { audioSourceRef.current.stop(); } catch {} audioSourceRef.current = null; }
-        if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-        window.speechSynthesis?.cancel();
-        safeSetSpeaking(false);
-      }
-      return next;
-    });
-  }, [safeSetSpeaking]);
-
-  return { isListening, isSpeaking, ttsProvider, voiceEnabled, voicePreset, setVoicePreset, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, audioSourceRef, safeSetSpeaking, primedAudioRef, browserSpeak };
-}
 
 // ── Arc Reactor icon (JARVIS-style) ──────────────────────────────────────────
 const ArcReactor = ({ size = 36, pulse = false }: { size?: number; pulse?: boolean }) => (
@@ -838,23 +519,19 @@ export function AbbaAssistant() {
     try { return sessionStorage.getItem('abba_dismissed') === '1'; } catch { return false; }
   });
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<AbbaMessage[]>([]);
   const [context, setContext] = useState<AbbaContext | null>(null);
   const [showQuick, setShowQuick] = useState(true);
   const [needsKey, setNeedsKey] = useState(false);
   const [creatingPlan, setCreatingPlan] = useState(false);
-  const [isStreaming, setIsStreaming] = useState(false);
   const [interimText, setInterimText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const audioQueueRef = useRef<string[]>([]);
-  const audioPlayingRef = useRef(false);
   const voiceSendRef = useRef<(msg: string) => void>(() => {});
   const { toast } = useToast();
 
   // Voice hook — STT + TTS
-  const { isListening, isSpeaking, ttsProvider, voiceEnabled, voicePreset, setVoicePreset, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, audioSourceRef, safeSetSpeaking, primedAudioRef, browserSpeak } = useVoice(
+  const { isListening, isSpeaking, ttsProvider, ttsError, voiceEnabled, voicePreset, setVoicePreset, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, audioSourceRef, safeSetSpeaking, primedAudioRef, browserSpeak } = useVoice(
     useCallback((transcript: string, isFinal: boolean) => {
       setInput(transcript);
       setInterimText(isFinal ? '' : transcript);
@@ -868,6 +545,19 @@ export function AbbaAssistant() {
       }
     }, [])
   );
+
+  // ── Shared chat core (Phase A unification): ONE send flow for both ABBA
+  // surfaces — stream-first with /api/abba/chat fallback, draft cards, and
+  // speak-on-completion via the shared voice module. This surface adds its
+  // chrome (context bar, platform sync, plan cards) around the same core.
+  const chat = useAbbaChat({
+    voiceEnabled, speak, stopSpeaking, safeSetSpeaking,
+    onContext: (ctx: any) => setContext(ctx),
+    onNeedsKey: () => setNeedsKey(true),
+    currentPage: location,
+  });
+  const { messages, setMessages, isStreaming } = chat;
+  const sendMessage = useCallback((msg: string) => { setShowQuick(false); chat.sendMessage(msg); }, [chat.sendMessage]);
 
   // Pre-warm browser voices so they're ready when first text event arrives
   useEffect(() => {
@@ -964,125 +654,6 @@ export function AbbaAssistant() {
     if (contextData) setContext(contextData);
   }, [contextData]);
 
-  const chatMutation = useMutation({
-    mutationFn: async (msg: string) => {
-      const res = await apiRequest('POST', '/api/abba/chat', {
-        message: msg,
-        history: messages.slice(-8).map(m => ({ role: m.role, content: m.content })),
-        currentPage: location,
-      });
-      return res.json();
-    },
-    onSuccess: (data: any) => {
-      if (data.needsApiKey) {
-        setNeedsKey(true);
-        setMessages(prev => [...prev, {
-          id: genId(), role: 'abba',
-          content: "Peace. I need an AI key to build with you. Head to Settings → AI API Keys and drop in your OpenAI, Groq, or Anthropic key. Word is bond, once that's set — I'm fully online.",
-          timestamp: new Date(), navigateTo: '/ai-api-keys',
-        }]);
-        return;
-      }
-      // Update context if returned
-      if (data.context) setContext(data.context);
-      const newMsgId = genId();
-
-      // Decode inline audio that came bundled with the chat response (no 2nd fetch needed)
-      let inlineAudioUrl: string | undefined;
-      if (data.audioBase64 && voiceEnabled) {
-        try {
-          const bytes = atob(data.audioBase64);
-          const arr = new Uint8Array(bytes.length);
-          for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-          const blob = new Blob([arr], { type: 'audio/mpeg' });
-          inlineAudioUrl = URL.createObjectURL(blob);
-        } catch { /* ignore decode errors */ }
-      }
-
-      setMessages(prev => [...prev, {
-        id: newMsgId, role: 'abba',
-        content: data.response,
-        timestamp: new Date(),
-        navigateTo: data.navigateTo || null,
-        planProposal: data.planProposal || null,
-        suggestions: data.suggestions || [],
-        audioUrl: inlineAudioUrl,
-      }]);
-
-      // Play inline audio — prefer Web Audio API (works on iOS after unlockAudio())
-      // HTML5 audio.play() called async is ALWAYS blocked on iOS Safari,
-      // even on a "primed" element. AudioContext stays unlocked for the whole session
-      // once the user tapped the orb, so this path is reliable cross-platform.
-      if (inlineAudioUrl && voiceEnabled) {
-        const ctx = audioCtxRef.current;
-        if (ctx) {
-          (async () => {
-            try {
-              if (ctx.state !== 'running') await ctx.resume();
-              const resp = await fetch(inlineAudioUrl);
-              const arrayBuffer = await resp.arrayBuffer();
-              const decoded = await ctx.decodeAudioData(arrayBuffer);
-              if (audioSourceRef.current) { try { audioSourceRef.current.stop(); } catch {} }
-              const src = ctx.createBufferSource();
-              src.buffer = decoded;
-              src.connect(ctx.destination);
-              src.onended = () => { safeSetSpeaking(false); audioSourceRef.current = null; };
-              audioSourceRef.current = src;
-              safeSetSpeaking(true);
-              src.start(0);
-            } catch {
-              // Web Audio failed — try HTML5 primed element
-              const audio = primedAudioRef.current || new Audio();
-              audio.src = inlineAudioUrl;
-              audio.volume = 1.0;
-              audioRef.current = audio;
-              safeSetSpeaking(true);
-              audio.onended = () => { safeSetSpeaking(false); audioRef.current = null; };
-              audio.onerror = () => { safeSetSpeaking(false); audioRef.current = null; if (data.response) browserSpeak(data.response); };
-              audio.play().catch(() => { safeSetSpeaking(false); audioRef.current = null; if (data.response) browserSpeak(data.response); });
-            }
-          })();
-        } else {
-          // No AudioContext yet — HTML5 + browserSpeak fallback
-          const audio = primedAudioRef.current || new Audio();
-          audio.src = inlineAudioUrl;
-          audio.volume = 1.0;
-          audioRef.current = audio;
-          safeSetSpeaking(true);
-          audio.onended = () => { safeSetSpeaking(false); audioRef.current = null; };
-          audio.onerror = () => { safeSetSpeaking(false); audioRef.current = null; if (data.response) browserSpeak(data.response); };
-          audio.play().catch(() => { safeSetSpeaking(false); audioRef.current = null; if (data.response) browserSpeak(data.response); });
-        }
-      } else if (data.response && voiceEnabled) {
-        // Fallback: fetch TTS separately (Edge TTS may have timed out inline)
-        speak(data.response, newMsgId, (audioUrl) => {
-          setMessages(prev => prev.map(m => m.id === newMsgId ? { ...m, audioUrl } : m));
-        });
-      }
-      // Auto-navigate if ABBA gave a nav command
-      if (data.navigateTo) {
-        setTimeout(() => {
-          navigate(data.navigateTo);
-        }, 1200);
-      }
-    },
-    onError: (err: any) => {
-      const msg = err?.message || '';
-      let detail = 'Systems temporarily offline. Please try again.';
-      try {
-        const jsonStart = msg.indexOf('{');
-        if (jsonStart !== -1) {
-          const parsed = JSON.parse(msg.slice(jsonStart));
-          detail = parsed.error || detail;
-          if (parsed.needsApiKey) setNeedsKey(true);
-        }
-      } catch { /* ignore */ }
-      setMessages(prev => [...prev, {
-        id: genId(), role: 'abba', content: detail, timestamp: new Date(),
-      }]);
-    },
-  });
-
   const handleCreatePlan = useCallback(async (proposal: PlanProposal) => {
     setCreatingPlan(true);
     try {
@@ -1135,197 +706,6 @@ export function AbbaAssistant() {
       setCreatingPlan(false);
     }
   }, [toast, refetchContext]);
-
-  // ── Sequential audio queue player ────────────────────────────────────────
-  const playNextQueued = useCallback(() => {
-    if (audioPlayingRef.current || audioQueueRef.current.length === 0) return;
-    audioPlayingRef.current = true;
-    const url = audioQueueRef.current.shift()!;
-    // Use Web Audio API (stays unlocked on iOS after gesture) — fall back to HTML5
-    const ctx = audioCtxRef.current;
-    if (ctx) {
-      (async () => {
-        try {
-          if (ctx.state !== 'running') await ctx.resume();
-          const resp = await fetch(url);
-          const arrayBuffer = await resp.arrayBuffer();
-          const decoded = await ctx.decodeAudioData(arrayBuffer);
-          if (audioSourceRef.current) { try { audioSourceRef.current.stop(); } catch {} }
-          const src = ctx.createBufferSource();
-          src.buffer = decoded;
-          src.connect(ctx.destination);
-          src.onended = () => {
-            safeSetSpeaking(false);
-            audioSourceRef.current = null;
-            audioPlayingRef.current = false;
-            URL.revokeObjectURL(url);
-            playNextQueued();
-          };
-          audioSourceRef.current = src;
-          safeSetSpeaking(true);
-          src.start(0);
-        } catch {
-          // Web Audio failed — fall through to HTML5
-          audioPlayingRef.current = false;
-          URL.revokeObjectURL(url);
-          playNextQueued();
-        }
-      })();
-      return;
-    }
-    // No AudioContext — HTML5 fallback
-    const audio = primedAudioRef.current || new Audio();
-    audio.src = url;
-    audio.volume = 1.0;
-    audioRef.current = audio;
-    safeSetSpeaking(true);
-    audio.onended = () => {
-      safeSetSpeaking(false);
-      audioRef.current = null;
-      audioPlayingRef.current = false;
-      URL.revokeObjectURL(url);
-      playNextQueued();
-    };
-    audio.onerror = () => {
-      safeSetSpeaking(false);
-      audioRef.current = null;
-      audioPlayingRef.current = false;
-      URL.revokeObjectURL(url);
-      playNextQueued();
-    };
-    audio.play().catch(() => {
-      audioPlayingRef.current = false;
-      safeSetSpeaking(false);
-    });
-  }, [audioRef, safeSetSpeaking]);
-
-  // ── Streamed replies are spoken by speak() (server TTS chain) once the
-  // stream completes — see sendMessage below. The old per-sentence browser
-  // speechSynthesis queue was removed: it bypassed ElevenLabs entirely and
-  // produced the robotic voice. Browser synth now exists only as speak()'s
-  // error fallback (browserSpeak in useVoice).
-
-  const sendMessage = useCallback(async (msg: string) => {
-    if (!msg.trim() || isStreaming) return;
-    setMessages(prev => [...prev, { id: genId(), role: 'user', content: msg, timestamp: new Date() }]);
-    setShowQuick(false);
-    setInput('');
-
-    // Stop any in-progress speech — stops server-TTS playback AND invalidates
-    // a still-fetching TTS request from the previous reply (speak generation),
-    // so the old reply can never start talking over this one.
-    stopSpeaking();
-    audioQueueRef.current = [];
-    audioPlayingRef.current = false;
-
-    const msgId = genId();
-    // Add empty ABBA bubble that fills in as stream arrives
-    setMessages(prev => [...prev, { id: msgId, role: 'abba', content: '', timestamp: new Date() }]);
-    setIsStreaming(true);
-    let ttsKickedOff = false;
-
-    try {
-      const res = await fetch('/api/abba/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          message: msg,
-          history: messages.slice(-8).map(m => ({ role: m.role, content: m.content })),
-          currentPage: location,
-        }),
-      });
-
-      if (!res.ok || !res.body) throw new Error('Stream unavailable');
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let sseBuffer = '';
-      let fullText = '';
-      let streamFailed = false;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        sseBuffer += decoder.decode(value, { stream: true });
-        const parts = sseBuffer.split('\n\n');
-        sseBuffer = parts.pop() || '';
-
-        for (const part of parts) {
-          let eventType = 'message';
-          let dataStr = '';
-          for (const line of part.split('\n')) {
-            if (line.startsWith('event: ')) eventType = line.slice(7).trim();
-            if (line.startsWith('data: ')) dataStr = line.slice(6).trim();
-          }
-          if (!dataStr) continue;
-          let parsed: any;
-          try { parsed = JSON.parse(dataStr); } catch { continue; }
-
-          if (eventType === 'text') {
-            fullText += parsed.text;
-            setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: fullText } : m));
-            // No mid-stream speech: the full reply is spoken via the server
-            // TTS chain once the stream completes (below).
-          }
-
-          if (eventType === 'done') {
-            if (parsed.context) setContext(parsed.context);
-            setMessages(prev => prev.map(m => m.id === msgId ? {
-              ...m,
-              // ── navigateTo stored on message — MsgBubble shows "Take me there" button ──
-              // We do NOT auto-navigate. User must tap the button to confirm.
-              navigateTo: parsed.navigateTo || null,
-              planProposal: parsed.planProposal || null,
-              ideaDraft: parsed.ideaDraft || null,
-              setupDraft: parsed.setupDraft || null,
-              suggestions: parsed.suggestions || [],
-            } : m));
-            // NO auto-navigate — removed intentionally
-          }
-
-          if (eventType === 'error') {
-            streamFailed = true;
-            if (parsed.needsApiKey) setNeedsKey(true);
-            setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: parsed.error || 'Something went wrong.' } : m));
-          }
-        }
-      }
-
-      // ── Stream complete: speak the FULL reply through the server TTS chain
-      // (/api/abba/tts — ElevenLabs → OpenAI → Edge). Browser speechSynthesis
-      // is now only speak()'s internal error fallback. Trade-off: speech
-      // starts at reply completion (~1–2s) instead of mid-stream.
-      if (voiceEnabled && !streamFailed && fullText.trim()) {
-        ttsKickedOff = true;
-        speak(fullText, msgId, (url) => setMessages(prev => prev.map(m => m.id === msgId ? { ...m, audioUrl: url } : m)));
-      }
-
-    } catch {
-      // Fallback to non-streaming chat
-      try {
-        const fallback = await fetch('/api/abba/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ message: msg, history: messages.slice(-8).map(m => ({ role: m.role, content: m.content })), currentPage: location }),
-        });
-        const data = await fallback.json();
-        if (data.context) setContext(data.context);
-        setMessages(prev => prev.map(m => m.id === msgId ? {
-          ...m, content: data.response || 'Systems offline.',
-          navigateTo: data.navigateTo || null, planProposal: data.planProposal || null, suggestions: data.suggestions || [],
-        } : m));
-        if (data.response && voiceEnabled) { ttsKickedOff = true; speak(data.response, msgId, (url) => setMessages(prev => prev.map(m => m.id === msgId ? { ...m, audioUrl: url } : m))); }
-      } catch {
-        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: 'Connection lost. Please try again.' } : m));
-      }
-    } finally {
-      setIsStreaming(false);
-      // If no TTS was kicked off for this reply, clear the speaking indicator
-      if (!ttsKickedOff) safeSetSpeaking(false);
-    }
-  }, [isStreaming, messages, location, voiceEnabled, navigate, stopSpeaking, speak, safeSetSpeaking]);
 
   // Keep voiceSendRef in sync so voice callback can call sendMessage without stale closure
   voiceSendRef.current = sendMessage;
@@ -1472,11 +852,11 @@ export function AbbaAssistant() {
                       VEDD AI
                     </span>
                   </div>
-                  <p className="text-[10px] tracking-wide" style={{ color: isSpeaking ? '#a855f7' : (ttsProvider === 'browser' || ttsProvider === 'edge') ? '#f59e0b' : '#6b7280' }}>
+                  <p className="text-[10px] tracking-wide" title={ttsError || undefined} style={{ color: isSpeaking ? '#a855f7' : (ttsProvider === 'browser' || ttsProvider === 'edge') ? '#f59e0b' : '#6b7280' }}>
                     {isSpeaking
                       ? `🔊 Speaking…${ttsProvider ? ` · ${TTS_PROVIDER_LABELS[ttsProvider] || ttsProvider}` : ''}`
                       : (ttsProvider === 'browser' || ttsProvider === 'edge')
-                        ? `⚠ Voice fell back to ${TTS_PROVIDER_LABELS[ttsProvider]}`
+                        ? `⚠ Voice fell back to ${TTS_PROVIDER_LABELS[ttsProvider]}${ttsError ? ` · ${ttsError}` : ''}`
                         : 'Personal Trading Intelligence'}
                   </p>
                 </div>
@@ -1529,6 +909,12 @@ export function AbbaAssistant() {
               <ContextBar ctx={context} />
               {/* Platform sync status */}
               {user && <PlatformSyncBar userId={user.id} />}
+              {/* Engine Room (Phase B) — same card as the ABBA page */}
+              {user && (
+                <div className="mx-3 mt-2">
+                  <EngineRoomCard />
+                </div>
+              )}
 
               {/* AI key nudge */}
               {needsKey && (

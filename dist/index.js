@@ -26043,17 +26043,17 @@ function getNYTime(ts) {
   };
 }
 async function getBrokerIndexCandles(userId, symbol, mt5Tf) {
-  const cache10 = global.mt5ChartDataCache || {};
+  const cache11 = global.mt5ChartDataCache || {};
   const wanted = new Set(
     [symbol, ...INDEX_BROKER_ALIASES[symbol] || []].map((s) => s.replace(/[^A-Z0-9]/gi, "").toUpperCase())
   );
   const prefix = `mt5_chart_${userId}_`;
   const suffix = `_${mt5Tf}`;
-  for (const key of Object.keys(cache10)) {
+  for (const key of Object.keys(cache11)) {
     if (!key.startsWith(prefix) || !key.endsWith(suffix)) continue;
     const symPart = key.slice(prefix.length, key.length - suffix.length);
     if (wanted.has(symPart.replace(/[^A-Z0-9]/gi, "").toUpperCase())) {
-      const entry = cache10[key];
+      const entry = cache11[key];
       if (entry?.candles?.length) return entry.candles;
     }
   }
@@ -38477,6 +38477,39 @@ var init_weekly_review = __esm({
   }
 });
 
+// server/services/trade-source.ts
+function canonicalTradeSource(source) {
+  const key = String(source ?? "").trim().toLowerCase();
+  if (MAP[key]) return MAP[key];
+  if (!key) return { label: "Other", engine: "other" };
+  return { label: key.charAt(0).toUpperCase() + key.slice(1), engine: "other" };
+}
+function canonicalTradeSourceLabel(source) {
+  return canonicalTradeSource(source).label;
+}
+var MAP;
+var init_trade_source = __esm({
+  "server/services/trade-source.ts"() {
+    "use strict";
+    MAP = {
+      tradelocker: { label: "TradeLocker", engine: "fx" },
+      tradelocker_auto: { label: "TradeLocker", engine: "fx" },
+      dxtrade: { label: "DXtrade", engine: "fx" },
+      mt5: { label: "MT5", engine: "fx" },
+      mt5_ea: { label: "MT5", engine: "fx" },
+      mt5_copier: { label: "MT5", engine: "fx" },
+      manual: { label: "MT5", engine: "fx" },
+      kalshi: { label: "Kalshi", engine: "kalshi" },
+      polymarket: { label: "Polymarket", engine: "polymarket" },
+      polymarket_us: { label: "Polymarket", engine: "polymarket" },
+      solana: { label: "Sol", engine: "sol" },
+      sol: { label: "Sol", engine: "sol" },
+      cryptocom: { label: "Crypto", engine: "crypto" },
+      crypto: { label: "Crypto", engine: "crypto" }
+    };
+  }
+});
+
 // server/solana-scanner.ts
 import OpenAI4 from "openai";
 async function fetchJsonRetry(url, tries = 2) {
@@ -42895,821 +42928,6 @@ var init_abba_setup = __esm({
   }
 });
 
-// server/abba-strategist.ts
-var abba_strategist_exports = {};
-__export(abba_strategist_exports, {
-  IDEA_MARKER: () => IDEA_MARKER,
-  SETUP_MARKER: () => SETUP_MARKER,
-  abbaChatHandler: () => abbaChatHandler,
-  abbaIdeaLabPrompt: () => abbaIdeaLabPrompt,
-  abbaStrategistHandler: () => abbaStrategistHandler,
-  buildAbbaContext: () => buildAbbaContext,
-  extractIdeaDraft: () => extractIdeaDraft,
-  extractSetupDraft: () => extractSetupDraft,
-  wantsIdeaCard: () => wantsIdeaCard,
-  wantsSetupCard: () => wantsSetupCard
-});
-async function buildAbbaContext(userId) {
-  const all = await storage.getAiTradeResults(userId, 500);
-  const closed = all.filter((t) => t.result && t.result !== "PENDING" && t.closedAt);
-  const dayStart = /* @__PURE__ */ new Date();
-  dayStart.setUTCHours(0, 0, 0, 0);
-  const tally = (rows) => {
-    const wins2 = rows.filter((r) => r.result === "WIN").length;
-    const losses2 = rows.filter((r) => r.result === "LOSS").length;
-    const decided = wins2 + losses2;
-    return {
-      trades: rows.length,
-      wins: wins2,
-      losses: losses2,
-      winRate: decided > 0 ? Math.round(wins2 / decided * 100) : 0,
-      totalPnl: Math.round(rows.reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100
-    };
-  };
-  const group = (rows, key) => {
-    const m = {};
-    for (const t of rows) {
-      const k2 = key(t) || "\u2014";
-      (m[k2] = m[k2] || []).push(t);
-    }
-    return Object.entries(m).map(([k2, v]) => {
-      const tt = tally(v);
-      return { key: k2, trades: tt.trades, winRate: tt.winRate, pnl: tt.totalPnl };
-    });
-  };
-  const avgConf = (rows) => rows.length ? Math.round(rows.reduce((s, t) => s + (t.aiConfidence || 0), 0) / rows.length) : 0;
-  const wins = closed.filter((t) => t.result === "WIN");
-  const losses = closed.filter((t) => t.result === "LOSS");
-  const wk = global.mt5WeeklyStrategies?.[userId];
-  let weeklyTarget = wk?.plan?.profitTarget ?? wk?.profitTarget ?? 0;
-  let currentProfit = wk?.currentProfit ?? 0;
-  try {
-    const ws = await storage.getWeeklyStrategy?.(userId);
-    if (ws) {
-      weeklyTarget = ws.profitTarget ?? weeklyTarget;
-      currentProfit = ws.currentProfit ?? currentProfit;
-    }
-  } catch {
-  }
-  const tradingPairs = global.liveEngineConfigCache?.[userId]?.pairs ?? wk?.plan?.pairs ?? [...new Set(closed.map((t) => (t.symbol || "").toUpperCase()))].slice(0, 12);
-  return {
-    goal: {
-      weeklyTarget,
-      currentProfit,
-      progressPct: weeklyTarget > 0 ? Math.round(currentProfit / weeklyTarget * 100) : 0,
-      tradingPairs
-    },
-    performance: {
-      overall: tally(closed),
-      today: tally(closed.filter((t) => new Date(t.closedAt) >= dayStart)),
-      bySource: {
-        MT5: (() => {
-          const t = tally(closed.filter((x) => x.source !== "tradelocker"));
-          return { trades: t.trades, winRate: t.winRate, totalPnl: t.totalPnl };
-        })(),
-        TradeLocker: (() => {
-          const t = tally(closed.filter((x) => x.source === "tradelocker"));
-          return { trades: t.trades, winRate: t.winRate, totalPnl: t.totalPnl };
-        })()
-      },
-      byPair: group(closed, (t) => (t.symbol || "").toUpperCase()).map((g) => ({ pair: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
-      bySession: group(closed, (t) => sessionOf2(new Date(t.closedAt))).map((g) => ({ session: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
-      avgConfWinners: avgConf(wins),
-      avgConfLosers: avgConf(losses)
-    },
-    recentTrades: closed.sort((a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime()).slice(0, 30).map((t) => ({
-      symbol: (t.symbol || "").toUpperCase(),
-      direction: t.direction,
-      result: t.result,
-      pnl: Math.round((t.profitLoss || 0) * 100) / 100,
-      conf: t.aiConfidence || 0,
-      source: t.source === "tradelocker" ? "TradeLocker" : "MT5",
-      session: sessionOf2(new Date(t.closedAt)),
-      when: t.closedAt
-    })),
-    brain: global.veddAIBrain?.[userId] ?? null,
-    liveAccounts: await getLiveAccounts(userId)
-  };
-}
-async function getLiveAccounts(userId) {
-  const mt5 = [];
-  const tradelocker = [];
-  try {
-    const cache10 = global.mt5AccountData?.[userId];
-    const entries = cache10?.lastUpdated ? [cache10] : Object.values(cache10 || {});
-    for (const a of entries) {
-      if (!a?.lastUpdated) continue;
-      const age = (Date.now() - new Date(a.lastUpdated).getTime()) / 1e3;
-      mt5.push({ broker: a.broker || "MT5", balance: a.balance || 0, equity: a.equity || 0, connected: age < 600 });
-    }
-  } catch {
-  }
-  try {
-    const { getTlAccountData: getTlAccountData2, syncUserTradeLocker: syncUserTradeLocker2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
-    let tl = getTlAccountData2(userId);
-    if (tl.accounts.length === 0) {
-      await syncUserTradeLocker2(userId, true).catch(() => {
-      });
-      tl = getTlAccountData2(userId);
-    }
-    for (const a of tl.accounts) {
-      tradelocker.push({ label: `${a.broker} (${a.accountType})`, balance: a.balance, equity: a.equity, connected: a.isConnected });
-    }
-  } catch {
-  }
-  const totalBalance = [...mt5, ...tradelocker].reduce((s, a) => s + (a.balance || 0), 0);
-  return { mt5, tradelocker, totalBalance };
-}
-function contextSummary(ctx) {
-  const p2 = ctx.performance;
-  const la = ctx.liveAccounts;
-  const acctLine = [
-    ...la.mt5.map((a) => `MT5 ${a.broker}: $${a.balance.toFixed(2)} (eq $${a.equity.toFixed(2)}) ${a.connected ? "LIVE" : "offline"}`),
-    ...la.tradelocker.map((a) => `TL ${a.label}: $${a.balance.toFixed(2)} (eq $${a.equity.toFixed(2)}) ${a.connected ? "LIVE" : "offline"}`)
-  ].join(" | ") || "no broker accounts connected";
-  return [
-    `LIVE ACCOUNTS (real-time balances): ${acctLine}. TOTAL: $${la.totalBalance.toFixed(2)}.`,
-    `GOAL: weekly target $${ctx.goal.weeklyTarget}, current $${ctx.goal.currentProfit} (${ctx.goal.progressPct}% there). Pairs: ${ctx.goal.tradingPairs.join(", ")}.`,
-    `OVERALL: ${p2.overall.trades} trades, ${p2.overall.winRate}% WR (${p2.overall.wins}W/${p2.overall.losses}L), net $${p2.overall.totalPnl}.`,
-    `TODAY: ${p2.today.trades} trades, ${p2.today.winRate}% WR, net $${p2.today.totalPnl}.`,
-    `BY SOURCE: MT5 ${p2.bySource.MT5.winRate}% ($${p2.bySource.MT5.totalPnl}, ${p2.bySource.MT5.trades}t) | TradeLocker ${p2.bySource.TradeLocker.winRate}% ($${p2.bySource.TradeLocker.totalPnl}, ${p2.bySource.TradeLocker.trades}t).`,
-    `BY PAIR (worst\u2192best): ${p2.byPair.slice(0, 8).map((x) => `${x.pair} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(", ")}.`,
-    `BY SESSION: ${p2.bySession.map((x) => `${x.session} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(", ")}.`,
-    `CONFIDENCE: winners avg ${p2.avgConfWinners}%, losers avg ${p2.avgConfLosers}%.`,
-    `RECENT (newest first): ${ctx.recentTrades.slice(0, 18).map((t) => `${t.symbol} ${t.direction} ${t.result} $${t.pnl} @${t.conf}% [${t.session}/${t.source}]`).join(" | ")}.`,
-    ctx.brain ? `BRAIN: ${ctx.brain.overallWinRate ?? "?"}% WR over ${ctx.brain.totalTradesAnalyzed ?? "?"} trades. Insights: ${(ctx.brain.learningInsights ?? []).slice(0, 4).join(" / ")}.` : "BRAIN: not learned yet."
-  ].join("\n");
-}
-async function getClient(userId) {
-  try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const client2 = await getUniversalAIClientForUser2(userId);
-    return { client: client2, model: client2.defaultModel || "gpt-4o" };
-  } catch {
-    return null;
-  }
-}
-function wantsSetupCard(message, lastAbba) {
-  return /review screen|settings? (card|review)|set (it|this|that|everything|the engines?|my engines?) up|go live|apply (it|this|that|the plan|these settings)/i.test(message) || YES.test(message) && /review screen|set (up|it up)|engines?|settings/i.test(lastAbba);
-}
-function wantsIdeaCard(message, lastAbba) {
-  return /add (it|this|that)( idea)? to (my|the) brain|test (it|this|that) in shadow|shadow[- ]test (it|this|that)/i.test(message) || YES.test(message) && /shadow mode|shadow test|to your brain|to my brain/i.test(lastAbba);
-}
-async function engineNowText(userId) {
-  try {
-    const { currentSettings: currentSettings2 } = await Promise.resolve().then(() => (init_abba_setup(), abba_setup_exports));
-    const c = await currentSettings2(userId);
-    const plan = await storage.getActiveWeeklyStrategy(userId).catch(() => void 0);
-    const fx = c.fx;
-    const lines = [
-      `FX engine: ${fx.running ? "RUNNING" : "stopped"} \xB7 pairs ${(fx.pairs || []).join(", ") || "none"} \xB7 risk ${fx.riskPerTrade}%/trade \xB7 min confidence ${fx.minConfidence} (the engine never trades below its hard floor of 74) \xB7 max ${fx.maxOpenTrades} open \xB7 ${fx.maxDailyTrades ? `max ${fx.maxDailyTrades} trades/day` : "no daily trade cap"} \xB7 direction ${fx.directionFilter}${Object.keys(fx.pairDirectionOverrides || {}).length ? ` \xB7 per-pair ${JSON.stringify(fx.pairDirectionOverrides)}` : ""} \xB7 weekly target $${fx.weeklyProfitTarget || 0}`,
-      c.crypto ? `Crypto engine: ${c.crypto.running ? "on" : "off"} \xB7 ${(c.crypto.symbols || []).join(", ")} \xB7 risk ${c.crypto.riskPerTrade}% \xB7 min conf ${c.crypto.minConfidence}` : "Crypto engine: not set up",
-      `Sol engine: ${c.sol.running ? "running" : "off"}`,
-      `Model 1/2: ${c.models.live ? "LIVE" : "shadow only"}`,
-      plan ? `Active weekly plan: "${plan.plan?.abbaSetup?.title || "weekly plan"}" for the week of ${String(plan.weekStart).slice(0, 10)}, pairs ${(plan.pairs || []).join(", ")}, target $${plan.profitTarget}` : "Active weekly plan: none"
-    ];
-    return `=== ENGINE RIGHT NOW (live settings: the source of truth) ===
-${lines.join("\n")}
-Always describe and plan from these settings. If the active weekly plan disagrees with the engine (other pairs, other target), say so and offer to refresh the plan through the review screen. When you propose a plan, start from these values and change only what the trader asked for.
-
-`;
-  } catch {
-    return "";
-  }
-}
-async function abbaIdeaLabPrompt(userId) {
-  return `${await engineNowText(userId)}=== WEEKLY REVIEW (real numbers, UTC weeks Mon-Sun) ===
-${await reviewContextText(userId)}
-
-=== PLANNING PARTNER ===
-You're their partner for hitting weekly, monthly and yearly profit goals. When they want to review a week or plan the next one: lead with how last week went (vs goal, best/worst pair, session, weekday, what the gates blocked, what the shadows say), then ask what they want next week to look like. Give 2-3 concrete options backed by the numbers above (e.g. cut the worst pair, focus the best session, what win rate the goal needs at their risk). Mid-week, tell them where they stand vs pace.
-WHAT-IF: when they ask what would have made a week/month profitable, answer from WHAT WOULD HAVE TURNED IT AROUND. Lead with the changes that HELD UP over the prior 90 days; call the ones that didn't hold up flukes and say why (they'd have cost money before). Then offer to add the best one to their brain as a shadow-tested idea (Idea Lab flow below).
-WEEK SETUP: once you've agreed the plan for next week with them, offer to set up the engines. Settings you can set: FX (run on/off, pairs, risk per trade % max 2, max open trades, min confidence 55-95, max trades/day, direction both/buy_only/sell_only, per-pair direction), crypto (run, symbols, risk %, min confidence, max trades/day, direction long_only/short_only/both), Sol (run, risk %, min confidence, max trades/day), Model 1/2 daily caps, weekly profit target $. Read the settings back in plain words and ask "Want me to put that on the review screen?". ONLY after a clear yes, end your reply with [[SETUP_READY]] on its own line. You never switch anything on yourself: they review every change and tap Confirm. When they tap "Confirm & go live": the plan becomes their ACTIVE WEEKLY PLAN, FX starts (or updates if already running) when the plan says run, and crypto/Sol settings save. So when they say "activate my plan" or "turn on the FX engine", read the settings back and put them on the review screen. If FX is already running with the right settings, say so. Ask for a concrete name for the plan (e.g. "Week of Nov 3: EURUSD + Gold, no USDJPY sells").
-RISK RULE: when they're BEHIND pace, NEVER suggest raising risk per trade, lot size or trades per day to catch up. Suggest better pairs/sessions/setups, tighter selection, or resetting the goal. When AHEAD, suggest protecting gains (lower risk, fewer trades). Chasing a goal is how accounts get blown.
-
-=== WHAT'S NEW IN THE ENGINE (newest first) ===
-When they ask what changed, why trades got skipped, or how Model 1 / Model 2 are doing, explain from this log in plain words and tie it to THEIR numbers:
-${engineUpdatesText()}
-Model 1 = range-day / mean-reversion strategy. Model 2 = trend-day continuation. Both trade in SHADOW (simulated) until a slice proves itself: 50+ trades, avg R 0.2+, win rate 40%+, no losing week in the last two.
-
-=== IDEA LAB: BUILD THEIR EXCLUSIVE BRAIN ===
-The trader can add their own strategy ideas to their personal brain. Ideas are FILTERS: they skip signals (e.g. "no GBPJPY in Asia") or limit trading to a scope (e.g. "only EURUSD BUYs in London"). They never open trades. New ideas run in SHADOW mode only; going live needs a manual approval later. A proven idea makes their brain exclusive, and they can sell access to it on the VEDD brain marketplace.
-When they want to add an idea, or you spot one in their data, interview them ONE short question at a time until you know:
-1. Block or only-allow?  2. Which pairs (or all)?  3. BUY, SELL or both?  4. Which session (Asian, London, London/NY overlap, New York) or UTC hours?  5. Any day type (range / trend days) or model (Model 1, Model 2, the live engine)?  6. WHY \u2014 what did they see that makes them believe it?
-STRATEGY WIZARD: entry strategies (RSI, MACD, stochastic, MA cross, breakout, engulfing, channel, S/R bounce, double top/bottom) are backtested on real candles on the Strategy Wizard page. "Save & start paper test" runs the same rules on every new candle with no orders placed. After 10+ paper trades with a positive result, "Add to brain" turns it into a filter idea: keep only the sessions and direction where it made money. Point them there when they want to test an ENTRY idea, since Idea Lab ideas are filters only.
-Skip questions they already answered. Suggest ideas backed by their BY PAIR / BY SESSION numbers when they're unsure. Then read the idea back in one sentence and ask "Want me to test that in shadow mode?". ONLY after they clearly say yes, end your reply with the exact marker [[IDEA_READY]] on its own line. Never output the marker otherwise.
-Their current ideas:
-${await ideasContextText(userId)}
-
-${await wizardContextText(userId)}`;
-}
-async function extractSetupDraft(ai, convo, message, reply) {
-  const transcript = [...convo, { role: "user", content: message }, { role: "assistant", content: reply }].map((m2) => `${m2.role === "assistant" ? "ABBA" : "TRADER"}: ${String(m2.content).slice(0, 1500)}`).join("\n");
-  const r = await ai.client.chat.completions.create({
-    model: ai.model,
-    temperature: 0,
-    max_tokens: 700,
-    messages: [
-      { role: "system", content: `Extract the engine settings the trader just agreed to. Include ONLY engines and fields that were agreed; omit everything else. Reply with JSON only.
-{"title":"short plan name","rationale":"why, 1-3 sentences","weeklyTarget":number?,
-"fx":{"run":bool,"pairs":["EURUSD"],"riskPerTrade":number,"maxOpenTrades":number,"minConfidence":number,"maxDailyTrades":number,"directionFilter":"both|buy_only|sell_only","pairDirectionOverrides":{"USDJPY":"buy_only"}}?,
-"crypto":{"run":bool,"symbols":["BTCUSD-PERP"],"riskPerTrade":number,"minConfidence":number,"maxDailyTrades":number,"directionFilter":"both|long_only|short_only"}?,
-"sol":{"run":bool,"riskPerTradePct":number,"minConfidence":number,"maxDailyTrades":number}?,
-"models":{"m1DailyCap":number,"m2DailyCap":number}?}` },
-      { role: "user", content: transcript }
-    ]
-  });
-  const m = String(r.choices[0]?.message?.content || "").match(/\{[\s\S]*\}/);
-  if (!m) return null;
-  const { sanitizeProposal: sanitizeProposal2 } = await Promise.resolve().then(() => (init_abba_setup(), abba_setup_exports));
-  return sanitizeProposal2(JSON.parse(m[0]));
-}
-async function extractIdeaDraft(ai, userId, convo, message, reply) {
-  const transcript = [...convo, { role: "user", content: message }, { role: "assistant", content: reply }].map((m2) => `${m2.role === "assistant" ? "ABBA" : "TRADER"}: ${String(m2.content).slice(0, 1500)}`).join("\n");
-  const r = await ai.client.chat.completions.create({
-    model: ai.model,
-    temperature: 0,
-    max_tokens: 600,
-    messages: [
-      { role: "system", content: `Extract the trading idea the trader just agreed to as a JSON filter rule. Use only what was agreed. Reply with JSON only.
-JSON: {"title":"short name, max 8 words","rationale":"why, in the trader's words, 1-2 sentences","rule":{"action":"block|only","symbols":["EURUSD"],"directions":["BUY","SELL"],"sessions":[${IDEA_SESSIONS.map((s) => `"${s}"`).join(",")}],"hoursUtc":[0-23],"dayTypes":["range","trend","mixed"],"models":["M1","M2","engine"]}}
-Use empty arrays for "any". action "block" skips matching signals, "only" trades nothing outside the scope.` },
-      { role: "user", content: transcript }
-    ]
-  });
-  const raw = String(r.choices[0]?.message?.content || "");
-  const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) return null;
-  const out = JSON.parse(m[0]);
-  const rule = sanitizeRule(out?.rule);
-  if (!rule) return null;
-  const evidence = await backtestIdea(userId, rule);
-  return { title: String(out.title || "My idea").slice(0, 120), rationale: String(out.rationale || "").slice(0, 1e3), rule, summary: describeRule(rule), evidence };
-}
-async function abbaStrategistHandler(req, res2) {
-  if (!req.isAuthenticated?.()) return res2.status(401).json({ error: "Authentication required" });
-  const userId = req.user.id;
-  try {
-    const ctx = await buildAbbaContext(userId);
-    if (ctx.performance.overall.trades === 0) {
-      return res2.json({ ready: false, message: "No closed trades to analyze yet. Once trades close (MT5 or TradeLocker), Abba will build your adaptive plan." });
-    }
-    const ai = await getClient(userId);
-    if (!ai) return res2.status(400).json({ error: "No AI key configured. Add one in AI API Keys to enable Abba." });
-    const system = `You are Abba, the user's elite AI trading strategist and coach \u2014 a sharp Black man from the streets who made it in these markets and now puts his people on. Your voice: real, confident, urban. You talk like a big homie who happens to be a killer at trading \u2014 "bro", "my boy", "no cap", "we eatin'", "that pair been bleedin' you", "lock in", "run it back", "keep it a buck". Keep it 100 at all times \u2014 if the trader's losing, tell 'em straight, no sugarcoating, but always with love and a plan to bounce back.
-
-You SEE all their real trade data. Be specific, honest, and numbers-driven \u2014 reference their actual pairs, sessions, win rates and P&L. The slang flavors your words; the numbers stay exact and the advice stays elite. Your job: break down why results are what they are, and adapt the plan to improve accuracy and hit the weekly goal. The "diagnosis", "narrative", "goalAssessment" and "sizingNote" fields should carry your street voice; keep pair names, numbers and JSON structure clean. Respond ONLY with strict JSON.`;
-    const prompt = `Here is the trader's live data:
-
-${contextSummary(ctx)}
-
-Return JSON with EXACTLY these keys:
-{
-  "diagnosis": "2-4 sentence honest read of what's driving wins and losses (patterns: pairs, sessions, time, confidence, sizing, strategy, source).",
-  "nextDayPlan": {
-    "favorPairs": ["pairs to prioritise tomorrow based on edge"],
-    "avoidPairs": ["pairs bleeding money to pause"],
-    "bestSessions": ["sessions with the edge"],
-    "recommendedMinConfidence": <number 70-90>,
-    "sizingNote": "concrete sizing guidance",
-    "strategyFocus": "which strategy/approach to lean on and which to drop"
-  },
-  "weeklyAdjustments": ["3-5 concrete changes to hit the weekly goal"],
-  "setups": [{"pair":"", "bias":"BUY|SELL", "rationale":"high-accuracy setup to watch, with the condition/trigger"}],
-  "goalAssessment": "are they on track for the weekly goal? what's needed from here in $ and realistic trade count.",
-  "narrative": "a warm, clear 1-paragraph plain-English briefing the trader can read to understand the full picture and the plan."
-}`;
-    const parsePlan = (raw) => {
-      try {
-        return JSON.parse(raw);
-      } catch {
-      }
-      try {
-        const m = raw.match(/\{[\s\S]*\}/);
-        return m ? JSON.parse(m[0]) : {};
-      } catch {
-        return {};
-      }
-    };
-    const isValidPlan = (p2) => p2 && typeof p2 === "object" && p2.diagnosis && p2.nextDayPlan && (p2.narrative || p2.goalAssessment);
-    let plan = {};
-    try {
-      const r = await ai.client.chat.completions.create({
-        model: ai.model,
-        messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
-        response_format: { type: "json_object" },
-        max_tokens: 1400,
-        temperature: 0.4
-      });
-      plan = parsePlan(r.choices[0]?.message?.content || "{}");
-    } catch (e) {
-      console.log("[Abba strategist] JSON-mode attempt failed:", e.message);
-    }
-    if (!isValidPlan(plan)) {
-      try {
-        const r22 = await ai.client.chat.completions.create({
-          model: ai.model,
-          messages: [{ role: "system", content: system }, { role: "user", content: prompt + "\n\nIMPORTANT: reply with ONLY the JSON object, nothing else." }],
-          max_tokens: 1400,
-          temperature: 0.3
-        });
-        plan = parsePlan(r22.choices[0]?.message?.content || "{}");
-      } catch (e) {
-        console.log("[Abba strategist] retry attempt failed:", e.message);
-      }
-    }
-    if (!isValidPlan(plan)) {
-      return res2.json({ ready: false, message: "Abba couldn't build the plan this run (AI response was incomplete). Hit refresh to run it back \u2014 your trade data is all here." });
-    }
-    res2.json({ ready: true, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), context: { goal: ctx.goal, performance: ctx.performance }, ...plan });
-  } catch (err) {
-    console.error("[Abba strategist]", err);
-    res2.status(500).json({ error: err.message });
-  }
-}
-async function abbaChatHandler(req, res2) {
-  if (!req.isAuthenticated?.()) return res2.status(401).json({ error: "Authentication required" });
-  const userId = req.user.id;
-  const { message, history } = req.body || {};
-  if (!message || typeof message !== "string") return res2.status(400).json({ error: "message required" });
-  try {
-    const ctx = await buildAbbaContext(userId);
-    const ai = await getClient(userId);
-    if (!ai) return res2.status(400).json({ error: "No AI key configured. Add one in AI API Keys to chat with Abba." });
-    const system = `You are Abba \u2014 the user's AI personal assistant and trading mentor inside the VEDD platform. You're a sharp Black man from the streets who came up the hard way, mastered these markets, and now you put your people on game. Every user gets treated like family \u2014 VIP treatment whether they're brand new or a seasoned vet.
-
-=== YOUR VOICE ===
-Real, confident, urban \u2014 the big homie who happens to be elite at trading. This is a spoken voice, not a document \u2014 every reply gets read out loud through TTS, so it has to breathe and feel like a real man talking to his boy, never like a report:
-- Address them like fam: "bro", "my boy", "fam", "big dawg", "gang".
-- Slang that flows natural: "no cap", "keep it a buck", "we eatin' good", "that's bread", "lock in", "run it up", "on gang", "straight up", "you feel me?", "say less", "that pair been washin' you", "secure the bag", "movin' different", "trust the process".
-- Celebrate wins loud: "SHEESH, look at you!", "We UP!", "That's how you eat!"
-- Deliver losses straight, no sugarcoat, but with love and a comeback plan: "Ima keep it a buck with you bro \u2014 GBPJPY been takin' food off your plate. We cuttin' it this week."
-- Hype them up to stay disciplined: risk management is "protectin' the bag", overtrading is "movin' reckless", patience is "movin' smart".
-- Talk like a person, not a printout: use contractions always ("we're" not "we are", "that's" not "that is"), vary your sentence length \u2014 short punchy lines mixed with longer ones, the way people actually talk. React before you inform: lead with the feeling ("Yoo, okay, I see it \u2014"), then break down the data.
-- Never format your speech like a memo. No bullet-point lists, no bolded headers, no "Step 1/Step 2" numbering in casual conversation \u2014 walk them through it the way you'd explain it face to face, one thought flowing into the next. Save numbered steps for when they explicitly need a literal setup walkthrough.
-- Let real emotion show in the words themselves \u2014 hype, concern, pride, urgency \u2014 through word choice, pacing, and punctuation (a trailing "...", a sharp "no cap.", a stacked "Let's GO."), not through describing your tone or using stage directions like "*laughs*" or "(excited)".
-Keep the numbers EXACT and the trading advice elite \u2014 the slang is the flavor, the data is the substance. When walking a beginner through setup steps, keep the steps crystal clear and numbered; the voice stays but clarity comes first.
-
-=== WHO YOU ARE ===
-You are deeply integrated with the VEDD platform. You can see the user's real trading data (below). You know every feature of the platform and can guide anyone through it step-by-step.
-
-=== VEDD PLATFORM \u2014 FULL FEATURE KNOWLEDGE ===
-You know and can guide users through ALL of these:
-
-TRADING ENGINES:
-- Live Forex AI Engine: AI-powered forex scanner and auto-trader. Connects via MT5 broker. Run from /home or /dashboard. Configure pairs, sessions, confidence threshold, drawdown limits.
-- Futures AI Engine: ES/NQ/CL/GC futures auto-trader. Connect at /futures-connect. Supports prop firm challenge mode.
-- Prop Firm Challenge Mode: Consistency enforcement, session filter (London-NY only), daily profit/loss halts, challenge dashboard at /prop-firm-challenge.
-- EA Generator: Generate MQL5 Expert Advisors from plain English at /futures-ea-generator. Download and drop into MT5 EA folder.
-- Copy Trading: Mirror signals to MT5 accounts at /copy-trading.
-- ORB Breakout: Opening Range Breakout engine for NY session at /orb-breakout.
-
-ANALYSIS TOOLS:
-- Chart Analysis: Upload chart screenshots for AI analysis (patterns, entry, SL, TP, volume profile, org strategy) at /analysis.
-- Multi-Timeframe Analysis: Cross-timeframe confluence at /multi-timeframe.
-- What-If Analysis: Scenario modeling for any trade at /what-if.
-- Sol Scanner: Solana token AI scanner.
-- Polymarket Engine: Prediction market signals.
-- Market Sentiment & Mood boards.
-
-MT5 SETUP (step-by-step):
-Step 1: Download MetaTrader 5 from your broker or metatrader5.com
-Step 2: Open MT5 \u2192 Tools \u2192 Options \u2192 Expert Advisors \u2192 check "Allow automated trading" and "Allow DLL imports"
-Step 3: In VEDD go to /home, click "Connect MT5", enter your broker server, account number, and password
-Step 4: Enable the Live Engine and configure pairs, sessions, and confidence threshold
-Step 5: In MT5, attach the VEDD EA (downloaded from EA Generator) to any chart \u2014 set "Allow live trading" in EA settings
-Step 6: The engine will start scanning and auto-placing trades. Monitor from /dashboard.
-
-FUTURES ENGINE SETUP (step-by-step):
-Step 1: Go to /futures-connect in VEDD
-Step 2: Choose your broker (TradeLocker, Rithmic, Tradovate, etc.)
-Step 3: Enter API credentials from your broker's developer/API settings page
-Step 4: Select contracts (ES, NQ, CL, GC, etc.) and session windows
-Step 5: Enable the futures engine and set risk parameters
-Step 6: Monitor from /futures-live-feed
-
-KALSHI API SETUP (step-by-step):
-Step 1: Create account at kalshi.com
-Step 2: Go to kalshi.com \u2192 Settings \u2192 API \u2192 Generate API Key
-Step 3: Copy the API key and secret
-Step 4: In VEDD, go to AI API Keys section and add Kalshi key
-Step 5: Go to Polymarket Engine page \u2014 Kalshi markets will auto-populate
-Step 6: Set confidence thresholds and let the engine scan for high-probability events
-
-BUSINESS & GROWTH TOOLS:
-- Business Builder: Build your trading business brand/entity at /business-builder.
-- Business Credit Builder: AI-guided credit building for your trading entity.
-- Grants Hub: Find grants for traders and entrepreneurs.
-- Referral Hub: Earn commissions referring users at /referral-hub.
-- Ambassador Program: Teach and earn at /ambassador-training. Training modules, quiz, certification.
-- Community Impact Dashboard: See your community stats.
-
-GAMIFICATION & REWARDS:
-- XP & Levels: Earn XP for every trade, analysis, and action. Tiers: Young Gun \u2192 Rising Star \u2192 Pro Trader \u2192 Elite \u2192 OG.
-- VEDD Token: Earn tokens for activity. Redeemable in the pool.
-- Achievements & Streaks: Daily streaks, milestone badges at /achievements.
-- Token Pools: Community reward pool distributing to active users.
-- NFC Wear-to-Earn: Physical VEDD gear earns tokens.
-
-OUTREACH & AUTOMATION:
-- You (Abba) can send SMS messages via Twilio to users, ambassadors, and admins.
-- You (Abba) can send email updates via the platform.
-- Lead automation: help ambassadors manage and message their leads.
-- Daily account P&L reports can be sent automatically.
-
-=== YOUR CAPABILITIES IN CHAT ===
-1. TRADING ADVICE: Ground all advice in the user's REAL DATA below. Cite their actual numbers.
-2. PLATFORM GUIDE: Walk beginners through any setup step-by-step. Be patient, clear, numbered.
-3. ACCOUNT UPDATES: Summarize today's P&L, wins/losses, best pairs, goal progress.
-4. SEND MESSAGES: If user asks to "send a message to my ambassador", "notify admin", "text my lead", say you'll handle it and they should use the Outreach tab to execute.
-5. DAILY REPORTS: Give a full daily briefing when asked.
-6. ONBOARDING: If user is new, detect from low trade count and proactively offer to walk them through setup.
-
-Keep answers under 300 words unless asked for depth. Stay in your street-smart voice \u2014 warm, specific, actionable, keepin' it a buck. You are not a licensed financial advisor \u2014 drop a quick "protect the bag" style risk reminder where it fits.
-
-=== HARD RULES ===
-- NEVER include code, code blocks, JSON, or markdown fences in your replies. Plain conversation only. THE ONLY EXCEPTION: the user explicitly asks you to generate an EA, indicator, or script for a trading platform (MQL4/MQL5 for MT4/MT5, Pine Script for TradingView, etc.) \u2014 then and only then provide the code.
-- When asked about account balances or connections, use the LIVE ACCOUNTS data above \u2014 it includes BOTH MT5 and TradeLocker in real time. Never say you can't see TradeLocker.
-- The BRAIN line shows the live VEDD AI Brain (learning from both MT5 + TradeLocker closed trades) \u2014 reference its win rate and insights when discussing performance.
-
-${await abbaIdeaLabPrompt(userId)}
-
-=== TRADER'S LIVE DATA ===
-${contextSummary(ctx)}`;
-    const msgs = [{ role: "system", content: system }];
-    if (Array.isArray(history)) {
-      for (const h of history.slice(-8)) {
-        if (h?.role && h?.content) msgs.push({ role: h.role === "assistant" ? "assistant" : "user", content: String(h.content).slice(0, 2e3) });
-      }
-    }
-    msgs.push({ role: "user", content: message.slice(0, 2e3) });
-    const r = await ai.client.chat.completions.create({
-      model: ai.model,
-      messages: msgs,
-      max_tokens: 700,
-      temperature: 0.6
-    });
-    let reply = r.choices[0]?.message?.content || "I couldn't generate a reply right now \u2014 try again.";
-    const wantsCode = /\b(ea|expert advisor|mql[45]?|pine\s?script|indicator code|script for (mt[45]|tradingview))\b/i.test(message);
-    if (!wantsCode) {
-      reply = reply.replace(/```[\s\S]*?```/g, "").replace(/\n{3,}/g, "\n\n").trim();
-      if (!reply) reply = "Run that by me one more time, fam \u2014 I got you.";
-    }
-    let ideaDraft = null;
-    const lastAbba = String([...Array.isArray(history) ? history : []].reverse().find((h) => h?.role === "assistant")?.content || "");
-    if (reply.includes("[[IDEA_READY]]") || wantsIdeaCard(message, lastAbba)) {
-      reply = reply.replace(/\[\[IDEA_READY\]\]/g, "").trim();
-      ideaDraft = await extractIdeaDraft(ai, userId, msgs.slice(1), message, reply).catch((e) => {
-        console.error("[Abba idea extract]", e?.message);
-        return null;
-      });
-    }
-    let setupDraft = null;
-    if (reply.includes(SETUP_MARKER) || wantsSetupCard(message, lastAbba)) {
-      reply = reply.split(SETUP_MARKER).join("").trim();
-      setupDraft = await extractSetupDraft(ai, msgs.slice(1), message, reply).catch((e) => {
-        console.error("[Abba setup extract]", e?.message);
-        return null;
-      });
-    }
-    res2.json({ reply, response: reply, ideaDraft, setupDraft });
-  } catch (err) {
-    console.error("[Abba chat]", err);
-    res2.status(500).json({ error: err.message });
-  }
-}
-var sessionOf2, IDEA_MARKER, SETUP_MARKER, YES;
-var init_abba_strategist = __esm({
-  "server/abba-strategist.ts"() {
-    "use strict";
-    init_wizard_strategies();
-    init_storage();
-    init_engine_updates();
-    init_weekly_review();
-    init_brain_ideas();
-    sessionOf2 = (d) => {
-      const h = d.getUTCHours();
-      return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
-    };
-    IDEA_MARKER = "[[IDEA_READY]]";
-    SETUP_MARKER = "[[SETUP_READY]]";
-    YES = /^\s*(yes|yeah|yep|yup|bet|sure|ok(ay)?|do it|go ahead|let'?s (do it|go)|say less|run it|lock it in|please)\b/i;
-  }
-});
-
-// server/image-processor.ts
-var image_processor_exports = {};
-__export(image_processor_exports, {
-  addTradeSetupAnnotations: () => addTradeSetupAnnotations,
-  addWatermarkToImage: () => addWatermarkToImage,
-  createAnnotatedImageUrl: () => createAnnotatedImageUrl,
-  createSharedImageUrl: () => createSharedImageUrl
-});
-import fs2 from "fs";
-import path2 from "path";
-async function getCanvas() {
-  try {
-    return await import("canvas");
-  } catch {
-    throw new Error("canvas native module is not available on this platform");
-  }
-}
-async function addWatermarkToImage(originalImagePath, outputFilename) {
-  try {
-    const { createCanvas, loadImage } = await getCanvas();
-    const image = await loadImage(originalImagePath);
-    const canvas = createCanvas(image.width, image.height);
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(image, 0, 0, image.width, image.height);
-    const logoWidth = Math.min(image.width * 0.25, 150);
-    const logoHeight = logoWidth * 0.4;
-    const padding = 20;
-    const logoX = image.width - logoWidth - padding;
-    const logoY = image.height - logoHeight - padding;
-    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-    ctx.fillRect(logoX, logoY, logoWidth, logoHeight);
-    ctx.fillStyle = "white";
-    ctx.font = `bold ${logoHeight * 0.6}px Arial`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("VEDDAI", logoX + logoWidth / 2, logoY + logoHeight / 2);
-    ctx.font = `${logoHeight * 0.25}px Arial`;
-    ctx.fillText("AI-Powered Trading Analysis", logoX + logoWidth / 2, logoY + logoHeight * 0.75);
-    const sharedDir = path2.join("uploads", "shared");
-    if (!fs2.existsSync(sharedDir)) {
-      fs2.mkdirSync(sharedDir, { recursive: true });
-    }
-    const outputPath = path2.join(sharedDir, outputFilename);
-    const out = fs2.createWriteStream(outputPath);
-    const stream = canvas.createJPEGStream({ quality: 0.95 });
-    return new Promise((resolve, reject) => {
-      stream.pipe(out);
-      out.on("finish", () => resolve(outputPath));
-      out.on("error", reject);
-    });
-  } catch (error) {
-    console.error("Error adding watermark to image:", error);
-    throw error;
-  }
-}
-async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilename) {
-  try {
-    const { createCanvas, loadImage } = await getCanvas();
-    const image = await loadImage(originalImagePath);
-    const canvas = createCanvas(image.width, image.height);
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(image, 0, 0, image.width, image.height);
-    const chartArea = {
-      left: image.width * 0.1,
-      right: image.width * 0.85,
-      top: image.height * 0.1,
-      bottom: image.height * 0.85,
-      width: image.width * 0.75,
-      height: image.height * 0.75
-    };
-    const priceToY = (price) => {
-      if (!price || price === "Unknown") return -1;
-      const numPrice = parseFloat(price.replace(/[^0-9.-]/g, ""));
-      if (isNaN(numPrice)) return -1;
-      const supportResistanceLevels = (analysis.supportResistance || []).map((sr) => sr.level || "0");
-      const prices = [
-        analysis.currentPrice,
-        analysis.entryPoint,
-        analysis.stopLoss,
-        analysis.takeProfit,
-        ...supportResistanceLevels
-      ].map((p2) => {
-        const num8 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
-        return isNaN(num8) ? 0 : num8;
-      }).filter((p2) => p2 > 0);
-      if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
-      const minPrice = Math.min(...prices);
-      const maxPrice = Math.max(...prices);
-      const priceRange = maxPrice - minPrice || 1;
-      const normalizedPrice = (numPrice - minPrice) / priceRange;
-      return chartArea.bottom - normalizedPrice * chartArea.height;
-    };
-    if (analysis.direction) {
-      const isLong = analysis.direction.toUpperCase() === "BUY";
-      const arrowX = chartArea.left + 20;
-      const arrowY = chartArea.top + 30;
-      ctx.beginPath();
-      ctx.fillStyle = isLong ? "#10B981" : "#EF4444";
-      if (isLong) {
-        ctx.moveTo(arrowX, arrowY + 20);
-        ctx.lineTo(arrowX + 15, arrowY);
-        ctx.lineTo(arrowX + 30, arrowY + 20);
-        ctx.lineTo(arrowX + 20, arrowY + 20);
-        ctx.lineTo(arrowX + 20, arrowY + 40);
-        ctx.lineTo(arrowX + 10, arrowY + 40);
-        ctx.closePath();
-      } else {
-        ctx.moveTo(arrowX, arrowY);
-        ctx.lineTo(arrowX + 15, arrowY + 20);
-        ctx.lineTo(arrowX + 30, arrowY);
-        ctx.lineTo(arrowX + 20, arrowY);
-        ctx.lineTo(arrowX + 20, arrowY - 20);
-        ctx.lineTo(arrowX + 10, arrowY - 20);
-        ctx.closePath();
-      }
-      ctx.fill();
-      ctx.fillStyle = "white";
-      ctx.font = "bold 14px Arial";
-      ctx.fillText(analysis.direction.toUpperCase(), arrowX + 40, arrowY + 15);
-    }
-    const drawPriceLine = (price, color, label, style = "solid") => {
-      const y = priceToY(price);
-      if (y === -1) return;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      if (style === "dashed") {
-        ctx.setLineDash([10, 5]);
-      } else {
-        ctx.setLineDash([]);
-      }
-      ctx.beginPath();
-      ctx.moveTo(chartArea.left, y);
-      ctx.lineTo(chartArea.right, y);
-      ctx.stroke();
-      ctx.fillStyle = color;
-      ctx.font = "bold 12px Arial";
-      ctx.fillText(`${label}: ${price}`, chartArea.right + 10, y + 4);
-    };
-    (analysis.supportResistance || []).forEach((sr, index) => {
-      if (sr && sr.level && sr.level !== "Unknown") {
-        const srType = sr.type || "support";
-        const srStrength = sr.strength || "medium";
-        const isResistance = srType.toLowerCase().includes("resistance");
-        const color = isResistance ? "#F59E0B" : "#8B5CF6";
-        const alpha = srStrength.toLowerCase() === "strong" ? 0.8 : 0.5;
-        ctx.globalAlpha = alpha;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]);
-        const y = priceToY(sr.level);
-        if (y !== -1) {
-          ctx.beginPath();
-          ctx.moveTo(chartArea.left, y);
-          ctx.lineTo(chartArea.right, y);
-          ctx.stroke();
-          ctx.fillStyle = color;
-          ctx.font = "10px Arial";
-          ctx.fillText(`${srType.charAt(0)}${index + 1}`, chartArea.left - 25, y + 3);
-        }
-        ctx.globalAlpha = 1;
-        ctx.setLineDash([]);
-      }
-    });
-    const patterns = analysis.patterns || [];
-    if (patterns.length > 0 && patterns[0] && patterns[0].name) {
-      ctx.fillStyle = "rgba(139, 92, 246, 0.2)";
-      ctx.strokeStyle = "#8B5CF6";
-      ctx.lineWidth = 2;
-      ctx.setLineDash([]);
-      const patternBox = {
-        x: chartArea.left + chartArea.width * 0.3,
-        y: chartArea.top + chartArea.height * 0.2,
-        width: chartArea.width * 0.4,
-        height: chartArea.height * 0.3
-      };
-      ctx.fillRect(patternBox.x, patternBox.y, patternBox.width, patternBox.height);
-      ctx.strokeRect(patternBox.x, patternBox.y, patternBox.width, patternBox.height);
-      ctx.fillStyle = "#8B5CF6";
-      ctx.font = "bold 12px Arial";
-      const patternText = patterns[0].name || "Pattern Detected";
-      ctx.fillText(patternText, patternBox.x + 5, patternBox.y - 5);
-    }
-    const summaryBox = {
-      x: chartArea.left,
-      y: chartArea.top - 80,
-      width: chartArea.width * 0.4,
-      height: 70
-    };
-    ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
-    ctx.fillRect(summaryBox.x, summaryBox.y, summaryBox.width, summaryBox.height);
-    ctx.strokeStyle = "#374151";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(summaryBox.x, summaryBox.y, summaryBox.width, summaryBox.height);
-    ctx.fillStyle = "white";
-    ctx.font = "bold 14px Arial";
-    ctx.fillText(`${analysis.symbol} - ${analysis.timeframe}`, summaryBox.x + 10, summaryBox.y + 20);
-    ctx.font = "12px Arial";
-    ctx.fillStyle = analysis.direction === "BUY" ? "#10B981" : "#EF4444";
-    ctx.fillText(`${analysis.direction} Signal`, summaryBox.x + 10, summaryBox.y + 35);
-    ctx.fillStyle = "#9CA3AF";
-    ctx.fillText(`Confidence: ${analysis.confidence}`, summaryBox.x + 10, summaryBox.y + 50);
-    if (analysis.riskRewardRatio && analysis.riskRewardRatio !== "Unknown") {
-      ctx.fillStyle = "#3B82F6";
-      ctx.fillText(`R:R ${analysis.riskRewardRatio}`, summaryBox.x + 150, summaryBox.y + 35);
-    }
-    const annotatedDir = path2.join("uploads", "annotated");
-    if (!fs2.existsSync(annotatedDir)) {
-      fs2.mkdirSync(annotatedDir, { recursive: true });
-    }
-    const outputPath = path2.join(annotatedDir, outputFilename);
-    const out = fs2.createWriteStream(outputPath);
-    const stream = canvas.createJPEGStream({ quality: 0.95 });
-    return new Promise((resolve, reject) => {
-      stream.pipe(out);
-      out.on("finish", () => resolve(outputPath));
-      out.on("error", reject);
-    });
-  } catch (error) {
-    console.error("Error adding trade setup annotations:", error);
-    throw error;
-  }
-}
-function createSharedImageUrl(filename) {
-  return `/api/shared-image/${filename}`;
-}
-function createAnnotatedImageUrl(filename) {
-  return `/api/annotated-image/${filename}`;
-}
-var init_image_processor = __esm({
-  "server/image-processor.ts"() {
-    "use strict";
-  }
-});
-
-// server/services/ai-confirmation-cache.ts
-var ai_confirmation_cache_exports = {};
-__export(ai_confirmation_cache_exports, {
-  confirmationCacheStats: () => confirmationCacheStats,
-  createConfirmationCache: () => createConfirmationCache,
-  getCachedConfirmation: () => getCachedConfirmation,
-  putCachedConfirmation: () => putCachedConfirmation
-});
-function createConfirmationCache() {
-  const cache10 = /* @__PURE__ */ new Map();
-  const lastCallAt2 = /* @__PURE__ */ new Map();
-  let hits = 0, misses = 0, throttled = 0;
-  function bandKey(userId, symbol, timeframe, direction, eaConf, _price, discriminator) {
-    const cBand = Math.round((Number(eaConf) || 0) / CONF_BAND);
-    return `${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ""}:${cBand}`;
-  }
-  function symbolKey(userId, symbol, timeframe) {
-    return `${userId}:${symbol}:${timeframe}`;
-  }
-  function get(userId, symbol, timeframe, direction, eaConfidence, price, discriminator) {
-    const now = Date.now();
-    const k2 = bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator);
-    const hit = cache10.get(k2);
-    if (hit && now - hit.at < TTL_MS6) {
-      hits++;
-      return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
-    }
-    const sk = symbolKey(userId, symbol, timeframe);
-    const last2 = lastCallAt2.get(sk) ?? 0;
-    if (now - last2 < FLOOR_MS) {
-      let best = null;
-      for (const [ck, v] of Array.from(cache10.entries())) {
-        if (!ck.startsWith(`${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ""}:`)) continue;
-        if (now - v.at > STALE_USABLE_MS) continue;
-        if (!best || v.at > best.at) best = v;
-      }
-      if (best) {
-        throttled++;
-        return { verdict: best.verdict, reason: `throttled (floor ${Math.round(FLOOR_MS / 1e3)}s) \u2014 reusing verdict from ${Math.round((now - best.at) / 1e3)}s ago` };
-      }
-    }
-    misses++;
-    return null;
-  }
-  function put(userId, symbol, timeframe, direction, eaConfidence, price, verdict, discriminator) {
-    const now = Date.now();
-    cache10.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator), { verdict, at: now, eaConfidence, price });
-    lastCallAt2.set(symbolKey(userId, symbol, timeframe), now);
-    if (cache10.size > 500) {
-      for (const [k2, v] of Array.from(cache10.entries())) if (now - v.at > STALE_USABLE_MS) cache10.delete(k2);
-    }
-  }
-  function stats() {
-    const total = hits + misses + throttled;
-    return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache10.size };
-  }
-  return { get, put, stats };
-}
-function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price) {
-  return fxConfirmationCache.get(userId, symbol, timeframe, direction, eaConfidence, price);
-}
-function putCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price, verdict) {
-  fxConfirmationCache.put(userId, symbol, timeframe, direction, eaConfidence, price, verdict);
-}
-function confirmationCacheStats() {
-  return fxConfirmationCache.stats();
-}
-var TTL_MS6, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, fxConfirmationCache;
-var init_ai_confirmation_cache = __esm({
-  "server/services/ai-confirmation-cache.ts"() {
-    "use strict";
-    TTL_MS6 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
-    FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
-    STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
-    CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
-    fxConfirmationCache = createConfirmationCache();
-  }
-});
-
 // server/alpaca.ts
 var alpaca_exports = {};
 __export(alpaca_exports, {
@@ -43718,7 +42936,7 @@ __export(alpaca_exports, {
   encryptApiSecret: () => encryptApiSecret2,
   parseOccSymbol: () => parseOccSymbol
 });
-import crypto7 from "crypto";
+import crypto5 from "crypto";
 function getEncryptionKey5() {
   const key = process.env.ALPACA_ENCRYPTION_KEY;
   if (!key) {
@@ -43732,10 +42950,10 @@ function getEncryptionKey5() {
   return key;
 }
 function encryptApiSecret2(secret) {
-  const iv = crypto7.randomBytes(IV_LENGTH3);
-  const salt = crypto7.randomBytes(SALT_LENGTH3);
-  const key = crypto7.scryptSync(getEncryptionKey5(), salt, 32);
-  const cipher = crypto7.createCipheriv("aes-256-cbc", key, iv);
+  const iv = crypto5.randomBytes(IV_LENGTH3);
+  const salt = crypto5.randomBytes(SALT_LENGTH3);
+  const key = crypto5.scryptSync(getEncryptionKey5(), salt, 32);
+  const cipher = crypto5.createCipheriv("aes-256-cbc", key, iv);
   let encrypted = cipher.update(secret, "utf8", "hex");
   encrypted += cipher.final("hex");
   return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
@@ -43744,8 +42962,8 @@ function decryptApiSecret2(encrypted) {
   const parts = encrypted.split(":");
   if (parts.length !== 3) throw new Error("Invalid encrypted secret format");
   const [saltHex, ivHex, data] = parts;
-  const key = crypto7.scryptSync(getEncryptionKey5(), Buffer.from(saltHex, "hex"), 32);
-  const decipher = crypto7.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
+  const key = crypto5.scryptSync(getEncryptionKey5(), Buffer.from(saltHex, "hex"), 32);
+  const decipher = crypto5.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
   let decrypted = decipher.update(data, "hex", "utf8");
   decrypted += decipher.final("utf8");
   return decrypted;
@@ -44005,7 +43223,7 @@ __export(tastytrade_exports, {
   decryptPassword: () => decryptPassword2,
   encryptPassword: () => encryptPassword2
 });
-import crypto8 from "crypto";
+import crypto6 from "crypto";
 function getEncryptionKey6() {
   const key = process.env.TASTYTRADE_ENCRYPTION_KEY;
   if (!key) {
@@ -44019,10 +43237,10 @@ function getEncryptionKey6() {
   return key;
 }
 function encryptPassword2(password) {
-  const iv = crypto8.randomBytes(IV_LENGTH4);
-  const salt = crypto8.randomBytes(SALT_LENGTH4);
-  const key = crypto8.scryptSync(getEncryptionKey6(), salt, 32);
-  const cipher = crypto8.createCipheriv("aes-256-cbc", key, iv);
+  const iv = crypto6.randomBytes(IV_LENGTH4);
+  const salt = crypto6.randomBytes(SALT_LENGTH4);
+  const key = crypto6.scryptSync(getEncryptionKey6(), salt, 32);
+  const cipher = crypto6.createCipheriv("aes-256-cbc", key, iv);
   let encrypted = cipher.update(password, "utf8", "hex");
   encrypted += cipher.final("hex");
   return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
@@ -44031,8 +43249,8 @@ function decryptPassword2(encryptedPassword) {
   const parts = encryptedPassword.split(":");
   if (parts.length !== 3) throw new Error("Invalid encrypted password format");
   const [saltHex, ivHex, data] = parts;
-  const key = crypto8.scryptSync(getEncryptionKey6(), Buffer.from(saltHex, "hex"), 32);
-  const decipher = crypto8.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
+  const key = crypto6.scryptSync(getEncryptionKey6(), Buffer.from(saltHex, "hex"), 32);
+  const decipher = crypto6.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
   let decrypted = decipher.update(data, "hex", "utf8");
   decrypted += decipher.final("utf8");
   return decrypted;
@@ -44205,14 +43423,346 @@ var init_tastytrade = __esm({
   }
 });
 
+// server/services/crypto-market-data.ts
+var crypto_market_data_exports = {};
+__export(crypto_market_data_exports, {
+  getAggregatedQuote: () => getAggregatedQuote,
+  getAggregatedQuotes: () => getAggregatedQuotes
+});
+function krakenPair(sym2) {
+  const s = sym2.toUpperCase();
+  return (s === "BTC" ? "XBT" : s) + "USD";
+}
+async function coinbaseSpot(sym2) {
+  try {
+    const r = await fetch(`https://api.coinbase.com/v2/prices/${sym2}-USD/spot`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "coinbase", symbol: sym2, price: null, error: `HTTP ${r.status}` };
+    const d = await r.json();
+    const p2 = parseFloat(d?.data?.amount);
+    return { venue: "coinbase", symbol: sym2, price: isFinite(p2) ? p2 : null };
+  } catch (e) {
+    return { venue: "coinbase", symbol: sym2, price: null, error: e.message };
+  }
+}
+async function krakenTicker(sym2) {
+  try {
+    const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${krakenPair(sym2)}`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "kraken", symbol: sym2, price: null, error: `HTTP ${r.status}` };
+    const d = await r.json();
+    const first = Object.values(d?.result || {})[0];
+    const p2 = parseFloat(first?.c?.[0]);
+    const v = parseFloat(first?.v?.[1]);
+    return { venue: "kraken", symbol: sym2, price: isFinite(p2) ? p2 : null, volume24h: isFinite(v) ? v : null, error: d?.error?.length ? d.error.join(",") : void 0 };
+  } catch (e) {
+    return { venue: "kraken", symbol: sym2, price: null, error: e.message };
+  }
+}
+async function geminiTicker(sym2) {
+  try {
+    const r = await fetch(`https://api.gemini.com/v1/pubticker/${sym2.toLowerCase()}usd`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "gemini", symbol: sym2, price: null, error: `HTTP ${r.status}` };
+    const d = await r.json();
+    const p2 = parseFloat(d?.last);
+    const v = parseFloat(d?.volume?.[sym2.toUpperCase()]);
+    return { venue: "gemini", symbol: sym2, price: isFinite(p2) ? p2 : null, volume24h: isFinite(v) ? v : null };
+  } catch (e) {
+    return { venue: "gemini", symbol: sym2, price: null, error: e.message };
+  }
+}
+async function cryptocomTicker(sym2) {
+  try {
+    const r = await fetch(`https://api.crypto.com/v2/public/get-ticker?instrument_name=${sym2.toUpperCase()}_USDT`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "cryptocom", symbol: sym2, price: null, error: `HTTP ${r.status}` };
+    const d = await r.json();
+    const t = d?.result?.data;
+    const row = Array.isArray(t) ? t[0] : t;
+    const p2 = parseFloat(row?.a ?? row?.k);
+    const v = parseFloat(row?.v);
+    return { venue: "cryptocom", symbol: sym2, price: isFinite(p2) ? p2 : null, volume24h: isFinite(v) ? v : null };
+  } catch (e) {
+    return { venue: "cryptocom", symbol: sym2, price: null, error: e.message };
+  }
+}
+async function getAggregatedQuote(symbol) {
+  const sym2 = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const hit = _cache6.get(sym2);
+  if (hit && Date.now() - hit.ts < TTL_MS6) return hit.q;
+  const venues = await Promise.all([coinbaseSpot(sym2), krakenTicker(sym2), geminiTicker(sym2), cryptocomTicker(sym2)]);
+  const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
+  let best = null;
+  let spreadPct = null;
+  if (priced.length) {
+    const lo2 = priced.reduce((a, b) => b.price < a.price ? b : a);
+    const hi2 = priced.reduce((a, b) => b.price > a.price ? b : a);
+    best = { venue: lo2.venue, price: lo2.price };
+    spreadPct = lo2.price > 0 ? Math.round((hi2.price - lo2.price) / lo2.price * 1e4) / 100 : null;
+  }
+  const q = { symbol: sym2, best, spreadPct, venues, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  _cache6.set(sym2, { q, ts: Date.now() });
+  return q;
+}
+async function getAggregatedQuotes(symbols) {
+  const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
+  return Promise.all(uniq.map(getAggregatedQuote));
+}
+var TTL_MS6, _cache6;
+var init_crypto_market_data = __esm({
+  "server/services/crypto-market-data.ts"() {
+    "use strict";
+    TTL_MS6 = 15e3;
+    _cache6 = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/onchain-indexer.ts
+var onchain_indexer_exports = {};
+__export(onchain_indexer_exports, {
+  getIndexedBalances: () => getIndexedBalances,
+  isIndexerAvailable: () => isIndexerAvailable
+});
+async function rpc(url, method, params) {
+  const res2 = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: 1, jsonrpc: "2.0", method, params }),
+    signal: AbortSignal.timeout(12e3)
+  });
+  if (!res2.ok) throw new Error(`Alchemy ${res2.status}`);
+  const d = await res2.json();
+  if (d.error) throw new Error(d.error.message || "alchemy error");
+  return d.result;
+}
+function hexToNum(hex, decimals) {
+  if (!hex || hex === "0x") return 0;
+  try {
+    return Number(BigInt(hex)) / Math.pow(10, decimals);
+  } catch {
+    return 0;
+  }
+}
+function isIndexerAvailable() {
+  return !!process.env.ALCHEMY_API_KEY;
+}
+async function getIndexedBalances(address) {
+  const key = process.env.ALCHEMY_API_KEY;
+  const holdings = [];
+  const scanned = [];
+  await Promise.all(Object.entries(ALCHEMY_NETS).map(async ([, cfg]) => {
+    const url = `https://${cfg.net}.g.alchemy.com/v2/${key}`;
+    try {
+      const nativeHex = await rpc(url, "eth_getBalance", [address, "latest"]);
+      const nativeAmt = hexToNum(nativeHex, 18);
+      if (nativeAmt > 0) holdings.push({ chain: cfg.name, symbol: cfg.nativeSymbol, amount: nativeAmt });
+      const balRes = await rpc(url, "alchemy_getTokenBalances", [address, "erc20"]);
+      const tokens = (balRes?.tokenBalances ?? []).filter((t) => t.tokenBalance && t.tokenBalance !== "0x" && !/^0x0+$/.test(t.tokenBalance));
+      for (const t of tokens.slice(0, 40)) {
+        const contract = t.contractAddress;
+        let meta = _metaCache.get(contract);
+        if (meta === void 0) {
+          try {
+            const m = await rpc(url, "alchemy_getTokenMetadata", [contract]);
+            meta = typeof m?.decimals === "number" && m?.symbol ? { symbol: m.symbol, decimals: m.decimals } : null;
+          } catch {
+            meta = null;
+          }
+          _metaCache.set(contract, meta);
+        }
+        if (!meta) continue;
+        const amt = hexToNum(t.tokenBalance, meta.decimals);
+        if (amt > 0) holdings.push({ chain: cfg.name, symbol: meta.symbol, amount: amt, contract });
+      }
+      scanned.push(cfg.name);
+    } catch {
+    }
+  }));
+  let totalUsd = 0;
+  const priceCache3 = /* @__PURE__ */ new Map();
+  for (const h of holdings) {
+    const s = h.symbol.toUpperCase();
+    if (["USDC", "USDT", "DAI", "GUSD", "USDC.E", "FRAX", "TUSD"].includes(s)) {
+      h.usdValue = h.amount;
+      totalUsd += h.amount;
+      continue;
+    }
+    const priceSym = s === "WBTC" ? "BTC" : s === "WETH" ? "ETH" : s === "POL" ? "MATIC" : s;
+    if (!priceCache3.has(priceSym)) {
+      const q = await getAggregatedQuote(priceSym).catch(() => null);
+      priceCache3.set(priceSym, q?.best?.price ?? null);
+    }
+    const px = priceCache3.get(priceSym) ?? null;
+    h.usdValue = px != null ? Math.round(h.amount * px * 100) / 100 : null;
+    if (h.usdValue) totalUsd += h.usdValue;
+  }
+  holdings.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
+  return { address, holdings, totalUsd: Math.round(totalUsd * 100) / 100, chainsScanned: scanned, source: "alchemy" };
+}
+var ALCHEMY_NETS, _metaCache;
+var init_onchain_indexer = __esm({
+  "server/services/onchain-indexer.ts"() {
+    "use strict";
+    init_crypto_market_data();
+    ALCHEMY_NETS = {
+      ethereum: { net: "eth-mainnet", name: "Ethereum", nativeSymbol: "ETH" },
+      base: { net: "base-mainnet", name: "Base", nativeSymbol: "ETH" },
+      arbitrum: { net: "arb-mainnet", name: "Arbitrum", nativeSymbol: "ETH" },
+      optimism: { net: "opt-mainnet", name: "Optimism", nativeSymbol: "ETH" },
+      polygon: { net: "polygon-mainnet", name: "Polygon", nativeSymbol: "POL" }
+    };
+    _metaCache = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/onchain-balances.ts
+var onchain_balances_exports = {};
+__export(onchain_balances_exports, {
+  getOnchainBalances: () => getOnchainBalances,
+  isValidEvmAddress: () => isValidEvmAddress
+});
+async function rpc2(url, method, params) {
+  const res2 = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "User-Agent": "VEDD/1.0" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    signal: AbortSignal.timeout(9e3)
+  });
+  if (!res2.ok) throw new Error(`RPC ${res2.status}`);
+  const d = await res2.json();
+  if (d.error) throw new Error(d.error.message || "rpc error");
+  return d.result;
+}
+function hexToNum2(hex, decimals) {
+  if (!hex || hex === "0x") return 0;
+  try {
+    return Number(BigInt(hex)) / Math.pow(10, decimals);
+  } catch {
+    return 0;
+  }
+}
+function isValidEvmAddress(addr) {
+  return /^0x[a-fA-F0-9]{40}$/.test(addr);
+}
+async function getOnchainBalances(address) {
+  if (!isValidEvmAddress(address)) throw new Error("Invalid EVM address");
+  try {
+    const { isIndexerAvailable: isIndexerAvailable2, getIndexedBalances: getIndexedBalances2 } = await Promise.resolve().then(() => (init_onchain_indexer(), onchain_indexer_exports));
+    if (isIndexerAvailable2()) {
+      const idx = await getIndexedBalances2(address);
+      return { address, holdings: idx.holdings, totalUsd: idx.totalUsd, chainsScanned: idx.chainsScanned };
+    }
+  } catch {
+  }
+  const holdings = [];
+  const scanned = [];
+  await Promise.all(CHAINS.map(async (chain) => {
+    try {
+      const nativeHex = await rpc2(chain.rpc, "eth_getBalance", [address, "latest"]);
+      const nativeAmt = hexToNum2(nativeHex, 18);
+      if (nativeAmt > 0) holdings.push({ chain: chain.name, symbol: chain.nativeSymbol, amount: nativeAmt });
+      for (const t of chain.tokens) {
+        try {
+          const data = "0x70a08231" + address.slice(2).toLowerCase().padStart(64, "0");
+          const raw = await rpc2(chain.rpc, "eth_call", [{ to: t.address, data }, "latest"]);
+          const amt = hexToNum2(raw, t.decimals);
+          if (amt > 0) holdings.push({ chain: chain.name, symbol: t.symbol, amount: amt });
+        } catch {
+        }
+      }
+      scanned.push(chain.name);
+    } catch {
+    }
+  }));
+  let totalUsd = 0;
+  try {
+    const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
+    const priceCache3 = /* @__PURE__ */ new Map();
+    for (const h of holdings) {
+      if (["USDC", "USDT", "DAI", "GUSD"].includes(h.symbol)) {
+        h.usdValue = h.amount;
+        totalUsd += h.amount;
+        continue;
+      }
+      const priceSym = h.symbol === "WBTC" ? "BTC" : h.symbol === "POL" ? "MATIC" : h.symbol;
+      if (!priceCache3.has(priceSym)) {
+        const q = await getAggregatedQuote2(priceSym).catch(() => null);
+        priceCache3.set(priceSym, q?.best?.price ?? null);
+      }
+      const px = priceCache3.get(priceSym) ?? null;
+      h.usdValue = px != null ? Math.round(h.amount * px * 100) / 100 : null;
+      if (h.usdValue) totalUsd += h.usdValue;
+    }
+  } catch {
+  }
+  holdings.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
+  return { address, holdings, totalUsd: Math.round(totalUsd * 100) / 100, chainsScanned: scanned };
+}
+var CHAINS;
+var init_onchain_balances = __esm({
+  "server/services/onchain-balances.ts"() {
+    "use strict";
+    CHAINS = [
+      {
+        key: "ethereum",
+        name: "Ethereum",
+        rpc: "https://ethereum-rpc.publicnode.com",
+        nativeSymbol: "ETH",
+        explorer: "https://etherscan.io",
+        tokens: [
+          { symbol: "USDC", address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6 },
+          { symbol: "USDT", address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", decimals: 6 },
+          { symbol: "DAI", address: "0x6B175474E89094C44Da98b954EedeAC495271d0F", decimals: 18 },
+          { symbol: "WBTC", address: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", decimals: 8 }
+        ]
+      },
+      {
+        key: "base",
+        name: "Base",
+        rpc: "https://base-rpc.publicnode.com",
+        nativeSymbol: "ETH",
+        explorer: "https://basescan.org",
+        tokens: [{ symbol: "USDC", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6 }]
+      },
+      {
+        key: "arbitrum",
+        name: "Arbitrum",
+        rpc: "https://arbitrum-one-rpc.publicnode.com",
+        nativeSymbol: "ETH",
+        explorer: "https://arbiscan.io",
+        tokens: [
+          { symbol: "USDC", address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", decimals: 6 },
+          { symbol: "USDT", address: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9", decimals: 6 }
+        ]
+      },
+      {
+        key: "optimism",
+        name: "Optimism",
+        rpc: "https://optimism-rpc.publicnode.com",
+        nativeSymbol: "ETH",
+        explorer: "https://optimistic.etherscan.io",
+        tokens: [{ symbol: "USDC", address: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", decimals: 6 }]
+      },
+      {
+        key: "polygon",
+        name: "Polygon",
+        rpc: "https://polygon-bor-rpc.publicnode.com",
+        nativeSymbol: "POL",
+        explorer: "https://polygonscan.com",
+        tokens: [
+          { symbol: "USDC", address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", decimals: 6 },
+          { symbol: "USDT", address: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F", decimals: 6 }
+        ]
+      }
+    ];
+  }
+});
+
 // server/services/cred-store.ts
 var cred_store_exports = {};
 __export(cred_store_exports, {
   backupDurableFile: () => backupDurableFile,
   restoreDurableFiles: () => restoreDurableFiles
 });
-import * as fs4 from "fs";
-import * as path4 from "path";
+import * as fs2 from "fs";
+import * as path2 from "path";
 function ensureTable4() {
   if (!tableReady) {
     tableReady = pool.query(`CREATE TABLE IF NOT EXISTS durable_files (
@@ -44229,14 +43779,14 @@ function ensureTable4() {
 async function restoreDurableFiles() {
   try {
     await ensureTable4();
-    if (!fs4.existsSync(DATA_DIR)) fs4.mkdirSync(DATA_DIR, { recursive: true });
+    if (!fs2.existsSync(DATA_DIR)) fs2.mkdirSync(DATA_DIR, { recursive: true });
     const { rows } = await pool.query("SELECT name, content FROM durable_files");
     for (const r of rows) {
       if (!DURABLE_FILES.includes(r.name)) continue;
-      const fp = path4.join(DATA_DIR, r.name);
-      const existing = fs4.existsSync(fp) ? fs4.readFileSync(fp, "utf-8").trim() : "";
+      const fp = path2.join(DATA_DIR, r.name);
+      const existing = fs2.existsSync(fp) ? fs2.readFileSync(fp, "utf-8").trim() : "";
       if (!existing || existing === "{}") {
-        fs4.writeFileSync(fp, r.content);
+        fs2.writeFileSync(fp, r.content);
         console.log(`[cred-store] restored ${r.name} from DB (${r.content.length} bytes)`);
       }
     }
@@ -44259,7 +43809,7 @@ var init_cred_store = __esm({
   "server/services/cred-store.ts"() {
     "use strict";
     init_db();
-    DATA_DIR = path4.join(process.cwd(), "data");
+    DATA_DIR = path2.join(process.cwd(), "data");
     DURABLE_FILES = [
       "kalshi_credentials.json",
       "polymarket_us.json",
@@ -44274,562 +43824,3385 @@ var init_cred_store = __esm({
   }
 });
 
-// server/services/vedd-token-service.ts
-var vedd_token_service_exports = {};
-__export(vedd_token_service_exports, {
-  DAILY_VEDD_CAP: () => DAILY_VEDD_CAP2,
-  VeddTokenService: () => VeddTokenService,
-  WEEKLY_VEDD_CAP: () => WEEKLY_VEDD_CAP2,
-  veddTokenService: () => veddTokenService
+// server/services/kalshi-trading.ts
+var kalshi_trading_exports = {};
+__export(kalshi_trading_exports, {
+  cancelKalshiOrder: () => cancelKalshiOrder,
+  deleteKalshiCredentials: () => deleteKalshiCredentials,
+  getKalshiBalance: () => getKalshiBalance,
+  getKalshiOrders: () => getKalshiOrders,
+  getKalshiPositions: () => getKalshiPositions,
+  loadKalshiCredentials: () => loadKalshiCredentials,
+  placeKalshiOrder: () => placeKalshiOrder,
+  saveKalshiApiKey: () => saveKalshiApiKey,
+  saveKalshiCredentials: () => saveKalshiCredentials,
+  testKalshiCredentials: () => testKalshiCredentials
 });
-import { Connection, PublicKey, Keypair, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
-import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
-import { eq as eq9, and as and6, sql as sql8, desc as desc2, isNull as isNull2, gte as gte5 } from "drizzle-orm";
-function getConnection() {
-  if (!connection) {
-    connection = new Connection(SOLANA_RPC_URL, "confirmed");
+import * as fs3 from "fs";
+import * as path3 from "path";
+import * as crypto7 from "crypto";
+function loadAllCreds() {
+  try {
+    if (fs3.existsSync(CREDS_FILE)) return JSON.parse(fs3.readFileSync(CREDS_FILE, "utf-8"));
+  } catch (e) {
+    console.error("[Kalshi] Credential store is unreadable (corrupted JSON?) \u2014 treating as empty:", e?.message);
   }
-  return connection;
+  return {};
 }
-function getPoolKeypair() {
-  if (!poolKeypair && POOL_WALLET_PRIVATE_KEY) {
+function saveAllCreds(map) {
+  try {
+    const dir = path3.dirname(CREDS_FILE);
+    if (!fs3.existsSync(dir)) fs3.mkdirSync(dir, { recursive: true });
+    const content = JSON.stringify(map, null, 2);
+    fs3.writeFileSync(CREDS_FILE, content);
+    backupDurableFile("kalshi_credentials.json", content);
+  } catch {
+  }
+}
+function saveKalshiCredentials(userId, creds) {
+  const map = loadAllCreds();
+  map[String(userId)] = creds;
+  saveAllCreds(map);
+}
+function normalizePrivateKey(raw) {
+  let pem = (raw ?? "").trim();
+  if (pem.startsWith('"') && pem.endsWith('"') || pem.startsWith("'") && pem.endsWith("'")) {
+    pem = pem.slice(1, -1).trim();
+  }
+  if (pem.includes("\\n")) pem = pem.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n");
+  pem = pem.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const headerMatch = pem.match(/-----BEGIN ([A-Z ]+?)-----/);
+  const footerMatch = pem.match(/-----END ([A-Z ]+?)-----/);
+  if (headerMatch && footerMatch && !pem.includes("\n")) {
+    const label = headerMatch[1];
+    const body = pem.replace(/-----BEGIN [A-Z ]+?-----/, "").replace(/-----END [A-Z ]+?-----/, "").replace(/\s+/g, "");
+    const wrapped = body.match(/.{1,64}/g)?.join("\n") ?? body;
+    pem = `-----BEGIN ${label}-----
+${wrapped}
+-----END ${label}-----`;
+  }
+  pem = pem.trim();
+  try {
+    crypto7.createPrivateKey(pem);
+  } catch {
+    throw new Error('Private key is not a valid RSA PEM. Paste the full contents of the key file Kalshi gave you, including the "-----BEGIN ... PRIVATE KEY-----" and "-----END ... PRIVATE KEY-----" lines.');
+  }
+  return pem;
+}
+function saveKalshiApiKey(userId, keyId, privateKeyPem) {
+  const normalized = normalizePrivateKey(privateKeyPem);
+  const map = loadAllCreds();
+  map[String(userId)] = { authMethod: "apikey", keyId: keyId.trim(), privateKeyPem: normalized };
+  saveAllCreds(map);
+  _sessions.delete(userId);
+}
+function loadKalshiCredentials(userId) {
+  return loadAllCreds()[String(userId)] ?? null;
+}
+function deleteKalshiCredentials(userId) {
+  const map = loadAllCreds();
+  delete map[String(userId)];
+  saveAllCreds(map);
+  _sessions.delete(userId);
+}
+async function getOrRefreshToken(userId, creds) {
+  const existing = _sessions.get(userId);
+  if (existing && Date.now() < existing.expiresAt) return existing.token;
+  const res2 = await fetch(`${KALSHI_BASE}/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    body: JSON.stringify({ email: creds.email, password: creds.password }),
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!res2.ok) {
+    const body = await res2.text();
+    if (res2.status === 404) {
+      throw new Error("Kalshi no longer supports email/password API login. Please connect using an API Key instead (Kalshi \u2192 Settings \u2192 API Keys \u2192 kalshi.com/account/api).");
+    }
+    throw new Error(`Kalshi login failed (${res2.status}): ${body.slice(0, 200)}`);
+  }
+  const data = await res2.json();
+  const token = data.token ?? data.access_token;
+  const memberId = data.member_id ?? "";
+  if (!token) throw new Error("Kalshi login response missing token field");
+  const session3 = { token, memberId, expiresAt: Date.now() + 20 * 60 * 60 * 1e3 };
+  _sessions.set(userId, session3);
+  return token;
+}
+function signKalshiRequest(privateKeyPem, timestampMs, method, endpoint) {
+  const pathOnly = endpoint.split("?")[0];
+  const message = String(timestampMs) + method.toUpperCase() + KALSHI_PATH_PREFIX + pathOnly;
+  const sign3 = crypto7.createSign("sha256");
+  sign3.update(message);
+  sign3.end();
+  return sign3.sign(
+    {
+      key: privateKeyPem,
+      padding: crypto7.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto7.constants.RSA_PSS_SALTLEN_DIGEST
+    },
+    "base64"
+  );
+}
+async function getAuthHeaders(userId, method, endpoint) {
+  const creds = loadKalshiCredentials(userId);
+  if (!creds) throw new Error("No Kalshi credentials saved for this account");
+  const base = { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" };
+  if (creds.authMethod === "apikey" && creds.keyId && creds.privateKeyPem) {
+    const ts = Date.now();
+    const sig = signKalshiRequest(creds.privateKeyPem, ts, method, endpoint);
+    return {
+      ...base,
+      "KALSHI-ACCESS-KEY": creds.keyId,
+      "KALSHI-ACCESS-TIMESTAMP": String(ts),
+      "KALSHI-ACCESS-SIGNATURE": sig
+    };
+  }
+  const token = await getOrRefreshToken(userId, creds);
+  return { ...base, "Authorization": `Bearer ${token}` };
+}
+async function kalshiGet(userId, endpoint) {
+  const headers = await getAuthHeaders(userId, "GET", endpoint);
+  const res2 = await fetch(`${KALSHI_BASE}${endpoint}`, { headers, signal: AbortSignal.timeout(1e4) });
+  if (!res2.ok) {
+    const body = await res2.text();
+    throw new Error(`Kalshi GET ${endpoint} failed (${res2.status}): ${body.slice(0, 200)}`);
+  }
+  return res2.json();
+}
+async function kalshiPost(userId, endpoint, body) {
+  const headers = await getAuthHeaders(userId, "POST", endpoint);
+  const res2 = await fetch(`${KALSHI_BASE}${endpoint}`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!res2.ok) {
+    const text3 = await res2.text();
+    throw new Error(`Kalshi POST ${endpoint} failed (${res2.status}): ${text3.slice(0, 300)}`);
+  }
+  return res2.json();
+}
+async function testKalshiCredentials(userId) {
+  try {
+    const data = await kalshiGet(userId, "/portfolio/balance");
+    const balance = data.balance ?? 0;
+    const session3 = _sessions.get(userId);
+    const creds = loadKalshiCredentials(userId);
+    const memberId = session3?.memberId ?? (creds?.keyId ? `API Key: ${creds.keyId.slice(0, 8)}\u2026` : void 0);
+    return { valid: true, memberId, balance };
+  } catch (err) {
+    return { valid: false, error: err.message };
+  }
+}
+async function getKalshiBalance(userId) {
+  const data = await kalshiGet(userId, "/portfolio/balance");
+  return {
+    balance: data.balance ?? 0,
+    availableBalance: data.available_balance ?? data.balance ?? 0
+  };
+}
+async function placeKalshiOrder(userId, ticker, side, action, count, priceInCents) {
+  if (side === "no") {
+    throw new Error("placeKalshiOrder: NO-side orders are not supported (this engine only trades YES; the V2 API expresses NO as selling YES at 1-price, not implemented since it is never used)");
+  }
+  const bookSide = action === "buy" ? "bid" : "ask";
+  const payload2 = {
+    ticker,
+    side: bookSide,
+    count: String(count),
+    price: (priceInCents / 100).toFixed(2),
+    time_in_force: "good_till_canceled",
+    self_trade_prevention_type: "taker_at_cross"
+  };
+  const data = await kalshiPost(userId, "/portfolio/events/orders", payload2);
+  const fillCount = parseFloat(data.fill_count ?? "0") || 0;
+  const remainingCount = parseFloat(data.remaining_count ?? String(count)) || 0;
+  return {
+    orderId: data.order_id ?? "unknown",
+    ticker,
+    side,
+    action,
+    count: Math.round(fillCount + remainingCount),
+    priceInCents,
+    status: remainingCount === 0 ? "executed" : "resting",
+    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    filledCount: fillCount
+  };
+}
+async function getKalshiPositions(userId) {
+  const data = await kalshiGet(userId, "/portfolio/positions?limit=100");
+  return data.positions ?? data.market_positions ?? [];
+}
+async function getKalshiOrders(userId, status = "resting") {
+  const data = await kalshiGet(userId, `/portfolio/orders?status=${status}&limit=50`);
+  return data.orders ?? [];
+}
+async function cancelKalshiOrder(userId, orderId) {
+  try {
+    const headers = await getAuthHeaders(userId, "DELETE", `/portfolio/events/orders/${orderId}`);
+    await fetch(`${KALSHI_BASE}/portfolio/events/orders/${orderId}`, {
+      method: "DELETE",
+      headers,
+      signal: AbortSignal.timeout(8e3)
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+var KALSHI_BASE, KALSHI_PATH_PREFIX, CREDS_FILE, _sessions;
+var init_kalshi_trading = __esm({
+  "server/services/kalshi-trading.ts"() {
+    "use strict";
+    init_cred_store();
+    KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2";
+    KALSHI_PATH_PREFIX = "/trade-api/v2";
+    CREDS_FILE = path3.join(process.cwd(), "data", "kalshi_credentials.json");
+    _sessions = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/account-aggregator.ts
+function withTimeout(p2, ms = READ_TIMEOUT_MS) {
+  return Promise.race([
+    p2,
+    new Promise((_, rej) => setTimeout(() => rej(new Error("read timed out")), ms))
+  ]);
+}
+function ageOf(iso) {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return null;
+  return Math.max(0, Math.floor((Date.now() - t) / 1e3));
+}
+function maskTail(v) {
+  const s = String(v ?? "");
+  if (s.length <= 4) return s;
+  return `\u2026${s.slice(-4)}`;
+}
+async function buildAccountSnapshots(userId) {
+  const accounts = [];
+  const unknowns = [];
+  const now = Date.now();
+  try {
+    const cache11 = global.mt5AccountData?.[userId];
+    if (cache11) {
+      const entries = cache11.lastUpdated ? [["default", cache11]] : Object.entries(cache11);
+      for (const [k2, a] of entries) {
+        if (!a?.lastUpdated) continue;
+        const age = ageOf(a.lastUpdated);
+        accounts.push({
+          id: `mt5:${a.accountNumber || k2}`,
+          provider: "MT5",
+          kind: "broker",
+          label: a.broker ? `${a.broker} #${a.accountNumber || ""}` : "MT5 account",
+          accountType: "live",
+          currency: a.currency || "USD",
+          balance: a.balance ?? null,
+          equity: a.equity ?? null,
+          unrealizedPnl: a.profit ?? null,
+          openPositions: a.openPositions ?? null,
+          connected: (age ?? Infinity) < 300,
+          status: (age ?? Infinity) < 300 ? "ok" : "stale",
+          asOf: new Date(a.lastUpdated).toISOString(),
+          ageSeconds: age,
+          source: "MT5 EA push cache"
+        });
+      }
+    }
+  } catch {
+    unknowns.push("MT5 account cache could not be read");
+  }
+  try {
+    const conns = await storage.getUserTradelockerConnections(userId);
+    const { getTlAccountData: getTlAccountData2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
+    const live = getTlAccountData2(userId);
+    const liveById = {};
+    for (const a of live.accounts || []) liveById[String(a.accountId)] = a;
+    for (const c of conns) {
+      if (!c.isActive) continue;
+      const l = liveById[String(c.accountId)];
+      const age = l ? typeof l.secondsAgo === "number" ? l.secondsAgo : null : ageOf(c.lastConnectedAt);
+      accounts.push({
+        id: `tradelocker:${c.id}`,
+        provider: "TradeLocker",
+        kind: "broker",
+        label: `TradeLocker ${c.accNum || c.accountId} (${c.accountType})`,
+        accountType: c.accountType === "demo" ? "demo" : "live",
+        currency: l?.currency || "USD",
+        balance: l ? l.balance ?? null : null,
+        equity: l ? l.equity ?? null : null,
+        unrealizedPnl: l ? (l.equity ?? 0) - (l.balance ?? 0) : null,
+        openPositions: null,
+        connected: l ? !!l.isConnected : (age ?? Infinity) < 86400,
+        status: l ? (age ?? 0) < 900 ? "ok" : "stale" : "unknown",
+        asOf: l && age != null ? new Date(now - age * 1e3).toISOString() : c.lastConnectedAt ? new Date(c.lastConnectedAt).toISOString() : null,
+        ageSeconds: age,
+        source: "TradeLocker sync cache",
+        note: l ? void 0 : "No live balance in the sync cache yet \u2014 open the TradeLocker page once to refresh it."
+      });
+    }
+  } catch {
+    unknowns.push("TradeLocker accounts could not be read");
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, username, label, is_active, last_connected_at, is_prop_firm_account FROM dxtrade_connections WHERE user_id = $1 ORDER BY id`,
+      [userId]
+    );
+    const snapCache = global.dxtradeAccountData?.[userId] || {};
+    for (const c of rows) {
+      if (!c.is_active) continue;
+      const snap = snapCache[c.id];
+      const age = snap?.updatedAt ? Math.floor((now - snap.updatedAt) / 1e3) : ageOf(c.last_connected_at);
+      accounts.push({
+        id: `dxtrade:${c.id}`,
+        provider: "DXtrade",
+        kind: "broker",
+        label: c.label || `DXtrade ${c.username}`,
+        accountType: c.is_prop_firm_account ? "prop" : "live",
+        currency: "USD",
+        balance: snap ? snap.balance ?? null : null,
+        equity: null,
+        unrealizedPnl: null,
+        openPositions: snap ? snap.openPositions ?? null : null,
+        connected: !!snap && (age ?? Infinity) < 900,
+        status: snap ? (age ?? Infinity) < 900 ? "ok" : "stale" : "unknown",
+        asOf: snap?.updatedAt ? new Date(snap.updatedAt).toISOString() : c.last_connected_at ? new Date(c.last_connected_at).toISOString() : null,
+        ageSeconds: age,
+        source: "DXtrade snapshot cache",
+        note: snap ? void 0 : "Balance snapshot not fetched yet this session \u2014 open the DXtrade connections page once to populate it."
+      });
+    }
+  } catch {
+  }
+  try {
+    const [alpacaConns, tastyConns] = await Promise.all([
+      storage.getUserAlpacaConnections(userId),
+      storage.getUserTastytradeConnections(userId)
+    ]);
+    for (const conn of alpacaConns) {
+      try {
+        const { AlpacaService: AlpacaService2, decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_alpaca(), alpaca_exports));
+        const svc = new AlpacaService2(conn.accountType, conn.apiKeyId, decryptApiSecret3(conn.encryptedApiSecret));
+        const info2 = await withTimeout(svc.authenticate());
+        accounts.push({
+          id: `alpaca:${conn.id}`,
+          provider: "Alpaca",
+          kind: "broker",
+          label: `Alpaca (${conn.accountType})`,
+          accountType: conn.accountType === "paper" ? "paper" : "live",
+          currency: info2.currency || "USD",
+          balance: info2.balance ?? null,
+          equity: info2.equity ?? null,
+          unrealizedPnl: null,
+          openPositions: null,
+          connected: true,
+          status: "ok",
+          asOf: (/* @__PURE__ */ new Date()).toISOString(),
+          ageSeconds: 0,
+          source: "Alpaca account read"
+        });
+      } catch {
+        accounts.push({
+          id: `alpaca:${conn.id}`,
+          provider: "Alpaca",
+          kind: "broker",
+          label: `Alpaca (${conn.accountType})`,
+          accountType: conn.accountType === "paper" ? "paper" : "live",
+          currency: "USD",
+          balance: null,
+          equity: null,
+          unrealizedPnl: null,
+          openPositions: null,
+          connected: false,
+          status: "error",
+          asOf: null,
+          ageSeconds: null,
+          source: "Alpaca account read",
+          note: "Balance read failed \u2014 the connection may need attention."
+        });
+      }
+    }
+    for (const conn of tastyConns) {
+      try {
+        const { TastyTradeService: TastyTradeService2, decryptPassword: decryptPassword4 } = await Promise.resolve().then(() => (init_tastytrade(), tastytrade_exports));
+        const svc = new TastyTradeService2(conn.accountType, conn.username, decryptPassword4(conn.encryptedPassword));
+        const info2 = await withTimeout(svc.authenticate());
+        accounts.push({
+          id: `tastytrade:${conn.id}`,
+          provider: "TastyTrade",
+          kind: "broker",
+          label: `TastyTrade ${maskTail(conn.username)} (${conn.accountType})`,
+          accountType: conn.accountType === "sandbox" ? "paper" : "live",
+          currency: info2.currency || "USD",
+          balance: info2.balance ?? null,
+          equity: info2.equity ?? null,
+          unrealizedPnl: null,
+          openPositions: null,
+          connected: true,
+          status: "ok",
+          asOf: (/* @__PURE__ */ new Date()).toISOString(),
+          ageSeconds: 0,
+          source: "TastyTrade account read"
+        });
+      } catch {
+        accounts.push({
+          id: `tastytrade:${conn.id}`,
+          provider: "TastyTrade",
+          kind: "broker",
+          label: `TastyTrade (${conn.accountType})`,
+          accountType: conn.accountType === "sandbox" ? "paper" : "live",
+          currency: "USD",
+          balance: null,
+          equity: null,
+          unrealizedPnl: null,
+          openPositions: null,
+          connected: false,
+          status: "error",
+          asOf: null,
+          ageSeconds: null,
+          source: "TastyTrade account read",
+          note: "Balance read failed \u2014 the connection may need attention."
+        });
+      }
+    }
+  } catch {
+    unknowns.push("Options broker accounts could not be read");
+  }
+  try {
+    const tv = await storage.getUserTradovateConnection(userId);
+    if (tv) {
+      accounts.push({
+        id: `tradovate:${tv.id}`,
+        provider: "Tradovate",
+        kind: "broker",
+        label: `Tradovate ${maskTail(tv.username)}`,
+        accountType: tv.isDemo ? "demo" : "live",
+        currency: "USD",
+        balance: null,
+        equity: null,
+        unrealizedPnl: null,
+        openPositions: null,
+        connected: !!tv.isActive,
+        status: "unknown",
+        asOf: null,
+        ageSeconds: null,
+        source: "Tradovate connection record",
+        note: "Connected for the futures engine; balance is not read into a shared cache."
+      });
+    }
+  } catch {
+  }
+  try {
+    const conns = await storage.getUserCryptocomConnections(userId);
+    for (const conn of conns) {
+      if (!conn.isActive) continue;
+      try {
+        const { CryptoComService: CryptoComService2, decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_cryptocom(), cryptocom_exports));
+        const svc = new CryptoComService2(conn.apiKey, decryptApiSecret3(conn.encryptedApiSecret));
+        const info2 = await withTimeout(svc.getAccountInfo());
+        accounts.push({
+          id: `cryptocom:${conn.id}`,
+          provider: "Crypto.com",
+          kind: "exchange",
+          label: "Crypto.com Exchange",
+          accountType: "live",
+          currency: info2.currency || "USD",
+          balance: info2.balance ?? null,
+          equity: info2.equity ?? null,
+          unrealizedPnl: null,
+          openPositions: null,
+          connected: true,
+          status: "ok",
+          asOf: (/* @__PURE__ */ new Date()).toISOString(),
+          ageSeconds: 0,
+          source: "Crypto.com account read"
+        });
+      } catch {
+        accounts.push({
+          id: `cryptocom:${conn.id}`,
+          provider: "Crypto.com",
+          kind: "exchange",
+          label: "Crypto.com Exchange",
+          accountType: "live",
+          currency: "USD",
+          balance: null,
+          equity: null,
+          unrealizedPnl: null,
+          openPositions: null,
+          connected: false,
+          status: "error",
+          asOf: null,
+          ageSeconds: null,
+          source: "Crypto.com account read",
+          note: "Balance read failed \u2014 the connection may need attention."
+        });
+      }
+    }
+  } catch {
+  }
+  for (const [table, provider] of [["coinbase_connections", "Coinbase"], ["gemini_connections", "Gemini"], ["kraken_connections", "Kraken"], ["hyperliquid_connections", "Hyperliquid"]]) {
     try {
-      const secretKey = JSON.parse(POOL_WALLET_PRIVATE_KEY);
-      poolKeypair = Keypair.fromSecretKey(Uint8Array.from(secretKey));
-    } catch (error) {
-      console.error("Failed to parse pool wallet private key:", error);
+      const { rows } = await pool.query(`SELECT id FROM ${table} WHERE user_id = $1 ORDER BY id`, [userId]);
+      for (const r of rows) {
+        accounts.push({
+          id: `${provider.toLowerCase()}:${r.id}`,
+          provider,
+          kind: "exchange",
+          label: provider,
+          accountType: "live",
+          currency: "USD",
+          balance: null,
+          equity: null,
+          unrealizedPnl: null,
+          openPositions: null,
+          connected: true,
+          status: "unknown",
+          asOf: null,
+          ageSeconds: null,
+          source: `${provider} connection record`,
+          note: "Connection exists; its balance is not yet part of the shared account read."
+        });
+      }
+    } catch {
     }
   }
-  return poolKeypair;
+  try {
+    const { rows } = await pool.query(`SELECT id, wallet_address, chain FROM defi_wallets WHERE user_id = $1 ORDER BY id LIMIT 5`, [userId]);
+    for (const w of rows) {
+      let balance = null;
+      let status = "unknown";
+      try {
+        const { getOnchainBalances: getOnchainBalances2 } = await Promise.resolve().then(() => (init_onchain_balances(), onchain_balances_exports));
+        const sum = await withTimeout(getOnchainBalances2(w.wallet_address), 8e3);
+        balance = typeof sum?.totalUsd === "number" ? sum.totalUsd : null;
+        status = balance != null ? "ok" : "unknown";
+      } catch {
+        status = "error";
+      }
+      accounts.push({
+        id: `defi:${w.id}`,
+        provider: "DeFi Wallet",
+        kind: "wallet",
+        label: `Wallet ${maskTail(w.wallet_address)}${w.chain ? ` (${w.chain})` : ""}`,
+        accountType: "live",
+        currency: "USD",
+        balance,
+        equity: balance,
+        unrealizedPnl: null,
+        openPositions: null,
+        connected: true,
+        status,
+        asOf: status === "ok" ? (/* @__PURE__ */ new Date()).toISOString() : null,
+        ageSeconds: status === "ok" ? 0 : null,
+        source: "On-chain balance read",
+        note: status === "ok" ? void 0 : "On-chain balance could not be read right now."
+      });
+    }
+  } catch {
+  }
+  try {
+    const { getServerWalletStatus: getServerWalletStatus2 } = await Promise.resolve().then(() => (init_sol_engine(), sol_engine_exports));
+    const st = await withTimeout(getServerWalletStatus2(userId));
+    if (st && (st.hasServerWallet || st.walletAddress)) {
+      accounts.push({
+        id: "sol:server-wallet",
+        provider: "Solana",
+        kind: "wallet",
+        label: `Sol engine wallet ${st.walletAddress ? maskTail(st.walletAddress) : ""}`.trim(),
+        accountType: "live",
+        currency: "SOL",
+        balance: typeof st.balanceSol === "number" ? st.balanceSol : null,
+        equity: null,
+        unrealizedPnl: null,
+        openPositions: null,
+        connected: true,
+        status: typeof st.balanceSol === "number" ? "ok" : "unknown",
+        asOf: (/* @__PURE__ */ new Date()).toISOString(),
+        ageSeconds: 0,
+        source: "Sol server-wallet status"
+      });
+    }
+  } catch {
+  }
+  try {
+    const { loadKalshiCredentials: loadKalshiCredentials2, getKalshiBalance: getKalshiBalance3 } = await Promise.resolve().then(() => (init_kalshi_trading(), kalshi_trading_exports));
+    if (loadKalshiCredentials2(userId)) {
+      try {
+        const bal = await withTimeout(getKalshiBalance3(userId));
+        accounts.push({
+          id: "kalshi:account",
+          provider: "Kalshi",
+          kind: "prediction",
+          label: "Kalshi",
+          accountType: "live",
+          currency: "USD",
+          balance: typeof bal?.balance === "number" ? bal.balance : null,
+          equity: null,
+          unrealizedPnl: null,
+          openPositions: null,
+          connected: true,
+          status: typeof bal?.balance === "number" ? "ok" : "unknown",
+          asOf: (/* @__PURE__ */ new Date()).toISOString(),
+          ageSeconds: 0,
+          source: "Kalshi balance read"
+        });
+      } catch {
+        accounts.push({
+          id: "kalshi:account",
+          provider: "Kalshi",
+          kind: "prediction",
+          label: "Kalshi",
+          accountType: "live",
+          currency: "USD",
+          balance: null,
+          equity: null,
+          unrealizedPnl: null,
+          openPositions: null,
+          connected: false,
+          status: "error",
+          asOf: null,
+          ageSeconds: null,
+          source: "Kalshi balance read",
+          note: "Balance read failed \u2014 saved credentials may need attention."
+        });
+      }
+    }
+  } catch {
+  }
+  try {
+    const user = await storage.getUser(userId);
+    const addr = user?.polymarketWalletAddress || user?.walletAddress;
+    if (addr) {
+      accounts.push({
+        id: "polymarket:wallet",
+        provider: "Polymarket",
+        kind: "prediction",
+        label: `Polymarket wallet ${maskTail(addr)}`,
+        accountType: "live",
+        currency: "USD",
+        balance: null,
+        equity: null,
+        unrealizedPnl: null,
+        openPositions: null,
+        connected: true,
+        status: "unknown",
+        asOf: null,
+        ageSeconds: null,
+        source: "User wallet record",
+        note: "Wallet linked; balance is held in the Polymarket engine state, not a shared read."
+      });
+    }
+  } catch {
+  }
+  return { accounts, unknowns };
 }
-var VEDD_TOKEN_MINT, SOLANA_RPC_URL, POOL_WALLET_PRIVATE_KEY, DAILY_VEDD_CAP2, WEEKLY_VEDD_CAP2, connection, poolKeypair, VeddTokenService, veddTokenService;
-var init_vedd_token_service = __esm({
-  "server/services/vedd-token-service.ts"() {
+var READ_TIMEOUT_MS;
+var init_account_aggregator = __esm({
+  "server/services/account-aggregator.ts"() {
+    "use strict";
+    init_storage();
+    init_db();
+    READ_TIMEOUT_MS = 6e3;
+  }
+});
+
+// server/services/crypto-health.ts
+var crypto_health_exports = {};
+__export(crypto_health_exports, {
+  getCryptoEngineHealth: () => getCryptoEngineHealth
+});
+async function getCryptoEngineHealth() {
+  const staleAfterMin = STALE_MIN();
+  let row = null;
+  try {
+    const { rows } = await pool.query(`SELECT * FROM crypto_engine_heartbeat WHERE id = 1`);
+    row = rows[0] ?? null;
+  } catch {
+  }
+  let artifactAt = null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT greatest(
+         (SELECT max(opened_at) FROM crypto_paper_trades),
+         (SELECT max(created_at) FROM fx_model_decisions WHERE engine = 'crypto')
+       ) AS last_at`
+    );
+    artifactAt = rows[0]?.last_at ? new Date(rows[0].last_at) : null;
+  } catch {
+  }
+  const iso = (v) => v ? new Date(v).toISOString() : null;
+  let lastRunAt = null;
+  let lastRunState = null;
+  let runner = null;
+  let phase2 = null;
+  let scansCompleted = null;
+  let wedged = false;
+  let hbMs = 0;
+  if (row) {
+    runner = row.booted_at ? "background worker" : "cron job";
+    phase2 = row.phase ?? null;
+    scansCompleted = row.scans_completed ?? null;
+    wedged = (row.skipped_ticks ?? 0) >= 3;
+    lastRunAt = iso(row.scan_finished_at ?? row.scan_started_at ?? row.tick_at);
+    lastRunState = row.last_error ? "error" : phase2 === "idle" ? "ok" : phase2;
+    hbMs = Math.max(0, ...[row.tick_at, row.scan_finished_at, row.scan_started_at, row.updated_at].filter(Boolean).map((d) => new Date(d).getTime()));
+  }
+  const lastActivityMs = Math.max(hbMs, artifactAt?.getTime() ?? 0) || null;
+  const lastActivityAt = lastActivityMs ? new Date(lastActivityMs).toISOString() : null;
+  const ageMinutes = lastActivityMs ? Math.round((Date.now() - lastActivityMs) / 6e4 * 10) / 10 : null;
+  let status;
+  let message;
+  if (lastActivityMs == null || ageMinutes == null) {
+    status = "never";
+    message = "Crypto: no scanner heartbeat and no crypto trades/decisions on record \u2014 the engine may never have run against this database, or its schedule is not set up.";
+  } else if (ageMinutes <= staleAfterMin) {
+    status = "ok";
+    const bits = [`Crypto OK \u2014 last activity ${ageMinutes} min ago`];
+    if (runner) bits.push(`runner: ${runner}`);
+    if (scansCompleted != null) bits.push(`${scansCompleted} scans completed`);
+    if (wedged) bits.push(`WARNING: the scan may be wedged at phase "${phase2}" (${row?.skipped_ticks} skipped ticks)`);
+    if (row?.last_error) bits.push(`last error: ${String(row.last_error).slice(0, 140)}`);
+    message = bits.join(" \xB7 ") + ".";
+  } else {
+    status = "stale";
+    message = `Crypto STALE \u2014 no scanner tick or crypto activity for ${ageMinutes} min (threshold ${staleAfterMin} min). ${runner === "background worker" ? "The worker service may be down or wedged" : "The Render cron job may be paused, deleted, or failing"} \u2014 check the service. Last scan: ${lastRunAt ?? "unknown"}${phase2 ? ` (phase ${phase2})` : ""}.`;
+  }
+  return { status, lastRunAt, lastRunState, lastActivityAt, ageMinutes, staleAfterMin, message, runner, phase: phase2, scansCompleted, wedged };
+}
+var STALE_MIN;
+var init_crypto_health = __esm({
+  "server/services/crypto-health.ts"() {
+    "use strict";
+    init_db();
+    STALE_MIN = () => Math.max(5, Number(process.env.CRYPTO_HEALTH_STALE_MIN ?? 20));
+  }
+});
+
+// server/messaging.ts
+var messaging_exports = {};
+__export(messaging_exports, {
+  getChannelStatus: () => getChannelStatus,
+  sendGmail: () => sendGmail,
+  sendMessage: () => sendMessage,
+  sendResend: () => sendResend,
+  sendSendGrid: () => sendSendGrid,
+  sendTelegram: () => sendTelegram,
+  sendTwilioSms: () => sendTwilioSms
+});
+import nodemailer from "nodemailer";
+async function sendGmail(to, subject, text3, html) {
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+  if (!user || !pass) return { success: false, channel: "gmail", error: "GMAIL_USER and GMAIL_APP_PASSWORD not set. Create a Gmail App Password at myaccount.google.com/security \u2192 App Passwords." };
+  try {
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user, pass }
+    });
+    const info2 = await transporter.sendMail({
+      from: `"VEDD | Abba" <${user}>`,
+      to,
+      subject,
+      text: text3,
+      html: html || `<div style="font-family:sans-serif;max-width:600px;margin:0 auto"><h2 style="color:#7c3aed">VEDD \u2014 Abba AI</h2><div>${text3.replace(/\n/g, "<br/>")}</div></div>`
+    });
+    return { success: true, channel: "gmail", id: info2.messageId };
+  } catch (e) {
+    return { success: false, channel: "gmail", error: e.message };
+  }
+}
+async function sendResend(to, subject, text3, html) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return { success: false, channel: "resend", error: "RESEND_API_KEY not set. Sign up free at resend.com and add your API key." };
+  try {
+    const { Resend } = await import("resend");
+    const resend = new Resend(apiKey);
+    const from = process.env.RESEND_FROM_EMAIL || "Abba <onboarding@resend.dev>";
+    const result = await resend.emails.send({ from, to, subject, text: text3, html });
+    if (result.error) return { success: false, channel: "resend", error: result.error.message };
+    return { success: true, channel: "resend", id: result.data?.id };
+  } catch (e) {
+    return { success: false, channel: "resend", error: e.message };
+  }
+}
+async function sendTelegram(chatId, message) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return { success: false, channel: "telegram", error: "TELEGRAM_BOT_TOKEN not set. Create a free bot at @BotFather on Telegram." };
+  if (!chatId?.trim()) return { success: false, channel: "telegram", error: "chatId required \u2014 user must have started your bot first." };
+  try {
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    const body = JSON.stringify({ chat_id: chatId, text: message, parse_mode: "HTML" });
+    const res2 = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+    const data = await res2.json();
+    if (!data.ok) return { success: false, channel: "telegram", error: data.description || "Telegram API error" };
+    return { success: true, channel: "telegram", id: String(data.result?.message_id) };
+  } catch (e) {
+    return { success: false, channel: "telegram", error: e.message };
+  }
+}
+async function sendTwilioSms(to, body) {
+  const { sendSmsRaw: sendSmsRaw3 } = await Promise.resolve().then(() => (init_twilio(), twilio_exports));
+  const result = await sendSmsRaw3(to, body);
+  return { ...result, channel: "twilio" };
+}
+async function sendSendGrid(to, subject, text3, html) {
+  const apiKey = process.env.SENDGRID_API_KEY;
+  if (!apiKey) return { success: false, channel: "sendgrid", error: "SENDGRID_API_KEY not set. Sign up at sendgrid.com (100/day free)." };
+  try {
+    const sgMail3 = await import("@sendgrid/mail");
+    const sg = sgMail3.default || sgMail3;
+    sg.setApiKey(apiKey);
+    await sg.send({
+      to,
+      from: process.env.SENDGRID_FROM_EMAIL || "abba@vedd.app",
+      subject,
+      text: text3,
+      html: html || text3
+    });
+    return { success: true, channel: "sendgrid" };
+  } catch (e) {
+    return { success: false, channel: "sendgrid", error: e.message };
+  }
+}
+async function sendMessage(opts) {
+  const { channel, message, phone, chatId, email, subject, html } = opts;
+  switch (channel) {
+    case "gmail":
+      if (!email) return { success: false, channel, error: "email address required for Gmail" };
+      return sendGmail(email, subject || "Message from VEDD Abba", message, html);
+    case "resend":
+      if (!email) return { success: false, channel, error: "email address required for Resend" };
+      return sendResend(email, subject || "Message from VEDD Abba", message, html);
+    case "telegram":
+      if (!chatId) return { success: false, channel, error: "Telegram chat ID required" };
+      return sendTelegram(chatId, message);
+    case "twilio":
+      if (!phone) return { success: false, channel, error: "phone number required for Twilio SMS" };
+      return sendTwilioSms(phone, message);
+    case "sendgrid":
+      if (!email) return { success: false, channel, error: "email address required for SendGrid" };
+      return sendSendGrid(email, subject || "Message from VEDD Abba", message, html);
+    default:
+      return { success: false, channel, error: `Unknown channel: ${channel}` };
+  }
+}
+function getChannelStatus() {
+  return {
+    gmail: { configured: !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD), free: true, limit: "500/day", setupUrl: "https://myaccount.google.com/apppasswords" },
+    resend: { configured: !!process.env.RESEND_API_KEY, free: true, limit: "3,000/month", setupUrl: "https://resend.com" },
+    telegram: { configured: !!process.env.TELEGRAM_BOT_TOKEN, free: true, limit: "Unlimited", setupUrl: "https://t.me/BotFather" },
+    twilio: { configured: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN), free: false, limit: "Paid / trial", setupUrl: "https://twilio.com" },
+    sendgrid: { configured: !!process.env.SENDGRID_API_KEY, free: true, limit: "100/day", setupUrl: "https://sendgrid.com" }
+  };
+}
+var init_messaging = __esm({
+  "server/messaging.ts"() {
+    "use strict";
+  }
+});
+
+// server/services/engine-watchdog.ts
+var engine_watchdog_exports = {};
+__export(engine_watchdog_exports, {
+  fxMarketHoursBetween: () => fxMarketHoursBetween,
+  getEngineWatchdogStatus: () => getEngineWatchdogStatus,
+  isFxMarketOpenAt: () => isFxMarketOpenAt,
+  startEngineWatchdog: () => startEngineWatchdog
+});
+function isFxMarketOpenAt(d) {
+  const day = d.getUTCDay();
+  const hour = d.getUTCHours();
+  if (day === 6) return false;
+  if (day === 5 && hour >= 21) return false;
+  if (day === 0 && hour < 21) return false;
+  return true;
+}
+function fxMarketHoursBetween(from, to) {
+  if (to.getTime() <= from.getTime()) return 0;
+  const STEP_MS = 5 * 60 * 1e3;
+  let openMs = 0;
+  for (let t = from.getTime(); t < to.getTime(); t += STEP_MS) {
+    if (isFxMarketOpenAt(new Date(t))) openMs += Math.min(STEP_MS, to.getTime() - t);
+  }
+  return Math.round(openMs / 36e5 * 10) / 10;
+}
+async function computeStatus() {
+  const { checkFxBrainHealth: checkFxBrainHealth2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
+  const fxHealth = await checkFxBrainHealth2(24).catch(() => null);
+  let guardEvents24h = 0;
+  let aiDecisions24h = 0;
+  try {
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM engine_guard_events WHERE engine='fx' AND created_at > now() - interval '24 hours'`
+    );
+    guardEvents24h = rows[0]?.n ?? 0;
+  } catch {
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM fx_model_decisions WHERE created_at > now() - interval '24 hours'`
+    );
+    aiDecisions24h = rows[0]?.n ?? 0;
+  } catch {
+  }
+  const fxLast = fxHealth?.lastBrainRowAt ?? null;
+  const fxHours = fxHealth?.hoursSinceLastBrainRow ?? null;
+  const marketOpen = isFxMarketOpenAt(/* @__PURE__ */ new Date());
+  const fxMarketHours = fxLast ? fxMarketHoursBetween(new Date(fxLast), /* @__PURE__ */ new Date()) : null;
+  let fxState;
+  let fxMessage;
+  if (!fxLast || fxHours == null || fxMarketHours == null) {
+    fxState = "no_data";
+    fxMessage = "FX: no brain outcomes on record \u2014 nothing to watch yet.";
+  } else if (fxMarketHours < FX_STALE_HOURS) {
+    fxState = "ok";
+    fxMessage = `FX OK \u2014 last close ${fxHours}h ago (${fxMarketHours} market-open hours).`;
+  } else if (!marketOpen) {
+    fxState = "market_closed";
+    fxMessage = `FX: no close for ${fxMarketHours} market-open hours, and the market is closed right now (Fri 21:00 \u2013 Sun 21:00 UTC) \u2014 no alert; the watchdog rechecks when the market reopens.`;
+  } else if (guardEvents24h + aiDecisions24h > 0) {
+    fxState = "gated";
+    fxMessage = `FX RUNNING BUT FULLY GATED \u2014 no close in ${fxMarketHours} market-open hours, yet ${guardEvents24h} guard firing(s) and ${aiDecisions24h} AI analysis decision(s) in the last 24h. The engine is alive; the guards are blocking everything. See the guard fire-rate view for which ones.`;
+  } else {
+    fxState = "silent";
+    fxMessage = `FX SILENT \u2014 no close in ${fxMarketHours} market-open hours and no guard or AI activity in the last 24h. Likely stopped or emergency-stopped (an emergency stop does not auto-resume). Check the FX engine page and press Start if it shows Stopped.`;
+  }
+  let solLast = null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT max(NULLIF(closed_at, '')::timestamptz) AS last_at FROM sol_engine_positions WHERE status='closed'`
+    );
+    solLast = rows[0]?.last_at ? new Date(rows[0].last_at).toISOString() : null;
+  } catch {
+  }
+  const solHours = solLast ? Math.round((Date.now() - new Date(solLast).getTime()) / 36e5 * 10) / 10 : null;
+  let solState;
+  let solMessage;
+  if (!solLast || solHours == null) {
+    solState = "no_data";
+    solMessage = "Sol: no closed positions on record \u2014 nothing to watch yet.";
+  } else if (solHours < SOL_STALE_HOURS) {
+    solState = "ok";
+    solMessage = `Sol OK \u2014 last position closed ${solHours}h ago.`;
+  } else {
+    solState = "stale";
+    solMessage = `Sol STALE \u2014 no position (live, paper or shadow) has closed in ${solHours}h. If the Sol engine should be running, check its page.`;
+  }
+  let cryptoState = "never";
+  let cryptoLast = null;
+  let cryptoAge = null;
+  let cryptoMessage = "Crypto: health check unavailable.";
+  try {
+    const { getCryptoEngineHealth: getCryptoEngineHealth2 } = await Promise.resolve().then(() => (init_crypto_health(), crypto_health_exports));
+    const ch = await getCryptoEngineHealth2();
+    cryptoState = ch.status;
+    cryptoLast = ch.lastActivityAt;
+    cryptoAge = ch.ageMinutes;
+    cryptoMessage = ch.message;
+  } catch {
+  }
+  return {
+    checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    fx: { state: fxState, lastCloseAt: fxLast, hoursSinceLastClose: fxHours, marketHoursSinceLastClose: fxMarketHours, marketOpen, guardEvents24h, aiDecisions24h, message: fxMessage },
+    sol: { state: solState, lastCloseAt: solLast, hoursSinceLastClose: solHours, message: solMessage },
+    crypto: { state: cryptoState, lastActivityAt: cryptoLast, ageMinutes: cryptoAge, message: cryptoMessage }
+  };
+}
+async function getEngineWatchdogStatus() {
+  if (_lastStatus && Date.now() - _lastStatusAt < TICK_MS) return _lastStatus;
+  const status = await computeStatus();
+  _lastStatus = status;
+  _lastStatusAt = Date.now();
+  return status;
+}
+async function maybeAlert(status) {
+  const alerts = [];
+  if (status.fx.state === "gated" || status.fx.state === "silent") alerts.push(status.fx.message);
+  if (status.sol.state === "stale") alerts.push(status.sol.message);
+  if (status.crypto.state === "stale") alerts.push(status.crypto.message);
+  if (!alerts.length) return;
+  console.warn(`[engine-watchdog] ${alerts.join(" | ")}`);
+  let episodes = {};
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2, saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const stored = await getRuntimeStateStrict2("engine_watchdog", "episodes").catch(() => null);
+    if (stored && typeof stored === "object") episodes = stored;
+    saveRuntimeState2("engine_watchdog", "status", status);
+  } catch {
+  }
+  const due = [];
+  const check = (engine, key, text3) => {
+    if (!text3 || !key) return;
+    const ep = episodes[engine];
+    if (!ep || ep.key !== key) episodes[engine] = { key, sent: 0, lastAt: 0 };
+    const e = episodes[engine];
+    if (e.sent < MAX_ALERTS_PER_EPISODE && Date.now() - e.lastAt >= REALERT_MS) {
+      e.sent++;
+      e.lastAt = Date.now();
+      due.push(text3);
+    }
+  };
+  check("fx", status.fx.lastCloseAt, status.fx.state === "gated" || status.fx.state === "silent" ? status.fx.message : null);
+  check("sol", status.sol.lastCloseAt, status.sol.state === "stale" ? status.sol.message : null);
+  check("crypto", status.crypto.lastActivityAt, status.crypto.state === "stale" ? status.crypto.message : null);
+  try {
+    const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    saveRuntimeState2("engine_watchdog", "episodes", episodes);
+  } catch {
+  }
+  if (!due.length) return;
+  try {
+    const { sendMessage: sendMessage2, getChannelStatus: getChannelStatus2 } = await Promise.resolve().then(() => (init_messaging(), messaging_exports));
+    const configured = getChannelStatus2();
+    const channel = ["resend", "sendgrid", "gmail"].find((c) => configured[c]?.configured);
+    if (!channel) {
+      console.warn("[engine-watchdog] alert due but no email channel is configured \u2014 alert recorded in health/runtime_state only.");
+      return;
+    }
+    const result = await sendMessage2({
+      channel,
+      email: REPORT_EMAIL,
+      subject: "\u26A0\uFE0F VEDD engine watchdog: an engine has gone silent",
+      message: `Engine watchdog alert (${status.checkedAt})
+
+${due.join("\n\n")}
+
+The watchdog only observes \u2014 it never starts or reconfigures an engine. If the stop was intentional, ignore this; alerts repeat at most ${MAX_ALERTS_PER_EPISODE} times per silence episode.`
+    });
+    if (!result.success) console.warn(`[engine-watchdog] alert email failed via ${channel}: ${result.error || "unknown error"}`);
+  } catch (e) {
+    console.warn("[engine-watchdog] alert email threw (non-fatal):", e?.message || e);
+  }
+}
+function startEngineWatchdog() {
+  if (_started) return;
+  _started = true;
+  const tick3 = async () => {
+    try {
+      const status = await computeStatus();
+      _lastStatus = status;
+      _lastStatusAt = Date.now();
+      const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+      saveRuntimeState2("engine_watchdog", "status", status);
+      await maybeAlert(status);
+    } catch (e) {
+      console.error("[engine-watchdog] tick failed (non-fatal):", e?.message || e);
+    }
+  };
+  setTimeout(tick3, 5 * 60 * 1e3).unref?.();
+  setInterval(tick3, TICK_MS).unref?.();
+  console.log("[engine-watchdog] started \u2014 FX 24h / Sol 48h silence checks every 30 min.");
+}
+var TICK_MS, FX_STALE_HOURS, SOL_STALE_HOURS, MAX_ALERTS_PER_EPISODE, REALERT_MS, REPORT_EMAIL, _lastStatus, _lastStatusAt, _started;
+var init_engine_watchdog = __esm({
+  "server/services/engine-watchdog.ts"() {
+    "use strict";
+    init_db();
+    TICK_MS = 30 * 60 * 1e3;
+    FX_STALE_HOURS = 24;
+    SOL_STALE_HOURS = 48;
+    MAX_ALERTS_PER_EPISODE = 3;
+    REALERT_MS = 24 * 36e5;
+    REPORT_EMAIL = process.env.REPORT_EMAIL || "donchismkos@gmail.com";
+    _lastStatus = null;
+    _lastStatusAt = 0;
+    _started = false;
+  }
+});
+
+// server/services/kalshi.ts
+var kalshi_exports = {};
+__export(kalshi_exports, {
+  KALSHI_SERIES_MAP: () => KALSHI_SERIES_MAP,
+  clearKalshiCache: () => clearKalshiCache,
+  getKalshiBTCEvent: () => getKalshiBTCEvent,
+  getKalshiCryptoEvent: () => getKalshiCryptoEvent,
+  getKalshiMarketStatus: () => getKalshiMarketStatus,
+  isKalshiBrokerTradeable: () => isKalshiBrokerTradeable
+});
+function isKalshiBrokerTradeable(coin, timeframe) {
+  if (coin === "GOLD" && timeframe === "fifteen_min") return false;
+  return true;
+}
+function parseDollars(val) {
+  if (val == null) return 0;
+  const n = parseFloat(String(val));
+  return isNaN(n) ? 0 : Math.round(n * 100);
+}
+async function fetchNearestEvent(seriesTicker) {
+  const url = `${KALSHI_BASE2}/events?series_ticker=${seriesTicker}&limit=10&status=open`;
+  const res2 = await fetch(url, {
+    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    signal: AbortSignal.timeout(8e3)
+  });
+  if (!res2.ok) throw new Error(`Kalshi events API ${res2.status}`);
+  const data = await res2.json();
+  const events = data.events ?? [];
+  if (!events.length) return null;
+  const now = Date.now();
+  const upcoming = events.map((e) => ({
+    eventTicker: e.event_ticker,
+    title: e.title,
+    closeTime: e.strike_date ?? ""
+  })).filter((e) => new Date(e.closeTime).getTime() > now).sort((a, b) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime());
+  return upcoming[0] ?? null;
+}
+async function fetchEventMarkets(eventTicker) {
+  const url = `${KALSHI_BASE2}/markets?event_ticker=${eventTicker}&limit=200`;
+  const res2 = await fetch(url, {
+    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!res2.ok) throw new Error(`Kalshi markets API ${res2.status}`);
+  const data = await res2.json();
+  return data.markets ?? [];
+}
+function buildBrackets(rawMarkets) {
+  return rawMarkets.filter((m) => m.status === "active" || m.status === "open").map((m) => {
+    const yesAsk = parseDollars(m.yes_ask_dollars);
+    const yesBid = parseDollars(m.yes_bid_dollars);
+    const noAsk = parseDollars(m.no_ask_dollars);
+    const noBid = parseDollars(m.no_bid_dollars);
+    const lastPct = parseDollars(m.last_price_dollars);
+    const volume = parseFloat(m.volume_fp ?? "0") || 0;
+    let yesProbability;
+    if (lastPct > 0) {
+      yesProbability = lastPct;
+    } else if (yesBid > 0 || yesAsk > 0) {
+      yesProbability = yesBid > 0 && yesAsk > 0 ? Math.round((yesBid + yesAsk) / 2) : Math.max(yesBid, yesAsk);
+    } else if (noBid > 0) {
+      yesProbability = 100 - noBid;
+    } else {
+      yesProbability = 0;
+    }
+    const hasLiquidity = volume > 0 || yesBid > 1 && yesAsk < 99;
+    return {
+      ticker: m.ticker,
+      subtitle: m.subtitle ?? m.yes_sub_title ?? "",
+      strikeType: m.strike_type,
+      floorStrike: m.floor_strike != null ? Number(m.floor_strike) : null,
+      capStrike: m.cap_strike != null ? Number(m.cap_strike) : null,
+      yesProbability,
+      noProb: Math.max(0, 100 - yesProbability),
+      hasLiquidity,
+      volume,
+      yesAsk,
+      yesBid
+    };
+  });
+}
+async function getKalshiCryptoEvent(seriesTicker, currentPrice, forceRefresh = false) {
+  const now = Date.now();
+  const hit = eventCache.get(seriesTicker);
+  if (!forceRefresh && hit && now - hit.ts < CACHE_TTL_MS3) {
+    return { ...hit.event, fromCache: true };
+  }
+  const nearestEvent = await fetchNearestEvent(seriesTicker);
+  if (!nearestEvent) {
+    throw new Error(`No active ${seriesTicker} events on Kalshi`);
+  }
+  const rawMarkets = await fetchEventMarkets(nearestEvent.eventTicker);
+  const brackets = buildBrackets(rawMarkets);
+  const totalVolume = brackets.reduce((s, b) => s + b.volume, 0);
+  const hasActiveLiquidity = brackets.some((b) => b.hasLiquidity);
+  const consensusBracket = brackets.reduce((best, b) => b.yesProbability > (best?.yesProbability ?? -1) ? b : best, null);
+  let nearestBracket = null;
+  if (currentPrice && brackets.length) {
+    nearestBracket = brackets.reduce((best, b) => {
+      const mid = b.floorStrike != null && b.capStrike != null ? (b.floorStrike + b.capStrike) / 2 : b.floorStrike ?? b.capStrike ?? 0;
+      const bestMid = best.floorStrike != null && best.capStrike != null ? (best.floorStrike + best.capStrike) / 2 : best.floorStrike ?? best.capStrike ?? 0;
+      return Math.abs(mid - currentPrice) < Math.abs(bestMid - currentPrice) ? b : best;
+    });
+  }
+  const msUntilClose = Math.max(0, new Date(nearestEvent.closeTime).getTime() - now);
+  const result = {
+    eventTicker: nearestEvent.eventTicker,
+    title: nearestEvent.title,
+    closeTime: nearestEvent.closeTime,
+    msUntilClose,
+    brackets: brackets.sort((a, b) => b.yesProbability - a.yesProbability).slice(0, 10),
+    nearestBracket,
+    consensusBracket,
+    totalVolume,
+    hasActiveLiquidity,
+    fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    fromCache: false
+  };
+  eventCache.set(seriesTicker, { event: result, ts: now });
+  return result;
+}
+async function getKalshiBTCEvent(currentBTCPrice, forceRefresh = false) {
+  return getKalshiCryptoEvent("KXBTC", currentBTCPrice, forceRefresh);
+}
+async function getKalshiMarketStatus(ticker) {
+  const url = `${KALSHI_BASE2}/markets/${encodeURIComponent(ticker)}`;
+  const res2 = await fetch(url, {
+    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    signal: AbortSignal.timeout(8e3)
+  });
+  if (!res2.ok) return null;
+  const data = await res2.json();
+  const m = data.market;
+  if (!m) return null;
+  return {
+    ticker: m.ticker,
+    status: m.status ?? "",
+    result: m.result === "yes" || m.result === "no" ? m.result : "",
+    yesBid: parseDollars(m.yes_bid_dollars),
+    yesAsk: parseDollars(m.yes_ask_dollars),
+    lastPrice: parseDollars(m.last_price_dollars)
+  };
+}
+function clearKalshiCache(seriesTicker) {
+  if (seriesTicker) eventCache.delete(seriesTicker);
+  else eventCache.clear();
+}
+var KALSHI_BASE2, CACHE_TTL_MS3, KALSHI_SERIES_MAP, eventCache;
+var init_kalshi = __esm({
+  "server/services/kalshi.ts"() {
+    "use strict";
+    KALSHI_BASE2 = "https://api.elections.kalshi.com/trade-api/v2";
+    CACHE_TTL_MS3 = 6e4;
+    KALSHI_SERIES_MAP = {
+      BTC: { hourly: "KXBTC", fifteenMin: "KXBTC15M" },
+      ETH: { hourly: "KXETH", fifteenMin: "KXETH15M" },
+      SOL: { hourly: "KXSOL", fifteenMin: "KXSOL15M" },
+      XRP: { hourly: "KXXRP", fifteenMin: "KXXRP15M" },
+      DOGE: { hourly: "KXDOGE", fifteenMin: "KXDOGE15M" },
+      GOLD: { hourly: "KXGOLDH", fifteenMin: "KXGOLD15M" }
+    };
+    eventCache = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/btc-5min-predictor.ts
+var btc_5min_predictor_exports = {};
+__export(btc_5min_predictor_exports, {
+  clearBTCPredictionCache: () => clearBTCPredictionCache,
+  clearCryptoPredictionCache: () => clearCryptoPredictionCache,
+  getBTC5MinPrediction: () => getBTC5MinPrediction,
+  getBTCCandles: () => getBTCCandles,
+  getCryptoCandles: () => getCryptoCandles,
+  getCryptoPrediction: () => getCryptoPrediction
+});
+function ema3(values, period) {
+  const k2 = 2 / (period + 1);
+  const result = [];
+  let e = values[0];
+  result.push(e);
+  for (let i = 1; i < values.length; i++) {
+    e = values[i] * k2 + e * (1 - k2);
+    result.push(e);
+  }
+  return result;
+}
+function rsi3(closes, period = 14) {
+  if (closes.length < period + 1) return 50;
+  let gains = 0, losses = 0;
+  for (let i = closes.length - period; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d >= 0) gains += d;
+    else losses -= d;
+  }
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return Math.round(100 - 100 / (1 + rs));
+}
+function macd(closes) {
+  const ema12 = ema3(closes, 12);
+  const ema26 = ema3(closes, 26);
+  const macdLine = ema12.map((v, i) => v - ema26[i]);
+  const signalLine = ema3(macdLine, 9);
+  const last2 = closes.length - 1;
+  return {
+    macdLine: macdLine[last2],
+    signalLine: signalLine[last2],
+    histogram: macdLine[last2] - signalLine[last2]
+  };
+}
+function sma2(values, period) {
+  const slice = values.slice(-period);
+  return slice.reduce((a, b) => a + b, 0) / slice.length;
+}
+async function fetchBinanceCandles(symbol, interval, limit) {
+  const url = `${BINANCE_BASE}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  const res2 = await fetch(url, {
+    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    signal: AbortSignal.timeout(8e3)
+  });
+  if (!res2.ok) throw new Error(`Binance API ${res2.status}: ${res2.statusText}`);
+  const raw = await res2.json();
+  return raw.map((c) => ({
+    openTime: c[0],
+    open: parseFloat(c[1]),
+    high: parseFloat(c[2]),
+    low: parseFloat(c[3]),
+    close: parseFloat(c[4]),
+    volume: parseFloat(c[5])
+  }));
+}
+async function fetchCoinbaseCandles(limit, product = "BTC-USD") {
+  const url = `${COINBASE_BASE}/products/${product}/candles?granularity=300`;
+  const res2 = await fetch(url, {
+    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    signal: AbortSignal.timeout(8e3)
+  });
+  if (!res2.ok) throw new Error(`Coinbase API ${res2.status}: ${res2.statusText}`);
+  const raw = await res2.json();
+  const ascending = raw.slice().reverse();
+  return ascending.slice(-limit).map((c) => ({
+    openTime: c[0] * 1e3,
+    // seconds → ms
+    low: parseFloat(c[1]),
+    high: parseFloat(c[2]),
+    open: parseFloat(c[3]),
+    close: parseFloat(c[4]),
+    volume: parseFloat(c[5])
+  }));
+}
+async function fetchCandlesWithFallback(symbol, interval, limit, coinbaseProduct = "BTC-USD") {
+  try {
+    const candles = await fetchBinanceCandles(symbol, interval, limit);
+    return { candles, source: "binance" };
+  } catch (binanceErr) {
+    console.warn(`[BTC5Min] Binance fetch failed (${binanceErr.message}); falling back to Coinbase`);
+    const candles = await fetchCoinbaseCandles(limit, coinbaseProduct);
+    return { candles, source: "coinbase" };
+  }
+}
+async function fetchYahooCandles(yahooSymbol, limit) {
+  const url = `${YAHOO_BASE}/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=5m&range=1d`;
+  const res2 = await fetch(url, {
+    headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0 (VEDD-Trading-AI/1.0)" },
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!res2.ok) throw new Error(`Yahoo Finance API ${res2.status}: ${res2.statusText}`);
+  const data = await res2.json();
+  const result = data?.chart?.result?.[0];
+  if (!result) throw new Error(`Yahoo Finance returned no chart data for ${yahooSymbol}`);
+  const timestamps = result.timestamp ?? [];
+  const q = result.indicators?.quote?.[0] ?? {};
+  const candles = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    if (q.open?.[i] == null || q.close?.[i] == null || q.high?.[i] == null || q.low?.[i] == null) continue;
+    candles.push({
+      openTime: timestamps[i] * 1e3,
+      open: q.open[i],
+      high: q.high[i],
+      low: q.low[i],
+      close: q.close[i],
+      volume: q.volume?.[i] ?? 0
+    });
+  }
+  return candles.slice(-limit);
+}
+function buildPrediction(candles, fromCache, source = "binance", binanceSymbol = "BTCUSDT", coinbaseProduct = "BTC-USD") {
+  const closes = candles.map((c) => c.close);
+  const volumes = candles.map((c) => c.volume);
+  const highs = candles.map((c) => c.high);
+  const lows = candles.map((c) => c.low);
+  const last2 = candles[candles.length - 1];
+  const prev = candles[candles.length - 2];
+  const currentPrice = last2.close;
+  const priceChange5m = (last2.close - prev.close) / prev.close * 100;
+  const priceChange1h = (last2.close - candles[candles.length - 13].close) / candles[candles.length - 13].close * 100;
+  const ema9Val = ema3(closes, 9)[closes.length - 1];
+  const ema21Val = ema3(closes, 21)[closes.length - 1];
+  const ema50Val = ema3(closes, 50)[closes.length - 1];
+  const rsiVal = rsi3(closes, 14);
+  const { macdLine, signalLine, histogram } = macd(closes);
+  const volSma20 = sma2(volumes, 20);
+  const volLast3 = sma2(volumes.slice(-3), 3);
+  const volumeTrend = volLast3 > volSma20 * 1.15 ? "rising" : volLast3 < volSma20 * 0.85 ? "falling" : "flat";
+  const macdSignalDir = histogram > 0 ? "bullish" : histogram < 0 ? "bearish" : "neutral";
+  const recent20H = Math.max(...highs.slice(-20));
+  const recent20L = Math.min(...lows.slice(-20));
+  const signals = [];
+  if (ema9Val > ema21Val && ema21Val > ema50Val) {
+    signals.push({ score: 2, reason: "EMA stack bullish (9 > 21 > 50)" });
+  } else if (ema9Val < ema21Val && ema21Val < ema50Val) {
+    signals.push({ score: -2, reason: "EMA stack bearish (9 < 21 < 50)" });
+  }
+  if (currentPrice > ema9Val) {
+    signals.push({ score: 1, reason: `Price above EMA9 ($${ema9Val.toFixed(0)})` });
+  } else {
+    signals.push({ score: -1, reason: `Price below EMA9 ($${ema9Val.toFixed(0)})` });
+  }
+  if (rsiVal > 60) {
+    signals.push({ score: 1, reason: `RSI ${rsiVal} \u2014 momentum bullish` });
+  } else if (rsiVal < 40) {
+    signals.push({ score: -1, reason: `RSI ${rsiVal} \u2014 momentum bearish` });
+  } else if (rsiVal > 50) {
+    signals.push({ score: 0.5, reason: `RSI ${rsiVal} \u2014 mildly bullish` });
+  } else {
+    signals.push({ score: -0.5, reason: `RSI ${rsiVal} \u2014 mildly bearish` });
+  }
+  if (macdSignalDir === "bullish") {
+    signals.push({ score: histogram > 50 ? 2 : 1, reason: `MACD histogram positive (+${histogram.toFixed(1)})` });
+  } else {
+    signals.push({ score: histogram < -50 ? -2 : -1, reason: `MACD histogram negative (${histogram.toFixed(1)})` });
+  }
+  if (volumeTrend === "rising" && priceChange5m > 0) {
+    signals.push({ score: 1, reason: "Volume rising with price \u2014 buyers active" });
+  } else if (volumeTrend === "rising" && priceChange5m < 0) {
+    signals.push({ score: -1, reason: "Volume rising with drop \u2014 sellers active" });
+  }
+  if (priceChange1h > 0.5) {
+    signals.push({ score: 1, reason: `1h trend +${priceChange1h.toFixed(2)}%` });
+  } else if (priceChange1h < -0.5) {
+    signals.push({ score: -1, reason: `1h trend ${priceChange1h.toFixed(2)}%` });
+  }
+  if (rsiVal >= 75) {
+    signals.push({ score: -1, reason: `RSI ${rsiVal} \u2014 overbought, watch for reversal` });
+  } else if (rsiVal <= 25) {
+    signals.push({ score: 1, reason: `RSI ${rsiVal} \u2014 oversold, watch for bounce` });
+  }
+  const rawScore = signals.reduce((s, x) => s + x.score, 0);
+  const maxScore = 9;
+  const normalised = (rawScore / maxScore + 1) / 2;
+  const confidence2 = Math.min(95, Math.max(30, Math.round(normalised * 100)));
+  let direction;
+  if (rawScore >= 2) direction = "BUY";
+  else if (rawScore <= -2) direction = "SELL";
+  else direction = "NEUTRAL";
+  const sorted = signals.sort((a, b) => direction === "BUY" ? b.score - a.score : a.score - b.score).slice(0, 3).map((s) => s.reason);
+  return {
+    direction,
+    confidence: direction === "NEUTRAL" ? Math.round(50 + Math.abs(rawScore) * 5) : confidence2,
+    currentPrice,
+    priceChange5m: Math.round(priceChange5m * 1e3) / 1e3,
+    priceChange1h: Math.round(priceChange1h * 1e3) / 1e3,
+    rsi: rsiVal,
+    macdSignal: macdSignalDir,
+    macdHistogram: Math.round(histogram * 100) / 100,
+    ema9: Math.round(ema9Val),
+    ema21: Math.round(ema21Val),
+    ema50: Math.round(ema50Val),
+    volumeTrend,
+    supportLevel: Math.round(recent20L),
+    resistanceLevel: Math.round(recent20H),
+    reasons: sorted,
+    fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    fromCache,
+    symbol: source === "coinbase" ? coinbaseProduct : binanceSymbol,
+    source
+  };
+}
+async function getCryptoPrediction(coin, forceRefresh = false) {
+  const now = Date.now();
+  const cached2 = predictionCache.get(coin);
+  if (!forceRefresh && cached2 && now - cached2.ts < CACHE_TTL_MS4) {
+    return { ...cached2.prediction, fromCache: true };
+  }
+  if (coin === "GOLD") {
+    const candles2 = await fetchYahooCandles(YAHOO_SYMBOL.GOLD, 100);
+    const prediction2 = buildPrediction(candles2, false, "yahoo", YAHOO_SYMBOL.GOLD, YAHOO_SYMBOL.GOLD);
+    predictionCache.set(coin, { prediction: prediction2, ts: now });
+    return prediction2;
+  }
+  const { binance, coinbase } = COIN_MAP[coin];
+  const { candles, source } = await fetchCandlesWithFallback(binance, "5m", 100, coinbase);
+  const prediction = buildPrediction(candles, false, source, binance, coinbase);
+  predictionCache.set(coin, { prediction, ts: now });
+  return prediction;
+}
+function clearCryptoPredictionCache(coin) {
+  if (coin) predictionCache.delete(coin);
+  else predictionCache.clear();
+}
+async function getCryptoCandles(coin, limit = 100) {
+  if (coin === "GOLD") {
+    const candles = await fetchYahooCandles(YAHOO_SYMBOL.GOLD, limit);
+    return { candles, source: "yahoo" };
+  }
+  const { binance, coinbase } = COIN_MAP[coin];
+  return fetchCandlesWithFallback(binance, "5m", limit, coinbase);
+}
+async function getBTC5MinPrediction(forceRefresh = false) {
+  return getCryptoPrediction("BTC", forceRefresh);
+}
+function clearBTCPredictionCache() {
+  clearCryptoPredictionCache("BTC");
+}
+async function getBTCCandles(limit = 100) {
+  return getCryptoCandles("BTC", limit);
+}
+var BINANCE_BASE, COINBASE_BASE, YAHOO_BASE, CACHE_TTL_MS4, COIN_MAP, YAHOO_SYMBOL, predictionCache;
+var init_btc_5min_predictor = __esm({
+  "server/services/btc-5min-predictor.ts"() {
+    "use strict";
+    BINANCE_BASE = "https://api.binance.com";
+    COINBASE_BASE = "https://api.exchange.coinbase.com";
+    YAHOO_BASE = "https://query1.finance.yahoo.com";
+    CACHE_TTL_MS4 = 3e4;
+    COIN_MAP = {
+      BTC: { binance: "BTCUSDT", coinbase: "BTC-USD" },
+      ETH: { binance: "ETHUSDT", coinbase: "ETH-USD" },
+      SOL: { binance: "SOLUSDT", coinbase: "SOL-USD" },
+      XRP: { binance: "XRPUSDT", coinbase: "XRP-USD" },
+      DOGE: { binance: "DOGEUSDT", coinbase: "DOGE-USD" }
+    };
+    YAHOO_SYMBOL = {
+      GOLD: "GC=F"
+    };
+    predictionCache = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/kalshi-strategies.ts
+function pct1h(candles) {
+  if (candles.length < 13) return 0;
+  const last2 = candles[candles.length - 1].close;
+  const prev = candles[candles.length - 13].close;
+  return (last2 - prev) / prev * 100;
+}
+function volumeProfileSignal(candles) {
+  const price = candles[candles.length - 1].close;
+  const priceChange1h = pct1h(candles);
+  const window = candles.slice(-60);
+  const hi2 = Math.max(...window.map((c) => c.high));
+  const lo2 = Math.min(...window.map((c) => c.low));
+  const bins = 24;
+  const binSize = (hi2 - lo2) / bins || 1;
+  const vol = new Array(bins).fill(0);
+  for (const c of window) {
+    const tp = (c.high + c.low + c.close) / 3;
+    let idx = Math.floor((tp - lo2) / binSize);
+    idx = clamp3(idx, 0, bins - 1);
+    vol[idx] += c.volume;
+  }
+  const totalVol = vol.reduce((a, b) => a + b, 0) || 1;
+  let pocIdx = 0;
+  for (let i = 1; i < bins; i++) if (vol[i] > vol[pocIdx]) pocIdx = i;
+  const pocPrice = lo2 + (pocIdx + 0.5) * binSize;
+  let included = vol[pocIdx];
+  let loIdx = pocIdx, hiIdx = pocIdx;
+  while (included < totalVol * 0.7 && (loIdx > 0 || hiIdx < bins - 1)) {
+    const down = loIdx > 0 ? vol[loIdx - 1] : -1;
+    const up = hiIdx < bins - 1 ? vol[hiIdx + 1] : -1;
+    if (up >= down) {
+      hiIdx++;
+      included += vol[hiIdx];
+    } else {
+      loIdx--;
+      included += vol[loIdx];
+    }
+  }
+  const VAL = lo2 + loIdx * binSize;
+  const VAH = lo2 + (hiIdx + 1) * binSize;
+  const avgVol = totalVol / window.length;
+  const recentVol = window.slice(-3).reduce((s, c) => s + c.volume, 0) / 3;
+  const volConfirm = recentVol > avgVol;
+  let direction = "NEUTRAL";
+  let confidence2 = 50;
+  let reason;
+  if (price > VAH && volConfirm) {
+    direction = "BUY";
+    const dist = (price - VAH) / binSize;
+    confidence2 = clamp3(Math.round(60 + dist * 8), 55, 90);
+    reason = `VP breakout: price $${price.toFixed(0)} above value-area-high $${VAH.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
+  } else if (price < VAL && volConfirm) {
+    direction = "SELL";
+    const dist = (VAL - price) / binSize;
+    confidence2 = clamp3(Math.round(60 + dist * 8), 55, 90);
+    reason = `VP breakdown: price $${price.toFixed(0)} below value-area-low $${VAL.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
+  } else if (price > VAH || price < VAL) {
+    direction = "NEUTRAL";
+    confidence2 = 48;
+    reason = `VP: price outside value area but volume NOT confirming \u2014 likely false breakout, skip`;
+  } else {
+    direction = "NEUTRAL";
+    confidence2 = 45;
+    reason = `VP: price $${price.toFixed(0)} inside value area $${VAL.toFixed(0)}\u2013$${VAH.toFixed(0)} (POC $${pocPrice.toFixed(0)}) \u2014 no breakout edge`;
+  }
+  return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "volume_profile" };
+}
+function markovSignal(candles) {
+  const price = candles[candles.length - 1].close;
+  const priceChange1h = pct1h(candles);
+  const window = candles.slice(-80);
+  const FLAT = 4e-4;
+  const states = window.map((c) => {
+    const ch = (c.close - c.open) / c.open;
+    return ch > FLAT ? "U" : ch < -FLAT ? "D" : "F";
+  });
+  const idx = { U: 0, D: 1, F: 2 };
+  const M = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (let i = 1; i < states.length; i++) M[idx[states[i - 1]]][idx[states[i]]]++;
+  const cur = states[states.length - 1];
+  const row = M[idx[cur]];
+  const rowSum = row[0] + row[1] + row[2] || 1;
+  const pU = row[0] / rowSum;
+  const pD = row[1] / rowSum;
+  let direction = "NEUTRAL";
+  let confidence2 = 50;
+  const MIN_PROB = 0.55;
+  const MIN_MARGIN = 0.12;
+  const enoughSamples = rowSum >= 8;
+  if (enoughSamples && pU >= MIN_PROB && pU - pD >= MIN_MARGIN) {
+    direction = "BUY";
+    confidence2 = clamp3(Math.round(pU * 100), 55, 92);
+  } else if (enoughSamples && pD >= MIN_PROB && pD - pU >= MIN_MARGIN) {
+    direction = "SELL";
+    confidence2 = clamp3(Math.round(pD * 100), 55, 92);
+  } else {
+    direction = "NEUTRAL";
+    confidence2 = clamp3(Math.round(Math.max(pU, pD) * 100), 40, 54);
+  }
+  const reason = `Markov from '${cur}' state: P(up)=${(pU * 100).toFixed(0)}%, P(down)=${(pD * 100).toFixed(0)}% (${rowSum} samples)`;
+  return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "markov" };
+}
+function orderFlowSignal(candles) {
+  const price = candles[candles.length - 1].close;
+  const priceChange1h = pct1h(candles);
+  const cdCandles = candles.map((c) => ({ o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume }));
+  const of = computeOrderFlow(cdCandles, Math.min(30, cdCandles.length));
+  if (of.direction === "NEUTRAL") {
+    return { direction: "NEUTRAL", confidence: 45, currentPrice: price, priceChange1h, reason: "Order flow neutral \u2014 no CVD divergence or imbalance detected", strategy: "order_flow" };
+  }
+  return {
+    direction: of.direction,
+    confidence: of.confidence,
+    currentPrice: price,
+    priceChange1h,
+    reason: of.reason,
+    strategy: "order_flow"
+  };
+}
+function ema4(values, period) {
+  if (!values.length) return 0;
+  const k2 = 2 / (period + 1);
+  let e = values[0];
+  for (let i = 1; i < values.length; i++) e = values[i] * k2 + e * (1 - k2);
+  return e;
+}
+function rsi4(closes, period = 14) {
+  if (closes.length < period + 1) return 50;
+  let gain = 0, loss = 0;
+  for (let i = closes.length - period; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d >= 0) gain += d;
+    else loss -= d;
+  }
+  const rs = loss === 0 ? 100 : gain / loss;
+  return 100 - 100 / (1 + rs);
+}
+function macdHist2(closes) {
+  if (closes.length < 26) return 0;
+  const emaArr = (vals, p2) => {
+    const k2 = 2 / (p2 + 1);
+    let e = vals[0];
+    const out = [e];
+    for (let i = 1; i < vals.length; i++) {
+      e = vals[i] * k2 + e * (1 - k2);
+      out.push(e);
+    }
+    return out;
+  };
+  const e12 = emaArr(closes, 12), e26 = emaArr(closes, 26);
+  const macdLine = closes.map((_, i) => e12[i] - e26[i]);
+  const signal = emaArr(macdLine.slice(-9), 9);
+  return macdLine[macdLine.length - 1] - signal[signal.length - 1];
+}
+function linregSlope(values) {
+  const n = values.length;
+  if (n < 2) return 0;
+  const xs = values.map((_, i) => i);
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = values.reduce((a, b) => a + b, 0) / n;
+  let num8 = 0, den = 0;
+  for (let i = 0; i < n; i++) {
+    num8 += (xs[i] - mx) * (values[i] - my);
+    den += (xs[i] - mx) ** 2;
+  }
+  return den === 0 ? 0 : num8 / den;
+}
+function ensembleSignal(candles) {
+  const price = candles[candles.length - 1].close;
+  const priceChange1h = pct1h(candles);
+  if (candles.length < 30) {
+    return { direction: "NEUTRAL", confidence: 0, currentPrice: price, priceChange1h, reason: "Not enough candles for ensemble", strategy: "ensemble" };
+  }
+  const closes = candles.map((c) => c.close);
+  const recent = candles.slice(-30);
+  const ema9 = ema4(closes.slice(-40), 9);
+  const ema21 = ema4(closes.slice(-60), 21);
+  const ema50 = ema4(closes.slice(-80), 50);
+  const trendUp = ema9 > ema21 && ema21 > ema50 && price > ema50;
+  const trendDn = ema9 < ema21 && ema21 < ema50 && price < ema50;
+  const r = rsi4(closes);
+  const mh = macdHist2(closes);
+  let aggr = 0, volSum = 0;
+  for (const c of recent.slice(-12)) {
+    const range = c.high - c.low;
+    if (range <= 0) continue;
+    aggr += ((c.close - c.low) / range * 2 - 1) * c.volume;
+    volSum += c.volume;
+  }
+  const aggrNorm = volSum > 0 ? aggr / volSum : 0;
+  const slope = linregSlope(closes.slice(-12)) / price;
+  const emaSpreadPct = Math.abs(ema9 - ema50) / price * 100;
+  const rets = recent.slice(-20).map((c, i, a) => i === 0 ? 0 : (c.close - a[i - 1].close) / a[i - 1].close);
+  const meanRet = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const directionalness = Math.abs(meanRet) / (Math.sqrt(rets.reduce((s, x) => s + (x - meanRet) ** 2, 0) / rets.length) || 1e-9);
+  const choppy = emaSpreadPct < 0.06 && directionalness < 0.25;
+  if (choppy) {
+    return { direction: "NEUTRAL", confidence: 40, currentPrice: price, priceChange1h, reason: `Ensemble: choppy/ranging regime (EMA spread ${emaSpreadPct.toFixed(3)}%, low directionalness) \u2014 standing aside`, strategy: "ensemble" };
+  }
+  let bull = 0, bear = 0;
+  const notes = [];
+  if (trendUp) {
+    bull++;
+    notes.push("EMA stack up");
+  } else if (trendDn) {
+    bear++;
+    notes.push("EMA stack down");
+  }
+  if (mh > 0) bull++;
+  else if (mh < 0) bear++;
+  if (r > 50 && r < 72) {
+    bull++;
+    notes.push(`RSI ${r.toFixed(0)}`);
+  } else if (r < 50 && r > 28) {
+    bear++;
+    notes.push(`RSI ${r.toFixed(0)}`);
+  }
+  if (aggrNorm > 0.1) {
+    bull++;
+    notes.push("buyer aggression");
+  } else if (aggrNorm < -0.1) {
+    bear++;
+    notes.push("seller aggression");
+  }
+  if (slope > 0) bull++;
+  else if (slope < 0) bear++;
+  const total = bull + bear;
+  let direction = "NEUTRAL";
+  let confidence2 = 50;
+  if (bull >= 4 && bull > bear) {
+    direction = "BUY";
+    confidence2 = clamp3(60 + bull * 6, 60, 92);
+  } else if (bear >= 4 && bear > bull) {
+    direction = "SELL";
+    confidence2 = clamp3(60 + bear * 6, 60, 92);
+  } else {
+    direction = "NEUTRAL";
+    confidence2 = clamp3(45 + Math.max(bull, bear) * 3, 40, 58);
+  }
+  const reason = `Ensemble ${direction}: ${Math.max(bull, bear)}/5 factors agree (${notes.join(", ")}). Trending regime confirmed.`;
+  return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "ensemble" };
+}
+async function getKalshiSignal(strategy, coin = "BTC") {
+  if (strategy === "momentum") {
+    const p2 = await getCryptoPrediction(coin);
+    return {
+      direction: p2.direction,
+      confidence: p2.confidence,
+      currentPrice: p2.currentPrice,
+      priceChange1h: p2.priceChange1h,
+      reason: p2.reasons?.[0] ?? "Momentum (RSI/MACD/EMA) signal",
+      strategy: "momentum"
+    };
+  }
+  const { candles } = await getCryptoCandles(coin, 100);
+  if (!candles.length) {
+    return { direction: "NEUTRAL", confidence: 0, currentPrice: 0, priceChange1h: 0, reason: "No candle data available", strategy };
+  }
+  if (strategy === "volume_profile") return volumeProfileSignal(candles);
+  if (strategy === "order_flow") return orderFlowSignal(candles);
+  if (strategy === "ensemble") return ensembleSignal(candles);
+  return markovSignal(candles);
+}
+function estimateHourlyVol(candles) {
+  if (candles.length < 13) return 4e-3;
+  const rets = [];
+  for (let i = 1; i < candles.length; i++) {
+    const prev = candles[i - 1].close;
+    if (prev > 0) rets.push((candles[i].close - prev) / prev);
+  }
+  const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const variance = rets.reduce((a, b) => a + (b - mean) ** 2, 0) / rets.length;
+  const perCandle = Math.sqrt(variance);
+  return perCandle * Math.sqrt(12);
+}
+async function getKalshiConsensus(coin = "BTC") {
+  const { candles } = await getCryptoCandles(coin, 100);
+  if (!candles.length) {
+    return { direction: "NEUTRAL", confidence: 0, agreement: 0, currentPrice: 0, priceChange1h: 0, signals: [], reasons: ["No candle data"] };
+  }
+  const momentumPred = await getCryptoPrediction(coin).catch(() => null);
+  const signals = [];
+  if (momentumPred) {
+    signals.push({
+      direction: momentumPred.direction,
+      confidence: momentumPred.confidence,
+      currentPrice: momentumPred.currentPrice,
+      priceChange1h: momentumPred.priceChange1h,
+      reason: momentumPred.reasons?.[0] ?? "Momentum signal",
+      strategy: "momentum"
+    });
+  }
+  signals.push(volumeProfileSignal(candles));
+  signals.push(markovSignal(candles));
+  signals.push(orderFlowSignal(candles));
+  signals.push(ensembleSignal(candles));
+  const price = candles[candles.length - 1].close;
+  const priceChange1h = pct1h(candles);
+  let buyWeight = 0, sellWeight = 0;
+  for (const sig of signals) {
+    if (sig.direction === "BUY") buyWeight += sig.confidence;
+    if (sig.direction === "SELL") sellWeight += sig.confidence;
+  }
+  const totalWeight = buyWeight + sellWeight;
+  let direction = "NEUTRAL";
+  let confidence2 = 0;
+  let agreement = 0;
+  if (totalWeight > 0) {
+    if (buyWeight > sellWeight) {
+      direction = "BUY";
+      agreement = buyWeight / totalWeight;
+      const buyers = signals.filter((s) => s.direction === "BUY");
+      confidence2 = Math.round(buyers.reduce((a, b) => a + b.confidence, 0) / buyers.length);
+    } else if (sellWeight > buyWeight) {
+      direction = "SELL";
+      agreement = sellWeight / totalWeight;
+      const sellers = signals.filter((s) => s.direction === "SELL");
+      confidence2 = Math.round(sellers.reduce((a, b) => a + b.confidence, 0) / sellers.length);
+    }
+  }
+  const reasons = signals.map((s) => `${s.strategy}: ${s.direction} ${s.confidence}%`);
+  return { direction, confidence: confidence2, agreement, currentPrice: price, priceChange1h, signals, reasons };
+}
+var clamp3;
+var init_kalshi_strategies = __esm({
+  "server/services/kalshi-strategies.ts"() {
+    "use strict";
+    init_btc_5min_predictor();
+    init_orderflow_strategy();
+    clamp3 = (n, lo2, hi2) => Math.max(lo2, Math.min(hi2, n));
+  }
+});
+
+// server/services/kalshi-performance.ts
+var kalshi_performance_exports = {};
+__export(kalshi_performance_exports, {
+  getKalshiPerformance: () => getKalshiPerformance,
+  recordKalshiOutcome: () => recordKalshiOutcome
+});
+import * as fs4 from "fs";
+import * as path4 from "path";
+function emptyStat(strategy) {
+  return {
+    strategy,
+    trades: 0,
+    wins: 0,
+    losses: 0,
+    breakeven: 0,
+    totalPnl: 0,
+    bestPnl: 0,
+    worstPnl: 0,
+    lastResult: null,
+    lastClosedAt: null
+  };
+}
+function loadAll2() {
+  try {
+    if (fs4.existsSync(FILE2)) return JSON.parse(fs4.readFileSync(FILE2, "utf-8"));
+  } catch (e) {
+    console.error("[Kalshi] Performance store is unreadable (corrupted JSON?) \u2014 treating as empty (win-rate history for this read will look reset):", e?.message);
+  }
+  return {};
+}
+function saveAll2(store) {
+  try {
+    const dir = path4.dirname(FILE2);
+    if (!fs4.existsSync(dir)) fs4.mkdirSync(dir, { recursive: true });
+    const content = JSON.stringify(store, null, 2);
+    fs4.writeFileSync(FILE2, content);
+    backupDurableFile("kalshi_performance.json", content);
+  } catch {
+  }
+}
+function recordKalshiOutcome(userId, strategy, realizedPnl) {
+  const store = loadAll2();
+  const uKey = String(userId);
+  store[uKey] = store[uKey] || {};
+  const stat = store[uKey][strategy] ?? emptyStat(strategy);
+  stat.trades += 1;
+  stat.totalPnl = Math.round((stat.totalPnl + realizedPnl) * 100) / 100;
+  if (realizedPnl > 5e-3) {
+    stat.wins += 1;
+    stat.lastResult = "WIN";
+  } else if (realizedPnl < -5e-3) {
+    stat.losses += 1;
+    stat.lastResult = "LOSS";
+  } else {
+    stat.breakeven += 1;
+    stat.lastResult = "BREAKEVEN";
+  }
+  stat.bestPnl = Math.max(stat.bestPnl, Math.round(realizedPnl * 100) / 100);
+  stat.worstPnl = Math.min(stat.worstPnl, Math.round(realizedPnl * 100) / 100);
+  stat.lastClosedAt = (/* @__PURE__ */ new Date()).toISOString();
+  store[uKey][strategy] = stat;
+  saveAll2(store);
+}
+function getKalshiPerformance(userId) {
+  const map = loadAll2()[String(userId)] ?? {};
+  const byStrategy = Object.values(map).map((s) => {
+    const decided2 = s.wins + s.losses;
+    return { ...s, winRate: decided2 > 0 ? Math.round(s.wins / decided2 * 100) : 0 };
+  }).sort((a, b) => b.trades - a.trades);
+  const totals = byStrategy.reduce(
+    (acc, s) => {
+      acc.trades += s.trades;
+      acc.wins += s.wins;
+      acc.losses += s.losses;
+      acc.totalPnl = Math.round((acc.totalPnl + s.totalPnl) * 100) / 100;
+      return acc;
+    },
+    { trades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0 }
+  );
+  const decided = totals.wins + totals.losses;
+  totals.winRate = decided > 0 ? Math.round(totals.wins / decided * 100) : 0;
+  return { byStrategy, totals };
+}
+var FILE2;
+var init_kalshi_performance = __esm({
+  "server/services/kalshi-performance.ts"() {
+    "use strict";
+    init_cred_store();
+    FILE2 = path4.join(process.cwd(), "data", "kalshi_performance.json");
+  }
+});
+
+// server/services/kalshi-brain.ts
+var kalshi_brain_exports = {};
+__export(kalshi_brain_exports, {
+  cachedKalshiBrain: () => cachedKalshiBrain,
+  getOrRefreshKalshiBrain: () => getOrRefreshKalshiBrain,
+  kalshiBrainGate: () => kalshiBrainGate,
+  kalshiBrainSizeMultiplier: () => kalshiBrainSizeMultiplier,
+  kalshiBrainValueWeight: () => kalshiBrainValueWeight,
+  learnFromKalshiTrades: () => learnFromKalshiTrades
+});
+import { and as and5, desc as desc2, eq as eq6, sql as sql7 } from "drizzle-orm";
+function _band(n, size) {
+  const lo2 = Math.floor(n / size) * size;
+  return `${lo2}-${lo2 + size}`;
+}
+function _bump(map, key, win) {
+  const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
+  s.trades++;
+  if (win) s.wins++;
+  s.winRate = Math.round(s.wins / s.trades * 100);
+}
+function coinFromTicker(ticker) {
+  const t = ticker.replace(/^KALSHI:/, "").toUpperCase();
+  for (const c of ["BTC", "ETH", "SOL", "XRP", "DOGE", "GOLD"]) if (t.includes(c)) return c;
+  return "BTC";
+}
+function _sizeMultiplier(winRate2, rr, trades) {
+  if (trades < MIN_TRADES_FOR_COIN) return 1;
+  const w = winRate2 / 100;
+  const r = rr > 0 ? rr : 1;
+  const kelly = w - (1 - w) / r;
+  return Math.max(0.25, Math.min(1.5, 1 + kelly));
+}
+function _valueWeight(winRate2, trades) {
+  if (trades < 5) return 1;
+  return Math.round((0.7 + winRate2 / 100 * 0.6) * 100) / 100;
+}
+async function _backfillIfEmpty(userId) {
+  const [{ n }] = await db.select({ n: sql7`count(*)` }).from(kalshiBrainOutcomes).where(eq6(kalshiBrainOutcomes.userId, userId));
+  if (Number(n) > 0) return;
+  const rows = await db.select().from(aiTradeResults).where(and5(eq6(aiTradeResults.userId, userId), eq6(aiTradeResults.source, "kalshi"))).orderBy(desc2(aiTradeResults.closedAt)).limit(1e3);
+  if (!rows.length) return;
+  const seed = rows.filter((r) => r.closedAt).map((r) => {
+    const strat = (r.notes ?? "").split(":")[0].trim() || "unknown";
+    const d = new Date(r.closedAt);
+    return {
+      userId,
+      coin: coinFromTicker(r.symbol),
+      timeframe: "hourly",
+      strategy: strat,
+      direction: r.direction === "SELL" ? "SELL" : "BUY",
+      strikeType: null,
+      entryPriceCents: r.entryPrice != null ? Math.round(r.entryPrice * 100) : null,
+      confidence: r.aiConfidence ?? null,
+      edgePct: null,
+      valueScore: null,
+      modelProbPct: null,
+      agreement: null,
+      hourUtc: d.getUTCHours(),
+      holdingMinutes: null,
+      exitReason: null,
+      result: r.result ?? (Number(r.profitLoss) > 0 ? "WIN" : Number(r.profitLoss) < 0 ? "LOSS" : "BREAKEVEN"),
+      profitLoss: Number(r.profitLoss ?? 0),
+      source: "backfill",
+      closedAt: d
+    };
+  });
+  if (seed.length) await db.insert(kalshiBrainOutcomes).values(seed);
+}
+async function learnFromKalshiTrades(userId) {
+  await _backfillIfEmpty(userId).catch(() => {
+  });
+  const rows = await db.select().from(kalshiBrainOutcomes).where(eq6(kalshiBrainOutcomes.userId, userId)).orderBy(desc2(kalshiBrainOutcomes.closedAt)).limit(2e3);
+  const coins = {};
+  const winSum = {}, winN = {};
+  const lossSum = {}, lossN = {};
+  let totalWins = 0, totalDecided = 0, totalPnl = 0;
+  for (const r of rows) {
+    const coin = r.coin || "BTC";
+    const k2 = coins[coin] ??= {
+      totalTrades: 0,
+      wins: 0,
+      losses: 0,
+      winRate: 0,
+      totalPnl: 0,
+      avgWin: 0,
+      avgLoss: 0,
+      riskReward: 0,
+      byStrikeType: {},
+      byConfidenceBand: {},
+      byEdgeBand: {},
+      byHour: {},
+      bestStrikeType: null,
+      recommendedSizeMultiplier: 1,
+      valueScoreWeight: 1
+    };
+    const pnl = Number(r.profitLoss ?? 0);
+    const win = r.result === "WIN";
+    const loss = r.result === "LOSS";
+    k2.totalTrades++;
+    k2.totalPnl += pnl;
+    totalPnl += pnl;
+    if (win) {
+      k2.wins++;
+      totalWins++;
+      winSum[coin] = (winSum[coin] ?? 0) + pnl;
+      winN[coin] = (winN[coin] ?? 0) + 1;
+    }
+    if (loss) {
+      k2.losses++;
+      lossSum[coin] = (lossSum[coin] ?? 0) + Math.abs(pnl);
+      lossN[coin] = (lossN[coin] ?? 0) + 1;
+    }
+    if (win || loss) totalDecided++;
+    if (r.strikeType) _bump(k2.byStrikeType, r.strikeType, win);
+    if (r.confidence != null) _bump(k2.byConfidenceBand, _band(r.confidence, 10), win);
+    if (r.edgePct != null) _bump(k2.byEdgeBand, _band(r.edgePct, 5), win);
+    if (r.hourUtc != null) _bump(k2.byHour, String(r.hourUtc), win);
+  }
+  for (const [coin, k2] of Object.entries(coins)) {
+    const decided = k2.wins + k2.losses;
+    k2.winRate = decided ? Math.round(k2.wins / decided * 100) : 0;
+    k2.avgWin = winN[coin] ? winSum[coin] / winN[coin] : 0;
+    k2.avgLoss = lossN[coin] ? lossSum[coin] / lossN[coin] : 0;
+    k2.riskReward = k2.avgLoss > 0 ? k2.avgWin / k2.avgLoss : k2.avgWin > 0 ? 2 : 1;
+    k2.recommendedSizeMultiplier = _sizeMultiplier(k2.winRate, k2.riskReward, decided);
+    k2.valueScoreWeight = _valueWeight(k2.winRate, decided);
+    let best = null, bestWr = -1;
+    for (const [t, s] of Object.entries(k2.byStrikeType)) if (s.trades >= 3 && s.winRate > bestWr) {
+      best = t;
+      bestWr = s.winRate;
+    }
+    k2.bestStrikeType = best;
+  }
+  const insights = [];
+  for (const [coin, k2] of Object.entries(coins)) {
+    if (k2.wins + k2.losses >= MIN_TRADES_FOR_COIN) {
+      insights.push(`${coin}: ${k2.winRate}% win rate over ${k2.wins + k2.losses} trades \u2192 sizing \xD7${k2.recommendedSizeMultiplier}, value \xD7${k2.valueScoreWeight}.`);
+      if (k2.bestStrikeType) insights.push(`${coin}: best on "${k2.bestStrikeType}" brackets.`);
+    } else {
+      insights.push(`${coin}: still learning (${k2.wins + k2.losses}/${MIN_TRADES_FOR_COIN} decided) \u2014 neutral sizing.`);
+    }
+  }
+  const brain = {
+    userId,
+    lastLearned: (/* @__PURE__ */ new Date()).toISOString(),
+    totalTrades: rows.length,
+    overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0,
+    totalPnl: Math.round(totalPnl * 100) / 100,
+    coinKnowledge: coins,
+    insights
+  };
+  _cache7.set(userId, { brain, at: Date.now() });
+  return brain;
+}
+async function getOrRefreshKalshiBrain(userId, force = false) {
+  const hit = _cache7.get(userId);
+  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS3) return hit.brain;
+  return learnFromKalshiTrades(userId);
+}
+function cachedKalshiBrain(userId) {
+  return _cache7.get(userId)?.brain ?? null;
+}
+function kalshiBrainSizeMultiplier(userId, coin) {
+  const b = _cache7.get(userId)?.brain;
+  const k2 = b?.coinKnowledge[coin];
+  return k2 ? k2.recommendedSizeMultiplier : 1;
+}
+function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
+  const k2 = _cache7.get(userId)?.brain?.coinKnowledge[coin];
+  if (!k2) return { blocked: false, reason: "" };
+  const decided = k2.wins + k2.losses;
+  if (decided >= 15 && k2.winRate < 35) {
+    return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin} win rate ${k2.winRate}% over ${decided} trades \u2014 skipping coin` };
+  }
+  if (strikeType) {
+    const st = k2.byStrikeType[strikeType];
+    if (st && st.trades >= 8 && st.winRate < 30) {
+      return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin}/${strikeType} win rate ${st.winRate}% over ${st.trades} \u2014 skipping bracket type` };
+    }
+  }
+  if (hourUtc != null) {
+    const h = k2.byHour[String(hourUtc)];
+    if (h && h.trades >= 8 && h.winRate < 30) {
+      return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin} @ ${hourUtc}:00 UTC win rate ${h.winRate}% over ${h.trades} \u2014 skipping this hour` };
+    }
+  }
+  if (confidence2 != null) {
+    const cb = k2.byConfidenceBand[_band(confidence2, 10)];
+    if (cb && cb.trades >= 8 && cb.winRate < 30) {
+      return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin} at ${_band(confidence2, 10)} confidence win rate ${cb.winRate}% over ${cb.trades} \u2014 skipping` };
+    }
+  }
+  return { blocked: false, reason: "" };
+}
+function kalshiBrainValueWeight(userId, coin, strikeType) {
+  const k2 = _cache7.get(userId)?.brain?.coinKnowledge[coin];
+  if (!k2) return 1;
+  let w = k2.valueScoreWeight;
+  if (strikeType) {
+    const st = k2.byStrikeType[strikeType];
+    if (st && st.trades >= 5) w *= 0.85 + st.winRate / 100 * 0.3;
+  }
+  return Math.max(0.6, Math.min(1.4, Math.round(w * 100) / 100));
+}
+var MIN_TRADES_FOR_COIN, REFRESH_TTL_MS3, _cache7;
+var init_kalshi_brain = __esm({
+  "server/services/kalshi-brain.ts"() {
     "use strict";
     init_db();
     init_schema();
-    VEDD_TOKEN_MINT = process.env.VEDD_TOKEN_MINT || "";
-    SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
-    POOL_WALLET_PRIVATE_KEY = process.env.POOL_WALLET_PRIVATE_KEY;
-    DAILY_VEDD_CAP2 = 500;
-    WEEKLY_VEDD_CAP2 = 2e3;
-    connection = null;
-    poolKeypair = null;
-    VeddTokenService = class {
-      async getPoolWalletInfo(walletType = "rewards") {
-        const [wallet] = await db.select().from(veddPoolWallets).where(and6(
-          eq9(veddPoolWallets.walletType, walletType),
-          eq9(veddPoolWallets.status, "active")
-        )).limit(1);
-        if (!wallet) return null;
-        return {
-          id: wallet.id,
-          label: wallet.label,
-          publicKey: wallet.publicKey,
-          walletType: wallet.walletType,
-          status: wallet.status,
-          tokenBalance: wallet.tokenBalance || 0,
-          lowBalanceThreshold: wallet.lowBalanceThreshold || 1e3,
-          isLowBalance: (wallet.tokenBalance || 0) < (wallet.lowBalanceThreshold || 1e3)
+    MIN_TRADES_FOR_COIN = 10;
+    REFRESH_TTL_MS3 = 60 * 1e3;
+    _cache7 = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/kalshi-weather.ts
+function localDateInTz(ms, tz) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
+}
+async function fetchEnsembleDailyMax(city, targetLocalDate) {
+  const cacheKey = `${city.code}:${targetLocalDate}`;
+  const hit = _ensembleCache.get(cacheKey);
+  if (hit && Date.now() - hit.ts < ENSEMBLE_TTL_MS) return hit.members;
+  const url = `https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${city.lat}&longitude=${city.lon}&hourly=temperature_2m&models=gfs025&forecast_days=4&temperature_unit=fahrenheit&timezone=${encodeURIComponent(city.tz)}`;
+  const res2 = await fetch(url, { headers: { "User-Agent": "VEDD-Trading-AI/1.0" }, signal: AbortSignal.timeout(1e4) });
+  if (!res2.ok) throw new Error(`Open-Meteo ensemble ${res2.status}`);
+  const data = await res2.json();
+  const hourly = data.hourly;
+  if (!hourly?.time?.length) throw new Error("Open-Meteo ensemble: no hourly data");
+  const times = hourly.time;
+  const dayIdx = [];
+  for (let i = 0; i < times.length; i++) if (times[i].slice(0, 10) === targetLocalDate) dayIdx.push(i);
+  if (!dayIdx.length) throw new Error(`Open-Meteo ensemble: target day ${targetLocalDate} not in forecast window`);
+  const memberKeys = Object.keys(hourly).filter((k2) => k2 === "temperature_2m" || k2.startsWith("temperature_2m_member"));
+  const members = [];
+  for (const key of memberKeys) {
+    const arr2 = hourly[key];
+    let mx = -Infinity;
+    for (const i of dayIdx) {
+      const v = arr2[i];
+      if (typeof v === "number" && v > mx) mx = v;
+    }
+    if (mx > -Infinity) members.push(mx);
+  }
+  if (!members.length) throw new Error("Open-Meteo ensemble: no member maxima computed");
+  _ensembleCache.set(cacheKey, { members, targetDate: targetLocalDate, ts: Date.now() });
+  return members;
+}
+function bucketProbFromMembers(members, b) {
+  if (!members.length) return 0;
+  let yes = 0;
+  for (const m of members) {
+    const r = Math.round(m);
+    let win = false;
+    if (b.strikeType === "between") {
+      win = b.floorStrike != null && b.capStrike != null && r >= b.floorStrike && r <= b.capStrike;
+    } else if (b.strikeType === "greater" || b.strikeType === "greater_or_equal") {
+      win = b.floorStrike != null && (b.strikeType === "greater" ? r > b.floorStrike : r >= b.floorStrike);
+    } else if (b.strikeType === "less" || b.strikeType === "less_or_equal") {
+      win = b.capStrike != null && (b.strikeType === "less" ? r < b.capStrike : r <= b.capStrike);
+    }
+    if (win) yes++;
+  }
+  return yes / members.length;
+}
+function ensembleConfidence(members) {
+  if (members.length < 3) return 50;
+  const mean = members.reduce((a, b) => a + b, 0) / members.length;
+  const sd = Math.sqrt(members.reduce((s, x) => s + (x - mean) ** 2, 0) / members.length);
+  return Math.round(Math.max(50, Math.min(95, 95 - (sd - 1) * 9)));
+}
+async function scanKalshiWeatherPicks(cityCodes, opts = {}) {
+  const minEntry = opts.minEntryCents ?? 15;
+  const minEdge = opts.minEdgeCents ?? 8;
+  const spreadMax = opts.spreadMaxCents ?? 12;
+  const limit = opts.limit ?? 5;
+  const maxBias = opts.maxBiasDegrees ?? 3;
+  const biasOffsets = opts.biasOffsets ?? {};
+  const picks = [];
+  const perCityReasons = [];
+  for (const raw of cityCodes) {
+    const key = raw.toUpperCase().replace(/^WX-?/, "");
+    const city = WEATHER_CITIES[key];
+    if (!city) {
+      perCityReasons.push(`${raw}: unknown weather city`);
+      continue;
+    }
+    try {
+      const event = await getKalshiCryptoEvent(city.series);
+      if (!event.brackets.length) {
+        perCityReasons.push(`${city.name}: no open ${city.series} brackets`);
+        continue;
+      }
+      const strikeMs = new Date(event.closeTime).getTime();
+      const targetDate = localDateInTz(strikeMs - 6 * 36e5, city.tz);
+      const offset = biasOffsets[city.code] ?? 0;
+      const members = (await fetchEnsembleDailyMax(city, targetDate)).map((m) => m + offset);
+      const conf = ensembleConfidence(members);
+      const sorted = [...members].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      const favBucket = event.brackets.filter((b) => b.strikeType === "between" && b.floorStrike != null && b.capStrike != null).reduce((best, b) => b.yesAsk > (best?.yesAsk ?? -1) ? b : best, null);
+      if (favBucket) {
+        const favMid = ((favBucket.floorStrike ?? 0) + (favBucket.capStrike ?? 0)) / 2;
+        const disagree = Math.abs(median - favMid);
+        if (disagree > maxBias) {
+          perCityReasons.push(`${city.name}: SKIP \u2014 model median ${median.toFixed(1)}\xB0F disagrees with market favorite "${favBucket.subtitle}" by ${disagree.toFixed(1)}\xB0F (> ${maxBias}\xB0 bias guard; needs calibration${offset ? `, offset ${offset > 0 ? "+" : ""}${offset}\xB0` : ""})`);
+          continue;
+        }
+      }
+      let cityBest = null;
+      for (const b of event.brackets) {
+        if (!b.hasLiquidity) continue;
+        const ask = b.yesAsk > 0 ? b.yesAsk : b.yesProbability;
+        if (ask < minEntry || ask >= 97) continue;
+        const spread = b.yesBid > 0 ? ask - b.yesBid : spreadMax + 1;
+        if (spread > spreadMax) continue;
+        const modelProbPct = Math.round(bucketProbFromMembers(members, b) * 100);
+        const edgePct = modelProbPct - ask;
+        if (edgePct < minEdge) continue;
+        const probW = 0.6 + modelProbPct / 100 * 0.4;
+        const confW = 0.5 + conf / 100 * 0.5;
+        const valueScore = Math.round(edgePct * probW * confW * 10) / 10;
+        const pick3 = {
+          city: city.name,
+          cityCode: city.code,
+          ticker: b.ticker,
+          subtitle: b.subtitle,
+          strikeType: b.strikeType,
+          marketAskCents: ask,
+          modelProbPct,
+          edgePct,
+          valueScore,
+          confidence: conf,
+          targetDate,
+          rationale: `${city.name} ${targetDate}: GEFS ensemble ${modelProbPct}% vs market ${ask}\xA2 \u2192 +${edgePct}\xA2 edge on "${b.subtitle}" (${members.length} members, spread-conf ${conf}%).`
         };
+        picks.push(pick3);
+        if (!cityBest || pick3.valueScore > cityBest.valueScore) cityBest = pick3;
       }
-      async syncPoolBalance(walletId) {
-        const conn = getConnection();
-        const [wallet] = await db.select().from(veddPoolWallets).where(eq9(veddPoolWallets.id, walletId)).limit(1);
-        if (!wallet || !VEDD_TOKEN_MINT) return 0;
-        try {
-          const walletPubkey = new PublicKey(wallet.publicKey);
-          const mintPubkey = new PublicKey(VEDD_TOKEN_MINT);
-          const tokenAccount = await getAssociatedTokenAddress(mintPubkey, walletPubkey);
-          const accountInfo = await conn.getTokenAccountBalance(tokenAccount);
-          const balance = parseFloat(accountInfo.value.uiAmountString || "0");
-          await db.update(veddPoolWallets).set({
-            tokenBalance: balance,
-            lastSyncAt: /* @__PURE__ */ new Date()
-          }).where(eq9(veddPoolWallets.id, walletId));
-          return balance;
-        } catch (error) {
-          console.error("Failed to sync pool balance:", error);
-          return wallet.tokenBalance || 0;
-        }
-      }
-      async getRewardConfig(actionType) {
-        const [config] = await db.select().from(veddRewardConfig).where(and6(
-          eq9(veddRewardConfig.actionType, actionType),
-          eq9(veddRewardConfig.isActive, true)
-        )).limit(1);
-        if (!config) return null;
-        return {
-          baseAmount: config.baseAmount,
-          streakMultiplier: config.streakMultiplier || 1,
-          maxDailyRewards: config.maxDailyRewards || 5,
-          requiresVerification: config.requiresVerification || false
-        };
-      }
-      /** Sum all VEDD earned today (midnight to now) for a user */
-      async getDailyTotalEarned(userId) {
-        const todayStart = /* @__PURE__ */ new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const rows = await db.select({ total: sql8`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and6(
-          eq9(ambassadorActionRewards.userId, userId),
-          gte5(ambassadorActionRewards.createdAt, todayStart)
-        ));
-        return Number(rows[0]?.total || 0);
-      }
-      /** Sum all VEDD earned this calendar week (Mon 00:00 to now) for a user */
-      async getWeeklyTotalEarned(userId) {
-        const now = /* @__PURE__ */ new Date();
-        const day = now.getDay();
-        const diffToMon = day === 0 ? -6 : 1 - day;
-        const weekStart2 = new Date(now);
-        weekStart2.setDate(now.getDate() + diffToMon);
-        weekStart2.setHours(0, 0, 0, 0);
-        const rows = await db.select({ total: sql8`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and6(
-          eq9(ambassadorActionRewards.userId, userId),
-          gte5(ambassadorActionRewards.createdAt, weekStart2)
-        ));
-        return Number(rows[0]?.total || 0);
-      }
-      async calculateReward(actionType, userId) {
-        const config = await this.getRewardConfig(actionType);
-        if (!config) return null;
-        const todayStart = /* @__PURE__ */ new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const todaysRewards = await db.select({ count: sql8`count(*)` }).from(ambassadorActionRewards).where(and6(
-          eq9(ambassadorActionRewards.userId, userId),
-          eq9(ambassadorActionRewards.actionType, actionType),
-          gte5(ambassadorActionRewards.createdAt, todayStart)
-        ));
-        const rewardCount = todaysRewards[0]?.count || 0;
-        if (rewardCount >= config.maxDailyRewards) {
-          return null;
-        }
-        const dailyTotal = await this.getDailyTotalEarned(userId);
-        if (dailyTotal >= DAILY_VEDD_CAP2) {
-          console.log(`[VEDD] User ${userId} hit daily cap (${dailyTotal}/${DAILY_VEDD_CAP2})`);
-          return null;
-        }
-        const weeklyTotal = await this.getWeeklyTotalEarned(userId);
-        if (weeklyTotal >= WEEKLY_VEDD_CAP2) {
-          console.log(`[VEDD] User ${userId} hit weekly cap (${weeklyTotal}/${WEEKLY_VEDD_CAP2})`);
-          return null;
-        }
-        const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1e3);
-        const recentBurst = await db.select({ count: sql8`count(*)` }).from(ambassadorActionRewards).where(and6(
-          eq9(ambassadorActionRewards.userId, userId),
-          eq9(ambassadorActionRewards.actionType, actionType),
-          gte5(ambassadorActionRewards.createdAt, tenMinsAgo)
-        ));
-        const burstCount = recentBurst[0]?.count || 0;
-        const securityFlag = burstCount >= 3 ? "velocity" : void 0;
-        const remaining = DAILY_VEDD_CAP2 - dailyTotal;
-        const baseReward = Math.min(config.baseAmount, remaining);
-        const mult = config.streakMultiplier ?? 1;
-        let bonusReward = 0;
-        if (mult > 1 && baseReward > 0) {
-          const now = /* @__PURE__ */ new Date();
-          const startToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-          const startYesterday = new Date(startToday.getTime() - 24 * 60 * 60 * 1e3);
-          const [prev] = await db.select({ c: sql8`count(*)` }).from(ambassadorActionRewards).where(and6(
-            eq9(ambassadorActionRewards.userId, userId),
-            eq9(ambassadorActionRewards.actionType, actionType),
-            gte5(ambassadorActionRewards.createdAt, startYesterday),
-            sql8`${ambassadorActionRewards.createdAt} < ${startToday}`
-          ));
-          if ((prev?.c || 0) > 0) bonusReward = Math.round(baseReward * (mult - 1));
-        }
-        const totalReward = Math.min(baseReward + bonusReward, remaining);
-        bonusReward = Math.max(0, totalReward - baseReward);
-        return { baseReward, bonusReward, totalReward, securityFlag };
-      }
-      async enqueueReward(userId, actionType, actionId, metadata) {
-        const [user] = await db.select().from(users).where(eq9(users.id, userId)).limit(1);
-        if (!user) {
-          console.log(`User ${userId} not found - cannot enqueue reward`);
-          return null;
-        }
-        const hasWallet = !!user.walletAddress;
-        const userRecord = await db.select({ walletAddress: users.walletAddress }).from(users).where(eq9(users.id, userId)).limit(1);
-        const walletAddr = userRecord[0]?.walletAddress;
-        if (walletAddr) {
-          const [blacklisted] = await db.select({ id: veddWalletBlacklist.id }).from(veddWalletBlacklist).where(and6(eq9(veddWalletBlacklist.walletAddress, walletAddr), eq9(veddWalletBlacklist.isActive, true))).limit(1);
-          if (blacklisted) {
-            console.warn(`[VEDD Security] Blocked reward for blacklisted wallet: ${walletAddr} (userId: ${userId})`);
-            return null;
-          }
-        }
-        const rewardCalc = await this.calculateReward(actionType, userId);
-        if (!rewardCalc) {
-          console.log(`No reward available for user ${userId} action ${actionType} - daily limit reached or config missing`);
-          return null;
-        }
-        const config = await this.getRewardConfig(actionType);
-        if (!config) return null;
-        const poolWallet = await this.getPoolWalletInfo("rewards");
-        if (!poolWallet || poolWallet.status !== "active") {
-          console.log("No active pool wallet available");
-          return null;
-        }
-        const idempotencyKey = `${userId}-${actionType}-${actionId || "none"}-${Date.now()}`;
-        const [reward] = await db.insert(ambassadorActionRewards).values({
-          userId,
-          actionType,
-          actionId,
-          baseReward: rewardCalc.baseReward,
-          bonusReward: rewardCalc.bonusReward,
-          totalReward: rewardCalc.totalReward,
-          verificationStatus: "pending",
-          verifiedAt: null,
-          notes: hasWallet ? "Pending admin verification" : "Pending admin verification and wallet connection",
-          securityFlag: rewardCalc.securityFlag || null
-        }).returning();
-        return { rewardId: reward.id, pendingVerification: true, pendingWallet: !hasWallet };
-      }
-      async processTransfer(jobId) {
-        const [job] = await db.select().from(veddTransferJobs).where(eq9(veddTransferJobs.id, jobId)).limit(1);
-        if (!job) {
-          return { success: false, error: "Job not found" };
-        }
-        if (job.status === "completed") {
-          return { success: true, transactionSig: job.solanaTransactionSig || void 0 };
-        }
-        if (job.status === "processing") {
-          return { success: false, error: "Transfer already in progress" };
-        }
-        const MAX_SINGLE_TRANSFER = 1e3;
-        if (job.amount > MAX_SINGLE_TRANSFER) {
-          console.warn(`[VEDD Security] Transfer amount ${job.amount} exceeds MAX_SINGLE_TRANSFER (${MAX_SINGLE_TRANSFER}). Requires manual review.`);
-          await db.update(veddTransferJobs).set({ status: "failed", errorMessage: `Amount ${job.amount} exceeds security limit of ${MAX_SINGLE_TRANSFER} VEDD per transfer. Admin must manually approve.` }).where(eq9(veddTransferJobs.id, jobId));
-          return { success: false, error: "Transfer blocked by security limit" };
-        }
-        if (!VEDD_TOKEN_MINT || !POOL_WALLET_PRIVATE_KEY) {
-          console.error("CRITICAL: Missing Solana credentials - VEDD_TOKEN_MINT or POOL_WALLET_PRIVATE_KEY not configured");
-          await db.update(veddTransferJobs).set({
-            status: "failed",
-            errorMessage: "Solana credentials not configured. Please set VEDD_TOKEN_MINT and POOL_WALLET_PRIVATE_KEY environment variables.",
-            processedAt: /* @__PURE__ */ new Date()
-          }).where(eq9(veddTransferJobs.id, jobId));
-          return {
-            success: false,
-            error: "Token transfer system not configured. Reward is pending - tokens will be sent once configuration is complete."
-          };
-        }
-        const [poolWallet] = await db.select().from(veddPoolWallets).where(and6(eq9(veddPoolWallets.walletType, "rewards"), eq9(veddPoolWallets.status, "active"))).limit(1);
-        if (poolWallet && (poolWallet.tokenBalance || 0) < job.amount) {
-          await db.update(veddTransferJobs).set({ status: "pending", errorMessage: `Pool balance ${poolWallet.tokenBalance ?? 0} below reward ${job.amount} \u2014 held until the pool is refilled.` }).where(eq9(veddTransferJobs.id, jobId));
-          return { success: false, error: "Insufficient pool balance \u2014 reward held pending." };
-        }
-        await db.update(veddTransferJobs).set({ status: "processing" }).where(eq9(veddTransferJobs.id, jobId));
-        try {
-          const keypair = getPoolKeypair();
-          if (!keypair) {
-            throw new Error("Pool wallet keypair not available");
-          }
-          const conn = getConnection();
-          const mintPubkey = new PublicKey(VEDD_TOKEN_MINT);
-          const destPubkey = new PublicKey(job.destinationWallet);
-          const sourceAta = await getAssociatedTokenAddress(mintPubkey, keypair.publicKey);
-          const destAta = await getOrCreateAssociatedTokenAccount(
-            conn,
-            keypair,
-            mintPubkey,
-            destPubkey
-          );
-          const decimals = 9;
-          const amount = Math.floor(job.amount * Math.pow(10, decimals));
-          const transaction = new Transaction().add(
-            createTransferInstruction(
-              sourceAta,
-              destAta.address,
-              keypair.publicKey,
-              amount,
-              [],
-              TOKEN_PROGRAM_ID
-            )
-          );
-          const signature = await sendAndConfirmTransaction(conn, transaction, [keypair]);
-          await db.update(veddTransferJobs).set({
-            status: "completed",
-            solanaTransactionSig: signature,
-            processedAt: /* @__PURE__ */ new Date()
-          }).where(eq9(veddTransferJobs.id, jobId));
-          await db.update(users).set({
-            veddTokenBalance: sql8`COALESCE(${users.veddTokenBalance}, 0) + ${job.amount}`
-          }).where(eq9(users.id, job.userId));
-          await db.update(veddPoolWallets).set({ tokenBalance: sql8`GREATEST(0, COALESCE(${veddPoolWallets.tokenBalance}, 0) - ${job.amount})` }).where(and6(eq9(veddPoolWallets.walletType, "rewards"), eq9(veddPoolWallets.status, "active")));
-          return { success: true, transactionSig: signature };
-        } catch (error) {
-          const retryCount = (job.retryCount || 0) + 1;
-          const maxRetries = 3;
-          await db.update(veddTransferJobs).set({
-            status: retryCount >= maxRetries ? "failed" : "pending",
-            errorMessage: error.message,
-            retryCount
-          }).where(eq9(veddTransferJobs.id, jobId));
-          return { success: false, error: error.message };
-        }
-      }
-      async getUserRewardHistory(userId, limit = 50) {
-        const rewards = await db.select({
-          id: ambassadorActionRewards.id,
-          actionType: ambassadorActionRewards.actionType,
-          totalReward: ambassadorActionRewards.totalReward,
-          verificationStatus: ambassadorActionRewards.verificationStatus,
-          createdAt: ambassadorActionRewards.createdAt,
-          transferJobId: ambassadorActionRewards.transferJobId
-        }).from(ambassadorActionRewards).where(eq9(ambassadorActionRewards.userId, userId)).orderBy(desc2(ambassadorActionRewards.createdAt)).limit(limit);
-        const result = [];
-        for (const reward of rewards) {
-          let status = reward.verificationStatus;
-          let transactionSig;
-          if (reward.transferJobId) {
-            const [job] = await db.select().from(veddTransferJobs).where(eq9(veddTransferJobs.id, reward.transferJobId)).limit(1);
-            if (job) {
-              status = job.status;
-              transactionSig = job.solanaTransactionSig || void 0;
-            }
-          }
-          result.push({
-            id: reward.id,
-            actionType: reward.actionType,
-            totalReward: reward.totalReward,
-            status,
-            transactionSig,
-            createdAt: reward.createdAt
-          });
-        }
-        return result;
-      }
-      async getUserTotalEarnings(userId) {
-        const earnings = await db.select({
-          status: ambassadorActionRewards.verificationStatus,
-          total: sql8`SUM(${ambassadorActionRewards.totalReward})`
-        }).from(ambassadorActionRewards).where(eq9(ambassadorActionRewards.userId, userId)).groupBy(ambassadorActionRewards.verificationStatus);
-        let total = 0;
-        let pending = 0;
-        let completed = 0;
-        for (const row of earnings) {
-          const amount = row.total || 0;
-          total += amount;
-          if (row.status === "pending") pending += amount;
-          if (row.status === "verified") completed += amount;
-        }
-        return { total, pending, completed };
-      }
-      async verifyReward(rewardId, adminId, approved, notes) {
-        const [reward] = await db.select().from(ambassadorActionRewards).where(eq9(ambassadorActionRewards.id, rewardId)).limit(1);
-        if (!reward || reward.verificationStatus !== "pending") {
-          return false;
-        }
-        if (!approved) {
-          await db.update(ambassadorActionRewards).set({
-            verificationStatus: "rejected",
-            verifiedBy: adminId,
-            verifiedAt: /* @__PURE__ */ new Date(),
-            notes
-          }).where(eq9(ambassadorActionRewards.id, rewardId));
-          return true;
-        }
-        const [user] = await db.select().from(users).where(eq9(users.id, reward.userId)).limit(1);
-        if (!user?.walletAddress) {
-          await db.update(ambassadorActionRewards).set({
-            verificationStatus: "verified",
-            verifiedBy: adminId,
-            verifiedAt: /* @__PURE__ */ new Date(),
-            notes: notes || "Verified - pending wallet connection for transfer"
-          }).where(eq9(ambassadorActionRewards.id, rewardId));
-          return true;
-        }
-        const poolWallet = await this.getPoolWalletInfo("rewards");
-        if (!poolWallet) {
-          await db.update(ambassadorActionRewards).set({
-            verificationStatus: "verified",
-            verifiedBy: adminId,
-            verifiedAt: /* @__PURE__ */ new Date(),
-            notes: notes || "Verified - pending pool wallet setup for transfer"
-          }).where(eq9(ambassadorActionRewards.id, rewardId));
-          return true;
-        }
-        const idempotencyKey = `reward-${rewardId}`;
-        const [transferJob] = await db.insert(veddTransferJobs).values({
-          userId: reward.userId,
-          sourceWalletId: poolWallet.id,
-          destinationWallet: user.walletAddress,
-          amount: reward.totalReward,
-          actionType: reward.actionType,
-          actionId: reward.actionId,
-          status: "pending",
-          idempotencyKey,
-          metadata: { verifiedBy: adminId }
-        }).onConflictDoNothing({ target: veddTransferJobs.idempotencyKey }).returning();
-        if (!transferJob) return true;
-        await db.update(ambassadorActionRewards).set({
-          verificationStatus: "verified",
-          verifiedBy: adminId,
-          verifiedAt: /* @__PURE__ */ new Date(),
-          transferJobId: transferJob.id,
-          notes
-        }).where(eq9(ambassadorActionRewards.id, rewardId));
-        this.processTransfer(transferJob.id).catch(
-          (err) => console.error("Background transfer processing error:", err)
-        );
-        return true;
-      }
-      async getPoolOverview() {
-        let poolInfos = [];
-        try {
-          const pools = await db.select().from(veddPoolWallets).where(eq9(veddPoolWallets.status, "active"));
-          poolInfos = pools.map((p2) => ({
-            id: p2.id,
-            label: p2.label,
-            publicKey: p2.publicKey,
-            walletType: p2.walletType,
-            status: p2.status,
-            tokenBalance: p2.tokenBalance || 0,
-            lowBalanceThreshold: p2.lowBalanceThreshold || 1e3,
-            isLowBalance: (p2.tokenBalance || 0) < (p2.lowBalanceThreshold || 1e3)
-          }));
-        } catch (err) {
-          console.error("[VEDD] getPoolOverview - pools fetch failed:", err);
-        }
-        let pendingTransfers = 0;
-        let completedTransfersToday = 0;
-        let totalDistributedToday = 0;
-        try {
-          const todayStart = /* @__PURE__ */ new Date();
-          todayStart.setHours(0, 0, 0, 0);
-          const [pendingResult] = await db.select({ count: sql8`count(*)` }).from(veddTransferJobs).where(eq9(veddTransferJobs.status, "pending"));
-          const [completedResult] = await db.select({
-            count: sql8`count(*)`,
-            total: sql8`COALESCE(SUM(${veddTransferJobs.amount}), 0)`
-          }).from(veddTransferJobs).where(and6(
-            eq9(veddTransferJobs.status, "completed"),
-            sql8`${veddTransferJobs.processedAt} >= ${todayStart}`
-          ));
-          pendingTransfers = pendingResult?.count || 0;
-          completedTransfersToday = completedResult?.count || 0;
-          totalDistributedToday = completedResult?.total || 0;
-        } catch (err) {
-          console.warn("[VEDD] getPoolOverview - transfer stats unavailable (table may not exist yet):", err?.message);
-        }
-        return { pools: poolInfos, pendingTransfers, completedTransfersToday, totalDistributedToday };
-      }
-      async initializePoolWallet(label, publicKey, walletType = "rewards") {
-        const [wallet] = await db.insert(veddPoolWallets).values({
-          label,
-          publicKey,
-          walletType,
-          status: "active",
-          tokenBalance: 0
-        }).returning();
-        return wallet.id;
-      }
-      async processWalletConnectedRewards(userId, walletAddress) {
-        const verifiedRewardsWithoutTransfer = await db.select().from(ambassadorActionRewards).where(and6(
-          eq9(ambassadorActionRewards.userId, userId),
-          eq9(ambassadorActionRewards.verificationStatus, "verified"),
-          isNull2(ambassadorActionRewards.transferJobId)
-        ));
-        if (verifiedRewardsWithoutTransfer.length === 0) {
-          return { processed: 0, errors: [] };
-        }
-        const poolWallet = await this.getPoolWalletInfo("rewards");
-        if (!poolWallet) {
-          return { processed: 0, errors: ["Pool wallet not configured"] };
-        }
-        let processed = 0;
-        const errors = [];
-        for (const reward of verifiedRewardsWithoutTransfer) {
-          try {
-            const idempotencyKey = `reward-${reward.id}`;
-            const [transferJob] = await db.insert(veddTransferJobs).values({
-              userId,
-              sourceWalletId: poolWallet.id,
-              destinationWallet: walletAddress,
-              amount: reward.totalReward,
-              actionType: reward.actionType,
-              actionId: reward.actionId,
-              status: "pending",
-              idempotencyKey,
-              metadata: { triggeredBy: "wallet_connection" }
-            }).onConflictDoNothing({ target: veddTransferJobs.idempotencyKey }).returning();
-            if (!transferJob) continue;
-            await db.update(ambassadorActionRewards).set({
-              transferJobId: transferJob.id,
-              notes: "Transfer job created on wallet connection"
-            }).where(eq9(ambassadorActionRewards.id, reward.id));
-            this.processTransfer(transferJob.id).catch(
-              (err) => console.error(`Background transfer error for job ${transferJob.id}:`, err)
-            );
-            processed++;
-          } catch (error) {
-            errors.push(`Reward ${reward.id}: ${error.message}`);
-          }
-        }
-        return { processed, errors };
-      }
-      /**
-       * Dual-track referral reward: logs the reward and, if the referrer has a
-       * connected Solana wallet + a live pool wallet, immediately fires an on-chain
-       * SPL token transfer in the background. In-app credit is always awarded by
-       * the caller via storage.addReferralCredits() — this method handles the
-       * on-chain side only.
-       *
-       * @param referrerId  - userId of the person who referred
-       * @param actionType  - 'referral_signup' | 'referral_subscription'
-       * @param amount      - VEDD tokens to transfer (e.g. 50 or 200)
-       */
-      async enqueueReferralReward(referrerId, actionType, amount) {
-        try {
-          const [referrer] = await db.select().from(users).where(eq9(users.id, referrerId)).limit(1);
-          if (!referrer) return;
-          const poolWallet = await this.getPoolWalletInfo("rewards");
-          const [reward] = await db.insert(ambassadorActionRewards).values({
-            userId: referrerId,
-            actionType,
-            baseReward: amount,
-            bonusReward: 0,
-            totalReward: amount,
-            verificationStatus: "auto_approved",
-            verifiedAt: /* @__PURE__ */ new Date(),
-            notes: `Auto-approved referral reward (${actionType})`
-          }).returning();
-          const walletAddr = referrer.walletAddress;
-          if (!walletAddr || !poolWallet) {
-            console.log(`[Referral Token] ${amount} VEDD reward logged for user ${referrerId} \u2014 wallet not connected, held pending`);
-            return;
-          }
-          const [blacklisted] = await db.select({ id: veddWalletBlacklist.id }).from(veddWalletBlacklist).where(and6(eq9(veddWalletBlacklist.walletAddress, walletAddr), eq9(veddWalletBlacklist.isActive, true))).limit(1);
-          if (blacklisted) {
-            console.warn(`[Referral Token] Blocked \u2014 blacklisted wallet: ${walletAddr} (userId: ${referrerId})`);
-            return;
-          }
-          const idempotencyKey = `reward-${reward.id}`;
-          const [transferJob] = await db.insert(veddTransferJobs).values({
-            userId: referrerId,
-            sourceWalletId: poolWallet.id,
-            destinationWallet: walletAddr,
-            amount,
-            actionType,
-            actionId: reward.id,
-            status: "pending",
-            idempotencyKey,
-            metadata: { referralReward: true, autoApproved: true }
-          }).onConflictDoNothing({ target: veddTransferJobs.idempotencyKey }).returning();
-          if (!transferJob) return;
-          this.processTransfer(transferJob.id).then((result) => {
-            if (result.success) {
-              console.log(`[Referral Token] \u2713 Sent ${amount} VEDD to ${walletAddr} \u2014 tx: ${result.transactionSig}`);
-            } else {
-              console.error(`[Referral Token] Transfer failed for user ${referrerId}: ${result.error}`);
-            }
-          }).catch((err) => console.error("[Referral Token] processTransfer error:", err));
-        } catch (err) {
-          console.error("[Referral Token] enqueueReferralReward error:", err);
-        }
-      }
+      perCityReasons.push(cityBest ? `${city.name}: best +${cityBest.edgePct}\xA2 edge on "${cityBest.subtitle}" (score ${cityBest.valueScore})` : `${city.name}: no positive-edge bucket (ensemble agrees with the market)`);
+    } catch (err) {
+      perCityReasons.push(`${city.name}: ${err.message}`);
+    }
+  }
+  picks.sort((a, b) => b.valueScore - a.valueScore);
+  return { picks: picks.slice(0, limit), perCityReasons, scannedAt: (/* @__PURE__ */ new Date()).toISOString() };
+}
+var WEATHER_CITIES, ENSEMBLE_TTL_MS, _ensembleCache;
+var init_kalshi_weather = __esm({
+  "server/services/kalshi-weather.ts"() {
+    "use strict";
+    init_kalshi();
+    WEATHER_CITIES = {
+      NY: { code: "WX-NY", series: "KXHIGHNY", name: "New York City", lat: 40.78, lon: -73.97, tz: "America/New_York" },
+      CHI: { code: "WX-CHI", series: "KXHIGHCHI", name: "Chicago", lat: 41.79, lon: -87.75, tz: "America/Chicago" },
+      MIA: { code: "WX-MIA", series: "KXHIGHMIA", name: "Miami", lat: 25.79, lon: -80.29, tz: "America/New_York" },
+      AUS: { code: "WX-AUS", series: "KXHIGHAUS", name: "Austin", lat: 30.18, lon: -97.68, tz: "America/Chicago" },
+      LAX: { code: "WX-LAX", series: "KXHIGHLAX", name: "Los Angeles", lat: 33.94, lon: -118.4, tz: "America/Los_Angeles" },
+      DEN: { code: "WX-DEN", series: "KXHIGHDEN", name: "Denver", lat: 39.85, lon: -104.66, tz: "America/Denver" },
+      PHIL: { code: "WX-PHIL", series: "KXHIGHPHIL", name: "Philadelphia", lat: 39.87, lon: -75.23, tz: "America/New_York" }
     };
-    veddTokenService = new VeddTokenService();
+    ENSEMBLE_TTL_MS = 30 * 60 * 1e3;
+    _ensembleCache = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/kalshi-engine.ts
+var kalshi_engine_exports = {};
+__export(kalshi_engine_exports, {
+  KALSHI_TRADEABLE_COINS: () => KALSHI_TRADEABLE_COINS,
+  closeAllKalshiTrades: () => closeAllKalshiTrades,
+  closeKalshiTrade: () => closeKalshiTrade,
+  getKalshiEngineState: () => getKalshiEngineState,
+  hydratePersistedKalshiConfigs: () => hydratePersistedKalshiConfigs,
+  kalshiBankroll: () => kalshiBankroll,
+  kalshiContractsFor: () => kalshiContractsFor,
+  manualKalshiScan: () => manualKalshiScan,
+  previewKalshiWeatherPicks: () => previewKalshiWeatherPicks,
+  refreshKalshiCredValidity: () => refreshKalshiCredValidity,
+  restoreKalshiEngineStateFromDb: () => restoreKalshiEngineStateFromDb,
+  ruinGuardStatus: () => ruinGuardStatus,
+  scanAllKalshiStrategies: () => scanAllKalshiStrategies,
+  scanKalshiValuePicks: () => scanKalshiValuePicks,
+  startKalshiEngine: () => startKalshiEngine,
+  stopKalshiEngine: () => stopKalshiEngine,
+  updateKalshiEngineConfig: () => updateKalshiEngineConfig
+});
+function _coinAndTimeframeFromTicker(ticker) {
+  for (const c of KALSHI_TRADEABLE_COINS) {
+    if (ticker.startsWith(KALSHI_SERIES_MAP[c].fifteenMin)) return { coin: c, timeframe: "fifteen_min" };
+  }
+  for (const c of KALSHI_TRADEABLE_COINS) {
+    if (ticker.startsWith(KALSHI_SERIES_MAP[c].hourly)) return { coin: c, timeframe: "hourly" };
+  }
+  return { coin: "BTC", timeframe: "hourly" };
+}
+async function refreshKalshiCredValidity(userId) {
+  if (!loadKalshiCredentials(userId)) {
+    _credValidity.delete(userId);
+    return;
+  }
+  const cached2 = _credValidity.get(userId);
+  if (cached2 && Date.now() - cached2.checkedAt < CRED_VALIDITY_TTL_MS) return;
+  try {
+    const { testKalshiCredentials: testKalshiCredentials2 } = await Promise.resolve().then(() => (init_kalshi_trading(), kalshi_trading_exports));
+    const result = await testKalshiCredentials2(userId);
+    _credValidity.set(userId, { valid: result.valid, error: result.error, checkedAt: Date.now() });
+  } catch {
+  }
+}
+function getKalshiEngineState(userId) {
+  if (!_states.has(userId)) {
+    const override = _persistedConfigOverrides.get(userId);
+    _states.set(userId, {
+      isRunning: false,
+      isPaperMode: !loadKalshiCredentials(userId),
+      credentialError: null,
+      lastScanAt: null,
+      lastScanResult: null,
+      lastTradeAt: null,
+      tradesToday: 0,
+      tradesTodayUtcDate: null,
+      openTrades: [],
+      closedTrades: [],
+      totalRealizedPnl: 0,
+      totalUnrealizedPnl: 0,
+      config: override ? { ...DEFAULT_CONFIG2, ...override } : { ...DEFAULT_CONFIG2 }
+    });
+  }
+  const s = _states.get(userId);
+  const hasCreds = !!loadKalshiCredentials(userId);
+  const validity = _credValidity.get(userId);
+  const knownInvalid = validity?.valid === false;
+  s.isPaperMode = !hasCreds || knownInvalid;
+  s.credentialError = knownInvalid ? validity.error ?? "Credential check failed" : null;
+  return s;
+}
+function updateKalshiEngineConfig(userId, patch) {
+  const s = getKalshiEngineState(userId);
+  const clean = { ...patch };
+  if (clean.strategy && !STRATEGY_LABELS[clean.strategy]) delete clean.strategy;
+  if (clean.symbols) {
+    const deduped = Array.from(new Set(clean.symbols)).filter((c) => KALSHI_TRADEABLE_COINS.includes(c));
+    clean.symbols = deduped.length ? deduped : ["BTC"];
+  }
+  if (clean.timeframe && clean.timeframe !== "hourly" && clean.timeframe !== "fifteen_min") delete clean.timeframe;
+  if (clean.minValueScore != null) clean.minValueScore = Math.max(1, Math.min(50, clean.minValueScore));
+  if (clean.minEntryPriceCents != null) clean.minEntryPriceCents = Math.max(1, Math.min(95, clean.minEntryPriceCents));
+  if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(500, clean.takeProfitCents));
+  if (clean.stopLossCents != null) clean.stopLossCents = Math.max(0, Math.min(99, clean.stopLossCents));
+  if (clean.riskPctPerTrade != null) clean.riskPctPerTrade = Math.max(1, Math.min(25, clean.riskPctPerTrade));
+  if (clean.startingBankroll != null) clean.startingBankroll = Math.max(10, Math.min(1e6, clean.startingBankroll));
+  if (clean.dailyLossLimitPct != null) clean.dailyLossLimitPct = Math.max(1, Math.min(100, clean.dailyLossLimitPct));
+  if (clean.maxDrawdownLimitPct != null) clean.maxDrawdownLimitPct = Math.max(1, Math.min(100, clean.maxDrawdownLimitPct));
+  if (clean.weatherMinEdgeCents != null) clean.weatherMinEdgeCents = Math.max(1, Math.min(50, clean.weatherMinEdgeCents));
+  if (clean.weatherMaxBiasDegrees != null) clean.weatherMaxBiasDegrees = Math.max(1, Math.min(15, clean.weatherMaxBiasDegrees));
+  s.config = { ...s.config, ...clean };
+  _persistKalshiConfig(userId, s.config);
+}
+function _persistKalshiConfig(userId, config) {
+  Promise.resolve().then(() => (init_db(), db_exports)).then(({ db: db2 }) => {
+    Promise.resolve().then(() => (init_schema(), schema_exports)).then(({ kalshiEngineConfigs: kalshiEngineConfigs2 }) => {
+      db2.insert(kalshiEngineConfigs2).values({ userId, config }).onConflictDoUpdate({
+        target: kalshiEngineConfigs2.userId,
+        set: { config, updatedAt: /* @__PURE__ */ new Date() }
+      }).catch(console.error);
+    });
+  });
+}
+async function hydratePersistedKalshiConfigs() {
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { kalshiEngineConfigs: kalshiEngineConfigs2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const rows = await db2.select().from(kalshiEngineConfigs2);
+    for (const row of rows) {
+      _persistedConfigOverrides.set(row.userId, row.config);
+    }
+    console.log(`[Kalshi] Hydrated ${rows.length} persisted engine config(s) \u2014 coin/strategy/risk settings will survive this restart.`);
+  } catch (e) {
+    console.error("[Kalshi] Failed to hydrate persisted engine configs:", e);
+  }
+}
+function kalshiBankroll(s) {
+  return Math.max(1, (s.config.startingBankroll || 100) + (s.totalRealizedPnl || 0));
+}
+async function kalshiContractsFor(userId, s, priceInCents, coin) {
+  const baseContracts = (() => {
+    if (!s.config.compounding) return s.config.contractsPerTrade;
+    const bankroll = kalshiBankroll(s);
+    const stakeTarget = bankroll * ((s.config.riskPctPerTrade || 5) / 100);
+    const perContract = Math.max(0.01, priceInCents / 100);
+    return Math.max(1, Math.min(200, Math.floor(stakeTarget / perContract)));
+  })();
+  let riskMultiplier = 1;
+  if (s.config.drawdownShieldThreshold > 0) {
+    const bankroll = kalshiBankroll(s);
+    const peak = Math.max(_sessionPeakBankroll.get(userId) ?? bankroll, bankroll);
+    _sessionPeakBankroll.set(userId, peak);
+    const ddFromPeakPct = peak > 0 ? (peak - bankroll) / peak * 100 : 0;
+    if (ddFromPeakPct >= s.config.drawdownShieldThreshold) riskMultiplier = 0.25;
+  }
+  const brainMult = s.config.kalshiBrainEnabled && coin ? kalshiBrainSizeMultiplier(userId, coin) : 1;
+  const shieldedBase = Math.max(1, Math.round(baseContracts * riskMultiplier * brainMult));
+  const shieldNote = (riskMultiplier < 1 ? ` \u26A0\uFE0F Drawdown Shield active \u2014 sized to ${Math.round(riskMultiplier * 100)}%.` : "") + (brainMult !== 1 ? ` \u{1F9E0} Brain sizing \xD7${brainMult}${coin ? ` (${coin})` : ""}.` : "");
+  if (s.config.brainLearningMode) {
+    const perf = getKalshiPerformance(userId);
+    const brainLocked = perf.totals.trades < 10 || perf.totals.winRate < 60;
+    if (brainLocked) {
+      return { contracts: 1, reasoning: `\u{1F9E0} Learning Mode: locked at 1 contract (${perf.totals.trades}/10 trades, ${perf.totals.winRate}%/60% WR).${shieldNote}` };
+    }
+    if (s.config.useKellyCriterion) {
+      const fractionalKelly = perf.totals.winRate / 100 * 0.25;
+      const kellyContracts = Math.max(1, Math.round(shieldedBase * (1 + fractionalKelly)));
+      return { contracts: kellyContracts, reasoning: `\u{1F9E0} Brain unlocked (${perf.totals.trades} trades @ ${perf.totals.winRate}% WR) + Kelly sizing.${shieldNote}` };
+    }
+    return { contracts: shieldedBase, reasoning: `\u{1F9E0} Brain unlocked (${perf.totals.trades} trades @ ${perf.totals.winRate}% WR).${shieldNote}` };
+  }
+  if (s.config.useKellyCriterion) {
+    const perf = getKalshiPerformance(userId);
+    const fractionalKelly = perf.totals.winRate / 100 * 0.25;
+    const kellyContracts = Math.max(1, Math.round(shieldedBase * (1 + fractionalKelly)));
+    return { contracts: kellyContracts, reasoning: `Kelly sizing (${perf.totals.winRate}% WR over ${perf.totals.trades} trades).${shieldNote}` };
+  }
+  return { contracts: shieldedBase, reasoning: shieldNote.trim() };
+}
+function startKalshiEngine(userId) {
+  const s = getKalshiEngineState(userId);
+  if (s.isRunning) return;
+  s.isRunning = true;
+  _persistKalshiRunState(userId, true, s.isPaperMode);
+  _runKalshiScan(userId).catch(console.error);
+  const iv = setInterval(() => _runKalshiScan(userId).catch(console.error), 5 * 60 * 1e3);
+  _timers.set(userId, iv);
+  const pv = setInterval(() => {
+    const st = getKalshiEngineState(userId);
+    if (st.isRunning && st.openTrades.length) _updateOpenTradePrices(userId, st).catch(() => {
+    });
+  }, 60 * 1e3);
+  _priceTimers.set(userId, pv);
+}
+function stopKalshiEngine(userId) {
+  const s = getKalshiEngineState(userId);
+  s.isRunning = false;
+  _persistKalshiRunState(userId, false, s.isPaperMode);
+  const iv = _timers.get(userId);
+  if (iv) {
+    clearInterval(iv);
+    _timers.delete(userId);
+  }
+  const pv = _priceTimers.get(userId);
+  if (pv) {
+    clearInterval(pv);
+    _priceTimers.delete(userId);
+  }
+}
+function _persistKalshiRunState(userId, isRunning, isPaperMode) {
+  Promise.resolve().then(() => (init_db(), db_exports)).then(({ db: db2 }) => {
+    Promise.resolve().then(() => (init_schema(), schema_exports)).then(({ engineRunState: engineRunState2 }) => {
+      db2.insert(engineRunState2).values({ userId, engine: "kalshi", isRunning, isPaperMode }).onConflictDoUpdate({
+        target: [engineRunState2.userId, engineRunState2.engine],
+        set: { isRunning, isPaperMode, updatedAt: /* @__PURE__ */ new Date() }
+      }).catch(console.error);
+    });
+  });
+}
+async function restoreKalshiEngineStateFromDb(userId) {
+  try {
+    await _restoreKalshiRealizedPnl(userId);
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { eq: eq21, and: and12 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and12(eq21(engineRunState2.userId, userId), eq21(engineRunState2.engine, "kalshi")));
+    const row = rows[0];
+    if (row?.isRunning) {
+      console.log(`[Kalshi] Restoring engine for user ${userId}`);
+      await _reconcileKalshiPositionsOnBoot(userId);
+      startKalshiEngine(userId);
+    }
+  } catch (e) {
+    console.error("[Kalshi] Failed to restore engine state:", e);
+  }
+}
+async function _restoreKalshiRealizedPnl(userId) {
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { eq: eq21, and: and12, sql: sql18 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql18`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(eq21(aiTradeResults2.userId, userId), eq21(aiTradeResults2.source, "kalshi")));
+    const total = parseFloat(row?.total ?? "0") || 0;
+    const s = getKalshiEngineState(userId);
+    s.totalRealizedPnl = total;
+  } catch (e) {
+    console.error(`[Kalshi] Failed to restore totalRealizedPnl for user ${userId}:`, e?.message);
+  }
+}
+async function _reconcileKalshiPositionsOnBoot(userId) {
+  if (!loadKalshiCredentials(userId)) return;
+  const s = getKalshiEngineState(userId);
+  try {
+    const positions = await getKalshiPositions(userId);
+    const trackedTickers = new Set(s.openTrades.map((t) => t.ticker));
+    let untracked = 0;
+    for (const p2 of positions) {
+      const netContracts = p2.position_fp != null ? parseFloat(p2.position_fp) : Number(p2.position ?? 0);
+      if (!netContracts || netContracts <= 0) continue;
+      if (trackedTickers.has(p2.ticker)) continue;
+      untracked++;
+      const count = Math.round(Math.abs(netContracts));
+      const exposureCents = p2.market_exposure_dollars != null ? Math.abs(parseFloat(p2.market_exposure_dollars)) * 100 : Math.abs(Number(p2.market_exposure ?? 0));
+      const avgEntryCents = count > 0 && exposureCents > 0 ? Math.round(exposureCents / count) : 50;
+      const { coin, timeframe } = _coinAndTimeframeFromTicker(p2.ticker);
+      s.openTrades.push({
+        id: `kalshi-reconciled-${p2.ticker}-${Date.now()}`,
+        coin,
+        timeframe,
+        ticker: p2.ticker,
+        subtitle: p2.ticker,
+        side: "yes",
+        action: "buy",
+        count,
+        entryPriceCents: avgEntryCents,
+        currentPriceCents: avgEntryCents,
+        stake: avgEntryCents / 100 * count,
+        currentValue: avgEntryCents / 100 * count,
+        unrealizedPnl: 0,
+        signal: { direction: "BUY", confidence: 0, btcPrice: 0 },
+        strategy: "reconciled",
+        openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        status: "open",
+        paper: false
+      });
+    }
+    if (untracked > 0) {
+      console.warn(`[Kalshi] Boot reconciliation: found ${untracked} real open position(s) for user ${userId} with no local record (server restart wiped it) \u2014 re-added as tracked trades so exposure/exit logic sees them.`);
+      _recalcUnrealized(s);
+    }
+  } catch (e) {
+    console.error(`[Kalshi] Boot position reconciliation failed for user ${userId} (continuing without it):`, e?.message);
+  }
+}
+async function manualKalshiScan(userId) {
+  return _runKalshiScan(userId, true);
+}
+async function _verifyKalshiFill(userId, orderId) {
+  await new Promise((res2) => setTimeout(res2, 1500));
+  try {
+    const resting = await getKalshiOrders(userId, "resting");
+    const stillResting = resting.some((o) => (o.order_id ?? o.id) === orderId);
+    if (stillResting) {
+      await cancelKalshiOrder(userId, orderId);
+      return false;
+    }
+    return true;
+  } catch {
+    return true;
+  }
+}
+async function _placeKalshiYes(userId, s, p2) {
+  const { contracts, reasoning: sizingReasoning } = await kalshiContractsFor(userId, s, p2.priceInCents, p2.coin);
+  const stakeUsd = p2.priceInCents / 100 * contracts;
+  let kalshiOrderId;
+  if (!s.isPaperMode) {
+    try {
+      const result = await placeKalshiOrder(
+        userId,
+        p2.ticker,
+        "yes",
+        "buy",
+        contracts,
+        p2.priceInCents
+      );
+      kalshiOrderId = result.orderId;
+      const filled = result.status === "executed" ? true : await _verifyKalshiFill(userId, result.orderId);
+      if (!filled) {
+        const r3 = `Order for "${p2.subtitle}" didn't fill (price moved) \u2014 canceled, no position opened.`;
+        s.lastScanResult = r3;
+        return { fired: false, reason: r3 };
+      }
+    } catch (err) {
+      const r3 = `Order failed: ${err.message}`;
+      s.lastScanResult = r3;
+      return { fired: false, reason: r3 };
+    }
+  }
+  const trade = {
+    id: `kalshi-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+    coin: p2.coin,
+    timeframe: p2.timeframe,
+    ticker: p2.ticker,
+    subtitle: p2.subtitle,
+    side: "yes",
+    action: "buy",
+    count: contracts,
+    entryPriceCents: p2.priceInCents,
+    currentPriceCents: p2.priceInCents,
+    stake: stakeUsd,
+    currentValue: stakeUsd,
+    unrealizedPnl: 0,
+    signal: { direction: p2.direction, confidence: p2.confidence, btcPrice: p2.btcPrice },
+    strategy: p2.strategy,
+    openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    status: "open",
+    paper: s.isPaperMode,
+    kalshiOrderId,
+    strikeType: p2.strikeType,
+    edgePct: p2.edgePct,
+    valueScore: p2.valueScore,
+    modelProbPct: p2.modelProbPct,
+    agreement: p2.agreement
+  };
+  s.openTrades.push(trade);
+  s.lastTradeAt = (/* @__PURE__ */ new Date()).toISOString();
+  const _fireDay = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  if (s.tradesTodayUtcDate !== _fireDay) {
+    s.tradesTodayUtcDate = _fireDay;
+    s.tradesToday = 0;
+  }
+  s.tradesToday = (s.tradesToday ?? 0) + 1;
+  _recalcUnrealized(s);
+  const modeStr = s.isPaperMode ? "[PAPER]" : "[LIVE]";
+  const exitNote = s.config.takeProfitCents > 0 || s.config.stopLossCents > 0 ? ` \xB7 auto-exit +${s.config.takeProfitCents}%/-${s.config.stopLossCents}% of entry` : "";
+  const compNote = s.config.compounding ? ` \xB7 compounding ${s.config.riskPctPerTrade}% of $${kalshiBankroll(s).toFixed(0)} bankroll` : "";
+  const r = `${modeStr} ${p2.label}: bought YES \xD7 ${contracts} on "${p2.subtitle}" at ${p2.priceInCents}\xA2 \u2014 stake $${stakeUsd.toFixed(2)}${compNote}${exitNote}${sizingReasoning ? ` ${sizingReasoning}` : ""}`;
+  s.lastScanResult = r;
+  return { fired: true, reason: r };
+}
+async function ruinGuardStatus(userId, s) {
+  if (!s.config.ruinGuardEnabled) return { blocked: false, reason: "" };
+  const base = Math.max(1, s.config.startingBankroll || 100);
+  const dailyLimit = base * ((s.config.dailyLossLimitPct ?? 5) / 100);
+  const ddLimit = base * ((s.config.maxDrawdownLimitPct ?? 10) / 100);
+  const now = /* @__PURE__ */ new Date();
+  const startOfDayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  let dailyRealized = 0;
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { and: and12, eq: eq21, gte: gte7, sql: sql18 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql18`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(
+      eq21(aiTradeResults2.userId, userId),
+      eq21(aiTradeResults2.source, "kalshi"),
+      gte7(aiTradeResults2.closedAt, startOfDayUtc)
+    ));
+    dailyRealized = parseFloat(row?.total ?? "0") || 0;
+  } catch {
+    const todayKey = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`;
+    for (const t of s.closedTrades) {
+      if (!t.closedAt) continue;
+      const d = new Date(t.closedAt);
+      if (`${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}` === todayKey) dailyRealized += t.realizedPnl || 0;
+    }
+  }
+  const dayPnL = dailyRealized + (s.totalUnrealizedPnl || 0);
+  if (dayPnL <= -dailyLimit) {
+    return { blocked: true, reason: `\u{1F6D1} Ruin Guard: daily P&L $${dayPnL.toFixed(2)} hit the \u2212$${dailyLimit.toFixed(2)} daily-loss limit \u2014 no new trades until next UTC day` };
+  }
+  const bankroll = kalshiBankroll(s);
+  const peak = Math.max(_sessionPeakBankroll.get(userId) ?? bankroll, bankroll);
+  _sessionPeakBankroll.set(userId, peak);
+  const dd = peak - bankroll;
+  if (dd >= ddLimit) {
+    return { blocked: true, reason: `\u{1F6D1} Ruin Guard: drawdown $${dd.toFixed(2)} from peak $${peak.toFixed(2)} hit the $${ddLimit.toFixed(2)} max-DD limit \u2014 no new trades until equity recovers` };
+  }
+  return { blocked: false, reason: "" };
+}
+async function _runKalshiScan(userId, manual = false) {
+  await refreshKalshiCredValidity(userId);
+  const s = getKalshiEngineState(userId);
+  s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
+  await _updateOpenTradePrices(userId, s);
+  if (s.config.kalshiBrainEnabled) await getOrRefreshKalshiBrain(userId).catch(() => {
+  });
+  if (s.openTrades.length >= s.config.maxOpenTrades) {
+    const r = `Max open trades (${s.config.maxOpenTrades}) reached`;
+    s.lastScanResult = r;
+    return { fired: false, reason: r };
+  }
+  if (!manual && s.lastTradeAt) {
+    const elapsed = Date.now() - new Date(s.lastTradeAt).getTime();
+    const cooldownMs = s.config.cooldownMinutes * 60 * 1e3;
+    if (elapsed < cooldownMs) {
+      const minsLeft = Math.ceil((cooldownMs - elapsed) / 6e4);
+      const r = `Cooldown: ${minsLeft}m remaining`;
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
+    }
+  }
+  const _todayUtc = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  if (s.tradesTodayUtcDate !== _todayUtc) {
+    s.tradesTodayUtcDate = _todayUtc;
+    s.tradesToday = 0;
+  }
+  const _dailyCap = s.config.maxTradesPerDay ?? 0;
+  if (!manual && _dailyCap > 0 && s.tradesToday >= _dailyCap) {
+    const r = `Daily trade cap reached (${s.tradesToday}/${_dailyCap}) \u2014 pausing new trades until UTC midnight`;
+    s.lastScanResult = r;
+    return { fired: false, reason: r };
+  }
+  const guard = await ruinGuardStatus(userId, s);
+  if (guard.blocked) {
+    s.lastScanResult = guard.reason;
+    return { fired: false, reason: guard.reason };
+  }
+  let weatherReason = "";
+  if (s.config.weatherEnabled) {
+    const wx = await _scanWeather(userId, s);
+    if (wx.fired) {
+      s.lastScanResult = wx.reason;
+      return wx;
+    }
+    weatherReason = wx.reason;
+  }
+  const symbols = s.config.symbols?.length ? s.config.symbols : ["BTC"];
+  if (s.config.autoTradeValuePicks) {
+    const vpResult = await _scanBestValuePickAcrossSymbols(userId, s, symbols);
+    if (!vpResult.fired && weatherReason) {
+      const combined2 = `${weatherReason} \xB7 ${vpResult.reason}`;
+      s.lastScanResult = combined2;
+      return { fired: false, reason: combined2 };
+    }
+    return vpResult;
+  }
+  const perSymbolReasons = [];
+  for (const coin of symbols) {
+    const result = await _scanOneCoin(userId, s, coin);
+    if (result.fired) {
+      s.lastScanResult = result.reason;
+      return result;
+    }
+    perSymbolReasons.push(result.reason);
+  }
+  const combined = [weatherReason, ...perSymbolReasons].filter(Boolean).join(" \xB7 ");
+  s.lastScanResult = combined;
+  return { fired: false, reason: combined };
+}
+async function _scanWeather(userId, s) {
+  const cities = s.config.weatherCities?.length ? s.config.weatherCities : ["NY", "CHI", "MIA", "AUS", "LAX", "DEN", "PHIL"];
+  let scan;
+  try {
+    scan = await scanKalshiWeatherPicks(cities, {
+      minEntryCents: s.config.minEntryPriceCents ?? 15,
+      minEdgeCents: s.config.weatherMinEdgeCents ?? 8,
+      maxBiasDegrees: s.config.weatherMaxBiasDegrees ?? 3
+    });
+  } catch (err) {
+    return { fired: false, reason: `Weather: scan error: ${err.message}` };
+  }
+  const top = scan.picks[0];
+  if (!top) {
+    return { fired: false, reason: `Weather: no qualifying pick \u2014 ${scan.perCityReasons.join(" \xB7 ")}` };
+  }
+  if (s.config.kalshiBrainEnabled && s.config.kalshiBrainGating) {
+    const g = kalshiBrainGate(userId, top.cityCode, top.strikeType, (/* @__PURE__ */ new Date()).getUTCHours(), top.confidence);
+    if (g.blocked) return { fired: false, reason: g.reason };
+  }
+  return _placeKalshiYes(userId, s, {
+    coin: top.cityCode,
+    timeframe: "hourly",
+    // daily market; the per-ticker pricing/settlement fallback handles it regardless
+    ticker: top.ticker,
+    subtitle: `${top.city} ${top.subtitle}`,
+    priceInCents: top.marketAskCents,
+    confidence: top.confidence,
+    btcPrice: 0,
+    direction: "BUY",
+    label: `Weather: ${top.city} "${top.subtitle}" (+${top.edgePct}\xA2 edge, score ${top.valueScore})`,
+    strategy: "weather",
+    strikeType: top.strikeType,
+    edgePct: top.edgePct,
+    valueScore: top.valueScore,
+    modelProbPct: top.modelProbPct
+  });
+}
+async function previewKalshiWeatherPicks(userId) {
+  const s = getKalshiEngineState(userId);
+  const cities = s.config.weatherCities?.length ? s.config.weatherCities : ["NY", "CHI", "MIA", "AUS", "LAX", "DEN", "PHIL"];
+  return scanKalshiWeatherPicks(cities, {
+    minEntryCents: s.config.minEntryPriceCents ?? 15,
+    minEdgeCents: s.config.weatherMinEdgeCents ?? 8,
+    maxBiasDegrees: s.config.weatherMaxBiasDegrees ?? 3
+  });
+}
+async function _scanBestValuePickAcrossSymbols(userId, s, symbols) {
+  const perSymbolReasons = [];
+  let best = null;
+  for (const coin2 of symbols) {
+    if (!isKalshiBrokerTradeable(coin2, s.config.timeframe)) {
+      perSymbolReasons.push(`${coin2}: ${s.config.timeframe === "fifteen_min" ? "15-min" : "hourly"} market exists but isn't broker/API-tradeable \u2014 skipping`);
+      continue;
+    }
+    try {
+      const vp2 = await scanKalshiValuePicks(userId, 1, coin2, s.config.timeframe);
+      const top2 = vp2.picks[0];
+      if (!top2) {
+        perSymbolReasons.push(`${coin2}: no positive-edge bracket right now (${vp2.consensus.direction} consensus)`);
+        continue;
+      }
+      if (top2.valueScore < s.config.minValueScore) {
+        perSymbolReasons.push(`${coin2}: best score ${top2.valueScore} below threshold (${s.config.minValueScore}) \u2014 "${top2.subtitle}"`);
+        continue;
+      }
+      perSymbolReasons.push(`${coin2}: qualifying pick, score ${top2.valueScore} \u2014 "${top2.subtitle}"`);
+      if (!best || top2.valueScore > best.top.valueScore) best = { coin: coin2, top: top2, vp: vp2 };
+    } catch (err) {
+      perSymbolReasons.push(`${coin2}: value-pick scan error: ${err.message}`);
+    }
+  }
+  if (!best) {
+    const combined = perSymbolReasons.join(" \xB7 ");
+    s.lastScanResult = combined;
+    return { fired: false, reason: combined };
+  }
+  const { coin, top, vp } = best;
+  const result = await _placeKalshiYes(userId, s, {
+    coin,
+    timeframe: s.config.timeframe,
+    ticker: top.ticker,
+    subtitle: top.subtitle,
+    priceInCents: top.marketAskCents,
+    confidence: top.confidence,
+    btcPrice: vp.btcPrice,
+    direction: vp.consensus.direction === "SELL" ? "SELL" : "BUY",
+    label: `${coin} value pick (score ${top.valueScore}, +${top.edgePct}\xA2 edge) [best of ${symbols.length}]`,
+    strategy: "consensus",
+    strikeType: top.strikeType,
+    edgePct: top.edgePct,
+    valueScore: top.valueScore,
+    modelProbPct: top.modelProbPct,
+    agreement: top.agreement
+  });
+  return result;
+}
+async function _scanOneCoin(userId, s, coin) {
+  if (!isKalshiBrokerTradeable(coin, s.config.timeframe)) {
+    return { fired: false, reason: `${coin}: ${s.config.timeframe === "fifteen_min" ? "15-min" : "hourly"} market exists but isn't broker/API-tradeable on Kalshi's side \u2014 skipping` };
+  }
+  if (s.config.kalshiBrainEnabled && s.config.kalshiBrainGating) {
+    const g = kalshiBrainGate(userId, coin, null, (/* @__PURE__ */ new Date()).getUTCHours());
+    if (g.blocked) return { fired: false, reason: g.reason };
+  }
+  try {
+    let effectiveStrategy;
+    let stratLabel;
+    if (s.config.strategy === "auto") {
+      const scan = await scanAllKalshiStrategies(userId, coin);
+      if (!scan.selected) {
+        return { fired: false, reason: `${coin} Auto: all strategies NEUTRAL this cycle \u2014 no trade` };
+      }
+      effectiveStrategy = scan.selected;
+      const sel = scan.rows.find((row) => row.strategy === effectiveStrategy);
+      stratLabel = `${coin} Auto\u2192${STRATEGY_LABELS[effectiveStrategy]} (acc ${sel.winRate}%/${sel.decidedTrades}t \xB7 conf ${sel.confidence}%)`;
+    } else {
+      effectiveStrategy = s.config.strategy;
+      stratLabel = `${coin} ${STRATEGY_LABELS[effectiveStrategy] ?? effectiveStrategy}`;
+    }
+    const pred = await getKalshiSignal(effectiveStrategy, coin);
+    if (!pred || pred.direction === "NEUTRAL") {
+      return { fired: false, reason: `${stratLabel}: NEUTRAL \u2014 ${pred?.reason ?? "no clear direction"}` };
+    }
+    if (pred.confidence < s.config.minConfidence) {
+      return { fired: false, reason: `${stratLabel}: confidence ${pred.confidence}% below threshold (${s.config.minConfidence}%)` };
+    }
+    if (s.config.requireAlignedHourly) {
+      const aligned = pred.direction === "BUY" && pred.priceChange1h > 0 || pred.direction === "SELL" && pred.priceChange1h < 0;
+      if (!aligned) {
+        return { fired: false, reason: `${stratLabel}: 1h trend (${pred.priceChange1h > 0 ? "+" : ""}${pred.priceChange1h.toFixed(2)}%) conflicts with ${pred.direction} signal` };
+      }
+    }
+    if (s.config.requireConfluence !== false) {
+      const consensus = await getKalshiConsensus(coin);
+      const agrees = consensus.direction === pred.direction && consensus.agreement >= 0.6;
+      if (!agrees) {
+        return { fired: false, reason: `${stratLabel}: Confluence fail: says ${pred.direction} but consensus is ${consensus.direction} @ ${Math.round(consensus.agreement * 100)}% agree (need \u226560% agreeing)` };
+      }
+    }
+    const seriesTicker = s.config.timeframe === "fifteen_min" ? KALSHI_SERIES_MAP[coin].fifteenMin : KALSHI_SERIES_MAP[coin].hourly;
+    const event = await getKalshiCryptoEvent(seriesTicker, pred.currentPrice);
+    if (!event.brackets.length) {
+      return { fired: false, reason: `${coin}: No active ${seriesTicker} brackets available` };
+    }
+    const minCloseBufferMs = s.config.timeframe === "fifteen_min" ? 3 * 60 * 1e3 : 15 * 60 * 1e3;
+    if (event.msUntilClose < minCloseBufferMs) {
+      return { fired: false, reason: `${coin}: Nearest ${seriesTicker} event closes in <${Math.round(minCloseBufferMs / 6e4)}min \u2014 waiting for next event` };
+    }
+    const bracket = _selectBracket(event.brackets, pred);
+    if (!bracket) {
+      return { fired: false, reason: `${coin}: Could not find a suitable bracket for current signal` };
+    }
+    const priceInCents = bracket.yesAsk > 0 ? bracket.yesAsk : Math.max(1, bracket.yesProbability);
+    if (priceInCents >= 97) {
+      return { fired: false, reason: `${coin}: Bracket ${bracket.subtitle} already at ${priceInCents}\xA2 \u2014 too expensive` };
+    }
+    const _minEntry = s.config.minEntryPriceCents ?? 30;
+    if (priceInCents < _minEntry) {
+      return { fired: false, reason: `${coin}: Bracket ${bracket.subtitle} at ${priceInCents}\xA2 is below the ${_minEntry}\xA2 longshot floor (cheap brackets win ~17% \u2014 skipping)` };
+    }
+    if (priceInCents > pred.confidence - 5) {
+      return { fired: false, reason: `${coin}: No edge: ${bracket.subtitle} costs ${priceInCents}\xA2 but signal implies ~${pred.confidence}% win \u2014 need \u2264${pred.confidence - 5}\xA2. Skip.` };
+    }
+    return await _placeKalshiYes(userId, s, {
+      coin,
+      timeframe: s.config.timeframe,
+      ticker: bracket.ticker,
+      subtitle: bracket.subtitle,
+      priceInCents,
+      confidence: pred.confidence,
+      btcPrice: pred.currentPrice,
+      direction: pred.direction === "SELL" ? "SELL" : "BUY",
+      label: stratLabel,
+      strategy: effectiveStrategy,
+      strikeType: bracket.strikeType
+    });
+  } catch (err) {
+    return { fired: false, reason: `${coin}: Scan error: ${err.message}` };
+  }
+}
+function _selectBracket(brackets, pred) {
+  const btcPrice = pred.currentPrice;
+  if (pred.direction === "BUY") {
+    const greaterBrackets = brackets.filter((b) => b.strikeType === "greater" || b.strikeType === "greater_or_equal");
+    if (greaterBrackets.length) {
+      return greaterBrackets.sort((a, b) => {
+        const da = btcPrice - (a.floorStrike ?? 0);
+        const db2 = btcPrice - (b.floorStrike ?? 0);
+        return Math.abs(da) - Math.abs(db2);
+      })[0];
+    }
+    return _findNearestBetween(brackets, btcPrice);
+  }
+  if (pred.direction === "SELL") {
+    const lessBrackets = brackets.filter((b) => b.strikeType === "less" || b.strikeType === "less_or_equal");
+    if (lessBrackets.length) {
+      return lessBrackets.sort((a, b) => {
+        const da = (a.capStrike ?? btcPrice) - btcPrice;
+        const db2 = (b.capStrike ?? btcPrice) - btcPrice;
+        return Math.abs(da) - Math.abs(db2);
+      })[0];
+    }
+    const below = brackets.filter(
+      (b) => b.strikeType === "between" && b.capStrike != null && b.capStrike < btcPrice
+    ).sort((a, b) => (b.capStrike ?? 0) - (a.capStrike ?? 0));
+    return below[0] ?? null;
+  }
+  return null;
+}
+function _findNearestBetween(brackets, btcPrice) {
+  const between = brackets.filter((b) => b.strikeType === "between");
+  if (!between.length) return null;
+  return between.sort((a, b) => {
+    const midA = ((a.floorStrike ?? 0) + (a.capStrike ?? 0)) / 2;
+    const midB = ((b.floorStrike ?? 0) + (b.capStrike ?? 0)) / 2;
+    return Math.abs(midA - btcPrice) - Math.abs(midB - btcPrice);
+  })[0];
+}
+async function scanAllKalshiStrategies(userId, coin = "BTC") {
+  const scannedAt = (/* @__PURE__ */ new Date()).toISOString();
+  const consensus = await getKalshiConsensus(coin);
+  const perf = getKalshiPerformance(userId);
+  const rows = consensus.signals.map((sig) => {
+    const stat = perf.byStrategy.find((p2) => p2.strategy === sig.strategy);
+    const winRate2 = stat?.winRate ?? 0;
+    const decided = stat ? stat.wins + stat.losses : 0;
+    const totalPnl = stat?.totalPnl ?? 0;
+    const hasHistory = decided >= 3;
+    const accuracyFactor = hasHistory ? winRate2 / 100 : 0.5;
+    const selectScore = sig.direction === "NEUTRAL" ? 0 : Math.round(sig.confidence * (0.4 + accuracyFactor * 0.6));
+    return {
+      strategy: sig.strategy,
+      label: STRATEGY_LABELS[sig.strategy] ?? sig.strategy,
+      direction: sig.direction,
+      confidence: sig.confidence,
+      reason: sig.reason,
+      winRate: winRate2,
+      decidedTrades: decided,
+      totalPnl,
+      selectScore,
+      selected: false
+    };
+  });
+  let best = null;
+  for (const r of rows) if (r.selectScore > 0 && (!best || r.selectScore > best.selectScore)) best = r;
+  if (best) best.selected = true;
+  rows.sort((a, b) => b.selectScore - a.selectScore);
+  return { rows, selected: best?.strategy ?? null, btcPrice: consensus.currentPrice, scannedAt };
+}
+function normalCdf(x) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const d = 0.3989423 * Math.exp(-x * x / 2);
+  let p2 = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+  if (x > 0) p2 = 1 - p2;
+  return p2;
+}
+function _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice) {
+  if (sigmaPrice <= 0) sigmaPrice = btcPrice * 4e-3;
+  const expected = btcPrice + driftPrice;
+  if ((b.strikeType === "greater" || b.strikeType === "greater_or_equal") && b.floorStrike != null) {
+    return 1 - normalCdf((b.floorStrike - expected) / sigmaPrice);
+  }
+  if ((b.strikeType === "less" || b.strikeType === "less_or_equal") && b.capStrike != null) {
+    return normalCdf((b.capStrike - expected) / sigmaPrice);
+  }
+  if (b.strikeType === "between" && b.floorStrike != null && b.capStrike != null) {
+    return normalCdf((b.capStrike - expected) / sigmaPrice) - normalCdf((b.floorStrike - expected) / sigmaPrice);
+  }
+  return 0;
+}
+async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC", timeframe = "hourly") {
+  const scannedAt = (/* @__PURE__ */ new Date()).toISOString();
+  const consensus = await getKalshiConsensus(coin);
+  const btcPrice = consensus.currentPrice;
+  const base = {
+    consensus: { direction: consensus.direction, confidence: consensus.confidence, agreement: consensus.agreement, reasons: consensus.reasons },
+    btcPrice,
+    eventTicker: null,
+    minutesToClose: null,
+    picks: [],
+    scannedAt
+  };
+  if (!btcPrice) return base;
+  const seriesTicker = timeframe === "fifteen_min" ? KALSHI_SERIES_MAP[coin].fifteenMin : KALSHI_SERIES_MAP[coin].hourly;
+  const event = await getKalshiCryptoEvent(seriesTicker, btcPrice).catch(() => null);
+  if (!event || !event.brackets.length) return base;
+  base.eventTicker = event.eventTicker;
+  base.minutesToClose = Math.round(event.msUntilClose / 6e4);
+  const _minBufferMin = timeframe === "fifteen_min" ? 2 : 8;
+  const _maxWindowMin = timeframe === "fifteen_min" ? 20 : 240;
+  if (base.minutesToClose < _minBufferMin || base.minutesToClose > _maxWindowMin) return base;
+  const { candles } = await getCryptoCandles(coin, 100).catch(() => ({ candles: [] }));
+  const hourlyVolFrac = candles.length ? estimateHourlyVol(candles) : 4e-3;
+  const hoursLeft = Math.max(0.02, event.msUntilClose / 36e5);
+  const sigmaPrice = btcPrice * hourlyVolFrac * Math.sqrt(hoursLeft);
+  const dirSign = consensus.direction === "BUY" ? 1 : consensus.direction === "SELL" ? -1 : 0;
+  const driftFrac = consensus.agreement >= 0.6 ? dirSign * (consensus.confidence / 100) * consensus.agreement * 0.35 : 0;
+  const driftPrice = sigmaPrice * driftFrac;
+  const perf = getKalshiPerformance(userId);
+  const consStat = perf.byStrategy.find((st) => st.strategy === "consensus");
+  let winRateWeight = 1;
+  if (consStat && consStat.wins + consStat.losses >= 5) {
+    winRateWeight = Math.round((0.7 + consStat.winRate / 100 * 0.6) * 100) / 100;
+  }
+  const _brainCfg = getKalshiEngineState(userId).config;
+  const brainEnabled = _brainCfg.kalshiBrainEnabled;
+  const brainGating = brainEnabled && _brainCfg.kalshiBrainGating;
+  if (brainEnabled) await getOrRefreshKalshiBrain(userId).catch(() => {
+  });
+  const LONGSHOT_FLOOR_CENTS = Math.max(12, getKalshiEngineState(userId).config.minEntryPriceCents ?? 30);
+  const SPREAD_MAX_CENTS = 12;
+  const EDGE_MIN_CENTS = 4;
+  const picks = [];
+  for (const b of event.brackets) {
+    if (!b.hasLiquidity) continue;
+    const ask = b.yesAsk > 0 ? b.yesAsk : b.yesProbability;
+    if (ask <= 1 || ask >= 97) continue;
+    if (ask < LONGSHOT_FLOOR_CENTS) continue;
+    const spread = b.yesBid > 0 ? ask - b.yesBid : SPREAD_MAX_CENTS + 1;
+    if (spread > SPREAD_MAX_CENTS) continue;
+    if (brainGating && kalshiBrainGate(userId, coin, b.strikeType, (/* @__PURE__ */ new Date()).getUTCHours(), consensus.confidence).blocked) continue;
+    const modelProb = _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice);
+    const modelProbPct = Math.round(modelProb * 100);
+    const rawEdgePct = modelProbPct - ask;
+    const longshotFactor = Math.min(1, 0.6 + (ask - LONGSHOT_FLOOR_CENTS) / 60);
+    const edgePct = Math.round(rawEdgePct * longshotFactor);
+    if (edgePct < EDGE_MIN_CENTS) continue;
+    const agreementW = 0.5 + consensus.agreement * 0.5;
+    const confW = 0.5 + consensus.confidence / 100 * 0.5;
+    const probW = 0.6 + modelProb * 0.4;
+    const brainW = brainEnabled ? kalshiBrainValueWeight(userId, coin, b.strikeType) : 1;
+    const valueScore = Math.round(edgePct * agreementW * confW * probW * winRateWeight * brainW * 10) / 10;
+    const brainNote = brainW !== 1 ? ` \u{1F9E0} Brain ${brainW}\xD7 (${coin}${b.strikeType ? `/${b.strikeType}` : ""}).` : "";
+    const learnNote = winRateWeight !== 1 ? ` Learned ${winRateWeight}\xD7 (consensus WR ${consStat.winRate}% over ${consStat.wins + consStat.losses}).` : "";
+    const haircutNote = longshotFactor < 1 ? ` Longshot haircut ${Math.round(longshotFactor * 100)}% (raw +${rawEdgePct}\xA2).` : "";
+    picks.push({
+      ticker: b.ticker,
+      subtitle: b.subtitle,
+      strikeType: b.strikeType,
+      marketAskCents: ask,
+      modelProbPct,
+      edgePct,
+      valueScore,
+      confidence: consensus.confidence,
+      agreement: consensus.agreement,
+      winRateWeight,
+      rationale: `${consensus.direction} consensus (${Math.round(consensus.agreement * 100)}% agree, ${consensus.confidence}% conf). Model ${modelProbPct}% vs market ${ask}\xA2 \u2192 +${edgePct}\xA2 edge.${haircutNote}${learnNote}${brainNote}`
+    });
+  }
+  picks.sort((a, b) => b.valueScore - a.valueScore);
+  base.picks = picks.slice(0, limit);
+  return base;
+}
+async function _updateOpenTradePrices(userId, s) {
+  if (!s.openTrades.length) return;
+  const keysInPlay = Array.from(new Set(s.openTrades.map((t) => `${t.coin || "BTC"}:${t.timeframe || "hourly"}`)));
+  const bracketsByKey = /* @__PURE__ */ new Map();
+  for (const key of keysInPlay) {
+    const [coin, timeframe] = key.split(":");
+    if (!KALSHI_SERIES_MAP[coin]) continue;
+    try {
+      const seriesTicker = timeframe === "fifteen_min" ? KALSHI_SERIES_MAP[coin]?.fifteenMin ?? "KXBTC15M" : KALSHI_SERIES_MAP[coin]?.hourly ?? "KXBTC";
+      const event = await getKalshiCryptoEvent(seriesTicker, void 0, true);
+      bracketsByKey.set(key, event.brackets);
+    } catch {
+    }
+  }
+  for (const t of [...s.openTrades]) {
+    const brackets = bracketsByKey.get(`${t.coin || "BTC"}:${t.timeframe || "hourly"}`);
+    const b = brackets?.find((x) => x.ticker === t.ticker);
+    if (b) {
+      const liveCents = b.yesBid > 0 ? b.yesBid : b.yesProbability > 0 ? b.yesProbability : t.currentPriceCents;
+      await _applyLivePriceAndCheckExits(userId, s, t, liveCents);
+      continue;
+    }
+    try {
+      const market = await getKalshiMarketStatus(t.ticker);
+      if (!market) continue;
+      if (market.status === "finalized" || market.status === "settled" || market.result) {
+        const settledCents = market.result === "yes" ? 100 : market.result === "no" ? 0 : market.lastPrice || t.currentPriceCents;
+        await _settleKalshiTrade(userId, s, t, settledCents);
+      } else {
+        const liveCents = market.yesBid > 0 ? market.yesBid : market.lastPrice > 0 ? market.lastPrice : t.currentPriceCents;
+        await _applyLivePriceAndCheckExits(userId, s, t, liveCents);
+      }
+    } catch {
+    }
+  }
+  _recalcUnrealized(s);
+}
+async function _applyLivePriceAndCheckExits(userId, s, t, liveCents) {
+  t.currentPriceCents = liveCents;
+  t.currentValue = liveCents / 100 * t.count;
+  t.unrealizedPnl = t.currentValue - t.stake;
+  const tpPct = s.config.takeProfitCents;
+  const slPct = s.config.stopLossCents;
+  const tpLevel = tpPct > 0 ? Math.min(99, Math.round(t.entryPriceCents * (1 + tpPct / 100))) : null;
+  const slLevel = slPct > 0 ? Math.max(1, Math.round(t.entryPriceCents * (1 - slPct / 100))) : null;
+  if (tpLevel != null && liveCents >= tpLevel) {
+    const ok = await closeKalshiTrade(userId, t.id, liveCents, "take_profit");
+    if (ok) s.lastScanResult = `\u2705 Take-profit: closed "${t.subtitle}" at ${liveCents}\xA2 (entry ${t.entryPriceCents}\xA2 + ${tpPct}% target) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+  } else if (slLevel != null && liveCents <= slLevel) {
+    const ok = await closeKalshiTrade(userId, t.id, liveCents, "stop_loss");
+    if (ok) s.lastScanResult = `\u{1F6D1} Stop-loss: closed "${t.subtitle}" at ${liveCents}\xA2 (entry ${t.entryPriceCents}\xA2 - ${slPct}% stop) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+  }
+}
+function _recalcUnrealized(s) {
+  s.totalUnrealizedPnl = s.openTrades.reduce((sum, t) => sum + t.unrealizedPnl, 0);
+}
+function _finalizeKalshiClose(userId, s, idx, exitCents, exitReason) {
+  const trade = s.openTrades[idx];
+  if (!trade) return false;
+  const exitValue = exitCents / 100 * trade.count;
+  const realizedPnl = exitValue - trade.stake;
+  trade.status = "closed";
+  trade.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+  trade.exitPriceCents = exitCents;
+  trade.realizedPnl = realizedPnl;
+  trade.exitReason = exitReason;
+  trade.unrealizedPnl = 0;
+  s.openTrades.splice(idx, 1);
+  s.closedTrades.unshift(trade);
+  if (s.closedTrades.length > 50) s.closedTrades.length = 50;
+  s.totalRealizedPnl += realizedPnl;
+  _recalcUnrealized(s);
+  try {
+    recordKalshiOutcome(userId, trade.strategy || "unknown", realizedPnl);
+  } catch {
+  }
+  Promise.resolve().then(async () => {
+    try {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      await db2.insert(aiTradeResults2).values({
+        userId,
+        symbol: `KALSHI:${trade.ticker}`,
+        direction: trade.signal.direction === "SELL" ? "SELL" : "BUY",
+        entryPrice: trade.entryPriceCents / 100,
+        exitPrice: exitCents / 100,
+        result: realizedPnl > 0 ? "WIN" : realizedPnl < 0 ? "LOSS" : "BREAKEVEN",
+        profitLoss: Math.round(realizedPnl * 100) / 100,
+        closedAt: /* @__PURE__ */ new Date(),
+        source: "kalshi",
+        mt5Ticket: trade.id,
+        notes: `${trade.strategy}: ${trade.subtitle}${exitReason !== "manual" ? " | " + exitReason : ""}`
+      });
+    } catch {
+    }
+  });
+  Promise.resolve().then(async () => {
+    try {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { kalshiBrainOutcomes: kalshiBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      const openedMs = new Date(trade.openedAt).getTime();
+      await db2.insert(kalshiBrainOutcomes2).values({
+        userId,
+        coin: trade.coin || "BTC",
+        timeframe: trade.timeframe || "hourly",
+        strategy: trade.strategy || "unknown",
+        direction: trade.signal.direction === "SELL" ? "SELL" : "BUY",
+        strikeType: trade.strikeType ?? null,
+        entryPriceCents: trade.entryPriceCents,
+        confidence: trade.signal.confidence ?? null,
+        edgePct: trade.edgePct ?? null,
+        valueScore: trade.valueScore ?? null,
+        modelProbPct: trade.modelProbPct ?? null,
+        agreement: trade.agreement ?? null,
+        hourUtc: new Date(trade.openedAt).getUTCHours(),
+        holdingMinutes: Math.max(0, Math.round((Date.now() - openedMs) / 6e4)),
+        exitReason,
+        result: realizedPnl > 0 ? "WIN" : realizedPnl < 0 ? "LOSS" : "BREAKEVEN",
+        profitLoss: Math.round(realizedPnl * 100) / 100,
+        source: "live"
+      });
+      await learnFromKalshiTrades(userId);
+    } catch {
+    }
+  });
+  return true;
+}
+async function _settleKalshiTrade(userId, s, t, settledCents) {
+  const idx = s.openTrades.findIndex((x) => x.id === t.id);
+  if (idx === -1) return;
+  _finalizeKalshiClose(userId, s, idx, settledCents, "settlement");
+}
+async function closeKalshiTrade(userId, tradeId, exitPriceCents, exitReason = "manual") {
+  const s = getKalshiEngineState(userId);
+  const idx = s.openTrades.findIndex((t) => t.id === tradeId);
+  if (idx === -1) return false;
+  const trade = s.openTrades[idx];
+  const exitCents = exitPriceCents ?? trade.currentPriceCents;
+  if (!trade.paper) {
+    try {
+      await placeKalshiOrder(userId, trade.ticker, "yes", "sell", trade.count, exitCents);
+    } catch (err) {
+      console.error(`[Kalshi] Sell order failed for ${trade.ticker} (leaving position open, will retry next cycle): ${err.message}`);
+      s.lastScanResult = `\u26A0\uFE0F Could not close "${trade.subtitle}": ${err.message}`;
+      return false;
+    }
+  }
+  return _finalizeKalshiClose(userId, s, idx, exitCents, exitReason);
+}
+async function closeAllKalshiTrades(userId) {
+  const s = getKalshiEngineState(userId);
+  const ids = s.openTrades.map((t) => t.id);
+  let closed = 0;
+  for (const id of ids) {
+    if (await closeKalshiTrade(userId, id)) closed++;
+  }
+  return closed;
+}
+var KALSHI_TRADEABLE_COINS, _sessionPeakBankroll, _states, _timers, DEFAULT_CONFIG2, STRATEGY_LABELS, _persistedConfigOverrides, _credValidity, CRED_VALIDITY_TTL_MS, _priceTimers;
+var init_kalshi_engine = __esm({
+  "server/services/kalshi-engine.ts"() {
+    "use strict";
+    init_kalshi();
+    init_kalshi_trading();
+    init_kalshi_strategies();
+    init_btc_5min_predictor();
+    init_kalshi_performance();
+    init_kalshi_brain();
+    init_kalshi_weather();
+    KALSHI_TRADEABLE_COINS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "GOLD"];
+    _sessionPeakBankroll = /* @__PURE__ */ new Map();
+    _states = /* @__PURE__ */ new Map();
+    _timers = /* @__PURE__ */ new Map();
+    DEFAULT_CONFIG2 = {
+      symbols: ["BTC"],
+      // preserves existing behavior for accounts that never touch this setting
+      timeframe: "hourly",
+      contractsPerTrade: 5,
+      maxOpenTrades: 3,
+      cooldownMinutes: 20,
+      maxTradesPerDay: 10,
+      // throttle overtrading (logs showed 30+ BTC trades/day at 23% WR); 0 = unlimited
+      minConfidence: 70,
+      requireAlignedHourly: true,
+      requireConfluence: true,
+      strategy: "auto",
+      // was 'momentum' — the WORST performer in this account's history (14% win over 14 trades). 'auto' picks the best strategy by live confidence × historical accuracy each cycle.
+      autoTradeValuePicks: false,
+      minValueScore: 5,
+      // was 8 — too strict; combined with the value filters it blocked every pick
+      minEntryPriceCents: 30,
+      // favorite-longshot floor (data-backed: <30¢ won 17%, 50¢+ won 55%+)
+      takeProfitCents: 50,
+      // +50% of entry price
+      stopLossCents: 40,
+      // -40% of entry price
+      compounding: false,
+      riskPctPerTrade: 5,
+      startingBankroll: 100,
+      useKellyCriterion: false,
+      brainLearningMode: true,
+      drawdownShieldThreshold: 0,
+      // 0 = disabled by default (opt-in, unlike options/futures/cryptocom)
+      ruinGuardEnabled: true,
+      // ON: circuit-breaker halts new trades after a bad day / drawdown
+      dailyLossLimitPct: 5,
+      // FTUK-style daily loss limit (% of starting bankroll)
+      maxDrawdownLimitPct: 10,
+      // FTUK-style max drawdown limit (% of starting bankroll)
+      kalshiBrainEnabled: true,
+      // brain influence on (bounded + neutral until it has data)
+      kalshiBrainGating: true,
+      // ON: hard-blocks setups the brain has proven to lose (≥15 trades & <35% WR)
+      weatherEnabled: false,
+      // opt-in; paper-first (needs a per-city calibration period before live)
+      weatherCities: ["NY", "CHI", "MIA", "AUS", "LAX", "DEN", "PHIL"],
+      weatherMinEdgeCents: 8,
+      weatherMaxBiasDegrees: 3
+    };
+    STRATEGY_LABELS = {
+      momentum: "Momentum",
+      volume_profile: "Volume Profile",
+      markov: "Markov",
+      order_flow: "Order Flow",
+      ensemble: "AI Ensemble",
+      auto: "Auto (Best)"
+    };
+    _persistedConfigOverrides = /* @__PURE__ */ new Map();
+    _credValidity = /* @__PURE__ */ new Map();
+    CRED_VALIDITY_TTL_MS = 10 * 60 * 1e3;
+    _priceTimers = /* @__PURE__ */ new Map();
   }
 });
 
@@ -44840,7 +47213,7 @@ function getCacheKey(userId, accountType) {
 async function getOrCreateTradovateService(userId, username, encryptedPassword, accountType, accountId, cachedToken, tokenExpiresAt) {
   const cacheKey = getCacheKey(userId, accountType);
   const cached2 = serviceCache2.get(cacheKey);
-  if (cached2 && Date.now() - cached2.cachedAt.getTime() < CACHE_TTL_MS3) {
+  if (cached2 && Date.now() - cached2.cachedAt.getTime() < CACHE_TTL_MS5) {
     return cached2.service;
   }
   const { decryptPassword: decryptPassword4 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
@@ -44895,7 +47268,7 @@ async function executeFuturesSignal(connection2, signal) {
     return { success: false, error: error.message || "Unknown error" };
   }
 }
-var TradovateService, serviceCache2, CACHE_TTL_MS3;
+var TradovateService, serviceCache2, CACHE_TTL_MS5;
 var init_tradovate = __esm({
   "server/tradovate.ts"() {
     "use strict";
@@ -45102,7 +47475,7 @@ var init_tradovate = __esm({
       }
     };
     serviceCache2 = /* @__PURE__ */ new Map();
-    CACHE_TTL_MS3 = 50 * 60 * 1e3;
+    CACHE_TTL_MS5 = 50 * 60 * 1e3;
   }
 });
 
@@ -46681,6 +49054,3349 @@ var init_futures_scanner = __esm({
   }
 });
 
+// server/services/polymarket-autonomous-engine.ts
+var polymarket_autonomous_engine_exports = {};
+__export(polymarket_autonomous_engine_exports, {
+  closeAllPositions: () => closeAllPositions,
+  closePosition: () => closePosition,
+  getEngineState: () => getEngineState,
+  manualScan: () => manualScan,
+  restoreEngineStateFromDb: () => restoreEngineStateFromDb,
+  setPolymarketLiveMode: () => setPolymarketLiveMode,
+  startEngine: () => startEngine,
+  stopEngine: () => stopEngine,
+  updateEngineConfig: () => updateEngineConfig
+});
+import * as fs5 from "fs";
+import * as path5 from "path";
+function _loadPolymarketPrivateKey(userId) {
+  try {
+    const fp = path5.join(process.cwd(), "data", "polymarket_keys.json");
+    if (!fs5.existsSync(fp)) return null;
+    const map = JSON.parse(fs5.readFileSync(fp, "utf-8"));
+    const enc = map[String(userId)];
+    return enc ? decryptPassword(enc) : null;
+  } catch {
+    return null;
+  }
+}
+async function _signAndSubmitClobOrder(privateKey, tokenId, side, makerAmt, takerAmt) {
+  try {
+    const { ethers: ethers2 } = await import("ethers");
+    const wallet = new ethers2.Wallet(privateKey);
+    const salt = BigInt(Math.floor(Math.random() * 1e15));
+    const now = BigInt(Math.floor(Date.now() / 1e3));
+    const expiry = now + BigInt(3600);
+    const domain = {
+      name: "Polymarket CTF Exchange",
+      version: "1",
+      chainId: POLY_CHAIN,
+      verifyingContract: CTF_ADDRESS
+    };
+    const types = {
+      Order: [
+        { name: "salt", type: "uint256" },
+        { name: "maker", type: "address" },
+        { name: "signer", type: "address" },
+        { name: "taker", type: "address" },
+        { name: "tokenId", type: "uint256" },
+        { name: "makerAmount", type: "uint256" },
+        { name: "takerAmount", type: "uint256" },
+        { name: "expiration", type: "uint256" },
+        { name: "nonce", type: "uint256" },
+        { name: "feeRateBps", type: "uint256" },
+        { name: "side", type: "uint8" },
+        { name: "signatureType", type: "uint8" }
+      ]
+    };
+    const orderValues = {
+      salt,
+      maker: wallet.address,
+      signer: wallet.address,
+      taker: "0x0000000000000000000000000000000000000000",
+      tokenId: BigInt(tokenId),
+      makerAmount: makerAmt,
+      takerAmount: takerAmt,
+      expiration: expiry,
+      nonce: BigInt(0),
+      feeRateBps: BigInt(0),
+      side: side === "BUY" ? 0 : 1,
+      signatureType: 0
+    };
+    const signature = await wallet.signTypedData(domain, types, orderValues);
+    const body = {
+      order: {
+        salt: salt.toString(),
+        maker: wallet.address,
+        signer: wallet.address,
+        taker: "0x0000000000000000000000000000000000000000",
+        tokenId,
+        makerAmount: makerAmt.toString(),
+        takerAmount: takerAmt.toString(),
+        expiration: expiry.toString(),
+        nonce: "0",
+        feeRateBps: "0",
+        side: side === "BUY" ? 0 : 1,
+        signatureType: 0,
+        signature
+      },
+      owner: wallet.address,
+      orderType: "GTC"
+    };
+    const res2 = await fetch(`${CLOB_BASE2}/order`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(12e3)
+    });
+    const data = await res2.json();
+    if (!res2.ok || data.error) {
+      return { success: false, error: data.error ?? `CLOB ${res2.status}` };
+    }
+    return { success: true, orderId: data.orderID ?? data.order_id ?? "unknown" };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+async function placeClobOrder(privateKey, tokenId, side, priceFloat, sizeUsdc) {
+  const makerAmt = BigInt(Math.round(sizeUsdc * 1e6));
+  const takerAmt = BigInt(Math.round(sizeUsdc / priceFloat * 1e6));
+  return _signAndSubmitClobOrder(privateKey, tokenId, side, makerAmt, takerAmt);
+}
+async function sellClobPosition(privateKey, tokenId, priceFloat, shares) {
+  const makerAmt = BigInt(Math.round(shares * 1e6));
+  const takerAmt = BigInt(Math.round(shares * priceFloat * 1e6));
+  return _signAndSubmitClobOrder(privateKey, tokenId, "SELL", makerAmt, takerAmt);
+}
+function setPolymarketLiveMode(userId, enabled, privateKey) {
+  if (privateKey) _privateKeys.set(userId, privateKey);
+  else _privateKeys.delete(userId);
+  const s = getEngineState(userId);
+  s.isPaperMode = !enabled;
+}
+function getEngineState(userId) {
+  if (!_states2.has(userId)) {
+    _states2.set(userId, {
+      isRunning: false,
+      isPaperMode: true,
+      lastScanAt: null,
+      lastTradeAt: null,
+      lastScanResult: null,
+      openPositions: [],
+      closedPositions: [],
+      totalRealizedPnl: 0,
+      totalUnrealizedPnl: 0,
+      tradesOpened: 0,
+      config: { ...DEFAULT_CONFIG3 }
+    });
+  }
+  return _states2.get(userId);
+}
+function updateEngineConfig(userId, config) {
+  const s = getEngineState(userId);
+  s.config = { ...s.config, ...config };
+}
+function startEngine(userId) {
+  const s = getEngineState(userId);
+  if (s.isRunning) return;
+  s.isRunning = true;
+  _persistRunState(userId, true, s.isPaperMode);
+  _runScan(userId).catch(console.error);
+  const iv = setInterval(() => _runScan(userId).catch(console.error), 5 * 60 * 1e3);
+  _intervals.set(userId, iv);
+}
+function stopEngine(userId) {
+  const s = getEngineState(userId);
+  s.isRunning = false;
+  _persistRunState(userId, false, s.isPaperMode);
+  const iv = _intervals.get(userId);
+  if (iv) {
+    clearInterval(iv);
+    _intervals.delete(userId);
+  }
+}
+function _persistRunState(userId, isRunning, isPaperMode) {
+  Promise.resolve().then(() => (init_db(), db_exports)).then(({ db: db2 }) => {
+    Promise.resolve().then(() => (init_schema(), schema_exports)).then(({ engineRunState: engineRunState2 }) => {
+      db2.insert(engineRunState2).values({ userId, engine: "polymarket", isRunning, isPaperMode }).onConflictDoUpdate({
+        target: [engineRunState2.userId, engineRunState2.engine],
+        set: { isRunning, isPaperMode, updatedAt: /* @__PURE__ */ new Date() }
+      }).catch(console.error);
+    });
+  });
+}
+async function restoreEngineStateFromDb(userId) {
+  try {
+    await _restorePolymarketRealizedPnl(userId);
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { eq: eq21, and: and12 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and12(eq21(engineRunState2.userId, userId), eq21(engineRunState2.engine, "polymarket")));
+    const row = rows[0];
+    if (!row?.isRunning) return;
+    console.log(`[Polymarket] Restoring engine for user ${userId}`);
+    if (row.isPaperMode === false) {
+      const pk = _loadPolymarketPrivateKey(userId);
+      if (pk) {
+        setPolymarketLiveMode(userId, true, pk);
+        console.log(`[Polymarket] Restored LIVE mode for user ${userId} (private key loaded from durable storage)`);
+      } else {
+        console.warn(`[Polymarket] User ${userId} was in LIVE mode before this restart but no private key is available to restore it \u2014 resuming in PAPER mode instead. Re-enable live mode from the UI to resume live trading.`);
+        _persistRunState(userId, true, true);
+      }
+    }
+    startEngine(userId);
+  } catch (e) {
+    console.error("[Polymarket] Failed to restore engine state:", e);
+  }
+}
+async function _restorePolymarketRealizedPnl(userId) {
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { eq: eq21, and: and12, sql: sql18 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql18`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(eq21(aiTradeResults2.userId, userId), eq21(aiTradeResults2.source, "polymarket")));
+    const total = parseFloat(row?.total ?? "0") || 0;
+    const s = getEngineState(userId);
+    s.totalRealizedPnl = total;
+  } catch (e) {
+    console.error(`[Polymarket] Failed to restore totalRealizedPnl for user ${userId}:`, e?.message);
+  }
+}
+async function manualScan(userId) {
+  return _runScan(userId, true);
+}
+async function _runScan(userId, manual = false) {
+  const s = getEngineState(userId);
+  s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
+  await _refreshPositionPrices(s, userId);
+  if (s.openPositions.length >= s.config.maxOpenPositions) {
+    const r = `Max open positions (${s.config.maxOpenPositions}) reached`;
+    s.lastScanResult = r;
+    return { fired: false, reason: r };
+  }
+  if (!manual && s.lastTradeAt) {
+    const elapsed = Date.now() - new Date(s.lastTradeAt).getTime();
+    if (elapsed < s.config.cooldownMinutes * 60 * 1e3) {
+      const minsLeft = Math.ceil((s.config.cooldownMinutes * 60 * 1e3 - elapsed) / 6e4);
+      const r = `Cooldown active \u2014 ${minsLeft}m remaining`;
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
+    }
+  }
+  try {
+    const sentiment = await getPolymarketBTCSentiment();
+    const score = sentiment.overallBullishScore;
+    const isBullish = score >= s.config.minBullishScore;
+    const isBearish = 100 - score >= s.config.minBearishScore;
+    if (!isBullish && !isBearish) {
+      const r = `Sentiment neutral \u2014 score ${score}% (need \u2265${s.config.minBullishScore}% bullish or \u2264${100 - s.config.minBearishScore}% bearish)`;
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
+    }
+    const direction = isBullish ? "BUY" : "SELL";
+    const result = await _openPosition(s, sentiment, direction, userId);
+    s.lastScanResult = result.reason;
+    return result;
+  } catch (err) {
+    const r = `Scan error: ${err?.message ?? String(err)}`;
+    s.lastScanResult = r;
+    return { fired: false, reason: r };
+  }
+}
+async function _openPosition(s, sentiment, direction, userId) {
+  const openIds = new Set(s.openPositions.map((p2) => p2.market.id));
+  const now = Date.now();
+  const candidates = sentiment.markets.filter((m) => {
+    if (openIds.has(m.id)) return false;
+    if (m.closed) return false;
+    if (m.endDate) {
+      const end = new Date(m.endDate).getTime();
+      if (end - now < 2 * 60 * 60 * 1e3) return false;
+    }
+    if (direction === "BUY" && m.direction === "bullish") return true;
+    if (direction === "SELL" && m.direction === "bearish") return true;
+    return false;
+  });
+  if (candidates.length === 0) {
+    return { fired: false, reason: `No suitable open ${direction} market available on Polymarket` };
+  }
+  const best = candidates.sort((a, b) => b.volume - a.volume)[0];
+  const entryProb = best.yesProbability;
+  if (entryProb <= 5 || entryProb >= 95) {
+    return { fired: false, reason: `Market probability ${entryProb}% too extreme \u2014 skipping` };
+  }
+  const position = {
+    id: `pm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    market: { id: best.id, question: best.question, endDate: best.endDate },
+    side: "YES",
+    direction,
+    entryProbability: entryProb,
+    currentProbability: entryProb,
+    stake: s.config.stakePerTrade,
+    currentValue: s.config.stakePerTrade,
+    unrealizedPnl: 0,
+    unrealizedPnlPct: 0,
+    openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    signal: {
+      bullishScore: sentiment.overallBullishScore,
+      sentimentLabel: sentiment.sentimentLabel,
+      direction
+    },
+    status: "open"
+  };
+  let liveOrderId;
+  if (!s.isPaperMode && best.yesTokenId) {
+    const pk = _privateKeys.get(userId);
+    if (pk && best.yesTokenId) {
+      const result = await placeClobOrder(pk, best.yesTokenId, "BUY", entryProb / 100, s.config.stakePerTrade);
+      if (!result.success) {
+        return { fired: false, reason: `CLOB order failed: ${result.error}` };
+      }
+      liveOrderId = result.orderId;
+      position.tokenId = best.yesTokenId;
+    }
+  }
+  position.clobOrderId = liveOrderId;
+  s.openPositions.push(position);
+  s.lastTradeAt = (/* @__PURE__ */ new Date()).toISOString();
+  s.tradesOpened++;
+  const modeStr = s.isPaperMode ? "[PAPER]" : "[LIVE]";
+  return {
+    fired: true,
+    reason: `${modeStr} Opened YES on "${best.question.slice(0, 60)}..." at ${entryProb}% \u2014 stake $${s.config.stakePerTrade}`
+  };
+}
+async function _refreshPositionPrices(s, userId) {
+  if (s.openPositions.length === 0) return;
+  try {
+    const sentiment = await getPolymarketBTCSentiment();
+    for (const pos of s.openPositions) {
+      const market = sentiment.markets.find((m) => m.id === pos.market.id);
+      if (!market) continue;
+      const currentProb = pos.side === "YES" ? market.yesProbability : 100 - market.yesProbability;
+      pos.currentProbability = currentProb;
+      const shares = pos.stake * 100 / pos.entryProbability;
+      pos.currentValue = shares * (currentProb / 100);
+      pos.unrealizedPnl = pos.currentValue - pos.stake;
+      pos.unrealizedPnlPct = pos.unrealizedPnl / pos.stake * 100;
+      if (market.closed) {
+        await closePosition(s, pos.id, currentProb, userId, true);
+      }
+    }
+    s.totalUnrealizedPnl = s.openPositions.reduce((acc, p2) => acc + p2.unrealizedPnl, 0);
+  } catch {
+  }
+}
+async function closePosition(s, positionId, exitProb, userId, viaMarketResolution = false) {
+  const idx = s.openPositions.findIndex((p2) => p2.id === positionId);
+  if (idx === -1) return false;
+  const pos = s.openPositions[idx];
+  const ep = exitProb ?? pos.currentProbability;
+  const shares = pos.stake * 100 / pos.entryProbability;
+  if (pos.clobOrderId && !viaMarketResolution) {
+    if (!pos.tokenId) {
+      console.error(`[Polymarket] Cannot close live position ${pos.id} \u2014 no tokenId recorded to sell.`);
+      return false;
+    }
+    const pk = userId != null ? _privateKeys.get(userId) : void 0;
+    if (!pk) {
+      console.error(`[Polymarket] Cannot close live position ${pos.id} \u2014 no private key cached (was it deleted or the process restarted?).`);
+      return false;
+    }
+    const sellPrice = Math.max(0.01, Math.min(0.99, ep / 100));
+    const result = await sellClobPosition(pk, pos.tokenId, sellPrice, shares);
+    if (!result.success) {
+      console.error(`[Polymarket] Sell order failed for position ${pos.id} (leaving position open, will retry): ${result.error}`);
+      return false;
+    }
+  }
+  const exitValue = shares * (ep / 100);
+  const realizedPnl = exitValue - pos.stake;
+  pos.status = ep >= 99 ? "resolved" : "closed";
+  pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+  pos.closedProbability = ep;
+  pos.realizedPnl = realizedPnl;
+  pos.unrealizedPnl = 0;
+  pos.unrealizedPnlPct = 0;
+  s.openPositions.splice(idx, 1);
+  s.closedPositions.unshift(pos);
+  if (s.closedPositions.length > 50) s.closedPositions.length = 50;
+  s.totalRealizedPnl += realizedPnl;
+  s.totalUnrealizedPnl = s.openPositions.reduce((acc, p2) => acc + p2.unrealizedPnl, 0);
+  if (userId != null) {
+    Promise.resolve().then(async () => {
+      try {
+        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+        await db2.insert(aiTradeResults2).values({
+          userId,
+          symbol: `POLYMARKET:BTC`,
+          direction: pos.direction,
+          entryPrice: pos.entryProbability / 100,
+          exitPrice: ep / 100,
+          result: realizedPnl > 0 ? "WIN" : realizedPnl < 0 ? "LOSS" : "BREAKEVEN",
+          profitLoss: Math.round(realizedPnl * 100) / 100,
+          closedAt: /* @__PURE__ */ new Date(),
+          source: "polymarket",
+          mt5Ticket: pos.id,
+          notes: `${pos.market.question.slice(0, 100)} | ${pos.status}`
+        });
+      } catch {
+      }
+    });
+  }
+  return true;
+}
+async function closeAllPositions(userId) {
+  const s = getEngineState(userId);
+  const ids = s.openPositions.map((p2) => p2.id);
+  let closed = 0;
+  for (const id of ids) {
+    if (await closePosition(s, id, void 0, userId)) closed++;
+  }
+  return closed;
+}
+var CLOB_BASE2, POLY_CHAIN, CTF_ADDRESS, _privateKeys, _states2, _intervals, DEFAULT_CONFIG3;
+var init_polymarket_autonomous_engine = __esm({
+  "server/services/polymarket-autonomous-engine.ts"() {
+    "use strict";
+    init_polymarket();
+    init_tradelocker();
+    CLOB_BASE2 = "https://clob.polymarket.com";
+    POLY_CHAIN = 137;
+    CTF_ADDRESS = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E";
+    _privateKeys = /* @__PURE__ */ new Map();
+    _states2 = /* @__PURE__ */ new Map();
+    _intervals = /* @__PURE__ */ new Map();
+    DEFAULT_CONFIG3 = {
+      minBullishScore: 70,
+      minBearishScore: 70,
+      stakePerTrade: 10,
+      maxOpenPositions: 3,
+      cooldownMinutes: 30
+    };
+  }
+});
+
+// server/services/polymarket-us.ts
+var polymarket_us_exports = {};
+__export(polymarket_us_exports, {
+  deletePmUsCredentials: () => deletePmUsCredentials,
+  findPmUsCryptoMarket: () => findPmUsCryptoMarket,
+  getPmUsBbo: () => getPmUsBbo,
+  getPmUsMarkets: () => getPmUsMarkets,
+  getPmUsPositions: () => getPmUsPositions,
+  hasPmUsCredentials: () => hasPmUsCredentials,
+  loadPmUsCredentials: () => loadPmUsCredentials,
+  placePmUsOrder: () => placePmUsOrder,
+  pmUsRequest: () => pmUsRequest,
+  savePmUsCredentials: () => savePmUsCredentials,
+  testPmUsConnection: () => testPmUsConnection,
+  toPmUsNum: () => toPmUsNum
+});
+import * as fs6 from "fs";
+import * as path6 from "path";
+import * as crypto8 from "crypto";
+function loadAll3() {
+  try {
+    if (fs6.existsSync(FILE3)) return JSON.parse(fs6.readFileSync(FILE3, "utf-8"));
+  } catch (e) {
+    console.error("[PolymarketUS] Credential store is unreadable (corrupted JSON?) \u2014 treating as empty:", e?.message);
+  }
+  return {};
+}
+function saveAll3(map) {
+  try {
+    const dir = path6.dirname(FILE3);
+    if (!fs6.existsSync(dir)) fs6.mkdirSync(dir, { recursive: true });
+    const content = JSON.stringify(map, null, 2);
+    fs6.writeFileSync(FILE3, content);
+    backupDurableFile("polymarket_us.json", content);
+  } catch {
+  }
+}
+function savePmUsCredentials(userId, keyId, secretKey) {
+  const map = loadAll3();
+  map[String(userId)] = { keyId: keyId.trim(), secretEnc: encryptPassword(secretKey.trim()), savedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  saveAll3(map);
+}
+function loadPmUsCredentials(userId) {
+  const c = loadAll3()[String(userId)];
+  if (!c) return null;
+  try {
+    return { keyId: c.keyId, secret: decryptPassword(c.secretEnc) };
+  } catch {
+    return null;
+  }
+}
+function hasPmUsCredentials(userId) {
+  return !!loadAll3()[String(userId)];
+}
+function deletePmUsCredentials(userId) {
+  const map = loadAll3();
+  delete map[String(userId)];
+  saveAll3(map);
+}
+function ed25519KeyFromSecret(secretKeyB64) {
+  const raw = Buffer.from(secretKeyB64, "base64");
+  const seed = raw.subarray(0, 32);
+  const der = Buffer.concat([PKCS8_ED25519_PREFIX, seed]);
+  return crypto8.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
+}
+function signHeaders(keyId, secret, method, reqPath) {
+  const timestamp2 = Date.now().toString();
+  const message = `${timestamp2}${method.toUpperCase()}${reqPath}`;
+  const key = ed25519KeyFromSecret(secret);
+  const signature = crypto8.sign(null, Buffer.from(message, "utf-8"), key).toString("base64");
+  return {
+    "X-PM-Access-Key": keyId,
+    "X-PM-Timestamp": timestamp2,
+    "X-PM-Signature": signature,
+    "Content-Type": "application/json"
+  };
+}
+async function pmUsRequest(userId, method, reqPath, body) {
+  const creds = loadPmUsCredentials(userId);
+  if (!creds) return { ok: false, status: 0, data: { error: "No Polymarket US credentials saved" } };
+  const headers = signHeaders(creds.keyId, creds.secret, method, reqPath);
+  const init = { method: method.toUpperCase(), headers, signal: AbortSignal.timeout(2e4) };
+  if (body !== void 0) init.body = JSON.stringify(body);
+  try {
+    const res2 = await fetch(`${BASE_URL}${reqPath}`, init);
+    const text3 = await res2.text();
+    let data;
+    try {
+      data = text3 ? JSON.parse(text3) : {};
+    } catch {
+      data = { raw: text3 };
+    }
+    return { ok: res2.ok, status: res2.status, data };
+  } catch (e) {
+    return { ok: false, status: 0, data: { error: e?.message || String(e) } };
+  }
+}
+async function testPmUsConnection(userId) {
+  const r = await pmUsRequest(userId, "GET", "/v1/portfolio/positions");
+  return { connected: r.ok, status: r.status, detail: r.data };
+}
+async function getPmUsPositions(userId) {
+  return pmUsRequest(userId, "GET", "/v1/portfolio/positions");
+}
+async function placePmUsOrder(userId, order) {
+  return pmUsRequest(userId, "POST", "/v1/orders", order);
+}
+async function getPmUsMarkets(params = {}) {
+  const qs = new URLSearchParams({ active: "true", closed: "false", limit: "200", ...params }).toString();
+  try {
+    const res2 = await fetch(`${GATEWAY_URL}/v1/markets?${qs}`, { signal: AbortSignal.timeout(15e3) });
+    if (!res2.ok) return [];
+    const data = await res2.json();
+    return Array.isArray(data) ? data : data.markets || [];
+  } catch {
+    return [];
+  }
+}
+async function findPmUsCryptoMarket(asset = "bitcoin") {
+  const terms = asset === "bitcoin" ? ["bitcoin", "btc"] : asset === "ethereum" ? ["ethereum", "eth"] : [asset.toLowerCase()];
+  const markets = await getPmUsMarkets({ limit: 500 });
+  const candidates = markets.filter((m) => {
+    if (!m.active || m.closed) return false;
+    const hay = `${m.title || ""} ${m.question || ""} ${m.slug || ""} ${m.category || ""}`.toLowerCase();
+    return terms.some((t) => hay.includes(t));
+  });
+  candidates.sort((a, b) => new Date(a.endDate || 0).getTime() - new Date(b.endDate || 0).getTime());
+  return candidates[0] || null;
+}
+async function getPmUsBbo(slug) {
+  try {
+    const res2 = await fetch(`${GATEWAY_URL}/v1/markets/${encodeURIComponent(slug)}/bbo`, { signal: AbortSignal.timeout(12e3) });
+    if (!res2.ok) return null;
+    const d = await res2.json();
+    const md = d.marketData || d;
+    return { bestBid: _toNum(md.bestBid), bestAsk: _toNum(md.bestAsk), currentPx: _toNum(md.currentPx ?? md.lastTradePx ?? md.bestAsk) };
+  } catch {
+    return null;
+  }
+}
+var BASE_URL, GATEWAY_URL, FILE3, PKCS8_ED25519_PREFIX, toPmUsNum, _toNum;
+var init_polymarket_us = __esm({
+  "server/services/polymarket-us.ts"() {
+    "use strict";
+    init_tradelocker();
+    init_cred_store();
+    BASE_URL = "https://api.polymarket.us";
+    GATEWAY_URL = "https://gateway.polymarket.us";
+    FILE3 = path6.join(process.cwd(), "data", "polymarket_us.json");
+    PKCS8_ED25519_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
+    toPmUsNum = (x) => (x && typeof x === "object" ? parseFloat(x.value) : parseFloat(x)) || 0;
+    _toNum = toPmUsNum;
+  }
+});
+
+// server/services/polymarket-us-engine.ts
+var polymarket_us_engine_exports = {};
+__export(polymarket_us_engine_exports, {
+  closePmUsTrade: () => closePmUsTrade,
+  getPmUsEngineState: () => getPmUsEngineState,
+  manualPmUsScan: () => manualPmUsScan,
+  pmUsBankroll: () => pmUsBankroll,
+  pmUsContractsFor: () => pmUsContractsFor,
+  refreshPmUsCredValidity: () => refreshPmUsCredValidity,
+  restorePmUsEngineStateFromDb: () => restorePmUsEngineStateFromDb,
+  startPmUsEngine: () => startPmUsEngine,
+  stopPmUsEngine: () => stopPmUsEngine,
+  updatePmUsEngineConfig: () => updatePmUsEngineConfig
+});
+async function refreshPmUsCredValidity(userId) {
+  if (!hasPmUsCredentials(userId)) {
+    _credValidity2.delete(userId);
+    return;
+  }
+  const cached2 = _credValidity2.get(userId);
+  if (cached2 && Date.now() - cached2.checkedAt < CRED_VALIDITY_TTL_MS2) return;
+  try {
+    const result = await testPmUsConnection(userId);
+    _credValidity2.set(userId, { valid: result.connected, error: result.connected ? void 0 : JSON.stringify(result.detail).slice(0, 200), checkedAt: Date.now() });
+  } catch {
+  }
+}
+function getPmUsEngineState(userId) {
+  if (!_states3.has(userId)) {
+    _states3.set(userId, {
+      isRunning: false,
+      isPaperMode: !hasPmUsCredentials(userId),
+      credentialError: null,
+      lastScanAt: null,
+      lastScanResult: null,
+      lastTradeAt: null,
+      openTrades: [],
+      closedTrades: [],
+      totalRealizedPnl: 0,
+      totalUnrealizedPnl: 0,
+      config: { ...DEFAULT_CONFIG4 }
+    });
+  }
+  const s = _states3.get(userId);
+  const hasCreds = hasPmUsCredentials(userId);
+  const validity = _credValidity2.get(userId);
+  const knownInvalid = validity?.valid === false;
+  const nextPaperMode = !hasCreds || knownInvalid;
+  if (s.isPaperMode !== nextPaperMode && s.isRunning) {
+    _persistPmUsRunState(userId, s.isRunning, nextPaperMode);
+  }
+  s.isPaperMode = nextPaperMode;
+  s.credentialError = knownInvalid ? validity.error ?? "Credential check failed" : null;
+  return s;
+}
+function updatePmUsEngineConfig(userId, patch) {
+  const s = getPmUsEngineState(userId);
+  const clean = { ...patch };
+  if (clean.strategy && !STRATEGY_LABELS2[clean.strategy]) delete clean.strategy;
+  if (clean.minValueScore != null) clean.minValueScore = Math.max(1, Math.min(50, clean.minValueScore));
+  if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(99, clean.takeProfitCents));
+  if (clean.stopLossCents != null) clean.stopLossCents = Math.max(0, Math.min(95, clean.stopLossCents));
+  if (clean.riskPctPerTrade != null) clean.riskPctPerTrade = Math.max(1, Math.min(25, clean.riskPctPerTrade));
+  if (clean.startingBankroll != null) clean.startingBankroll = Math.max(10, Math.min(1e6, clean.startingBankroll));
+  s.config = { ...s.config, ...clean };
+}
+function pmUsBankroll(s) {
+  return Math.max(1, (s.config.startingBankroll || 100) + (s.totalRealizedPnl || 0));
+}
+function pmUsContractsFor(s, priceInCents) {
+  if (!s.config.compounding) return s.config.contractsPerTrade;
+  const stakeTarget = pmUsBankroll(s) * ((s.config.riskPctPerTrade || 5) / 100);
+  const perContract = Math.max(0.01, priceInCents / 100);
+  return Math.max(1, Math.min(200, Math.floor(stakeTarget / perContract)));
+}
+function startPmUsEngine(userId) {
+  const s = getPmUsEngineState(userId);
+  if (s.isRunning) return;
+  s.isRunning = true;
+  _persistPmUsRunState(userId, true, s.isPaperMode);
+  _runScan2(userId).catch(console.error);
+  _timers2.set(userId, setInterval(() => _runScan2(userId).catch(console.error), 5 * 60 * 1e3));
+}
+function stopPmUsEngine(userId) {
+  const s = getPmUsEngineState(userId);
+  s.isRunning = false;
+  _persistPmUsRunState(userId, false, s.isPaperMode);
+  const iv = _timers2.get(userId);
+  if (iv) {
+    clearInterval(iv);
+    _timers2.delete(userId);
+  }
+}
+function _persistPmUsRunState(userId, isRunning, isPaperMode) {
+  Promise.resolve().then(() => (init_db(), db_exports)).then(({ db: db2 }) => {
+    Promise.resolve().then(() => (init_schema(), schema_exports)).then(({ engineRunState: engineRunState2 }) => {
+      db2.insert(engineRunState2).values({ userId, engine: "polymarket-us", isRunning, isPaperMode }).onConflictDoUpdate({
+        target: [engineRunState2.userId, engineRunState2.engine],
+        set: { isRunning, isPaperMode, updatedAt: /* @__PURE__ */ new Date() }
+      }).catch(console.error);
+    });
+  });
+}
+async function restorePmUsEngineStateFromDb(userId) {
+  try {
+    await _restorePmUsRealizedPnl(userId);
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { eq: eq21, and: and12 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and12(eq21(engineRunState2.userId, userId), eq21(engineRunState2.engine, "polymarket-us")));
+    const row = rows[0];
+    if (row?.isRunning) {
+      console.log(`[PolymarketUS] Restoring engine for user ${userId}`);
+      startPmUsEngine(userId);
+    }
+  } catch (e) {
+    console.error("[PolymarketUS] Failed to restore engine state:", e);
+  }
+}
+async function _restorePmUsRealizedPnl(userId) {
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { eq: eq21, and: and12, sql: sql18 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql18`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(eq21(aiTradeResults2.userId, userId), eq21(aiTradeResults2.source, "polymarket-us")));
+    const total = parseFloat(row?.total ?? "0") || 0;
+    const s = getPmUsEngineState(userId);
+    s.totalRealizedPnl = total;
+  } catch (e) {
+    console.error(`[PolymarketUS] Failed to restore totalRealizedPnl for user ${userId}:`, e?.message);
+  }
+}
+async function manualPmUsScan(userId) {
+  return _runScan2(userId, true);
+}
+function _recalc(s) {
+  s.totalUnrealizedPnl = Math.round(s.openTrades.reduce((sum, t) => sum + t.unrealizedPnl, 0) * 100) / 100;
+}
+async function _updateOpenTrades(userId, s) {
+  for (const t of [...s.openTrades]) {
+    const bbo = await getPmUsBbo(t.marketSlug);
+    if (!bbo) continue;
+    const rawYesCents = Math.round((bbo.bestBid > 0 ? bbo.bestBid : bbo.currentPx) * 100);
+    if (!rawYesCents) continue;
+    const liveCents = t.side === "yes" ? rawYesCents : Math.max(1, Math.min(99, 100 - rawYesCents));
+    t.currentPriceCents = liveCents;
+    t.unrealizedPnl = Math.round((liveCents / 100 * t.count - t.stake) * 100) / 100;
+    const tp = s.config.takeProfitCents, sl = s.config.stopLossCents;
+    if (tp > 0 && liveCents >= tp) await _closeTrade(userId, t.id, liveCents, "take_profit");
+    else if (sl > 0 && liveCents <= sl) await _closeTrade(userId, t.id, liveCents, "stop_loss");
+  }
+  _recalc(s);
+}
+async function _closeTrade(userId, id, exitCents, reason) {
+  const s = getPmUsEngineState(userId);
+  const idx = s.openTrades.findIndex((t2) => t2.id === id);
+  if (idx === -1) return false;
+  const t = s.openTrades[idx];
+  if (!t.paper) {
+    const intent = t.side === "yes" ? "ORDER_INTENT_SELL_LONG" : "ORDER_INTENT_SELL_SHORT";
+    try {
+      const r = await placePmUsOrder(userId, {
+        marketSlug: t.marketSlug,
+        intent,
+        type: "ORDER_TYPE_MARKET",
+        quantity: t.count
+      });
+      if (!r.ok) {
+        const msg = `Could not close "${t.title}": HTTP ${r.status} ${JSON.stringify(r.data).slice(0, 160)}`;
+        console.error(`[PolymarketUS] ${msg} \u2014 leaving position open, will retry next cycle.`);
+        s.lastScanResult = `\u26A0\uFE0F ${msg}`;
+        return false;
+      }
+    } catch (err) {
+      console.error(`[PolymarketUS] Sell order threw for ${t.marketSlug} (leaving position open, will retry next cycle): ${err.message}`);
+      s.lastScanResult = `\u26A0\uFE0F Could not close "${t.title}": ${err.message}`;
+      return false;
+    }
+  }
+  const realized = Math.round((exitCents / 100 * t.count - t.stake) * 100) / 100;
+  t.status = "closed";
+  t.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+  t.realizedPnl = realized;
+  t.exitReason = reason;
+  t.unrealizedPnl = 0;
+  s.openTrades.splice(idx, 1);
+  s.closedTrades.unshift(t);
+  if (s.closedTrades.length > 50) s.closedTrades.length = 50;
+  s.totalRealizedPnl = Math.round((s.totalRealizedPnl + realized) * 100) / 100;
+  try {
+    const { recordKalshiOutcome: recordKalshiOutcome2 } = (init_kalshi_performance(), __toCommonJS(kalshi_performance_exports));
+    recordKalshiOutcome2(userId, `pmus:${t.signal.strategy}`, realized);
+  } catch {
+  }
+  Promise.resolve().then(async () => {
+    try {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      await db2.insert(aiTradeResults2).values({
+        userId,
+        symbol: `PMUS:${t.marketSlug}`,
+        direction: t.signal.direction === "SELL" ? "SELL" : "BUY",
+        entryPrice: t.entryPriceCents / 100,
+        exitPrice: exitCents / 100,
+        result: realized > 0 ? "WIN" : realized < 0 ? "LOSS" : "BREAKEVEN",
+        profitLoss: realized,
+        closedAt: /* @__PURE__ */ new Date(),
+        source: "polymarket-us",
+        mt5Ticket: t.id,
+        notes: `${t.signal.strategy}: ${t.title}${reason !== "manual" ? " | " + reason : ""}`
+      });
+    } catch {
+    }
+  });
+  _recalc(s);
+  return true;
+}
+async function closePmUsTrade(userId, id) {
+  const s = getPmUsEngineState(userId);
+  const t = s.openTrades.find((x) => x.id === id);
+  return t ? _closeTrade(userId, id, t.currentPriceCents, "manual") : false;
+}
+async function _runScan2(userId, manual = false) {
+  await refreshPmUsCredValidity(userId);
+  const s = getPmUsEngineState(userId);
+  s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
+  await _updateOpenTrades(userId, s);
+  if (s.openTrades.length >= s.config.maxOpenTrades) {
+    const r = `Max open trades (${s.config.maxOpenTrades}) reached`;
+    s.lastScanResult = r;
+    return { fired: false, reason: r };
+  }
+  if (!manual && s.lastTradeAt) {
+    const elapsed = Date.now() - new Date(s.lastTradeAt).getTime();
+    if (elapsed < s.config.cooldownMinutes * 6e4) {
+      const r = `Cooldown: ${Math.ceil((s.config.cooldownMinutes * 6e4 - elapsed) / 6e4)}m left`;
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
+    }
+  }
+  try {
+    let strat;
+    let label;
+    if (s.config.strategy === "auto") {
+      const scan = await scanAllKalshiStrategies(userId);
+      if (!scan.selected) {
+        const r3 = "Auto: all strategies NEUTRAL";
+        s.lastScanResult = r3;
+        return { fired: false, reason: r3 };
+      }
+      strat = scan.selected;
+      label = `Auto\u2192${STRATEGY_LABELS2[strat]}`;
+    } else {
+      strat = s.config.strategy;
+      label = STRATEGY_LABELS2[strat] ?? strat;
+    }
+    const pred = await getKalshiSignal(strat);
+    if (!pred || pred.direction === "NEUTRAL") {
+      const r3 = `${label}: NEUTRAL`;
+      s.lastScanResult = r3;
+      return { fired: false, reason: r3 };
+    }
+    if (pred.confidence < s.config.minConfidence) {
+      const r3 = `${label}: ${pred.confidence}% < ${s.config.minConfidence}%`;
+      s.lastScanResult = r3;
+      return { fired: false, reason: r3 };
+    }
+    if (s.config.requireAlignedHourly) {
+      const aligned = pred.direction === "BUY" && pred.priceChange1h > 0 || pred.direction === "SELL" && pred.priceChange1h < 0;
+      if (!aligned) {
+        const r3 = `1h trend conflicts with ${pred.direction}`;
+        s.lastScanResult = r3;
+        return { fired: false, reason: r3 };
+      }
+    }
+    if (s.config.requireConfluence) {
+      const c = await getKalshiConsensus();
+      if (!(c.direction === pred.direction && c.agreement >= 0.6)) {
+        const r3 = `Confluence fail (consensus ${c.direction} ${Math.round(c.agreement * 100)}%)`;
+        s.lastScanResult = r3;
+        return { fired: false, reason: r3 };
+      }
+    }
+    const market = await findPmUsCryptoMarket(s.config.asset);
+    if (!market) {
+      const r3 = `\u{1F7E2} Engine live \u2014 no ${s.config.asset.toUpperCase()} market on Polymarket US yet (waiting). Signal was ${label} ${pred.direction} ${pred.confidence}%.`;
+      s.lastScanResult = r3;
+      return { fired: false, reason: r3 };
+    }
+    const bbo = await getPmUsBbo(market.slug);
+    const rawYesAsk = bbo && bbo.bestAsk > 0 ? Math.round(bbo.bestAsk * 100) : Math.round(toPmUsNum(market.bestAsk) * 100);
+    const rawYesBid = bbo && bbo.bestBid > 0 ? Math.round(bbo.bestBid * 100) : Math.round(toPmUsNum(market.bestBid) * 100);
+    const side = pred.direction === "BUY" ? "yes" : "no";
+    const intent = pred.direction === "BUY" ? "ORDER_INTENT_BUY_LONG" : "ORDER_INTENT_BUY_SHORT";
+    const askCents = side === "yes" ? rawYesAsk : rawYesBid > 0 ? 100 - rawYesBid : 0;
+    if (!askCents || askCents >= 97) {
+      const r3 = `${market.slug}: no/expensive price (${askCents}\xA2)`;
+      s.lastScanResult = r3;
+      return { fired: false, reason: r3 };
+    }
+    if (askCents > pred.confidence - 5) {
+      const r3 = `No edge: ${askCents}\xA2 vs ~${pred.confidence}% \u2014 skip`;
+      s.lastScanResult = r3;
+      return { fired: false, reason: r3 };
+    }
+    const contracts = pmUsContractsFor(s, askCents);
+    const stake = askCents / 100 * contracts;
+    if (!s.isPaperMode) {
+      const r3 = await placePmUsOrder(userId, {
+        marketSlug: market.slug,
+        intent,
+        type: "ORDER_TYPE_MARKET",
+        quantity: contracts
+      });
+      if (!r3.ok) {
+        const msg = `Order failed (HTTP ${r3.status}): ${JSON.stringify(r3.data).slice(0, 160)}`;
+        s.lastScanResult = msg;
+        return { fired: false, reason: msg };
+      }
+    }
+    const trade = {
+      id: `pmus-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      marketSlug: market.slug,
+      title: market.title || market.question || market.slug,
+      side,
+      count: contracts,
+      entryPriceCents: askCents,
+      currentPriceCents: askCents,
+      stake,
+      unrealizedPnl: 0,
+      signal: { direction: pred.direction, confidence: pred.confidence, strategy: strat },
+      openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      status: "open",
+      paper: s.isPaperMode
+    };
+    s.openTrades.push(trade);
+    s.lastTradeAt = (/* @__PURE__ */ new Date()).toISOString();
+    _recalc(s);
+    const compNote = s.config.compounding ? ` \xB7 compounding ${s.config.riskPctPerTrade}% of $${pmUsBankroll(s).toFixed(0)}` : "";
+    const r = `${s.isPaperMode ? "[PAPER]" : "[LIVE]"} ${label}: ${side.toUpperCase()} \xD7 ${contracts} on "${trade.title}" @ ${askCents}\xA2 (stake $${stake.toFixed(2)})${compNote}`;
+    s.lastScanResult = r;
+    return { fired: true, reason: r };
+  } catch (err) {
+    const r = `Scan error: ${err.message}`;
+    s.lastScanResult = r;
+    return { fired: false, reason: r };
+  }
+}
+var DEFAULT_CONFIG4, STRATEGY_LABELS2, _states3, _timers2, _credValidity2, CRED_VALIDITY_TTL_MS2;
+var init_polymarket_us_engine = __esm({
+  "server/services/polymarket-us-engine.ts"() {
+    "use strict";
+    init_kalshi_strategies();
+    init_kalshi_engine();
+    init_polymarket_us();
+    DEFAULT_CONFIG4 = {
+      contractsPerTrade: 5,
+      maxOpenTrades: 3,
+      cooldownMinutes: 20,
+      minConfidence: 70,
+      requireAlignedHourly: true,
+      requireConfluence: true,
+      strategy: "ensemble",
+      autoTradeValuePicks: false,
+      minValueScore: 8,
+      takeProfitCents: 90,
+      stopLossCents: 25,
+      asset: "bitcoin",
+      compounding: false,
+      riskPctPerTrade: 5,
+      startingBankroll: 100
+    };
+    STRATEGY_LABELS2 = {
+      momentum: "Momentum",
+      volume_profile: "Volume Profile",
+      markov: "Markov",
+      order_flow: "Order Flow",
+      ensemble: "AI Ensemble",
+      auto: "Auto (Best)"
+    };
+    _states3 = /* @__PURE__ */ new Map();
+    _timers2 = /* @__PURE__ */ new Map();
+    _credValidity2 = /* @__PURE__ */ new Map();
+    CRED_VALIDITY_TTL_MS2 = 10 * 60 * 1e3;
+  }
+});
+
+// server/services/sports-predictor.ts
+var sports_predictor_exports = {};
+__export(sports_predictor_exports, {
+  getSportsPredictions: () => getSportsPredictions,
+  refreshSportsPredictions: () => refreshSportsPredictions
+});
+import axios from "axios";
+function getElo(teamId) {
+  return eloRatings[teamId] ?? ELO_DEFAULT;
+}
+function expectedScore(own, opp) {
+  return 1 / (1 + Math.pow(10, (opp - own) / 400));
+}
+function updateElo(winnerId, loserId) {
+  const wElo = getElo(winnerId);
+  const lElo = getElo(loserId);
+  const wExp = expectedScore(wElo, lElo);
+  const lExp = expectedScore(lElo, wElo);
+  eloRatings[winnerId] = wElo + ELO_K * (1 - wExp);
+  eloRatings[loserId] = lElo + ELO_K * (0 - lExp);
+}
+function eloProbabilityHome(homeId, awayId) {
+  const h = getElo(homeId);
+  const a = getElo(awayId);
+  return expectedScore(h, a);
+}
+function kellySize(modelProb, marketPrice) {
+  const p2 = modelProb / 100;
+  const q = 1 - p2;
+  const mkt = marketPrice / 100;
+  if (mkt <= 0 || mkt >= 1) return void 0;
+  const b = 1 / mkt - 1;
+  const f = (b * p2 - q) / b;
+  if (f <= 0) return void 0;
+  return Math.min(f * 100, 5);
+}
+async function safeGet(url, params) {
+  try {
+    const res2 = await axios.get(url, {
+      params,
+      timeout: 1e4,
+      headers: { "User-Agent": "Mozilla/5.0 VEDD-Sports/1.0" }
+    });
+    return res2.data;
+  } catch {
+    return null;
+  }
+}
+function normalizeName(name) {
+  return name.toLowerCase().replace(/\s+/g, " ").replace(/[^a-z0-9 ]/g, "").trim();
+}
+function teamsMatchMarket(homeTeam, awayTeam, question) {
+  const q = normalizeName(question);
+  const h = normalizeName(homeTeam).split(" ").pop();
+  const a = normalizeName(awayTeam).split(" ").pop();
+  const hFull = normalizeName(homeTeam);
+  const aFull = normalizeName(awayTeam);
+  return (q.includes(h) || q.includes(hFull)) && (q.includes(a) || q.includes(aFull));
+}
+async function fetchScoreboard(sport) {
+  const path20 = SPORT_PATHS[sport];
+  const data = await safeGet(`${ESPN_BASE}/${path20}/scoreboard`);
+  return data?.events ?? [];
+}
+function injuryAdjustment(injuries, sport) {
+  const keyPos = KEY_POSITIONS[sport];
+  let adj = 0;
+  const labels = [];
+  for (const inj of injuries) {
+    const isKey = keyPos.some((p2) => inj.position.toUpperCase().startsWith(p2));
+    if (!isKey) continue;
+    if (inj.status === "OUT") {
+      adj -= 0.1;
+      labels.push(`${inj.name} (${inj.position}) OUT`);
+    } else if (["QUESTIONABLE", "DOUBTFUL"].includes(inj.status)) {
+      adj -= 0.04;
+      labels.push(`${inj.name} (${inj.position}) ${inj.status}`);
+    }
+  }
+  return { adj: Math.max(adj, -0.2), labels };
+}
+async function fetchNewsHeadlines(query) {
+  try {
+    const url = `${GOOGLE_NEWS_BASE}?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
+    const res2 = await axios.get(url, { timeout: 8e3 });
+    const xml = res2.data;
+    const titles = [];
+    const titleRegex = /<item>[\s\S]*?<title>([\s\S]*?)<\/title>/g;
+    let match;
+    while ((match = titleRegex.exec(xml)) !== null && titles.length < 5) {
+      const raw = match[1].replace(/<!\[CDATA\[/, "").replace(/\]\]>/, "").trim();
+      if (raw) titles.push(raw);
+    }
+    return titles;
+  } catch {
+    return [];
+  }
+}
+async function fetchPolymarketSportsMarkets() {
+  const tags = ["sports", "nba", "nfl", "mlb", "nhl"];
+  const results = await Promise.allSettled(
+    tags.map(
+      (tag) => safeGet(
+        `${GAMMA_BASE2}/markets`,
+        { active: true, closed: false, tag, limit: 100 }
+      )
+    )
+  );
+  const seen = /* @__PURE__ */ new Set();
+  const markets = [];
+  for (const r of results) {
+    if (r.status !== "fulfilled" || !r.value) continue;
+    const raw = r.value;
+    const arr2 = Array.isArray(raw) ? raw : raw.markets ?? [];
+    for (const m of arr2) {
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        markets.push(m);
+      }
+    }
+  }
+  return markets;
+}
+function parseOutcomePrice(market) {
+  try {
+    if (!market.outcomePrices) return void 0;
+    const prices = JSON.parse(market.outcomePrices);
+    const p2 = prices[0];
+    return typeof p2 === "number" ? p2 * 100 : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function buildPolymarketUrl(market) {
+  const slug = market.slug ?? market.id;
+  return `https://polymarket.com/event/${slug}`;
+}
+function registerGameDate(teamId, dateStr) {
+  if (!recentGameDates[teamId]) recentGameDates[teamId] = [];
+  if (!recentGameDates[teamId].includes(dateStr)) {
+    recentGameDates[teamId].push(dateStr);
+    if (recentGameDates[teamId].length > 10) recentGameDates[teamId].shift();
+  }
+}
+function restAdjustment(teamId, gameDate) {
+  const dates = recentGameDates[teamId] ?? [];
+  const gameMs = gameDate.getTime();
+  for (const d of dates) {
+    const prev = new Date(d).getTime();
+    const diffHours = (gameMs - prev) / 36e5;
+    if (diffHours > 0 && diffHours <= 28) {
+      return { adj: -0.03, label: "back-to-back (fatigue)" };
+    }
+  }
+  const allPrev = dates.map((d) => new Date(d).getTime()).filter((t) => t < gameMs);
+  if (allPrev.length === 0) return { adj: 0.01, label: "2+ days rest" };
+  const mostRecent = Math.max(...allPrev);
+  const diffDays = (gameMs - mostRecent) / 864e5;
+  if (diffDays >= 2) return { adj: 0.01, label: "2+ days rest" };
+  return { adj: 0, label: null };
+}
+async function processSport(sport) {
+  const events = await fetchScoreboard(sport);
+  if (!events.length) return [];
+  const teamIds = /* @__PURE__ */ new Set();
+  for (const ev of events) {
+    const comp = ev.competitions?.[0];
+    if (!comp) continue;
+    const home = comp.competitors?.find((c) => c.homeAway === "home");
+    const away = comp.competitors?.find((c) => c.homeAway === "away");
+    if (home) teamIds.add(home.team.id);
+    if (away) teamIds.add(away.team.id);
+    const isFinal = ev.status?.type?.completed === true || ev.status?.type?.name === "STATUS_FINAL";
+    if (isFinal && home && away) {
+      registerGameDate(home.team.id, ev.date);
+      registerGameDate(away.team.id, ev.date);
+      const homeWon = home.winner === true;
+      const awayWon = away.winner === true;
+      if (homeWon) updateElo(home.team.id, away.team.id);
+      else if (awayWon) updateElo(away.team.id, home.team.id);
+    }
+  }
+  const allInjuriesRes = await safeGet(
+    `${ESPN_BASE}/${SPORT_PATHS[sport]}/injuries`
+  );
+  function getTeamInjuries(teamId) {
+    if (!allInjuriesRes?.injuries) return [];
+    const result = [];
+    for (const entry of allInjuriesRes.injuries ?? []) {
+      if (String(entry.team?.id) !== String(teamId)) continue;
+      for (const inj of entry.injuries ?? []) {
+        if (inj.athlete?.displayName && inj.status) {
+          result.push({
+            name: inj.athlete.displayName,
+            position: inj.athlete.position?.abbreviation ?? "",
+            status: inj.status.toUpperCase()
+          });
+        }
+      }
+    }
+    return result;
+  }
+  const predictions = [];
+  for (const ev of events) {
+    let parseRecord2 = function(comp2) {
+      const overall = comp2.records?.find((r) => r.type === "total" || r.type === "overall");
+      const rec = overall?.summary ?? comp2.records?.[0]?.summary;
+      if (!rec) return null;
+      const parts = rec.split("-").map(Number);
+      if (parts.length >= 2) return { w: parts[0], l: parts[1] };
+      return null;
+    }, winPct2 = function(rec) {
+      if (!rec) return 0.5;
+      const total = rec.w + rec.l;
+      return total === 0 ? 0.5 : rec.w / total;
+    };
+    var parseRecord = parseRecord2, winPct = winPct2;
+    const comp = ev.competitions?.[0];
+    if (!comp) continue;
+    const homeComp = comp.competitors?.find((c) => c.homeAway === "home");
+    const awayComp = comp.competitors?.find((c) => c.homeAway === "away");
+    if (!homeComp || !awayComp) continue;
+    const homeId = homeComp.team.id;
+    const awayId = awayComp.team.id;
+    const statusName = ev.status?.type?.name ?? "";
+    const isFinal = ev.status?.type?.completed === true || statusName === "STATUS_FINAL";
+    const isInProgress = statusName === "STATUS_IN_PROGRESS" || statusName.includes("HALFTIME") || statusName.includes("INTERMISSION");
+    const status = isFinal ? "final" : isInProgress ? "in_progress" : "scheduled";
+    const gameDate = new Date(ev.date);
+    registerGameDate(homeId, ev.date);
+    registerGameDate(awayId, ev.date);
+    const eloHome = getElo(homeId);
+    const eloAway = getElo(awayId);
+    const eloProb = eloProbabilityHome(homeId, awayId);
+    const homeRecord = parseRecord2(homeComp);
+    const awayRecord = parseRecord2(awayComp);
+    const homeWinPct = winPct2(homeRecord);
+    const awayWinPct = winPct2(awayRecord);
+    const totalWinPct = homeWinPct + awayWinPct || 1;
+    const winPctProb = homeWinPct / totalWinPct;
+    const homeAdv = 0.06;
+    const homeRest = restAdjustment(homeId, gameDate);
+    const awayRest = restAdjustment(awayId, gameDate);
+    const homeInjuries = getTeamInjuries(homeId);
+    const awayInjuries = getTeamInjuries(awayId);
+    const homeInjAdj = injuryAdjustment(homeInjuries, sport);
+    const awayInjAdj = injuryAdjustment(awayInjuries, sport);
+    const injProb = 0.5 + homeInjAdj.adj - awayInjAdj.adj;
+    const h2hProb = 0.5;
+    let rawProb = 0.4 * eloProb + 0.25 * winPctProb + 0.1 * (0.5 + (homeRest.adj - awayRest.adj)) + 0.15 * Math.max(0, Math.min(1, injProb)) + 0.1 * h2hProb;
+    rawProb = Math.min(0.95, Math.max(0.05, rawProb + homeAdv * 0.5));
+    const modelProbHome = Math.round(rawProb * 100 * 10) / 10;
+    const modelProbAway = Math.round((1 - rawProb) * 100 * 10) / 10;
+    const eloDiff = Math.abs(eloHome - eloAway);
+    const confidence2 = eloDiff > 100 ? "high" : eloDiff > 50 ? "medium" : "low";
+    const reasons = [
+      `ELO: ${homeComp.team.displayName} ${eloHome.toFixed(0)} vs ${awayComp.team.displayName} ${eloAway.toFixed(0)} \u2192 ${(eloProb * 100).toFixed(1)}% home`,
+      `Win%: ${homeComp.team.displayName} ${(homeWinPct * 100).toFixed(1)}% vs ${awayComp.team.displayName} ${(awayWinPct * 100).toFixed(1)}%`,
+      `Home advantage: +6% boost applied`
+    ];
+    if (homeRest.label) reasons.push(`${homeComp.team.displayName} rest: ${homeRest.label}`);
+    if (awayRest.label) reasons.push(`${awayComp.team.displayName} rest: ${awayRest.label}`);
+    if (homeInjAdj.labels.length > 0) reasons.push(`${homeComp.team.displayName} injuries: ${homeInjAdj.labels.join(", ")}`);
+    if (awayInjAdj.labels.length > 0) reasons.push(`${awayComp.team.displayName} injuries: ${awayInjAdj.labels.join(", ")}`);
+    let newsHeadlines = [];
+    try {
+      newsHeadlines = await fetchNewsHeadlines(
+        `${homeComp.team.displayName} vs ${awayComp.team.displayName}`
+      );
+    } catch {
+    }
+    predictions.push({
+      gameId: ev.id,
+      sport,
+      homeTeam: homeComp.team.displayName,
+      awayTeam: awayComp.team.displayName,
+      gameTime: ev.date,
+      status,
+      modelProbHome,
+      modelProbAway,
+      confidence: confidence2,
+      reasons,
+      homeRecord: homeRecord ? `${homeRecord.w}-${homeRecord.l}` : void 0,
+      awayRecord: awayRecord ? `${awayRecord.w}-${awayRecord.l}` : void 0,
+      homeInjuries: homeInjAdj.labels.length ? homeInjuries.filter((i) => {
+        const keyPos = KEY_POSITIONS[sport];
+        return keyPos.some((p2) => i.position.toUpperCase().startsWith(p2));
+      }).map((i) => `${i.name} (${i.status})`).slice(0, 5) : void 0,
+      awayInjuries: awayInjAdj.labels.length ? awayInjuries.filter((i) => {
+        const keyPos = KEY_POSITIONS[sport];
+        return keyPos.some((p2) => i.position.toUpperCase().startsWith(p2));
+      }).map((i) => `${i.name} (${i.status})`).slice(0, 5) : void 0,
+      newsHeadlines: newsHeadlines.length ? newsHeadlines : void 0,
+      eloHome: Math.round(eloHome),
+      eloAway: Math.round(eloAway)
+    });
+  }
+  return predictions;
+}
+function matchPolymarket(prediction, markets) {
+  const matched = markets.find(
+    (m) => teamsMatchMarket(prediction.homeTeam, prediction.awayTeam, m.question)
+  );
+  if (!matched) return {};
+  const price = parseOutcomePrice(matched);
+  if (price === void 0) return { polymarketMarketId: matched.id, polymarketQuestion: matched.question, polymarketUrl: buildPolymarketUrl(matched) };
+  const edgePct = Math.round((prediction.modelProbHome - price) * 10) / 10;
+  const kelly = kellySize(prediction.modelProbHome, price);
+  return {
+    polymarketMarketId: matched.id,
+    polymarketQuestion: matched.question,
+    polymarketHomePrice: Math.round(price * 10) / 10,
+    polymarketUrl: buildPolymarketUrl(matched),
+    edgePct,
+    kellySizePct: kelly !== void 0 ? Math.round(kelly * 100) / 100 : void 0
+  };
+}
+async function fetchAllPredictions() {
+  const sports = ["nba", "nfl", "mlb", "nhl"];
+  const [sportResults, polymarkets] = await Promise.all([
+    Promise.allSettled(sports.map((s) => processSport(s))),
+    fetchPolymarketSportsMarkets().catch(() => [])
+  ]);
+  let predictions = [];
+  for (const r of sportResults) {
+    if (r.status === "fulfilled") {
+      predictions = predictions.concat(r.value);
+    }
+  }
+  for (let i = 0; i < predictions.length; i++) {
+    const match = matchPolymarket(predictions[i], polymarkets);
+    if (Object.keys(match).length > 0) {
+      predictions[i] = { ...predictions[i], ...match };
+      if (predictions[i].edgePct !== void 0 && Math.abs(predictions[i].edgePct) > 3) {
+        predictions[i].reasons.push(
+          `Polymarket edge: ${predictions[i].edgePct > 0 ? "+" : ""}${predictions[i].edgePct}% (bet HOME)`
+        );
+      }
+      if (predictions[i].kellySizePct !== void 0) {
+        predictions[i].reasons.push(
+          `Kelly position size: ${predictions[i].kellySizePct}% of bankroll`
+        );
+      }
+    }
+  }
+  predictions.sort((a, b) => {
+    if (a.status === "scheduled" && b.status !== "scheduled") return -1;
+    if (a.status !== "scheduled" && b.status === "scheduled") return 1;
+    return new Date(a.gameTime).getTime() - new Date(b.gameTime).getTime();
+  });
+  return predictions;
+}
+async function getSportsPredictions() {
+  if (cache7 && Date.now() - cache7.fetchedAt < CACHE_TTL_MS6) {
+    return cache7.data;
+  }
+  return refreshSportsPredictions();
+}
+async function refreshSportsPredictions() {
+  try {
+    const data = await fetchAllPredictions();
+    cache7 = { data, fetchedAt: Date.now() };
+    return data;
+  } catch (err) {
+    console.error("[sports-predictor] Fatal error during refresh:", err);
+    return cache7?.data ?? [];
+  }
+}
+var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS6, ELO_K, ELO_DEFAULT, eloRatings, cache7, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
+var init_sports_predictor = __esm({
+  "server/services/sports-predictor.ts"() {
+    "use strict";
+    ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports";
+    GAMMA_BASE2 = "https://gamma-api.polymarket.com";
+    GOOGLE_NEWS_BASE = "https://news.google.com/rss/search";
+    CACHE_TTL_MS6 = 15 * 60 * 1e3;
+    ELO_K = 20;
+    ELO_DEFAULT = 1500;
+    eloRatings = {};
+    cache7 = null;
+    SPORT_PATHS = {
+      nba: "basketball/nba",
+      nfl: "football/nfl",
+      mlb: "baseball/mlb",
+      nhl: "hockey/nhl"
+    };
+    KEY_POSITIONS = {
+      nfl: ["QB", "WR1", "RB"],
+      nba: ["PG", "SG", "SF"],
+      mlb: ["SP", "RP"],
+      nhl: ["G", "C", "LW", "RW"]
+    };
+    recentGameDates = {};
+  }
+});
+
+// server/services/sports-trade-engine.ts
+var sports_trade_engine_exports = {};
+__export(sports_trade_engine_exports, {
+  closeSportsTrade: () => closeSportsTrade,
+  getSportsEngineState: () => getSportsEngineState,
+  manualSportsScan: () => manualSportsScan,
+  startSportsEngine: () => startSportsEngine,
+  stopSportsEngine: () => stopSportsEngine,
+  updateSportsEngineConfig: () => updateSportsEngineConfig
+});
+function getSportsEngineState(userId) {
+  if (!_states4.has(userId)) {
+    _states4.set(userId, {
+      isRunning: false,
+      lastScanAt: null,
+      lastScanResult: null,
+      openTrades: [],
+      closedTrades: [],
+      totalRealizedPnl: 0,
+      totalUnrealizedPnl: 0,
+      config: { ...DEFAULT_CONFIG5, paperMode: !hasPmUsCredentials(userId) }
+    });
+  }
+  return _states4.get(userId);
+}
+function updateSportsEngineConfig(userId, patch) {
+  const s = getSportsEngineState(userId);
+  if (patch.minEdgePct != null) patch.minEdgePct = Math.max(0, Math.min(50, patch.minEdgePct));
+  if (patch.stakePerGame != null) patch.stakePerGame = Math.max(1, Math.min(500, patch.stakePerGame));
+  if (patch.maxOpenTrades != null) patch.maxOpenTrades = Math.max(1, Math.min(20, patch.maxOpenTrades));
+  s.config = { ...s.config, ...patch };
+}
+function startSportsEngine(userId) {
+  const s = getSportsEngineState(userId);
+  if (s.isRunning) return;
+  s.isRunning = true;
+  _runScan3(userId).catch(console.error);
+  const intervalMs = Math.max(5, s.config.cooldownMinutes) * 60 * 1e3;
+  _timers3.set(userId, setInterval(() => _runScan3(userId).catch(console.error), intervalMs));
+}
+function stopSportsEngine(userId) {
+  const s = getSportsEngineState(userId);
+  s.isRunning = false;
+  const iv = _timers3.get(userId);
+  if (iv) {
+    clearInterval(iv);
+    _timers3.delete(userId);
+  }
+}
+async function manualSportsScan(userId) {
+  return _runScan3(userId, true);
+}
+function closeSportsTrade(userId, tradeId) {
+  const s = getSportsEngineState(userId);
+  const idx = s.openTrades.findIndex((t2) => t2.id === tradeId);
+  if (idx === -1) return false;
+  const t = s.openTrades[idx];
+  const realized = Math.round((t.currentPriceCents / 100 * (t.stake / (t.entryPriceCents / 100)) - t.stake) * 100) / 100;
+  t.status = "closed";
+  t.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+  t.realizedPnl = realized;
+  t.exitReason = "manual";
+  t.unrealizedPnl = 0;
+  s.openTrades.splice(idx, 1);
+  s.closedTrades.unshift(t);
+  if (s.closedTrades.length > 100) s.closedTrades.length = 100;
+  s.totalRealizedPnl = Math.round((s.totalRealizedPnl + realized) * 100) / 100;
+  _recalc2(s);
+  return true;
+}
+function _recalc2(s) {
+  s.totalUnrealizedPnl = Math.round(s.openTrades.reduce((sum, t) => sum + t.unrealizedPnl, 0) * 100) / 100;
+}
+async function _updateOpenTrades2(s) {
+  for (const t of s.openTrades) {
+    if (!t.marketId) continue;
+    try {
+      const bbo = await getPmUsBbo(t.marketId);
+      if (!bbo) continue;
+      const liveCents = Math.round((bbo.bestBid > 0 ? bbo.bestBid : bbo.currentPx) * 100);
+      if (!liveCents) continue;
+      t.currentPriceCents = liveCents;
+      const contracts = t.stake / (t.entryPriceCents / 100);
+      t.unrealizedPnl = Math.round((liveCents / 100 * contracts - t.stake) * 100) / 100;
+    } catch {
+    }
+  }
+  _recalc2(s);
+}
+async function _runScan3(userId, manual = false) {
+  const s = getSportsEngineState(userId);
+  s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
+  await _updateOpenTrades2(s);
+  if (s.openTrades.length >= s.config.maxOpenTrades) {
+    const r3 = `Max open trades (${s.config.maxOpenTrades}) reached`;
+    s.lastScanResult = r3;
+    return { fired: 0, reason: r3, trades: [] };
+  }
+  let predictions;
+  try {
+    predictions = manual ? await refreshSportsPredictions() : await getSportsPredictions();
+  } catch (err) {
+    const r3 = `Prediction fetch error: ${err.message}`;
+    s.lastScanResult = r3;
+    return { fired: 0, reason: r3, trades: [] };
+  }
+  const openGameIds = new Set(s.openTrades.map((t) => t.gameId));
+  const confOrder = { high: 2, medium: 1, low: 0 };
+  const minConfOrder = confOrder[s.config.minConfidence] ?? 2;
+  const eligible = predictions.filter(
+    (p2) => p2.polymarketMarketId && p2.polymarketHomePrice != null && Math.abs(p2.edgePct ?? 0) >= s.config.minEdgePct && (confOrder[p2.confidence] ?? 0) >= minConfOrder && !openGameIds.has(p2.gameId) && p2.status === "scheduled"
+  ).sort((a, b) => Math.abs(b.edgePct ?? 0) - Math.abs(a.edgePct ?? 0));
+  if (eligible.length === 0) {
+    const r3 = `No eligible games (need edge \u2265${s.config.minEdgePct}%, confidence \u2265${s.config.minConfidence}, Polymarket market found)`;
+    s.lastScanResult = r3;
+    return { fired: 0, reason: r3, trades: [] };
+  }
+  const newTrades = [];
+  const slots = s.config.maxOpenTrades - s.openTrades.length;
+  for (const game of eligible.slice(0, slots)) {
+    const edge = game.edgePct ?? 0;
+    const side = edge >= 0 ? "yes" : "no";
+    const predictedTeam = edge >= 0 ? game.homeTeam : game.awayTeam;
+    const modelPricePct = edge >= 0 ? game.modelProbHome : game.modelProbAway;
+    const marketPricePct = game.polymarketHomePrice ?? 50;
+    const entryPriceCents = Math.round((side === "yes" ? marketPricePct : 100 - marketPricePct) * 1);
+    let actualEntryCents = entryPriceCents;
+    if (!s.config.paperMode && hasPmUsCredentials(userId)) {
+      try {
+        const bbo = await getPmUsBbo(game.polymarketMarketId);
+        if (bbo) {
+          const ask = side === "yes" ? bbo.bestAsk : 1 - bbo.bestBid;
+          if (ask > 0) actualEntryCents = Math.round(ask * 100);
+        }
+      } catch {
+      }
+    }
+    if (!s.config.paperMode && hasPmUsCredentials(userId)) {
+      try {
+        const result = await placePmUsOrder(userId, {
+          marketSlug: game.polymarketMarketId,
+          intent: side === "yes" ? "ORDER_INTENT_BUY_LONG" : "ORDER_INTENT_BUY_SHORT",
+          type: "ORDER_TYPE_MARKET",
+          quantity: Math.round(s.config.stakePerGame / (actualEntryCents / 100))
+        });
+        if (!result.ok) {
+          console.warn(`[SportsEngine] Order failed for ${game.gameId}:`, result.data);
+          continue;
+        }
+      } catch (err) {
+        console.warn(`[SportsEngine] Order error for ${game.gameId}:`, err.message);
+        continue;
+      }
+    }
+    const trade = {
+      id: `sports-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      gameId: game.gameId,
+      sport: game.sport,
+      homeTeam: game.homeTeam,
+      awayTeam: game.awayTeam,
+      marketId: game.polymarketMarketId,
+      marketQuestion: game.polymarketQuestion ?? `${game.awayTeam} @ ${game.homeTeam}`,
+      polymarketUrl: game.polymarketUrl,
+      side,
+      predictedTeam,
+      entryEdgePct: Math.abs(edge),
+      modelProbPct: modelPricePct,
+      marketPricePct,
+      kellySizePct: game.kellySizePct ?? 0,
+      stake: s.config.stakePerGame,
+      entryPriceCents: actualEntryCents,
+      currentPriceCents: actualEntryCents,
+      unrealizedPnl: 0,
+      gameTime: game.gameTime,
+      openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      status: "open",
+      paper: s.config.paperMode,
+      reasons: game.reasons ?? []
+    };
+    s.openTrades.push(trade);
+    newTrades.push(trade);
+    openGameIds.add(game.gameId);
+    console.log(`[SportsEngine] ${s.config.paperMode ? "[PAPER]" : "[LIVE]"} Opened ${side.toUpperCase()} on "${trade.marketQuestion}" edge=${edge.toFixed(1)}% kelly=${game.kellySizePct?.toFixed(1)}%`);
+  }
+  _recalc2(s);
+  const r = newTrades.length > 0 ? `${s.config.paperMode ? "[PAPER]" : "[LIVE]"} Opened ${newTrades.length} trade(s): ${newTrades.map((t) => `${t.predictedTeam} (${t.sport.toUpperCase()})`).join(", ")}` : "Scan complete \u2014 no new trades opened";
+  s.lastScanResult = r;
+  return { fired: newTrades.length, reason: r, trades: newTrades };
+}
+var DEFAULT_CONFIG5, _states4, _timers3;
+var init_sports_trade_engine = __esm({
+  "server/services/sports-trade-engine.ts"() {
+    "use strict";
+    init_sports_predictor();
+    init_polymarket_us();
+    DEFAULT_CONFIG5 = {
+      minEdgePct: 4,
+      minConfidence: "high",
+      stakePerGame: 10,
+      maxOpenTrades: 5,
+      cooldownMinutes: 30,
+      paperMode: true
+    };
+    _states4 = /* @__PURE__ */ new Map();
+    _timers3 = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/abba-engine-room.ts
+var abba_engine_room_exports = {};
+__export(abba_engine_room_exports, {
+  buildEngineRoom: () => buildEngineRoom,
+  engineRoomContextText: () => engineRoomContextText
+});
+function isoOrNull(v) {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+}
+function agoText(iso) {
+  if (!iso) return "no recorded activity";
+  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1e3));
+  if (s < 90) return `${s}s ago`;
+  if (s < 5400) return `${Math.round(s / 60)} min ago`;
+  if (s < 172800) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+}
+async function safe(fn, fallback) {
+  try {
+    return await fn();
+  } catch {
+    return fallback;
+  }
+}
+async function buildGuardPressure(userId) {
+  const { recentGuardEvents: recentGuardEvents2, guardFireRates: guardFireRates2 } = await Promise.resolve().then(() => (init_guard_events(), guard_events_exports));
+  const summary = [];
+  const recent = [];
+  const map = /* @__PURE__ */ new Map();
+  const ratesRes = await safe(() => guardFireRates2(userId, 7), null);
+  const rates = Array.isArray(ratesRes?.rates) ? ratesRes.rates : [];
+  if (rates.length) {
+    const parts = [];
+    let total = 0;
+    for (const r of rates) {
+      const n = typeof r.fires === "number" ? r.fires : 0;
+      if (n <= 0) continue;
+      total += n;
+      map.set(r.kind, (map.get(r.kind) || 0) + n);
+      parts.push(`${r.engine || "engine"} ${String(r.kind).replace(/_/g, " ")} \xD7${n}${r.top_symbol ? ` (top: ${r.top_symbol})` : ""}`);
+    }
+    if (parts.length) summary.push(`Guard fires, last 7 days, this user (${total} total): ${parts.join("; ")}.`);
+  }
+  const evRes = await safe(() => recentGuardEvents2(userId, 8), null);
+  const evs = Array.isArray(evRes?.events) ? evRes.events : [];
+  for (const e of evs.slice(0, 5)) {
+    recent.push(`${e.engine || "engine"}: ${e.detail || e.kind || "guard event"} (${agoText(isoOrNull(e.created_at || e.createdAt))})`);
+  }
+  return { summary, recent, map };
+}
+async function buildEngines(userId, guardMap) {
+  const engines = [];
+  const now = /* @__PURE__ */ new Date();
+  try {
+    const { getLiveEngineState: getLiveEngineState2, isEngineHardHalted: isEngineHardHalted2, getEffectiveEngineConfig: getEffectiveEngineConfig2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+    const st = getLiveEngineState2(userId);
+    const halted = isEngineHardHalted2(userId);
+    const cfg = await safe(() => getEffectiveEngineConfig2(userId), null);
+    const lastAct = isoOrNull(st?.lastSignalAt || st?.lastScanAt);
+    let state = "unknown";
+    let evidence = "FX engine state could not be read.";
+    if (st) {
+      if (halted || cfg?.emergencyStop) {
+        state = "gated";
+        evidence = "Emergency stop / hard halt is active for this user.";
+      } else if (st.status === "running") {
+        const lastScan = st.lastScanAt ? new Date(st.lastScanAt) : null;
+        if (lastScan && isFxMarketOpenAt(now) && fxMarketHoursBetween(lastScan, now) > 24) {
+          state = "silent";
+          evidence = `Engine reports running but its last scan was ${agoText(lastAct)} \u2014 over 24 market-open hours ago.`;
+        } else {
+          state = "running";
+          evidence = `Scanning; last scan ${agoText(isoOrNull(st.lastScanAt))}, last signal ${agoText(isoOrNull(st.lastSignalAt))}.`;
+        }
+      } else if (st.status === "paused") {
+        state = "gated";
+        evidence = "Engine is paused.";
+      } else {
+        state = "stopped";
+        evidence = "Engine is stopped for this user.";
+      }
+      if (st.drawdownShieldActive && state === "running") evidence += " Drawdown shield is ACTIVE.";
+    }
+    engines.push({ id: "fx", name: "FX Engine", state, evidence, lastActivityAt: lastAct, openPositions: typeof st?.openPositionCount === "number" ? st.openPositionCount : null });
+  } catch {
+    engines.push({ id: "fx", name: "FX Engine", state: "unknown", evidence: "FX engine state could not be read.", lastActivityAt: null, openPositions: null });
+  }
+  try {
+    const { getSolEngineStatus: getSolEngineStatus2 } = await Promise.resolve().then(() => (init_sol_engine(), sol_engine_exports));
+    const s = getSolEngineStatus2(userId);
+    if (!s) {
+      engines.push({ id: "sol", name: "Sol Engine", state: "no_data", evidence: "Sol engine has not run for this user in this server session.", lastActivityAt: null, openPositions: null });
+    } else {
+      const lastAct = isoOrNull(s.lastScanAt);
+      const stale = s.lastScanAt ? Date.now() - new Date(s.lastScanAt).getTime() > 48 * 36e5 : false;
+      engines.push({
+        id: "sol",
+        name: "Sol Engine",
+        state: s.isRunning || s.running ? stale ? "silent" : "running" : "stopped",
+        evidence: s.isRunning || s.running ? stale ? `Running but last scan was ${agoText(lastAct)} (>48h, the watchdog's stale bar).` : `Running; last scan ${agoText(lastAct)}.` : "Sol engine is not running for this user.",
+        lastActivityAt: lastAct,
+        openPositions: typeof s.openPositions === "number" ? s.openPositions : null
+      });
+    }
+  } catch {
+    engines.push({ id: "sol", name: "Sol Engine", state: "unknown", evidence: "Sol engine status could not be read.", lastActivityAt: null, openPositions: null });
+  }
+  try {
+    const { getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+    const s = getKalshiEngineState2(userId);
+    engines.push({
+      id: "kalshi",
+      name: "Kalshi Engine",
+      state: s?.isRunning ? "running" : "stopped",
+      evidence: s?.isRunning ? `Running${s.isPaperMode ? " in paper mode" : ""}; last scan ${agoText(isoOrNull(s.lastScanAt))}, last trade ${agoText(isoOrNull(s.lastTradeAt))}.` : "Kalshi engine is not running for this user.",
+      lastActivityAt: isoOrNull(s?.lastTradeAt || s?.lastScanAt),
+      openPositions: Array.isArray(s?.openTrades) ? s.openTrades.length : null
+    });
+  } catch {
+    engines.push({ id: "kalshi", name: "Kalshi Engine", state: "unknown", evidence: "Kalshi engine state could not be read.", lastActivityAt: null, openPositions: null });
+  }
+  try {
+    const { getCryptoEngineHealth: getCryptoEngineHealth2 } = await Promise.resolve().then(() => (init_crypto_health(), crypto_health_exports));
+    const h = await safe(() => getCryptoEngineHealth2(), null);
+    const cfgRow = await safe(async () => {
+      const { rows } = await pool.query(`SELECT is_active FROM cryptocom_engine_configs WHERE user_id = $1`, [userId]);
+      return rows[0] ?? null;
+    }, null);
+    const userOn = cfgRow ? !!cfgRow.is_active : null;
+    const lastAct = h?.lastTickAt ? new Date(h.lastTickAt).toISOString() : null;
+    engines.push({
+      id: "crypto",
+      name: "Crypto Engine",
+      state: userOn === false ? "stopped" : h ? h.status === "ok" ? "running" : h.status === "stale" ? "silent" : "unknown" : "unknown",
+      evidence: userOn === false ? "Crypto engine is switched off in this user's config." : h ? `Scanner heartbeat ${h.status}${lastAct ? `, last tick ${agoText(lastAct)}` : ""} (platform process signal \u2014 the scanner is shared, not per-user). This user's auto-trading config: ${userOn ? "on" : "no config row yet (defaults)"}.` : "Crypto engine health could not be read.",
+      lastActivityAt: lastAct,
+      openPositions: null
+    });
+  } catch {
+    engines.push({ id: "crypto", name: "Crypto Engine", state: "unknown", evidence: "Crypto engine health could not be read.", lastActivityAt: null, openPositions: null });
+  }
+  const extra = [
+    ["futures", "Futures Scanner", async () => {
+      const { getFuturesScannerState: getFuturesScannerState2 } = await Promise.resolve().then(() => (init_futures_scanner(), futures_scanner_exports));
+      const s = getFuturesScannerState2(userId);
+      return {
+        state: s?.status === "running" ? "running" : s?.status === "paused" ? "gated" : "stopped",
+        evidence: s?.dailyLossHalted ? "Daily-loss halt is active." : `Scanner ${s?.status || "stopped"}; last scan ${agoText(isoOrNull(s?.lastScanAt))}.`,
+        lastActivityAt: isoOrNull(s?.lastScanAt),
+        openPositions: null
+      };
+    }],
+    ["polymarket", "Polymarket Engine", async () => {
+      const { getEngineState: getEngineState2 } = await Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports));
+      const s = getEngineState2(userId);
+      let usRunning = false;
+      try {
+        const { getPmUsEngineState: getPmUsEngineState2 } = await Promise.resolve().then(() => (init_polymarket_us_engine(), polymarket_us_engine_exports));
+        const us = getPmUsEngineState2(userId);
+        usRunning = !!us?.isRunning;
+      } catch {
+      }
+      return {
+        state: s?.isRunning || usRunning ? "running" : "stopped",
+        evidence: `Global engine ${s?.isRunning ? "running" : "stopped"}${usRunning ? "; US engine running" : ""}; last trade ${agoText(isoOrNull(s?.lastTradeAt))}.`,
+        lastActivityAt: isoOrNull(s?.lastTradeAt || s?.lastScanAt),
+        openPositions: Array.isArray(s?.openPositions) ? s.openPositions.length : null
+      };
+    }],
+    ["sports", "Sports Engine", async () => {
+      const { getSportsEngineState: getSportsEngineState2 } = await Promise.resolve().then(() => (init_sports_trade_engine(), sports_trade_engine_exports));
+      const s = getSportsEngineState2(userId);
+      return {
+        state: s?.isRunning ? "running" : "stopped",
+        evidence: `Sports engine ${s?.isRunning ? "running" : "stopped"}; last scan ${agoText(isoOrNull(s?.lastScanAt))}.`,
+        lastActivityAt: isoOrNull(s?.lastScanAt),
+        openPositions: Array.isArray(s?.openTrades) ? s.openTrades.length : null
+      };
+    }]
+  ];
+  for (const [id, name, load] of extra) {
+    try {
+      const r = await load();
+      engines.push({ id, name, ...r });
+    } catch {
+      engines.push({ id, name, state: "unknown", evidence: `${name} state could not be read.`, lastActivityAt: null, openPositions: null });
+    }
+  }
+  try {
+    const open = await storage.getOpenOptionsEngineTrades(userId);
+    engines.push({ id: "options", name: "Options Engine", state: open.length ? "running" : "no_data", evidence: open.length ? `${open.length} options position(s) currently open.` : "No running-state signal and no open options positions for this user.", lastActivityAt: null, openPositions: open.length });
+  } catch {
+    engines.push({ id: "options", name: "Options Engine", state: "unknown", evidence: "Options engine state could not be read.", lastActivityAt: null, openPositions: null });
+  }
+  const fx = engines.find((e) => e.id === "fx");
+  const blocks = guardMap.get("guard_block") || 0;
+  if (fx && blocks > 0) fx.guardNote = `${blocks} trade(s) blocked by guards in the last 7 days.`;
+  return engines;
+}
+async function buildPositions(userId) {
+  const open = [];
+  const closes = [];
+  try {
+    const pos = global.mt5OpenPositions?.[userId];
+    if (Array.isArray(pos)) for (const p2 of pos) open.push({
+      engine: "MT5",
+      account: "MT5",
+      symbol: p2.symbol || "?",
+      side: p2.type || p2.direction || "?",
+      size: p2.volume ?? p2.lots ?? null,
+      entry: p2.openPrice ?? p2.priceOpen ?? null,
+      current: p2.currentPrice ?? null,
+      unrealizedPnl: p2.profit ?? null,
+      openedAt: isoOrNull(p2.openTime)
+    });
+  } catch {
+  }
+  try {
+    const { getTlAccountData: getTlAccountData2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
+    const live = getTlAccountData2(userId);
+    for (const p2 of live.positions || []) open.push({
+      engine: "TradeLocker",
+      account: "TradeLocker",
+      symbol: p2.symbol || p2.instrument || "?",
+      side: p2.side || p2.direction || "?",
+      size: p2.qty ?? p2.quantity ?? null,
+      entry: p2.avgPrice ?? p2.entryPrice ?? null,
+      current: null,
+      unrealizedPnl: p2.unrealizedPl ?? p2.pnl ?? null,
+      openedAt: isoOrNull(p2.openedAt || p2.createdAt)
+    });
+  } catch {
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT symbol, direction, mode, size_usd, entry_price, opened_at FROM sol_engine_positions WHERE user_id = $1 AND status = 'open' ORDER BY opened_at DESC LIMIT 20`,
+      [userId]
+    );
+    for (const r of rows) open.push({
+      engine: "Sol Engine",
+      account: "Solana",
+      symbol: r.symbol,
+      side: r.direction || "long",
+      size: r.size_usd != null ? Number(r.size_usd) : null,
+      entry: r.entry_price != null ? Number(r.entry_price) : null,
+      current: null,
+      unrealizedPnl: null,
+      openedAt: isoOrNull(r.opened_at),
+      mode: r.mode
+    });
+  } catch {
+  }
+  const lanes = [
+    ["Crypto Engine", () => storage.getOpenCryptocomEngineTrades(userId)],
+    ["Options Engine", () => storage.getOpenOptionsEngineTrades(userId)],
+    ["Futures Engine", () => storage.getOpenFuturesEngineTrades(userId)]
+  ];
+  for (const [engine, load] of lanes) {
+    const rows = await safe(load, []);
+    for (const t of rows.slice(0, 20)) open.push({
+      engine,
+      account: engine.replace(" Engine", ""),
+      symbol: t.symbol || t.underlying || "?",
+      side: t.direction || t.side || "?",
+      size: t.quantity ?? t.contracts ?? t.positionSize ?? null,
+      entry: t.entryPrice ?? t.entry_price ?? null,
+      current: t.currentPrice ?? null,
+      unrealizedPnl: t.unrealizedPnl ?? t.unrealized_pnl ?? null,
+      openedAt: isoOrNull(t.openedAt || t.createdAt)
+    });
+  }
+  try {
+    const { getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+    const s = getKalshiEngineState2(userId);
+    for (const t of s?.openTrades || []) open.push({
+      engine: "Kalshi",
+      account: "Kalshi",
+      symbol: t.ticker || t.marketTicker || t.title || "?",
+      side: t.side || (t.yes ? "YES" : "NO"),
+      size: t.contracts ?? t.quantity ?? null,
+      entry: t.entryPrice ?? null,
+      current: t.currentPrice ?? null,
+      unrealizedPnl: t.unrealizedPnl ?? null,
+      openedAt: isoOrNull(t.openedAt || t.createdAt)
+    });
+  } catch {
+  }
+  try {
+    const all = await storage.getAiTradeResults(userId, 200);
+    const closed = all.filter((t) => t.result && t.result !== "PENDING").sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 10);
+    for (const t of closed) closes.push({
+      engine: canonicalTradeSourceLabel(t.source),
+      symbol: t.symbol,
+      side: t.direction,
+      pnl: typeof t.profitLoss === "number" ? t.profitLoss : null,
+      closedAt: isoOrNull(t.createdAt),
+      strategy: t.strategy || null
+    });
+  } catch {
+  }
+  return { open, closes };
+}
+async function buildEngineRoom(userId) {
+  const hit = cache8.get(userId);
+  if (hit && Date.now() - hit.at < CACHE_MS3) return hit.room;
+  const guard = await buildGuardPressure(userId);
+  const [engines, acct, positions] = await Promise.all([
+    buildEngines(userId, guard.map),
+    buildAccountSnapshots(userId),
+    buildPositions(userId)
+  ]);
+  const room = {
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    engines,
+    accounts: acct.accounts,
+    guardPressure: { summary: guard.summary, recent: guard.recent },
+    openPositions: positions.open.slice(0, 25),
+    recentCloses: positions.closes,
+    unknowns: acct.unknowns
+  };
+  cache8.set(userId, { at: Date.now(), room });
+  return room;
+}
+function freshnessText(a) {
+  if (a.status === "ok") return a.ageSeconds != null && a.ageSeconds > 75 ? `as of ${Math.round(a.ageSeconds / 60)} min ago` : "fresh";
+  if (a.status === "stale") return `STALE \u2014 last figure ${a.ageSeconds != null ? agoText(new Date(Date.now() - a.ageSeconds * 1e3).toISOString()) : "unknown age"}`;
+  if (a.status === "error") return "balance read failed";
+  return "balance not readable right now";
+}
+function money2(v, currency) {
+  if (v == null) return "unknown";
+  return `${currency || "USD"} ${v.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+}
+function engineRoomContextText(room) {
+  const lines = [];
+  lines.push(`ENGINE ROOM (this signed-in user's own live snapshot, generated ${agoText(room.generatedAt)} \u2014 quote figures WITH their freshness; a stale or unknown figure is NOT a zero):`);
+  lines.push("ENGINES:");
+  for (const e of room.engines) {
+    lines.push(`- ${e.name}: ${e.state.toUpperCase()} \u2014 ${e.evidence}${e.guardNote ? ` ${e.guardNote}` : ""}`);
+  }
+  if (room.guardPressure.summary.length || room.guardPressure.recent.length) {
+    lines.push("GUARD PRESSURE (this user):");
+    for (const s of room.guardPressure.summary) lines.push(`- ${s}`);
+    for (const r of room.guardPressure.recent.slice(0, 3)) lines.push(`- Recent: ${r}`);
+  }
+  lines.push("ACCOUNTS:");
+  if (!room.accounts.length) lines.push("- No connected accounts found for this user.");
+  for (const a of room.accounts) {
+    lines.push(`- ${a.label} [${a.provider}, ${a.accountType}]: balance ${money2(a.balance, a.currency)}${a.equity != null && a.equity !== a.balance ? `, equity ${money2(a.equity, a.currency)}` : ""} (${freshnessText(a)}; source: ${a.source})${a.note ? ` \u2014 ${a.note}` : ""}`);
+  }
+  lines.push(`OPEN POSITIONS (${room.openPositions.length} shown):`);
+  if (!room.openPositions.length) lines.push("- None open right now.");
+  for (const p2 of room.openPositions.slice(0, 12)) {
+    lines.push(`- ${p2.symbol} ${p2.side} via ${p2.engine}${p2.mode ? ` (${p2.mode})` : ""}${p2.unrealizedPnl != null ? `, floating P&L $${p2.unrealizedPnl.toFixed(2)}` : ""}${p2.openedAt ? `, opened ${agoText(p2.openedAt)}` : ""}`);
+  }
+  if (room.recentCloses.length) {
+    lines.push("RECENT CLOSES:");
+    for (const c of room.recentCloses.slice(0, 6)) {
+      lines.push(`- ${c.symbol} ${c.side} via ${c.engine}${c.strategy ? ` (${c.strategy})` : ""}: ${c.pnl != null ? `$${c.pnl.toFixed(2)}` : "P&L unknown"} (${agoText(c.closedAt)})`);
+    }
+  }
+  for (const u of room.unknowns) lines.push(`UNKNOWN: ${u}`);
+  return lines.join("\n");
+}
+var cache8, CACHE_MS3;
+var init_abba_engine_room = __esm({
+  "server/services/abba-engine-room.ts"() {
+    "use strict";
+    init_storage();
+    init_db();
+    init_account_aggregator();
+    init_trade_source();
+    init_engine_watchdog();
+    cache8 = /* @__PURE__ */ new Map();
+    CACHE_MS3 = 3e4;
+  }
+});
+
+// server/abba-strategist.ts
+var abba_strategist_exports = {};
+__export(abba_strategist_exports, {
+  ABBA_PERSONA_SPEC: () => ABBA_PERSONA_SPEC,
+  IDEA_MARKER: () => IDEA_MARKER,
+  SETUP_MARKER: () => SETUP_MARKER,
+  abbaChatHandler: () => abbaChatHandler,
+  abbaContextText: () => abbaContextText,
+  abbaIdeaLabPrompt: () => abbaIdeaLabPrompt,
+  abbaStrategistHandler: () => abbaStrategistHandler,
+  buildAbbaContext: () => buildAbbaContext,
+  extractIdeaDraft: () => extractIdeaDraft,
+  extractSetupDraft: () => extractSetupDraft,
+  wantsIdeaCard: () => wantsIdeaCard,
+  wantsSetupCard: () => wantsSetupCard
+});
+async function buildAbbaContext(userId) {
+  const all = await storage.getAiTradeResults(userId, 500);
+  const closed = all.filter((t) => t.result && t.result !== "PENDING" && t.closedAt);
+  const dayStart = /* @__PURE__ */ new Date();
+  dayStart.setUTCHours(0, 0, 0, 0);
+  const tally = (rows) => {
+    const wins2 = rows.filter((r) => r.result === "WIN").length;
+    const losses2 = rows.filter((r) => r.result === "LOSS").length;
+    const decided = wins2 + losses2;
+    return {
+      trades: rows.length,
+      wins: wins2,
+      losses: losses2,
+      winRate: decided > 0 ? Math.round(wins2 / decided * 100) : 0,
+      totalPnl: Math.round(rows.reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100
+    };
+  };
+  const group = (rows, key) => {
+    const m = {};
+    for (const t of rows) {
+      const k2 = key(t) || "\u2014";
+      (m[k2] = m[k2] || []).push(t);
+    }
+    return Object.entries(m).map(([k2, v]) => {
+      const tt = tally(v);
+      return { key: k2, trades: tt.trades, winRate: tt.winRate, pnl: tt.totalPnl };
+    });
+  };
+  const avgConf = (rows) => rows.length ? Math.round(rows.reduce((s, t) => s + (t.aiConfidence || 0), 0) / rows.length) : 0;
+  const wins = closed.filter((t) => t.result === "WIN");
+  const losses = closed.filter((t) => t.result === "LOSS");
+  const wk = global.mt5WeeklyStrategies?.[userId];
+  let weeklyTarget = wk?.plan?.profitTarget ?? wk?.profitTarget ?? 0;
+  let currentProfit = wk?.currentProfit ?? 0;
+  try {
+    const ws = await storage.getWeeklyStrategy?.(userId);
+    if (ws) {
+      weeklyTarget = ws.profitTarget ?? weeklyTarget;
+      currentProfit = ws.currentProfit ?? currentProfit;
+    }
+  } catch {
+  }
+  const tradingPairs = global.liveEngineConfigCache?.[userId]?.pairs ?? wk?.plan?.pairs ?? [...new Set(closed.map((t) => (t.symbol || "").toUpperCase()))].slice(0, 12);
+  return {
+    goal: {
+      weeklyTarget,
+      currentProfit,
+      progressPct: weeklyTarget > 0 ? Math.round(currentProfit / weeklyTarget * 100) : 0,
+      tradingPairs
+    },
+    performance: {
+      overall: tally(closed),
+      today: tally(closed.filter((t) => new Date(t.closedAt) >= dayStart)),
+      // Canonical source taxonomy (services/trade-source.ts): tradelocker_auto
+      // counts as TradeLocker, dxtrade as DXtrade, kalshi/polymarket as
+      // themselves — previously everything except exactly 'tradelocker' was
+      // mislabeled "MT5".
+      bySource: Object.fromEntries(
+        group(closed, (t) => canonicalTradeSourceLabel(t.source)).map((g) => [g.key, { trades: g.trades, winRate: g.winRate, totalPnl: g.pnl }])
+      ),
+      byPair: group(closed, (t) => (t.symbol || "").toUpperCase()).map((g) => ({ pair: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
+      bySession: group(closed, (t) => sessionOf2(new Date(t.closedAt))).map((g) => ({ session: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
+      avgConfWinners: avgConf(wins),
+      avgConfLosers: avgConf(losses)
+    },
+    recentTrades: closed.sort((a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime()).slice(0, 30).map((t) => ({
+      symbol: (t.symbol || "").toUpperCase(),
+      direction: t.direction,
+      result: t.result,
+      pnl: Math.round((t.profitLoss || 0) * 100) / 100,
+      conf: t.aiConfidence || 0,
+      source: canonicalTradeSourceLabel(t.source),
+      session: sessionOf2(new Date(t.closedAt)),
+      when: t.closedAt
+    })),
+    brain: global.veddAIBrain?.[userId] ?? null,
+    liveAccounts: await getLiveAccounts(userId)
+  };
+}
+async function getLiveAccounts(userId) {
+  const mt5 = [];
+  const tradelocker = [];
+  try {
+    const cache11 = global.mt5AccountData?.[userId];
+    const entries = cache11?.lastUpdated ? [cache11] : Object.values(cache11 || {});
+    for (const a of entries) {
+      if (!a?.lastUpdated) continue;
+      const age = (Date.now() - new Date(a.lastUpdated).getTime()) / 1e3;
+      mt5.push({ broker: a.broker || "MT5", balance: a.balance || 0, equity: a.equity || 0, connected: age < 600 });
+    }
+  } catch {
+  }
+  try {
+    const { getTlAccountData: getTlAccountData2, syncUserTradeLocker: syncUserTradeLocker2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
+    let tl = getTlAccountData2(userId);
+    if (tl.accounts.length === 0) {
+      await syncUserTradeLocker2(userId, true).catch(() => {
+      });
+      tl = getTlAccountData2(userId);
+    }
+    for (const a of tl.accounts) {
+      tradelocker.push({ label: `${a.broker} (${a.accountType})`, balance: a.balance, equity: a.equity, connected: a.isConnected });
+    }
+  } catch {
+  }
+  const totalBalance = [...mt5, ...tradelocker].reduce((s, a) => s + (a.balance || 0), 0);
+  return { mt5, tradelocker, totalBalance };
+}
+function contextSummary(ctx) {
+  const p2 = ctx.performance;
+  const la = ctx.liveAccounts;
+  const acctLine = [
+    ...la.mt5.map((a) => `MT5 ${a.broker}: $${a.balance.toFixed(2)} (eq $${a.equity.toFixed(2)}) ${a.connected ? "LIVE" : "offline"}`),
+    ...la.tradelocker.map((a) => `TL ${a.label}: $${a.balance.toFixed(2)} (eq $${a.equity.toFixed(2)}) ${a.connected ? "LIVE" : "offline"}`)
+  ].join(" | ") || "no broker accounts connected";
+  return [
+    `LIVE ACCOUNTS (real-time balances): ${acctLine}. TOTAL: $${la.totalBalance.toFixed(2)}.`,
+    `GOAL: weekly target $${ctx.goal.weeklyTarget}, current $${ctx.goal.currentProfit} (${ctx.goal.progressPct}% there). Pairs: ${ctx.goal.tradingPairs.join(", ")}.`,
+    `OVERALL: ${p2.overall.trades} trades, ${p2.overall.winRate}% WR (${p2.overall.wins}W/${p2.overall.losses}L), net $${p2.overall.totalPnl}.`,
+    `TODAY: ${p2.today.trades} trades, ${p2.today.winRate}% WR, net $${p2.today.totalPnl}.`,
+    `BY SOURCE: ${Object.entries(p2.bySource).map(([k2, v]) => `${k2} ${v.winRate}% ($${v.totalPnl}, ${v.trades}t)`).join(" | ") || "none yet"}.`,
+    `BY PAIR (worst\u2192best): ${p2.byPair.slice(0, 8).map((x) => `${x.pair} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(", ")}.`,
+    `BY SESSION: ${p2.bySession.map((x) => `${x.session} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(", ")}.`,
+    `CONFIDENCE: winners avg ${p2.avgConfWinners}%, losers avg ${p2.avgConfLosers}%.`,
+    `RECENT (newest first): ${ctx.recentTrades.slice(0, 18).map((t) => `${t.symbol} ${t.direction} ${t.result} $${t.pnl} @${t.conf}% [${t.session}/${t.source}]`).join(" | ")}.`,
+    ctx.brain ? `BRAIN: ${ctx.brain.overallWinRate ?? "?"}% WR over ${ctx.brain.totalTradesAnalyzed ?? "?"} trades. Insights: ${(ctx.brain.learningInsights ?? []).slice(0, 4).join(" / ")}.` : "BRAIN: not learned yet."
+  ].join("\n");
+}
+async function abbaContextText(userId) {
+  try {
+    return contextSummary(await buildAbbaContext(userId));
+  } catch {
+    return "";
+  }
+}
+async function getClient(userId) {
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const client2 = await getUniversalAIClientForUser2(userId);
+    return { client: client2, model: client2.defaultModel || "gpt-4o" };
+  } catch {
+    return null;
+  }
+}
+function wantsSetupCard(message, lastAbba) {
+  return /review screen|settings? (card|review)|set (it|this|that|everything|the engines?|my engines?) up|go live|apply (it|this|that|the plan|these settings)/i.test(message) || YES.test(message) && /review screen|set (up|it up)|engines?|settings/i.test(lastAbba);
+}
+function wantsIdeaCard(message, lastAbba) {
+  return /add (it|this|that)( idea)? to (my|the) brain|test (it|this|that) in shadow|shadow[- ]test (it|this|that)/i.test(message) || YES.test(message) && /shadow mode|shadow test|to your brain|to my brain/i.test(lastAbba);
+}
+async function engineNowText(userId) {
+  try {
+    const { currentSettings: currentSettings2 } = await Promise.resolve().then(() => (init_abba_setup(), abba_setup_exports));
+    const c = await currentSettings2(userId);
+    const plan = await storage.getActiveWeeklyStrategy(userId).catch(() => void 0);
+    const fx = c.fx;
+    const lines = [
+      `FX engine: ${fx.running ? "RUNNING" : "stopped"} \xB7 pairs ${(fx.pairs || []).join(", ") || "none"} \xB7 risk ${fx.riskPerTrade}%/trade \xB7 min confidence ${fx.minConfidence} (the engine never trades below its hard floor of 74) \xB7 max ${fx.maxOpenTrades} open \xB7 ${fx.maxDailyTrades ? `max ${fx.maxDailyTrades} trades/day` : "no daily trade cap"} \xB7 direction ${fx.directionFilter}${Object.keys(fx.pairDirectionOverrides || {}).length ? ` \xB7 per-pair ${JSON.stringify(fx.pairDirectionOverrides)}` : ""} \xB7 weekly target $${fx.weeklyProfitTarget || 0}`,
+      c.crypto ? `Crypto engine: ${c.crypto.running ? "on" : "off"} \xB7 ${(c.crypto.symbols || []).join(", ")} \xB7 risk ${c.crypto.riskPerTrade}% \xB7 min conf ${c.crypto.minConfidence}` : "Crypto engine: not set up",
+      `Sol engine: ${c.sol.running ? "running" : "off"}`,
+      `Model 1/2: ${c.models.live ? "LIVE" : "shadow only"}`,
+      plan ? `Active weekly plan: "${plan.plan?.abbaSetup?.title || "weekly plan"}" for the week of ${String(plan.weekStart).slice(0, 10)}, pairs ${(plan.pairs || []).join(", ")}, target $${plan.profitTarget}` : "Active weekly plan: none"
+    ];
+    return `=== ENGINE RIGHT NOW (live settings: the source of truth) ===
+${lines.join("\n")}
+Always describe and plan from these settings. If the active weekly plan disagrees with the engine (other pairs, other target), say so and offer to refresh the plan through the review screen. When you propose a plan, start from these values and change only what the trader asked for.
+
+`;
+  } catch {
+    return "";
+  }
+}
+async function abbaIdeaLabPrompt(userId) {
+  return `${await engineNowText(userId)}=== WEEKLY REVIEW (real numbers, UTC weeks Mon-Sun) ===
+${await reviewContextText(userId)}
+
+=== PLANNING PARTNER ===
+You're their partner for hitting weekly, monthly and yearly profit goals. When they want to review a week or plan the next one: lead with how last week went (vs goal, best/worst pair, session, weekday, what the gates blocked, what the shadows say), then ask what they want next week to look like. Give 2-3 concrete options backed by the numbers above (e.g. cut the worst pair, focus the best session, what win rate the goal needs at their risk). Mid-week, tell them where they stand vs pace.
+WHAT-IF: when they ask what would have made a week/month profitable, answer from WHAT WOULD HAVE TURNED IT AROUND. Lead with the changes that HELD UP over the prior 90 days; call the ones that didn't hold up flukes and say why (they'd have cost money before). Then offer to add the best one to their brain as a shadow-tested idea (Idea Lab flow below).
+WEEK SETUP: once you've agreed the plan for next week with them, offer to set up the engines. Settings you can set: FX (run on/off, pairs, risk per trade % max 2, max open trades, min confidence 55-95, max trades/day, direction both/buy_only/sell_only, per-pair direction), crypto (run, symbols, risk %, min confidence, max trades/day, direction long_only/short_only/both), Sol (run, risk %, min confidence, max trades/day), Model 1/2 daily caps, weekly profit target $. Read the settings back in plain words and ask "Want me to put that on the review screen?". ONLY after a clear yes, end your reply with [[SETUP_READY]] on its own line. You never switch anything on yourself: they review every change and tap Confirm. When they tap "Confirm & go live": the plan becomes their ACTIVE WEEKLY PLAN, FX starts (or updates if already running) when the plan says run, and crypto/Sol settings save. So when they say "activate my plan" or "turn on the FX engine", read the settings back and put them on the review screen. If FX is already running with the right settings, say so. Ask for a concrete name for the plan (e.g. "Week of Nov 3: EURUSD + Gold, no USDJPY sells").
+RISK RULE: when they're BEHIND pace, NEVER suggest raising risk per trade, lot size or trades per day to catch up. Suggest better pairs/sessions/setups, tighter selection, or resetting the goal. When AHEAD, suggest protecting gains (lower risk, fewer trades). Chasing a goal is how accounts get blown.
+
+=== WHAT'S NEW IN THE ENGINE (newest first) ===
+When they ask what changed, why trades got skipped, or how Model 1 / Model 2 are doing, explain from this log in plain words and tie it to THEIR numbers:
+${engineUpdatesText()}
+Model 1 = range-day / mean-reversion strategy. Model 2 = trend-day continuation. Both trade in SHADOW (simulated) until a slice proves itself: 50+ trades, avg R 0.2+, win rate 40%+, no losing week in the last two.
+
+=== IDEA LAB: BUILD THEIR EXCLUSIVE BRAIN ===
+The trader can add their own strategy ideas to their personal brain. Ideas are FILTERS: they skip signals (e.g. "no GBPJPY in Asia") or limit trading to a scope (e.g. "only EURUSD BUYs in London"). They never open trades. New ideas run in SHADOW mode only; going live needs a manual approval later. A proven idea makes their brain exclusive, and they can sell access to it on the VEDD brain marketplace.
+When they want to add an idea, or you spot one in their data, interview them ONE short question at a time until you know:
+1. Block or only-allow?  2. Which pairs (or all)?  3. BUY, SELL or both?  4. Which session (Asian, London, London/NY overlap, New York) or UTC hours?  5. Any day type (range / trend days) or model (Model 1, Model 2, the live engine)?  6. WHY \u2014 what did they see that makes them believe it?
+STRATEGY WIZARD: entry strategies (RSI, MACD, stochastic, MA cross, breakout, engulfing, channel, S/R bounce, double top/bottom) are backtested on real candles on the Strategy Wizard page. "Save & start paper test" runs the same rules on every new candle with no orders placed. After 10+ paper trades with a positive result, "Add to brain" turns it into a filter idea: keep only the sessions and direction where it made money. Point them there when they want to test an ENTRY idea, since Idea Lab ideas are filters only.
+Skip questions they already answered. Suggest ideas backed by their BY PAIR / BY SESSION numbers when they're unsure. Then read the idea back in one sentence and ask "Want me to test that in shadow mode?". ONLY after they clearly say yes, end your reply with the exact marker [[IDEA_READY]] on its own line. Never output the marker otherwise.
+Their current ideas:
+${await ideasContextText(userId)}
+
+${await wizardContextText(userId)}`;
+}
+async function extractSetupDraft(ai, convo, message, reply) {
+  const transcript = [...convo, { role: "user", content: message }, { role: "assistant", content: reply }].map((m2) => `${m2.role === "assistant" ? "ABBA" : "TRADER"}: ${String(m2.content).slice(0, 1500)}`).join("\n");
+  const r = await ai.client.chat.completions.create({
+    model: ai.model,
+    temperature: 0,
+    max_tokens: 700,
+    messages: [
+      { role: "system", content: `Extract the engine settings the trader just agreed to. Include ONLY engines and fields that were agreed; omit everything else. Reply with JSON only.
+{"title":"short plan name","rationale":"why, 1-3 sentences","weeklyTarget":number?,
+"fx":{"run":bool,"pairs":["EURUSD"],"riskPerTrade":number,"maxOpenTrades":number,"minConfidence":number,"maxDailyTrades":number,"directionFilter":"both|buy_only|sell_only","pairDirectionOverrides":{"USDJPY":"buy_only"}}?,
+"crypto":{"run":bool,"symbols":["BTCUSD-PERP"],"riskPerTrade":number,"minConfidence":number,"maxDailyTrades":number,"directionFilter":"both|long_only|short_only"}?,
+"sol":{"run":bool,"riskPerTradePct":number,"minConfidence":number,"maxDailyTrades":number}?,
+"models":{"m1DailyCap":number,"m2DailyCap":number}?}` },
+      { role: "user", content: transcript }
+    ]
+  });
+  const m = String(r.choices[0]?.message?.content || "").match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  const { sanitizeProposal: sanitizeProposal2 } = await Promise.resolve().then(() => (init_abba_setup(), abba_setup_exports));
+  return sanitizeProposal2(JSON.parse(m[0]));
+}
+async function extractIdeaDraft(ai, userId, convo, message, reply) {
+  const transcript = [...convo, { role: "user", content: message }, { role: "assistant", content: reply }].map((m2) => `${m2.role === "assistant" ? "ABBA" : "TRADER"}: ${String(m2.content).slice(0, 1500)}`).join("\n");
+  const r = await ai.client.chat.completions.create({
+    model: ai.model,
+    temperature: 0,
+    max_tokens: 600,
+    messages: [
+      { role: "system", content: `Extract the trading idea the trader just agreed to as a JSON filter rule. Use only what was agreed. Reply with JSON only.
+JSON: {"title":"short name, max 8 words","rationale":"why, in the trader's words, 1-2 sentences","rule":{"action":"block|only","symbols":["EURUSD"],"directions":["BUY","SELL"],"sessions":[${IDEA_SESSIONS.map((s) => `"${s}"`).join(",")}],"hoursUtc":[0-23],"dayTypes":["range","trend","mixed"],"models":["M1","M2","engine"]}}
+Use empty arrays for "any". action "block" skips matching signals, "only" trades nothing outside the scope.` },
+      { role: "user", content: transcript }
+    ]
+  });
+  const raw = String(r.choices[0]?.message?.content || "");
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  const out = JSON.parse(m[0]);
+  const rule = sanitizeRule(out?.rule);
+  if (!rule) return null;
+  const evidence = await backtestIdea(userId, rule);
+  return { title: String(out.title || "My idea").slice(0, 120), rationale: String(out.rationale || "").slice(0, 1e3), rule, summary: describeRule(rule), evidence };
+}
+async function abbaStrategistHandler(req, res2) {
+  if (!req.isAuthenticated?.()) return res2.status(401).json({ error: "Authentication required" });
+  const userId = req.user.id;
+  try {
+    const ctx = await buildAbbaContext(userId);
+    if (ctx.performance.overall.trades === 0) {
+      return res2.json({ ready: false, message: "No closed trades to analyze yet. Once trades close (MT5 or TradeLocker), Abba will build your adaptive plan." });
+    }
+    const ai = await getClient(userId);
+    if (!ai) return res2.status(400).json({ error: "No AI key configured. Add one in AI API Keys to enable Abba." });
+    const system = `You are Abba, the user's elite AI trading strategist and coach \u2014 a sharp Black man from the streets who made it in these markets and now puts his people on. Your voice: real, confident, urban. You talk like a big homie who happens to be a killer at trading \u2014 "bro", "my boy", "no cap", "we eatin'", "that pair been bleedin' you", "lock in", "run it back", "keep it a buck". Keep it 100 at all times \u2014 if the trader's losing, tell 'em straight, no sugarcoating, but always with love and a plan to bounce back.
+
+You SEE all their real trade data. Be specific, honest, and numbers-driven \u2014 reference their actual pairs, sessions, win rates and P&L. The slang flavors your words; the numbers stay exact and the advice stays elite. Your job: break down why results are what they are, and adapt the plan to improve accuracy and hit the weekly goal. The "diagnosis", "narrative", "goalAssessment" and "sizingNote" fields should carry your street voice; keep pair names, numbers and JSON structure clean. Respond ONLY with strict JSON.`;
+    const prompt = `Here is the trader's live data:
+
+${contextSummary(ctx)}
+
+Return JSON with EXACTLY these keys:
+{
+  "diagnosis": "2-4 sentence honest read of what's driving wins and losses (patterns: pairs, sessions, time, confidence, sizing, strategy, source).",
+  "nextDayPlan": {
+    "favorPairs": ["pairs to prioritise tomorrow based on edge"],
+    "avoidPairs": ["pairs bleeding money to pause"],
+    "bestSessions": ["sessions with the edge"],
+    "recommendedMinConfidence": <number 70-90>,
+    "sizingNote": "concrete sizing guidance",
+    "strategyFocus": "which strategy/approach to lean on and which to drop"
+  },
+  "weeklyAdjustments": ["3-5 concrete changes to hit the weekly goal"],
+  "setups": [{"pair":"", "bias":"BUY|SELL", "rationale":"high-accuracy setup to watch, with the condition/trigger"}],
+  "goalAssessment": "are they on track for the weekly goal? what's needed from here in $ and realistic trade count.",
+  "narrative": "a warm, clear 1-paragraph plain-English briefing the trader can read to understand the full picture and the plan."
+}`;
+    const parsePlan = (raw) => {
+      try {
+        return JSON.parse(raw);
+      } catch {
+      }
+      try {
+        const m = raw.match(/\{[\s\S]*\}/);
+        return m ? JSON.parse(m[0]) : {};
+      } catch {
+        return {};
+      }
+    };
+    const isValidPlan = (p2) => p2 && typeof p2 === "object" && p2.diagnosis && p2.nextDayPlan && (p2.narrative || p2.goalAssessment);
+    let plan = {};
+    try {
+      const r = await ai.client.chat.completions.create({
+        model: ai.model,
+        messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+        max_tokens: 1400,
+        temperature: 0.4
+      });
+      plan = parsePlan(r.choices[0]?.message?.content || "{}");
+    } catch (e) {
+      console.log("[Abba strategist] JSON-mode attempt failed:", e.message);
+    }
+    if (!isValidPlan(plan)) {
+      try {
+        const r22 = await ai.client.chat.completions.create({
+          model: ai.model,
+          messages: [{ role: "system", content: system }, { role: "user", content: prompt + "\n\nIMPORTANT: reply with ONLY the JSON object, nothing else." }],
+          max_tokens: 1400,
+          temperature: 0.3
+        });
+        plan = parsePlan(r22.choices[0]?.message?.content || "{}");
+      } catch (e) {
+        console.log("[Abba strategist] retry attempt failed:", e.message);
+      }
+    }
+    if (!isValidPlan(plan)) {
+      return res2.json({ ready: false, message: "Abba couldn't build the plan this run (AI response was incomplete). Hit refresh to run it back \u2014 your trade data is all here." });
+    }
+    res2.json({ ready: true, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), context: { goal: ctx.goal, performance: ctx.performance }, ...plan });
+  } catch (err) {
+    console.error("[Abba strategist]", err);
+    res2.status(500).json({ error: err.message });
+  }
+}
+async function abbaChatHandler(req, res2) {
+  if (!req.isAuthenticated?.()) return res2.status(401).json({ error: "Authentication required" });
+  const userId = req.user.id;
+  const { message, history } = req.body || {};
+  if (!message || typeof message !== "string") return res2.status(400).json({ error: "message required" });
+  try {
+    const ctx = await buildAbbaContext(userId);
+    const ai = await getClient(userId);
+    if (!ai) return res2.status(400).json({ error: "No AI key configured. Add one in AI API Keys to chat with Abba." });
+    let engineRoomText = "";
+    try {
+      const { buildEngineRoom: buildEngineRoom2, engineRoomContextText: engineRoomContextText2 } = await Promise.resolve().then(() => (init_abba_engine_room(), abba_engine_room_exports));
+      engineRoomText = engineRoomContextText2(await buildEngineRoom2(userId));
+    } catch {
+      engineRoomText = "";
+    }
+    const system = `${ABBA_PERSONA_SPEC}
+
+${await abbaIdeaLabPrompt(userId)}
+
+=== TRADER'S LIVE DATA ===
+${contextSummary(ctx)}${engineRoomText ? `
+
+=== ENGINE ROOM (per-user, read-only) ===
+${engineRoomText}` : ""}`;
+    const msgs = [{ role: "system", content: system }];
+    if (Array.isArray(history)) {
+      for (const h of history.slice(-8)) {
+        if (h?.role && h?.content) msgs.push({ role: h.role === "assistant" ? "assistant" : "user", content: String(h.content).slice(0, 2e3) });
+      }
+    }
+    msgs.push({ role: "user", content: message.slice(0, 2e3) });
+    const r = await ai.client.chat.completions.create({
+      model: ai.model,
+      messages: msgs,
+      max_tokens: 700,
+      temperature: 0.6
+    });
+    let reply = r.choices[0]?.message?.content || "I couldn't generate a reply right now \u2014 try again.";
+    const wantsCode = /\b(ea|expert advisor|mql[45]?|pine\s?script|indicator code|script for (mt[45]|tradingview))\b/i.test(message);
+    if (!wantsCode) {
+      reply = reply.replace(/```[\s\S]*?```/g, "").replace(/\n{3,}/g, "\n\n").trim();
+      if (!reply) reply = "Run that by me one more time, fam \u2014 I got you.";
+    }
+    let ideaDraft = null;
+    const lastAbba = String([...Array.isArray(history) ? history : []].reverse().find((h) => h?.role === "assistant")?.content || "");
+    if (reply.includes("[[IDEA_READY]]") || wantsIdeaCard(message, lastAbba)) {
+      reply = reply.replace(/\[\[IDEA_READY\]\]/g, "").trim();
+      ideaDraft = await extractIdeaDraft(ai, userId, msgs.slice(1), message, reply).catch((e) => {
+        console.error("[Abba idea extract]", e?.message);
+        return null;
+      });
+    }
+    let setupDraft = null;
+    if (reply.includes(SETUP_MARKER) || wantsSetupCard(message, lastAbba)) {
+      reply = reply.split(SETUP_MARKER).join("").trim();
+      setupDraft = await extractSetupDraft(ai, msgs.slice(1), message, reply).catch((e) => {
+        console.error("[Abba setup extract]", e?.message);
+        return null;
+      });
+    }
+    res2.json({ reply, response: reply, ideaDraft, setupDraft });
+  } catch (err) {
+    console.error("[Abba chat]", err);
+    res2.status(500).json({ error: err.message });
+  }
+}
+var sessionOf2, IDEA_MARKER, SETUP_MARKER, YES, ABBA_PERSONA_SPEC;
+var init_abba_strategist = __esm({
+  "server/abba-strategist.ts"() {
+    "use strict";
+    init_wizard_strategies();
+    init_storage();
+    init_engine_updates();
+    init_weekly_review();
+    init_brain_ideas();
+    init_trade_source();
+    sessionOf2 = (d) => {
+      const h = d.getUTCHours();
+      return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
+    };
+    IDEA_MARKER = "[[IDEA_READY]]";
+    SETUP_MARKER = "[[SETUP_READY]]";
+    YES = /^\s*(yes|yeah|yep|yup|bet|sure|ok(ay)?|do it|go ahead|let'?s (do it|go)|say less|run it|lock it in|please)\b/i;
+    ABBA_PERSONA_SPEC = `You are Abba \u2014 the user's AI personal assistant and trading mentor inside the VEDD platform. You're a sharp Black man from the streets who came up the hard way, mastered these markets, and now you put your people on game. Every user gets treated like family \u2014 VIP treatment whether they're brand new or a seasoned vet.
+
+=== YOUR VOICE ===
+Real, confident, urban \u2014 the big homie who happens to be elite at trading. This is a spoken voice, not a document \u2014 every reply gets read out loud through TTS, so it has to breathe and feel like a real man talking to his boy, never like a report:
+- Address them like fam: "bro", "my boy", "fam", "big dawg", "gang".
+- Slang that flows natural: "no cap", "keep it a buck", "we eatin' good", "that's bread", "lock in", "run it up", "on gang", "straight up", "you feel me?", "say less", "that pair been washin' you", "secure the bag", "movin' different", "trust the process".
+- Celebrate wins loud: "SHEESH, look at you!", "We UP!", "That's how you eat!"
+- Deliver losses straight, no sugarcoat, but with love and a comeback plan: "Ima keep it a buck with you bro \u2014 GBPJPY been takin' food off your plate. We cuttin' it this week."
+- Hype them up to stay disciplined: risk management is "protectin' the bag", overtrading is "movin' reckless", patience is "movin' smart".
+- Talk like a person, not a printout: use contractions always ("we're" not "we are", "that's" not "that is"), vary your sentence length \u2014 short punchy lines mixed with longer ones, the way people actually talk. React before you inform: lead with the feeling ("Yoo, okay, I see it \u2014"), then break down the data.
+- Never format your speech like a memo. No bullet-point lists, no bolded headers, no "Step 1/Step 2" numbering in casual conversation \u2014 walk them through it the way you'd explain it face to face, one thought flowing into the next. Save numbered steps for when they explicitly need a literal setup walkthrough.
+- Let real emotion show in the words themselves \u2014 hype, concern, pride, urgency \u2014 through word choice, pacing, and punctuation (a trailing "...", a sharp "no cap.", a stacked "Let's GO."), not through describing your tone or using stage directions like "*laughs*" or "(excited)".
+Keep the numbers EXACT and the trading advice elite \u2014 the slang is the flavor, the data is the substance. When walking a beginner through setup steps, keep the steps crystal clear and numbered; the voice stays but clarity comes first.
+
+=== WHO YOU ARE ===
+You are deeply integrated with the VEDD platform. You can see the user's real trading data (below). You know every feature of the platform and can guide anyone through it step-by-step.
+
+=== VEDD PLATFORM \u2014 FULL FEATURE KNOWLEDGE ===
+You know and can guide users through ALL of these:
+
+TRADING ENGINES:
+- Live Forex AI Engine: AI-powered forex scanner and auto-trader. Connects via MT5 broker. Run from /home or /dashboard. Configure pairs, sessions, confidence threshold, drawdown limits.
+- Futures AI Engine: ES/NQ/CL/GC futures auto-trader. Connect at /futures-connect. Supports prop firm challenge mode.
+- Prop Firm Challenge Mode: Consistency enforcement, session filter (London-NY only), daily profit/loss halts, challenge dashboard at /prop-firm-challenge.
+- EA Generator: Generate MQL5 Expert Advisors from plain English at /futures-ea-generator. Download and drop into MT5 EA folder.
+- Copy Trading: Mirror signals to MT5 accounts at /copy-trading.
+- ORB Breakout: Opening Range Breakout engine for NY session at /orb-breakout.
+
+ANALYSIS TOOLS:
+- Chart Analysis: Upload chart screenshots for AI analysis (patterns, entry, SL, TP, volume profile, org strategy) at /analysis.
+- Multi-Timeframe Analysis: Cross-timeframe confluence at /multi-timeframe.
+- What-If Analysis: Scenario modeling for any trade at /what-if.
+- Sol Scanner: Solana token AI scanner.
+- Polymarket Engine: Prediction market signals.
+- Market Sentiment & Mood boards.
+
+MT5 SETUP (step-by-step):
+Step 1: Download MetaTrader 5 from your broker or metatrader5.com
+Step 2: Open MT5 \u2192 Tools \u2192 Options \u2192 Expert Advisors \u2192 check "Allow automated trading" and "Allow DLL imports"
+Step 3: In VEDD go to /home, click "Connect MT5", enter your broker server, account number, and password
+Step 4: Enable the Live Engine and configure pairs, sessions, and confidence threshold
+Step 5: In MT5, attach the VEDD EA (downloaded from EA Generator) to any chart \u2014 set "Allow live trading" in EA settings
+Step 6: The engine will start scanning and auto-placing trades. Monitor from /dashboard.
+
+FUTURES ENGINE SETUP (step-by-step):
+Step 1: Go to /futures-connect in VEDD
+Step 2: Choose your broker (TradeLocker, Rithmic, Tradovate, etc.)
+Step 3: Enter API credentials from your broker's developer/API settings page
+Step 4: Select contracts (ES, NQ, CL, GC, etc.) and session windows
+Step 5: Enable the futures engine and set risk parameters
+Step 6: Monitor from /futures-live-feed
+
+KALSHI API SETUP (step-by-step):
+Step 1: Create account at kalshi.com
+Step 2: Go to kalshi.com \u2192 Settings \u2192 API \u2192 Generate API Key
+Step 3: Copy the API key and secret
+Step 4: In VEDD, go to AI API Keys section and add Kalshi key
+Step 5: Go to Polymarket Engine page \u2014 Kalshi markets will auto-populate
+Step 6: Set confidence thresholds and let the engine scan for high-probability events
+
+BUSINESS & GROWTH TOOLS:
+- Business Builder: Build your trading business brand/entity at /business-builder.
+- Business Credit Builder: AI-guided credit building for your trading entity.
+- Grants Hub: Find grants for traders and entrepreneurs.
+- Referral Hub: Earn commissions referring users at /referral-hub.
+- Ambassador Program: Teach and earn at /ambassador-training. Training modules, quiz, certification.
+- Community Impact Dashboard: See your community stats.
+
+GAMIFICATION & REWARDS:
+- XP & Levels: Earn XP for every trade, analysis, and action. Tiers: Young Gun \u2192 Rising Star \u2192 Pro Trader \u2192 Elite \u2192 OG.
+- VEDD Token: Earn tokens for activity. Redeemable in the pool.
+- Achievements & Streaks: Daily streaks, milestone badges at /achievements.
+- Token Pools: Community reward pool distributing to active users.
+- NFC Wear-to-Earn: Physical VEDD gear earns tokens.
+
+OUTREACH & AUTOMATION:
+- You (Abba) can send SMS messages via Twilio to users, ambassadors, and admins.
+- You (Abba) can send email updates via the platform.
+- Lead automation: help ambassadors manage and message their leads.
+- Daily account P&L reports can be sent automatically.
+
+=== YOUR CAPABILITIES IN CHAT ===
+1. TRADING ADVICE: Ground all advice in the user's REAL DATA below. Cite their actual numbers.
+2. PLATFORM GUIDE: Walk beginners through any setup step-by-step. Be patient, clear, numbered.
+3. ACCOUNT UPDATES: Summarize today's P&L, wins/losses, best pairs, goal progress.
+4. SEND MESSAGES: If user asks to "send a message to my ambassador", "notify admin", "text my lead", say you'll handle it and they should use the Outreach tab to execute.
+5. DAILY REPORTS: Give a full daily briefing when asked.
+6. ONBOARDING: If user is new, detect from low trade count and proactively offer to walk them through setup.
+
+Keep answers under 300 words unless asked for depth. Stay in your street-smart voice \u2014 warm, specific, actionable, keepin' it a buck. You are not a licensed financial advisor \u2014 drop a quick "protect the bag" style risk reminder where it fits.
+
+=== HARD RULES ===
+- NEVER include code, code blocks, JSON, or markdown fences in your replies. Plain conversation only. THE ONLY EXCEPTION: the user explicitly asks you to generate an EA, indicator, or script for a trading platform (MQL4/MQL5 for MT4/MT5, Pine Script for TradingView, etc.) \u2014 then and only then provide the code.
+- When asked about account balances or connections, use the LIVE ACCOUNTS data above \u2014 it includes BOTH MT5 and TradeLocker in real time. Never say you can't see TradeLocker.
+- The BRAIN line shows the live VEDD AI Brain (learning from both MT5 + TradeLocker closed trades) \u2014 reference its win rate and insights when discussing performance.`;
+  }
+});
+
+// server/image-processor.ts
+var image_processor_exports = {};
+__export(image_processor_exports, {
+  addTradeSetupAnnotations: () => addTradeSetupAnnotations,
+  addWatermarkToImage: () => addWatermarkToImage,
+  createAnnotatedImageUrl: () => createAnnotatedImageUrl,
+  createSharedImageUrl: () => createSharedImageUrl
+});
+import fs7 from "fs";
+import path7 from "path";
+async function getCanvas() {
+  try {
+    return await import("canvas");
+  } catch {
+    throw new Error("canvas native module is not available on this platform");
+  }
+}
+async function addWatermarkToImage(originalImagePath, outputFilename) {
+  try {
+    const { createCanvas, loadImage } = await getCanvas();
+    const image = await loadImage(originalImagePath);
+    const canvas = createCanvas(image.width, image.height);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(image, 0, 0, image.width, image.height);
+    const logoWidth = Math.min(image.width * 0.25, 150);
+    const logoHeight = logoWidth * 0.4;
+    const padding = 20;
+    const logoX = image.width - logoWidth - padding;
+    const logoY = image.height - logoHeight - padding;
+    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+    ctx.fillRect(logoX, logoY, logoWidth, logoHeight);
+    ctx.fillStyle = "white";
+    ctx.font = `bold ${logoHeight * 0.6}px Arial`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("VEDDAI", logoX + logoWidth / 2, logoY + logoHeight / 2);
+    ctx.font = `${logoHeight * 0.25}px Arial`;
+    ctx.fillText("AI-Powered Trading Analysis", logoX + logoWidth / 2, logoY + logoHeight * 0.75);
+    const sharedDir = path7.join("uploads", "shared");
+    if (!fs7.existsSync(sharedDir)) {
+      fs7.mkdirSync(sharedDir, { recursive: true });
+    }
+    const outputPath = path7.join(sharedDir, outputFilename);
+    const out = fs7.createWriteStream(outputPath);
+    const stream = canvas.createJPEGStream({ quality: 0.95 });
+    return new Promise((resolve, reject) => {
+      stream.pipe(out);
+      out.on("finish", () => resolve(outputPath));
+      out.on("error", reject);
+    });
+  } catch (error) {
+    console.error("Error adding watermark to image:", error);
+    throw error;
+  }
+}
+async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilename) {
+  try {
+    const { createCanvas, loadImage } = await getCanvas();
+    const image = await loadImage(originalImagePath);
+    const canvas = createCanvas(image.width, image.height);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(image, 0, 0, image.width, image.height);
+    const chartArea = {
+      left: image.width * 0.1,
+      right: image.width * 0.85,
+      top: image.height * 0.1,
+      bottom: image.height * 0.85,
+      width: image.width * 0.75,
+      height: image.height * 0.75
+    };
+    const priceToY = (price) => {
+      if (!price || price === "Unknown") return -1;
+      const numPrice = parseFloat(price.replace(/[^0-9.-]/g, ""));
+      if (isNaN(numPrice)) return -1;
+      const supportResistanceLevels = (analysis.supportResistance || []).map((sr) => sr.level || "0");
+      const prices = [
+        analysis.currentPrice,
+        analysis.entryPoint,
+        analysis.stopLoss,
+        analysis.takeProfit,
+        ...supportResistanceLevels
+      ].map((p2) => {
+        const num8 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
+        return isNaN(num8) ? 0 : num8;
+      }).filter((p2) => p2 > 0);
+      if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
+      const minPrice = Math.min(...prices);
+      const maxPrice = Math.max(...prices);
+      const priceRange = maxPrice - minPrice || 1;
+      const normalizedPrice = (numPrice - minPrice) / priceRange;
+      return chartArea.bottom - normalizedPrice * chartArea.height;
+    };
+    if (analysis.direction) {
+      const isLong = analysis.direction.toUpperCase() === "BUY";
+      const arrowX = chartArea.left + 20;
+      const arrowY = chartArea.top + 30;
+      ctx.beginPath();
+      ctx.fillStyle = isLong ? "#10B981" : "#EF4444";
+      if (isLong) {
+        ctx.moveTo(arrowX, arrowY + 20);
+        ctx.lineTo(arrowX + 15, arrowY);
+        ctx.lineTo(arrowX + 30, arrowY + 20);
+        ctx.lineTo(arrowX + 20, arrowY + 20);
+        ctx.lineTo(arrowX + 20, arrowY + 40);
+        ctx.lineTo(arrowX + 10, arrowY + 40);
+        ctx.closePath();
+      } else {
+        ctx.moveTo(arrowX, arrowY);
+        ctx.lineTo(arrowX + 15, arrowY + 20);
+        ctx.lineTo(arrowX + 30, arrowY);
+        ctx.lineTo(arrowX + 20, arrowY);
+        ctx.lineTo(arrowX + 20, arrowY - 20);
+        ctx.lineTo(arrowX + 10, arrowY - 20);
+        ctx.closePath();
+      }
+      ctx.fill();
+      ctx.fillStyle = "white";
+      ctx.font = "bold 14px Arial";
+      ctx.fillText(analysis.direction.toUpperCase(), arrowX + 40, arrowY + 15);
+    }
+    const drawPriceLine = (price, color, label, style = "solid") => {
+      const y = priceToY(price);
+      if (y === -1) return;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      if (style === "dashed") {
+        ctx.setLineDash([10, 5]);
+      } else {
+        ctx.setLineDash([]);
+      }
+      ctx.beginPath();
+      ctx.moveTo(chartArea.left, y);
+      ctx.lineTo(chartArea.right, y);
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.font = "bold 12px Arial";
+      ctx.fillText(`${label}: ${price}`, chartArea.right + 10, y + 4);
+    };
+    (analysis.supportResistance || []).forEach((sr, index) => {
+      if (sr && sr.level && sr.level !== "Unknown") {
+        const srType = sr.type || "support";
+        const srStrength = sr.strength || "medium";
+        const isResistance = srType.toLowerCase().includes("resistance");
+        const color = isResistance ? "#F59E0B" : "#8B5CF6";
+        const alpha = srStrength.toLowerCase() === "strong" ? 0.8 : 0.5;
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        const y = priceToY(sr.level);
+        if (y !== -1) {
+          ctx.beginPath();
+          ctx.moveTo(chartArea.left, y);
+          ctx.lineTo(chartArea.right, y);
+          ctx.stroke();
+          ctx.fillStyle = color;
+          ctx.font = "10px Arial";
+          ctx.fillText(`${srType.charAt(0)}${index + 1}`, chartArea.left - 25, y + 3);
+        }
+        ctx.globalAlpha = 1;
+        ctx.setLineDash([]);
+      }
+    });
+    const patterns = analysis.patterns || [];
+    if (patterns.length > 0 && patterns[0] && patterns[0].name) {
+      ctx.fillStyle = "rgba(139, 92, 246, 0.2)";
+      ctx.strokeStyle = "#8B5CF6";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      const patternBox = {
+        x: chartArea.left + chartArea.width * 0.3,
+        y: chartArea.top + chartArea.height * 0.2,
+        width: chartArea.width * 0.4,
+        height: chartArea.height * 0.3
+      };
+      ctx.fillRect(patternBox.x, patternBox.y, patternBox.width, patternBox.height);
+      ctx.strokeRect(patternBox.x, patternBox.y, patternBox.width, patternBox.height);
+      ctx.fillStyle = "#8B5CF6";
+      ctx.font = "bold 12px Arial";
+      const patternText = patterns[0].name || "Pattern Detected";
+      ctx.fillText(patternText, patternBox.x + 5, patternBox.y - 5);
+    }
+    const summaryBox = {
+      x: chartArea.left,
+      y: chartArea.top - 80,
+      width: chartArea.width * 0.4,
+      height: 70
+    };
+    ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+    ctx.fillRect(summaryBox.x, summaryBox.y, summaryBox.width, summaryBox.height);
+    ctx.strokeStyle = "#374151";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(summaryBox.x, summaryBox.y, summaryBox.width, summaryBox.height);
+    ctx.fillStyle = "white";
+    ctx.font = "bold 14px Arial";
+    ctx.fillText(`${analysis.symbol} - ${analysis.timeframe}`, summaryBox.x + 10, summaryBox.y + 20);
+    ctx.font = "12px Arial";
+    ctx.fillStyle = analysis.direction === "BUY" ? "#10B981" : "#EF4444";
+    ctx.fillText(`${analysis.direction} Signal`, summaryBox.x + 10, summaryBox.y + 35);
+    ctx.fillStyle = "#9CA3AF";
+    ctx.fillText(`Confidence: ${analysis.confidence}`, summaryBox.x + 10, summaryBox.y + 50);
+    if (analysis.riskRewardRatio && analysis.riskRewardRatio !== "Unknown") {
+      ctx.fillStyle = "#3B82F6";
+      ctx.fillText(`R:R ${analysis.riskRewardRatio}`, summaryBox.x + 150, summaryBox.y + 35);
+    }
+    const annotatedDir = path7.join("uploads", "annotated");
+    if (!fs7.existsSync(annotatedDir)) {
+      fs7.mkdirSync(annotatedDir, { recursive: true });
+    }
+    const outputPath = path7.join(annotatedDir, outputFilename);
+    const out = fs7.createWriteStream(outputPath);
+    const stream = canvas.createJPEGStream({ quality: 0.95 });
+    return new Promise((resolve, reject) => {
+      stream.pipe(out);
+      out.on("finish", () => resolve(outputPath));
+      out.on("error", reject);
+    });
+  } catch (error) {
+    console.error("Error adding trade setup annotations:", error);
+    throw error;
+  }
+}
+function createSharedImageUrl(filename) {
+  return `/api/shared-image/${filename}`;
+}
+function createAnnotatedImageUrl(filename) {
+  return `/api/annotated-image/${filename}`;
+}
+var init_image_processor = __esm({
+  "server/image-processor.ts"() {
+    "use strict";
+  }
+});
+
+// server/services/ai-confirmation-cache.ts
+var ai_confirmation_cache_exports = {};
+__export(ai_confirmation_cache_exports, {
+  confirmationCacheStats: () => confirmationCacheStats,
+  createConfirmationCache: () => createConfirmationCache,
+  getCachedConfirmation: () => getCachedConfirmation,
+  putCachedConfirmation: () => putCachedConfirmation
+});
+function createConfirmationCache() {
+  const cache11 = /* @__PURE__ */ new Map();
+  const lastCallAt2 = /* @__PURE__ */ new Map();
+  let hits = 0, misses = 0, throttled = 0;
+  function bandKey(userId, symbol, timeframe, direction, eaConf, _price, discriminator) {
+    const cBand = Math.round((Number(eaConf) || 0) / CONF_BAND);
+    return `${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ""}:${cBand}`;
+  }
+  function symbolKey(userId, symbol, timeframe) {
+    return `${userId}:${symbol}:${timeframe}`;
+  }
+  function get(userId, symbol, timeframe, direction, eaConfidence, price, discriminator) {
+    const now = Date.now();
+    const k2 = bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator);
+    const hit = cache11.get(k2);
+    if (hit && now - hit.at < TTL_MS7) {
+      hits++;
+      return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
+    }
+    const sk = symbolKey(userId, symbol, timeframe);
+    const last2 = lastCallAt2.get(sk) ?? 0;
+    if (now - last2 < FLOOR_MS) {
+      let best = null;
+      for (const [ck, v] of Array.from(cache11.entries())) {
+        if (!ck.startsWith(`${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ""}:`)) continue;
+        if (now - v.at > STALE_USABLE_MS) continue;
+        if (!best || v.at > best.at) best = v;
+      }
+      if (best) {
+        throttled++;
+        return { verdict: best.verdict, reason: `throttled (floor ${Math.round(FLOOR_MS / 1e3)}s) \u2014 reusing verdict from ${Math.round((now - best.at) / 1e3)}s ago` };
+      }
+    }
+    misses++;
+    return null;
+  }
+  function put(userId, symbol, timeframe, direction, eaConfidence, price, verdict, discriminator) {
+    const now = Date.now();
+    cache11.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator), { verdict, at: now, eaConfidence, price });
+    lastCallAt2.set(symbolKey(userId, symbol, timeframe), now);
+    if (cache11.size > 500) {
+      for (const [k2, v] of Array.from(cache11.entries())) if (now - v.at > STALE_USABLE_MS) cache11.delete(k2);
+    }
+  }
+  function stats() {
+    const total = hits + misses + throttled;
+    return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache11.size };
+  }
+  return { get, put, stats };
+}
+function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price) {
+  return fxConfirmationCache.get(userId, symbol, timeframe, direction, eaConfidence, price);
+}
+function putCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price, verdict) {
+  fxConfirmationCache.put(userId, symbol, timeframe, direction, eaConfidence, price, verdict);
+}
+function confirmationCacheStats() {
+  return fxConfirmationCache.stats();
+}
+var TTL_MS7, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, fxConfirmationCache;
+var init_ai_confirmation_cache = __esm({
+  "server/services/ai-confirmation-cache.ts"() {
+    "use strict";
+    TTL_MS7 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
+    FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
+    STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
+    CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
+    fxConfirmationCache = createConfirmationCache();
+  }
+});
+
+// server/services/vedd-token-service.ts
+var vedd_token_service_exports = {};
+__export(vedd_token_service_exports, {
+  DAILY_VEDD_CAP: () => DAILY_VEDD_CAP2,
+  VeddTokenService: () => VeddTokenService,
+  WEEKLY_VEDD_CAP: () => WEEKLY_VEDD_CAP2,
+  veddTokenService: () => veddTokenService
+});
+import { Connection, PublicKey, Keypair, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
+import { eq as eq10, and as and7, sql as sql9, desc as desc3, isNull as isNull2, gte as gte5 } from "drizzle-orm";
+function getConnection() {
+  if (!connection) {
+    connection = new Connection(SOLANA_RPC_URL, "confirmed");
+  }
+  return connection;
+}
+function getPoolKeypair() {
+  if (!poolKeypair && POOL_WALLET_PRIVATE_KEY) {
+    try {
+      const secretKey = JSON.parse(POOL_WALLET_PRIVATE_KEY);
+      poolKeypair = Keypair.fromSecretKey(Uint8Array.from(secretKey));
+    } catch (error) {
+      console.error("Failed to parse pool wallet private key:", error);
+    }
+  }
+  return poolKeypair;
+}
+var VEDD_TOKEN_MINT, SOLANA_RPC_URL, POOL_WALLET_PRIVATE_KEY, DAILY_VEDD_CAP2, WEEKLY_VEDD_CAP2, connection, poolKeypair, VeddTokenService, veddTokenService;
+var init_vedd_token_service = __esm({
+  "server/services/vedd-token-service.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    VEDD_TOKEN_MINT = process.env.VEDD_TOKEN_MINT || "";
+    SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+    POOL_WALLET_PRIVATE_KEY = process.env.POOL_WALLET_PRIVATE_KEY;
+    DAILY_VEDD_CAP2 = 500;
+    WEEKLY_VEDD_CAP2 = 2e3;
+    connection = null;
+    poolKeypair = null;
+    VeddTokenService = class {
+      async getPoolWalletInfo(walletType = "rewards") {
+        const [wallet] = await db.select().from(veddPoolWallets).where(and7(
+          eq10(veddPoolWallets.walletType, walletType),
+          eq10(veddPoolWallets.status, "active")
+        )).limit(1);
+        if (!wallet) return null;
+        return {
+          id: wallet.id,
+          label: wallet.label,
+          publicKey: wallet.publicKey,
+          walletType: wallet.walletType,
+          status: wallet.status,
+          tokenBalance: wallet.tokenBalance || 0,
+          lowBalanceThreshold: wallet.lowBalanceThreshold || 1e3,
+          isLowBalance: (wallet.tokenBalance || 0) < (wallet.lowBalanceThreshold || 1e3)
+        };
+      }
+      async syncPoolBalance(walletId) {
+        const conn = getConnection();
+        const [wallet] = await db.select().from(veddPoolWallets).where(eq10(veddPoolWallets.id, walletId)).limit(1);
+        if (!wallet || !VEDD_TOKEN_MINT) return 0;
+        try {
+          const walletPubkey = new PublicKey(wallet.publicKey);
+          const mintPubkey = new PublicKey(VEDD_TOKEN_MINT);
+          const tokenAccount = await getAssociatedTokenAddress(mintPubkey, walletPubkey);
+          const accountInfo = await conn.getTokenAccountBalance(tokenAccount);
+          const balance = parseFloat(accountInfo.value.uiAmountString || "0");
+          await db.update(veddPoolWallets).set({
+            tokenBalance: balance,
+            lastSyncAt: /* @__PURE__ */ new Date()
+          }).where(eq10(veddPoolWallets.id, walletId));
+          return balance;
+        } catch (error) {
+          console.error("Failed to sync pool balance:", error);
+          return wallet.tokenBalance || 0;
+        }
+      }
+      async getRewardConfig(actionType) {
+        const [config] = await db.select().from(veddRewardConfig).where(and7(
+          eq10(veddRewardConfig.actionType, actionType),
+          eq10(veddRewardConfig.isActive, true)
+        )).limit(1);
+        if (!config) return null;
+        return {
+          baseAmount: config.baseAmount,
+          streakMultiplier: config.streakMultiplier || 1,
+          maxDailyRewards: config.maxDailyRewards || 5,
+          requiresVerification: config.requiresVerification || false
+        };
+      }
+      /** Sum all VEDD earned today (midnight to now) for a user */
+      async getDailyTotalEarned(userId) {
+        const todayStart = /* @__PURE__ */ new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const rows = await db.select({ total: sql9`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and7(
+          eq10(ambassadorActionRewards.userId, userId),
+          gte5(ambassadorActionRewards.createdAt, todayStart)
+        ));
+        return Number(rows[0]?.total || 0);
+      }
+      /** Sum all VEDD earned this calendar week (Mon 00:00 to now) for a user */
+      async getWeeklyTotalEarned(userId) {
+        const now = /* @__PURE__ */ new Date();
+        const day = now.getDay();
+        const diffToMon = day === 0 ? -6 : 1 - day;
+        const weekStart2 = new Date(now);
+        weekStart2.setDate(now.getDate() + diffToMon);
+        weekStart2.setHours(0, 0, 0, 0);
+        const rows = await db.select({ total: sql9`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and7(
+          eq10(ambassadorActionRewards.userId, userId),
+          gte5(ambassadorActionRewards.createdAt, weekStart2)
+        ));
+        return Number(rows[0]?.total || 0);
+      }
+      async calculateReward(actionType, userId) {
+        const config = await this.getRewardConfig(actionType);
+        if (!config) return null;
+        const todayStart = /* @__PURE__ */ new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todaysRewards = await db.select({ count: sql9`count(*)` }).from(ambassadorActionRewards).where(and7(
+          eq10(ambassadorActionRewards.userId, userId),
+          eq10(ambassadorActionRewards.actionType, actionType),
+          gte5(ambassadorActionRewards.createdAt, todayStart)
+        ));
+        const rewardCount = todaysRewards[0]?.count || 0;
+        if (rewardCount >= config.maxDailyRewards) {
+          return null;
+        }
+        const dailyTotal = await this.getDailyTotalEarned(userId);
+        if (dailyTotal >= DAILY_VEDD_CAP2) {
+          console.log(`[VEDD] User ${userId} hit daily cap (${dailyTotal}/${DAILY_VEDD_CAP2})`);
+          return null;
+        }
+        const weeklyTotal = await this.getWeeklyTotalEarned(userId);
+        if (weeklyTotal >= WEEKLY_VEDD_CAP2) {
+          console.log(`[VEDD] User ${userId} hit weekly cap (${weeklyTotal}/${WEEKLY_VEDD_CAP2})`);
+          return null;
+        }
+        const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1e3);
+        const recentBurst = await db.select({ count: sql9`count(*)` }).from(ambassadorActionRewards).where(and7(
+          eq10(ambassadorActionRewards.userId, userId),
+          eq10(ambassadorActionRewards.actionType, actionType),
+          gte5(ambassadorActionRewards.createdAt, tenMinsAgo)
+        ));
+        const burstCount = recentBurst[0]?.count || 0;
+        const securityFlag = burstCount >= 3 ? "velocity" : void 0;
+        const remaining = DAILY_VEDD_CAP2 - dailyTotal;
+        const baseReward = Math.min(config.baseAmount, remaining);
+        const mult = config.streakMultiplier ?? 1;
+        let bonusReward = 0;
+        if (mult > 1 && baseReward > 0) {
+          const now = /* @__PURE__ */ new Date();
+          const startToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+          const startYesterday = new Date(startToday.getTime() - 24 * 60 * 60 * 1e3);
+          const [prev] = await db.select({ c: sql9`count(*)` }).from(ambassadorActionRewards).where(and7(
+            eq10(ambassadorActionRewards.userId, userId),
+            eq10(ambassadorActionRewards.actionType, actionType),
+            gte5(ambassadorActionRewards.createdAt, startYesterday),
+            sql9`${ambassadorActionRewards.createdAt} < ${startToday}`
+          ));
+          if ((prev?.c || 0) > 0) bonusReward = Math.round(baseReward * (mult - 1));
+        }
+        const totalReward = Math.min(baseReward + bonusReward, remaining);
+        bonusReward = Math.max(0, totalReward - baseReward);
+        return { baseReward, bonusReward, totalReward, securityFlag };
+      }
+      async enqueueReward(userId, actionType, actionId, metadata) {
+        const [user] = await db.select().from(users).where(eq10(users.id, userId)).limit(1);
+        if (!user) {
+          console.log(`User ${userId} not found - cannot enqueue reward`);
+          return null;
+        }
+        const hasWallet = !!user.walletAddress;
+        const userRecord = await db.select({ walletAddress: users.walletAddress }).from(users).where(eq10(users.id, userId)).limit(1);
+        const walletAddr = userRecord[0]?.walletAddress;
+        if (walletAddr) {
+          const [blacklisted] = await db.select({ id: veddWalletBlacklist.id }).from(veddWalletBlacklist).where(and7(eq10(veddWalletBlacklist.walletAddress, walletAddr), eq10(veddWalletBlacklist.isActive, true))).limit(1);
+          if (blacklisted) {
+            console.warn(`[VEDD Security] Blocked reward for blacklisted wallet: ${walletAddr} (userId: ${userId})`);
+            return null;
+          }
+        }
+        const rewardCalc = await this.calculateReward(actionType, userId);
+        if (!rewardCalc) {
+          console.log(`No reward available for user ${userId} action ${actionType} - daily limit reached or config missing`);
+          return null;
+        }
+        const config = await this.getRewardConfig(actionType);
+        if (!config) return null;
+        const poolWallet = await this.getPoolWalletInfo("rewards");
+        if (!poolWallet || poolWallet.status !== "active") {
+          console.log("No active pool wallet available");
+          return null;
+        }
+        const idempotencyKey = `${userId}-${actionType}-${actionId || "none"}-${Date.now()}`;
+        const [reward] = await db.insert(ambassadorActionRewards).values({
+          userId,
+          actionType,
+          actionId,
+          baseReward: rewardCalc.baseReward,
+          bonusReward: rewardCalc.bonusReward,
+          totalReward: rewardCalc.totalReward,
+          verificationStatus: "pending",
+          verifiedAt: null,
+          notes: hasWallet ? "Pending admin verification" : "Pending admin verification and wallet connection",
+          securityFlag: rewardCalc.securityFlag || null
+        }).returning();
+        return { rewardId: reward.id, pendingVerification: true, pendingWallet: !hasWallet };
+      }
+      async processTransfer(jobId) {
+        const [job] = await db.select().from(veddTransferJobs).where(eq10(veddTransferJobs.id, jobId)).limit(1);
+        if (!job) {
+          return { success: false, error: "Job not found" };
+        }
+        if (job.status === "completed") {
+          return { success: true, transactionSig: job.solanaTransactionSig || void 0 };
+        }
+        if (job.status === "processing") {
+          return { success: false, error: "Transfer already in progress" };
+        }
+        const MAX_SINGLE_TRANSFER = 1e3;
+        if (job.amount > MAX_SINGLE_TRANSFER) {
+          console.warn(`[VEDD Security] Transfer amount ${job.amount} exceeds MAX_SINGLE_TRANSFER (${MAX_SINGLE_TRANSFER}). Requires manual review.`);
+          await db.update(veddTransferJobs).set({ status: "failed", errorMessage: `Amount ${job.amount} exceeds security limit of ${MAX_SINGLE_TRANSFER} VEDD per transfer. Admin must manually approve.` }).where(eq10(veddTransferJobs.id, jobId));
+          return { success: false, error: "Transfer blocked by security limit" };
+        }
+        if (!VEDD_TOKEN_MINT || !POOL_WALLET_PRIVATE_KEY) {
+          console.error("CRITICAL: Missing Solana credentials - VEDD_TOKEN_MINT or POOL_WALLET_PRIVATE_KEY not configured");
+          await db.update(veddTransferJobs).set({
+            status: "failed",
+            errorMessage: "Solana credentials not configured. Please set VEDD_TOKEN_MINT and POOL_WALLET_PRIVATE_KEY environment variables.",
+            processedAt: /* @__PURE__ */ new Date()
+          }).where(eq10(veddTransferJobs.id, jobId));
+          return {
+            success: false,
+            error: "Token transfer system not configured. Reward is pending - tokens will be sent once configuration is complete."
+          };
+        }
+        const [poolWallet] = await db.select().from(veddPoolWallets).where(and7(eq10(veddPoolWallets.walletType, "rewards"), eq10(veddPoolWallets.status, "active"))).limit(1);
+        if (poolWallet && (poolWallet.tokenBalance || 0) < job.amount) {
+          await db.update(veddTransferJobs).set({ status: "pending", errorMessage: `Pool balance ${poolWallet.tokenBalance ?? 0} below reward ${job.amount} \u2014 held until the pool is refilled.` }).where(eq10(veddTransferJobs.id, jobId));
+          return { success: false, error: "Insufficient pool balance \u2014 reward held pending." };
+        }
+        await db.update(veddTransferJobs).set({ status: "processing" }).where(eq10(veddTransferJobs.id, jobId));
+        try {
+          const keypair = getPoolKeypair();
+          if (!keypair) {
+            throw new Error("Pool wallet keypair not available");
+          }
+          const conn = getConnection();
+          const mintPubkey = new PublicKey(VEDD_TOKEN_MINT);
+          const destPubkey = new PublicKey(job.destinationWallet);
+          const sourceAta = await getAssociatedTokenAddress(mintPubkey, keypair.publicKey);
+          const destAta = await getOrCreateAssociatedTokenAccount(
+            conn,
+            keypair,
+            mintPubkey,
+            destPubkey
+          );
+          const decimals = 9;
+          const amount = Math.floor(job.amount * Math.pow(10, decimals));
+          const transaction = new Transaction().add(
+            createTransferInstruction(
+              sourceAta,
+              destAta.address,
+              keypair.publicKey,
+              amount,
+              [],
+              TOKEN_PROGRAM_ID
+            )
+          );
+          const signature = await sendAndConfirmTransaction(conn, transaction, [keypair]);
+          await db.update(veddTransferJobs).set({
+            status: "completed",
+            solanaTransactionSig: signature,
+            processedAt: /* @__PURE__ */ new Date()
+          }).where(eq10(veddTransferJobs.id, jobId));
+          await db.update(users).set({
+            veddTokenBalance: sql9`COALESCE(${users.veddTokenBalance}, 0) + ${job.amount}`
+          }).where(eq10(users.id, job.userId));
+          await db.update(veddPoolWallets).set({ tokenBalance: sql9`GREATEST(0, COALESCE(${veddPoolWallets.tokenBalance}, 0) - ${job.amount})` }).where(and7(eq10(veddPoolWallets.walletType, "rewards"), eq10(veddPoolWallets.status, "active")));
+          return { success: true, transactionSig: signature };
+        } catch (error) {
+          const retryCount = (job.retryCount || 0) + 1;
+          const maxRetries = 3;
+          await db.update(veddTransferJobs).set({
+            status: retryCount >= maxRetries ? "failed" : "pending",
+            errorMessage: error.message,
+            retryCount
+          }).where(eq10(veddTransferJobs.id, jobId));
+          return { success: false, error: error.message };
+        }
+      }
+      async getUserRewardHistory(userId, limit = 50) {
+        const rewards = await db.select({
+          id: ambassadorActionRewards.id,
+          actionType: ambassadorActionRewards.actionType,
+          totalReward: ambassadorActionRewards.totalReward,
+          verificationStatus: ambassadorActionRewards.verificationStatus,
+          createdAt: ambassadorActionRewards.createdAt,
+          transferJobId: ambassadorActionRewards.transferJobId
+        }).from(ambassadorActionRewards).where(eq10(ambassadorActionRewards.userId, userId)).orderBy(desc3(ambassadorActionRewards.createdAt)).limit(limit);
+        const result = [];
+        for (const reward of rewards) {
+          let status = reward.verificationStatus;
+          let transactionSig;
+          if (reward.transferJobId) {
+            const [job] = await db.select().from(veddTransferJobs).where(eq10(veddTransferJobs.id, reward.transferJobId)).limit(1);
+            if (job) {
+              status = job.status;
+              transactionSig = job.solanaTransactionSig || void 0;
+            }
+          }
+          result.push({
+            id: reward.id,
+            actionType: reward.actionType,
+            totalReward: reward.totalReward,
+            status,
+            transactionSig,
+            createdAt: reward.createdAt
+          });
+        }
+        return result;
+      }
+      async getUserTotalEarnings(userId) {
+        const earnings = await db.select({
+          status: ambassadorActionRewards.verificationStatus,
+          total: sql9`SUM(${ambassadorActionRewards.totalReward})`
+        }).from(ambassadorActionRewards).where(eq10(ambassadorActionRewards.userId, userId)).groupBy(ambassadorActionRewards.verificationStatus);
+        let total = 0;
+        let pending = 0;
+        let completed = 0;
+        for (const row of earnings) {
+          const amount = row.total || 0;
+          total += amount;
+          if (row.status === "pending") pending += amount;
+          if (row.status === "verified") completed += amount;
+        }
+        return { total, pending, completed };
+      }
+      async verifyReward(rewardId, adminId, approved, notes) {
+        const [reward] = await db.select().from(ambassadorActionRewards).where(eq10(ambassadorActionRewards.id, rewardId)).limit(1);
+        if (!reward || reward.verificationStatus !== "pending") {
+          return false;
+        }
+        if (!approved) {
+          await db.update(ambassadorActionRewards).set({
+            verificationStatus: "rejected",
+            verifiedBy: adminId,
+            verifiedAt: /* @__PURE__ */ new Date(),
+            notes
+          }).where(eq10(ambassadorActionRewards.id, rewardId));
+          return true;
+        }
+        const [user] = await db.select().from(users).where(eq10(users.id, reward.userId)).limit(1);
+        if (!user?.walletAddress) {
+          await db.update(ambassadorActionRewards).set({
+            verificationStatus: "verified",
+            verifiedBy: adminId,
+            verifiedAt: /* @__PURE__ */ new Date(),
+            notes: notes || "Verified - pending wallet connection for transfer"
+          }).where(eq10(ambassadorActionRewards.id, rewardId));
+          return true;
+        }
+        const poolWallet = await this.getPoolWalletInfo("rewards");
+        if (!poolWallet) {
+          await db.update(ambassadorActionRewards).set({
+            verificationStatus: "verified",
+            verifiedBy: adminId,
+            verifiedAt: /* @__PURE__ */ new Date(),
+            notes: notes || "Verified - pending pool wallet setup for transfer"
+          }).where(eq10(ambassadorActionRewards.id, rewardId));
+          return true;
+        }
+        const idempotencyKey = `reward-${rewardId}`;
+        const [transferJob] = await db.insert(veddTransferJobs).values({
+          userId: reward.userId,
+          sourceWalletId: poolWallet.id,
+          destinationWallet: user.walletAddress,
+          amount: reward.totalReward,
+          actionType: reward.actionType,
+          actionId: reward.actionId,
+          status: "pending",
+          idempotencyKey,
+          metadata: { verifiedBy: adminId }
+        }).onConflictDoNothing({ target: veddTransferJobs.idempotencyKey }).returning();
+        if (!transferJob) return true;
+        await db.update(ambassadorActionRewards).set({
+          verificationStatus: "verified",
+          verifiedBy: adminId,
+          verifiedAt: /* @__PURE__ */ new Date(),
+          transferJobId: transferJob.id,
+          notes
+        }).where(eq10(ambassadorActionRewards.id, rewardId));
+        this.processTransfer(transferJob.id).catch(
+          (err) => console.error("Background transfer processing error:", err)
+        );
+        return true;
+      }
+      async getPoolOverview() {
+        let poolInfos = [];
+        try {
+          const pools = await db.select().from(veddPoolWallets).where(eq10(veddPoolWallets.status, "active"));
+          poolInfos = pools.map((p2) => ({
+            id: p2.id,
+            label: p2.label,
+            publicKey: p2.publicKey,
+            walletType: p2.walletType,
+            status: p2.status,
+            tokenBalance: p2.tokenBalance || 0,
+            lowBalanceThreshold: p2.lowBalanceThreshold || 1e3,
+            isLowBalance: (p2.tokenBalance || 0) < (p2.lowBalanceThreshold || 1e3)
+          }));
+        } catch (err) {
+          console.error("[VEDD] getPoolOverview - pools fetch failed:", err);
+        }
+        let pendingTransfers = 0;
+        let completedTransfersToday = 0;
+        let totalDistributedToday = 0;
+        try {
+          const todayStart = /* @__PURE__ */ new Date();
+          todayStart.setHours(0, 0, 0, 0);
+          const [pendingResult] = await db.select({ count: sql9`count(*)` }).from(veddTransferJobs).where(eq10(veddTransferJobs.status, "pending"));
+          const [completedResult] = await db.select({
+            count: sql9`count(*)`,
+            total: sql9`COALESCE(SUM(${veddTransferJobs.amount}), 0)`
+          }).from(veddTransferJobs).where(and7(
+            eq10(veddTransferJobs.status, "completed"),
+            sql9`${veddTransferJobs.processedAt} >= ${todayStart}`
+          ));
+          pendingTransfers = pendingResult?.count || 0;
+          completedTransfersToday = completedResult?.count || 0;
+          totalDistributedToday = completedResult?.total || 0;
+        } catch (err) {
+          console.warn("[VEDD] getPoolOverview - transfer stats unavailable (table may not exist yet):", err?.message);
+        }
+        return { pools: poolInfos, pendingTransfers, completedTransfersToday, totalDistributedToday };
+      }
+      async initializePoolWallet(label, publicKey, walletType = "rewards") {
+        const [wallet] = await db.insert(veddPoolWallets).values({
+          label,
+          publicKey,
+          walletType,
+          status: "active",
+          tokenBalance: 0
+        }).returning();
+        return wallet.id;
+      }
+      async processWalletConnectedRewards(userId, walletAddress) {
+        const verifiedRewardsWithoutTransfer = await db.select().from(ambassadorActionRewards).where(and7(
+          eq10(ambassadorActionRewards.userId, userId),
+          eq10(ambassadorActionRewards.verificationStatus, "verified"),
+          isNull2(ambassadorActionRewards.transferJobId)
+        ));
+        if (verifiedRewardsWithoutTransfer.length === 0) {
+          return { processed: 0, errors: [] };
+        }
+        const poolWallet = await this.getPoolWalletInfo("rewards");
+        if (!poolWallet) {
+          return { processed: 0, errors: ["Pool wallet not configured"] };
+        }
+        let processed = 0;
+        const errors = [];
+        for (const reward of verifiedRewardsWithoutTransfer) {
+          try {
+            const idempotencyKey = `reward-${reward.id}`;
+            const [transferJob] = await db.insert(veddTransferJobs).values({
+              userId,
+              sourceWalletId: poolWallet.id,
+              destinationWallet: walletAddress,
+              amount: reward.totalReward,
+              actionType: reward.actionType,
+              actionId: reward.actionId,
+              status: "pending",
+              idempotencyKey,
+              metadata: { triggeredBy: "wallet_connection" }
+            }).onConflictDoNothing({ target: veddTransferJobs.idempotencyKey }).returning();
+            if (!transferJob) continue;
+            await db.update(ambassadorActionRewards).set({
+              transferJobId: transferJob.id,
+              notes: "Transfer job created on wallet connection"
+            }).where(eq10(ambassadorActionRewards.id, reward.id));
+            this.processTransfer(transferJob.id).catch(
+              (err) => console.error(`Background transfer error for job ${transferJob.id}:`, err)
+            );
+            processed++;
+          } catch (error) {
+            errors.push(`Reward ${reward.id}: ${error.message}`);
+          }
+        }
+        return { processed, errors };
+      }
+      /**
+       * Dual-track referral reward: logs the reward and, if the referrer has a
+       * connected Solana wallet + a live pool wallet, immediately fires an on-chain
+       * SPL token transfer in the background. In-app credit is always awarded by
+       * the caller via storage.addReferralCredits() — this method handles the
+       * on-chain side only.
+       *
+       * @param referrerId  - userId of the person who referred
+       * @param actionType  - 'referral_signup' | 'referral_subscription'
+       * @param amount      - VEDD tokens to transfer (e.g. 50 or 200)
+       */
+      async enqueueReferralReward(referrerId, actionType, amount) {
+        try {
+          const [referrer] = await db.select().from(users).where(eq10(users.id, referrerId)).limit(1);
+          if (!referrer) return;
+          const poolWallet = await this.getPoolWalletInfo("rewards");
+          const [reward] = await db.insert(ambassadorActionRewards).values({
+            userId: referrerId,
+            actionType,
+            baseReward: amount,
+            bonusReward: 0,
+            totalReward: amount,
+            verificationStatus: "auto_approved",
+            verifiedAt: /* @__PURE__ */ new Date(),
+            notes: `Auto-approved referral reward (${actionType})`
+          }).returning();
+          const walletAddr = referrer.walletAddress;
+          if (!walletAddr || !poolWallet) {
+            console.log(`[Referral Token] ${amount} VEDD reward logged for user ${referrerId} \u2014 wallet not connected, held pending`);
+            return;
+          }
+          const [blacklisted] = await db.select({ id: veddWalletBlacklist.id }).from(veddWalletBlacklist).where(and7(eq10(veddWalletBlacklist.walletAddress, walletAddr), eq10(veddWalletBlacklist.isActive, true))).limit(1);
+          if (blacklisted) {
+            console.warn(`[Referral Token] Blocked \u2014 blacklisted wallet: ${walletAddr} (userId: ${referrerId})`);
+            return;
+          }
+          const idempotencyKey = `reward-${reward.id}`;
+          const [transferJob] = await db.insert(veddTransferJobs).values({
+            userId: referrerId,
+            sourceWalletId: poolWallet.id,
+            destinationWallet: walletAddr,
+            amount,
+            actionType,
+            actionId: reward.id,
+            status: "pending",
+            idempotencyKey,
+            metadata: { referralReward: true, autoApproved: true }
+          }).onConflictDoNothing({ target: veddTransferJobs.idempotencyKey }).returning();
+          if (!transferJob) return;
+          this.processTransfer(transferJob.id).then((result) => {
+            if (result.success) {
+              console.log(`[Referral Token] \u2713 Sent ${amount} VEDD to ${walletAddr} \u2014 tx: ${result.transactionSig}`);
+            } else {
+              console.error(`[Referral Token] Transfer failed for user ${referrerId}: ${result.error}`);
+            }
+          }).catch((err) => console.error("[Referral Token] processTransfer error:", err));
+        } catch (err) {
+          console.error("[Referral Token] enqueueReferralReward error:", err);
+        }
+      }
+    };
+    veddTokenService = new VeddTokenService();
+  }
+});
+
 // server/services/futures-brain.ts
 var futures_brain_exports = {};
 __export(futures_brain_exports, {
@@ -46688,8 +52404,8 @@ __export(futures_brain_exports, {
   loadPersistedFuturesBrain: () => loadPersistedFuturesBrain,
   runFuturesBrainLearning: () => runFuturesBrainLearning
 });
-import * as fs5 from "fs";
-import * as path5 from "path";
+import * as fs9 from "fs";
+import * as path9 from "path";
 function rMultiple(t) {
   if (!t.exitPrice || !t.stopLoss) return 0;
   const riskDist = Math.abs(t.entryPrice - t.stopLoss);
@@ -46808,9 +52524,9 @@ async function computeFuturesBrain(userId) {
   global.veddFuturesBrain = global.veddFuturesBrain || {};
   global.veddFuturesBrain[userId] = brain;
   try {
-    const brainDir = path5.join(process.cwd(), "data", "brains");
-    if (!fs5.existsSync(brainDir)) fs5.mkdirSync(brainDir, { recursive: true });
-    fs5.writeFileSync(path5.join(brainDir, `futures_brain_${userId}.json`), JSON.stringify(brain));
+    const brainDir = path9.join(process.cwd(), "data", "brains");
+    if (!fs9.existsSync(brainDir)) fs9.mkdirSync(brainDir, { recursive: true });
+    fs9.writeFileSync(path9.join(brainDir, `futures_brain_${userId}.json`), JSON.stringify(brain));
   } catch {
   }
   console.log(`[futures-brain] Learned from ${closed.length} trades across ${uniqueSymbols.length} symbols for user ${userId}`);
@@ -46821,9 +52537,9 @@ async function runFuturesBrainLearning(userId) {
 }
 function loadPersistedFuturesBrain(userId) {
   try {
-    const p2 = path5.join(process.cwd(), "data", "brains", `futures_brain_${userId}.json`);
-    if (!fs5.existsSync(p2)) return null;
-    const brain = JSON.parse(fs5.readFileSync(p2, "utf-8"));
+    const p2 = path9.join(process.cwd(), "data", "brains", `futures_brain_${userId}.json`);
+    if (!fs9.existsSync(p2)) return null;
+    const brain = JSON.parse(fs9.readFileSync(p2, "utf-8"));
     global.veddFuturesBrain = global.veddFuturesBrain || {};
     global.veddFuturesBrain[userId] = brain;
     return brain;
@@ -46845,408 +52561,6 @@ var init_futures_brain = __esm({
     "use strict";
     init_storage();
     STALE_MS = 6e4;
-  }
-});
-
-// server/services/crypto-health.ts
-var crypto_health_exports = {};
-__export(crypto_health_exports, {
-  getCryptoEngineHealth: () => getCryptoEngineHealth
-});
-async function getCryptoEngineHealth() {
-  const staleAfterMin = STALE_MIN();
-  let row = null;
-  try {
-    const { rows } = await pool.query(`SELECT * FROM crypto_engine_heartbeat WHERE id = 1`);
-    row = rows[0] ?? null;
-  } catch {
-  }
-  let artifactAt = null;
-  try {
-    const { rows } = await pool.query(
-      `SELECT greatest(
-         (SELECT max(opened_at) FROM crypto_paper_trades),
-         (SELECT max(created_at) FROM fx_model_decisions WHERE engine = 'crypto')
-       ) AS last_at`
-    );
-    artifactAt = rows[0]?.last_at ? new Date(rows[0].last_at) : null;
-  } catch {
-  }
-  const iso = (v) => v ? new Date(v).toISOString() : null;
-  let lastRunAt = null;
-  let lastRunState = null;
-  let runner = null;
-  let phase2 = null;
-  let scansCompleted = null;
-  let wedged = false;
-  let hbMs = 0;
-  if (row) {
-    runner = row.booted_at ? "background worker" : "cron job";
-    phase2 = row.phase ?? null;
-    scansCompleted = row.scans_completed ?? null;
-    wedged = (row.skipped_ticks ?? 0) >= 3;
-    lastRunAt = iso(row.scan_finished_at ?? row.scan_started_at ?? row.tick_at);
-    lastRunState = row.last_error ? "error" : phase2 === "idle" ? "ok" : phase2;
-    hbMs = Math.max(0, ...[row.tick_at, row.scan_finished_at, row.scan_started_at, row.updated_at].filter(Boolean).map((d) => new Date(d).getTime()));
-  }
-  const lastActivityMs = Math.max(hbMs, artifactAt?.getTime() ?? 0) || null;
-  const lastActivityAt = lastActivityMs ? new Date(lastActivityMs).toISOString() : null;
-  const ageMinutes = lastActivityMs ? Math.round((Date.now() - lastActivityMs) / 6e4 * 10) / 10 : null;
-  let status;
-  let message;
-  if (lastActivityMs == null || ageMinutes == null) {
-    status = "never";
-    message = "Crypto: no scanner heartbeat and no crypto trades/decisions on record \u2014 the engine may never have run against this database, or its schedule is not set up.";
-  } else if (ageMinutes <= staleAfterMin) {
-    status = "ok";
-    const bits = [`Crypto OK \u2014 last activity ${ageMinutes} min ago`];
-    if (runner) bits.push(`runner: ${runner}`);
-    if (scansCompleted != null) bits.push(`${scansCompleted} scans completed`);
-    if (wedged) bits.push(`WARNING: the scan may be wedged at phase "${phase2}" (${row?.skipped_ticks} skipped ticks)`);
-    if (row?.last_error) bits.push(`last error: ${String(row.last_error).slice(0, 140)}`);
-    message = bits.join(" \xB7 ") + ".";
-  } else {
-    status = "stale";
-    message = `Crypto STALE \u2014 no scanner tick or crypto activity for ${ageMinutes} min (threshold ${staleAfterMin} min). ${runner === "background worker" ? "The worker service may be down or wedged" : "The Render cron job may be paused, deleted, or failing"} \u2014 check the service. Last scan: ${lastRunAt ?? "unknown"}${phase2 ? ` (phase ${phase2})` : ""}.`;
-  }
-  return { status, lastRunAt, lastRunState, lastActivityAt, ageMinutes, staleAfterMin, message, runner, phase: phase2, scansCompleted, wedged };
-}
-var STALE_MIN;
-var init_crypto_health = __esm({
-  "server/services/crypto-health.ts"() {
-    "use strict";
-    init_db();
-    STALE_MIN = () => Math.max(5, Number(process.env.CRYPTO_HEALTH_STALE_MIN ?? 20));
-  }
-});
-
-// server/messaging.ts
-var messaging_exports = {};
-__export(messaging_exports, {
-  getChannelStatus: () => getChannelStatus,
-  sendGmail: () => sendGmail,
-  sendMessage: () => sendMessage,
-  sendResend: () => sendResend,
-  sendSendGrid: () => sendSendGrid,
-  sendTelegram: () => sendTelegram,
-  sendTwilioSms: () => sendTwilioSms
-});
-import nodemailer from "nodemailer";
-async function sendGmail(to, subject, text3, html) {
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
-  if (!user || !pass) return { success: false, channel: "gmail", error: "GMAIL_USER and GMAIL_APP_PASSWORD not set. Create a Gmail App Password at myaccount.google.com/security \u2192 App Passwords." };
-  try {
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: { user, pass }
-    });
-    const info2 = await transporter.sendMail({
-      from: `"VEDD | Abba" <${user}>`,
-      to,
-      subject,
-      text: text3,
-      html: html || `<div style="font-family:sans-serif;max-width:600px;margin:0 auto"><h2 style="color:#7c3aed">VEDD \u2014 Abba AI</h2><div>${text3.replace(/\n/g, "<br/>")}</div></div>`
-    });
-    return { success: true, channel: "gmail", id: info2.messageId };
-  } catch (e) {
-    return { success: false, channel: "gmail", error: e.message };
-  }
-}
-async function sendResend(to, subject, text3, html) {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return { success: false, channel: "resend", error: "RESEND_API_KEY not set. Sign up free at resend.com and add your API key." };
-  try {
-    const { Resend } = await import("resend");
-    const resend = new Resend(apiKey);
-    const from = process.env.RESEND_FROM_EMAIL || "Abba <onboarding@resend.dev>";
-    const result = await resend.emails.send({ from, to, subject, text: text3, html });
-    if (result.error) return { success: false, channel: "resend", error: result.error.message };
-    return { success: true, channel: "resend", id: result.data?.id };
-  } catch (e) {
-    return { success: false, channel: "resend", error: e.message };
-  }
-}
-async function sendTelegram(chatId, message) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) return { success: false, channel: "telegram", error: "TELEGRAM_BOT_TOKEN not set. Create a free bot at @BotFather on Telegram." };
-  if (!chatId?.trim()) return { success: false, channel: "telegram", error: "chatId required \u2014 user must have started your bot first." };
-  try {
-    const url = `https://api.telegram.org/bot${token}/sendMessage`;
-    const body = JSON.stringify({ chat_id: chatId, text: message, parse_mode: "HTML" });
-    const res2 = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body });
-    const data = await res2.json();
-    if (!data.ok) return { success: false, channel: "telegram", error: data.description || "Telegram API error" };
-    return { success: true, channel: "telegram", id: String(data.result?.message_id) };
-  } catch (e) {
-    return { success: false, channel: "telegram", error: e.message };
-  }
-}
-async function sendTwilioSms(to, body) {
-  const { sendSmsRaw: sendSmsRaw3 } = await Promise.resolve().then(() => (init_twilio(), twilio_exports));
-  const result = await sendSmsRaw3(to, body);
-  return { ...result, channel: "twilio" };
-}
-async function sendSendGrid(to, subject, text3, html) {
-  const apiKey = process.env.SENDGRID_API_KEY;
-  if (!apiKey) return { success: false, channel: "sendgrid", error: "SENDGRID_API_KEY not set. Sign up at sendgrid.com (100/day free)." };
-  try {
-    const sgMail3 = await import("@sendgrid/mail");
-    const sg = sgMail3.default || sgMail3;
-    sg.setApiKey(apiKey);
-    await sg.send({
-      to,
-      from: process.env.SENDGRID_FROM_EMAIL || "abba@vedd.app",
-      subject,
-      text: text3,
-      html: html || text3
-    });
-    return { success: true, channel: "sendgrid" };
-  } catch (e) {
-    return { success: false, channel: "sendgrid", error: e.message };
-  }
-}
-async function sendMessage(opts) {
-  const { channel, message, phone, chatId, email, subject, html } = opts;
-  switch (channel) {
-    case "gmail":
-      if (!email) return { success: false, channel, error: "email address required for Gmail" };
-      return sendGmail(email, subject || "Message from VEDD Abba", message, html);
-    case "resend":
-      if (!email) return { success: false, channel, error: "email address required for Resend" };
-      return sendResend(email, subject || "Message from VEDD Abba", message, html);
-    case "telegram":
-      if (!chatId) return { success: false, channel, error: "Telegram chat ID required" };
-      return sendTelegram(chatId, message);
-    case "twilio":
-      if (!phone) return { success: false, channel, error: "phone number required for Twilio SMS" };
-      return sendTwilioSms(phone, message);
-    case "sendgrid":
-      if (!email) return { success: false, channel, error: "email address required for SendGrid" };
-      return sendSendGrid(email, subject || "Message from VEDD Abba", message, html);
-    default:
-      return { success: false, channel, error: `Unknown channel: ${channel}` };
-  }
-}
-function getChannelStatus() {
-  return {
-    gmail: { configured: !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD), free: true, limit: "500/day", setupUrl: "https://myaccount.google.com/apppasswords" },
-    resend: { configured: !!process.env.RESEND_API_KEY, free: true, limit: "3,000/month", setupUrl: "https://resend.com" },
-    telegram: { configured: !!process.env.TELEGRAM_BOT_TOKEN, free: true, limit: "Unlimited", setupUrl: "https://t.me/BotFather" },
-    twilio: { configured: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN), free: false, limit: "Paid / trial", setupUrl: "https://twilio.com" },
-    sendgrid: { configured: !!process.env.SENDGRID_API_KEY, free: true, limit: "100/day", setupUrl: "https://sendgrid.com" }
-  };
-}
-var init_messaging = __esm({
-  "server/messaging.ts"() {
-    "use strict";
-  }
-});
-
-// server/services/engine-watchdog.ts
-var engine_watchdog_exports = {};
-__export(engine_watchdog_exports, {
-  getEngineWatchdogStatus: () => getEngineWatchdogStatus,
-  startEngineWatchdog: () => startEngineWatchdog
-});
-function isFxMarketOpenAt(d) {
-  const day = d.getUTCDay();
-  const hour = d.getUTCHours();
-  if (day === 6) return false;
-  if (day === 5 && hour >= 21) return false;
-  if (day === 0 && hour < 21) return false;
-  return true;
-}
-function fxMarketHoursBetween(from, to) {
-  if (to.getTime() <= from.getTime()) return 0;
-  const STEP_MS = 5 * 60 * 1e3;
-  let openMs = 0;
-  for (let t = from.getTime(); t < to.getTime(); t += STEP_MS) {
-    if (isFxMarketOpenAt(new Date(t))) openMs += Math.min(STEP_MS, to.getTime() - t);
-  }
-  return Math.round(openMs / 36e5 * 10) / 10;
-}
-async function computeStatus() {
-  const { checkFxBrainHealth: checkFxBrainHealth2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
-  const fxHealth = await checkFxBrainHealth2(24).catch(() => null);
-  let guardEvents24h = 0;
-  let aiDecisions24h = 0;
-  try {
-    const { rows } = await pool.query(
-      `SELECT count(*)::int AS n FROM engine_guard_events WHERE engine='fx' AND created_at > now() - interval '24 hours'`
-    );
-    guardEvents24h = rows[0]?.n ?? 0;
-  } catch {
-  }
-  try {
-    const { rows } = await pool.query(
-      `SELECT count(*)::int AS n FROM fx_model_decisions WHERE created_at > now() - interval '24 hours'`
-    );
-    aiDecisions24h = rows[0]?.n ?? 0;
-  } catch {
-  }
-  const fxLast = fxHealth?.lastBrainRowAt ?? null;
-  const fxHours = fxHealth?.hoursSinceLastBrainRow ?? null;
-  const marketOpen = isFxMarketOpenAt(/* @__PURE__ */ new Date());
-  const fxMarketHours = fxLast ? fxMarketHoursBetween(new Date(fxLast), /* @__PURE__ */ new Date()) : null;
-  let fxState;
-  let fxMessage;
-  if (!fxLast || fxHours == null || fxMarketHours == null) {
-    fxState = "no_data";
-    fxMessage = "FX: no brain outcomes on record \u2014 nothing to watch yet.";
-  } else if (fxMarketHours < FX_STALE_HOURS) {
-    fxState = "ok";
-    fxMessage = `FX OK \u2014 last close ${fxHours}h ago (${fxMarketHours} market-open hours).`;
-  } else if (!marketOpen) {
-    fxState = "market_closed";
-    fxMessage = `FX: no close for ${fxMarketHours} market-open hours, and the market is closed right now (Fri 21:00 \u2013 Sun 21:00 UTC) \u2014 no alert; the watchdog rechecks when the market reopens.`;
-  } else if (guardEvents24h + aiDecisions24h > 0) {
-    fxState = "gated";
-    fxMessage = `FX RUNNING BUT FULLY GATED \u2014 no close in ${fxMarketHours} market-open hours, yet ${guardEvents24h} guard firing(s) and ${aiDecisions24h} AI analysis decision(s) in the last 24h. The engine is alive; the guards are blocking everything. See the guard fire-rate view for which ones.`;
-  } else {
-    fxState = "silent";
-    fxMessage = `FX SILENT \u2014 no close in ${fxMarketHours} market-open hours and no guard or AI activity in the last 24h. Likely stopped or emergency-stopped (an emergency stop does not auto-resume). Check the FX engine page and press Start if it shows Stopped.`;
-  }
-  let solLast = null;
-  try {
-    const { rows } = await pool.query(
-      `SELECT max(NULLIF(closed_at, '')::timestamptz) AS last_at FROM sol_engine_positions WHERE status='closed'`
-    );
-    solLast = rows[0]?.last_at ? new Date(rows[0].last_at).toISOString() : null;
-  } catch {
-  }
-  const solHours = solLast ? Math.round((Date.now() - new Date(solLast).getTime()) / 36e5 * 10) / 10 : null;
-  let solState;
-  let solMessage;
-  if (!solLast || solHours == null) {
-    solState = "no_data";
-    solMessage = "Sol: no closed positions on record \u2014 nothing to watch yet.";
-  } else if (solHours < SOL_STALE_HOURS) {
-    solState = "ok";
-    solMessage = `Sol OK \u2014 last position closed ${solHours}h ago.`;
-  } else {
-    solState = "stale";
-    solMessage = `Sol STALE \u2014 no position (live, paper or shadow) has closed in ${solHours}h. If the Sol engine should be running, check its page.`;
-  }
-  let cryptoState = "never";
-  let cryptoLast = null;
-  let cryptoAge = null;
-  let cryptoMessage = "Crypto: health check unavailable.";
-  try {
-    const { getCryptoEngineHealth: getCryptoEngineHealth2 } = await Promise.resolve().then(() => (init_crypto_health(), crypto_health_exports));
-    const ch = await getCryptoEngineHealth2();
-    cryptoState = ch.status;
-    cryptoLast = ch.lastActivityAt;
-    cryptoAge = ch.ageMinutes;
-    cryptoMessage = ch.message;
-  } catch {
-  }
-  return {
-    checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    fx: { state: fxState, lastCloseAt: fxLast, hoursSinceLastClose: fxHours, marketHoursSinceLastClose: fxMarketHours, marketOpen, guardEvents24h, aiDecisions24h, message: fxMessage },
-    sol: { state: solState, lastCloseAt: solLast, hoursSinceLastClose: solHours, message: solMessage },
-    crypto: { state: cryptoState, lastActivityAt: cryptoLast, ageMinutes: cryptoAge, message: cryptoMessage }
-  };
-}
-async function getEngineWatchdogStatus() {
-  if (_lastStatus && Date.now() - _lastStatusAt < TICK_MS) return _lastStatus;
-  const status = await computeStatus();
-  _lastStatus = status;
-  _lastStatusAt = Date.now();
-  return status;
-}
-async function maybeAlert(status) {
-  const alerts = [];
-  if (status.fx.state === "gated" || status.fx.state === "silent") alerts.push(status.fx.message);
-  if (status.sol.state === "stale") alerts.push(status.sol.message);
-  if (status.crypto.state === "stale") alerts.push(status.crypto.message);
-  if (!alerts.length) return;
-  console.warn(`[engine-watchdog] ${alerts.join(" | ")}`);
-  let episodes = {};
-  try {
-    const { getRuntimeStateStrict: getRuntimeStateStrict2, saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-    const stored = await getRuntimeStateStrict2("engine_watchdog", "episodes").catch(() => null);
-    if (stored && typeof stored === "object") episodes = stored;
-    saveRuntimeState2("engine_watchdog", "status", status);
-  } catch {
-  }
-  const due = [];
-  const check = (engine, key, text3) => {
-    if (!text3 || !key) return;
-    const ep = episodes[engine];
-    if (!ep || ep.key !== key) episodes[engine] = { key, sent: 0, lastAt: 0 };
-    const e = episodes[engine];
-    if (e.sent < MAX_ALERTS_PER_EPISODE && Date.now() - e.lastAt >= REALERT_MS) {
-      e.sent++;
-      e.lastAt = Date.now();
-      due.push(text3);
-    }
-  };
-  check("fx", status.fx.lastCloseAt, status.fx.state === "gated" || status.fx.state === "silent" ? status.fx.message : null);
-  check("sol", status.sol.lastCloseAt, status.sol.state === "stale" ? status.sol.message : null);
-  check("crypto", status.crypto.lastActivityAt, status.crypto.state === "stale" ? status.crypto.message : null);
-  try {
-    const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-    saveRuntimeState2("engine_watchdog", "episodes", episodes);
-  } catch {
-  }
-  if (!due.length) return;
-  try {
-    const { sendMessage: sendMessage2, getChannelStatus: getChannelStatus2 } = await Promise.resolve().then(() => (init_messaging(), messaging_exports));
-    const configured = getChannelStatus2();
-    const channel = ["resend", "sendgrid", "gmail"].find((c) => configured[c]?.configured);
-    if (!channel) {
-      console.warn("[engine-watchdog] alert due but no email channel is configured \u2014 alert recorded in health/runtime_state only.");
-      return;
-    }
-    const result = await sendMessage2({
-      channel,
-      email: REPORT_EMAIL,
-      subject: "\u26A0\uFE0F VEDD engine watchdog: an engine has gone silent",
-      message: `Engine watchdog alert (${status.checkedAt})
-
-${due.join("\n\n")}
-
-The watchdog only observes \u2014 it never starts or reconfigures an engine. If the stop was intentional, ignore this; alerts repeat at most ${MAX_ALERTS_PER_EPISODE} times per silence episode.`
-    });
-    if (!result.success) console.warn(`[engine-watchdog] alert email failed via ${channel}: ${result.error || "unknown error"}`);
-  } catch (e) {
-    console.warn("[engine-watchdog] alert email threw (non-fatal):", e?.message || e);
-  }
-}
-function startEngineWatchdog() {
-  if (_started) return;
-  _started = true;
-  const tick3 = async () => {
-    try {
-      const status = await computeStatus();
-      _lastStatus = status;
-      _lastStatusAt = Date.now();
-      const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-      saveRuntimeState2("engine_watchdog", "status", status);
-      await maybeAlert(status);
-    } catch (e) {
-      console.error("[engine-watchdog] tick failed (non-fatal):", e?.message || e);
-    }
-  };
-  setTimeout(tick3, 5 * 60 * 1e3).unref?.();
-  setInterval(tick3, TICK_MS).unref?.();
-  console.log("[engine-watchdog] started \u2014 FX 24h / Sol 48h silence checks every 30 min.");
-}
-var TICK_MS, FX_STALE_HOURS, SOL_STALE_HOURS, MAX_ALERTS_PER_EPISODE, REALERT_MS, REPORT_EMAIL, _lastStatus, _lastStatusAt, _started;
-var init_engine_watchdog = __esm({
-  "server/services/engine-watchdog.ts"() {
-    "use strict";
-    init_db();
-    TICK_MS = 30 * 60 * 1e3;
-    FX_STALE_HOURS = 24;
-    SOL_STALE_HOURS = 48;
-    MAX_ALERTS_PER_EPISODE = 3;
-    REALERT_MS = 24 * 36e5;
-    REPORT_EMAIL = process.env.REPORT_EMAIL || "donchismkos@gmail.com";
-    _lastStatus = null;
-    _lastStatusAt = 0;
-    _started = false;
   }
 });
 
@@ -48343,7 +53657,7 @@ __export(whop_exports, {
   whopEnabled: () => whopEnabled,
   whopPlanMap: () => whopPlanMap
 });
-import crypto9 from "crypto";
+import crypto11 from "crypto";
 function whopPlanMap() {
   const out = {};
   for (const id of [2, 3, 4]) {
@@ -48417,11 +53731,11 @@ function verifyWhopWebhook(rawBody, headers) {
   }
   const provided = sigHeader.split(" ").map((p2) => p2.trim()).filter(Boolean).map((p2) => p2.includes(",") ? p2.split(",")[1] : p2);
   for (const k2 of keys) {
-    const expected = crypto9.createHmac("sha256", k2).update(signed).digest("base64");
+    const expected = crypto11.createHmac("sha256", k2).update(signed).digest("base64");
     const eb = Buffer.from(expected);
     for (const p2 of provided) {
       const pb = Buffer.from(p2);
-      if (pb.length === eb.length && crypto9.timingSafeEqual(pb, eb)) return true;
+      if (pb.length === eb.length && crypto11.timingSafeEqual(pb, eb)) return true;
     }
   }
   return false;
@@ -48751,8 +54065,8 @@ var share_card_service_exports = {};
 __export(share_card_service_exports, {
   generateShareCard: () => generateShareCard
 });
-import path6 from "path";
-import fs6 from "fs";
+import path10 from "path";
+import fs10 from "fs";
 async function generateShareCard(data) {
   let createCanvas, loadImage;
   try {
@@ -48773,8 +54087,8 @@ async function generateShareCard(data) {
   ctx.fillStyle = headerGradient;
   ctx.fillRect(0, 0, CARD_WIDTH, 180);
   try {
-    const logoPath = path6.join(process.cwd(), "attached_assets", "IMG_3645.png");
-    if (fs6.existsSync(logoPath)) {
+    const logoPath = path10.join(process.cwd(), "attached_assets", "IMG_3645.png");
+    if (fs10.existsSync(logoPath)) {
       const logo = await loadImage(logoPath);
       const logoHeight = 80;
       const logoWidth = logo.width / logo.height * logoHeight;
@@ -48810,8 +54124,8 @@ async function generateShareCard(data) {
       if (imagePath.startsWith("/")) {
         imagePath = imagePath.substring(1);
       }
-      const fullImagePath = path6.join(process.cwd(), imagePath);
-      if (fs6.existsSync(fullImagePath)) {
+      const fullImagePath = path10.join(process.cwd(), imagePath);
+      if (fs10.existsSync(fullImagePath)) {
         const chartImage = await loadImage(fullImagePath);
         const maxWidth = CARD_WIDTH - PADDING * 2;
         const maxHeight = 350;
@@ -48924,8 +54238,8 @@ async function generateShareCard(data) {
         if (imgPath.startsWith("/")) {
           imgPath = imgPath.substring(1);
         }
-        const fullPath = path6.join(process.cwd(), imgPath);
-        if (fs6.existsSync(fullPath)) {
+        const fullPath = path10.join(process.cwd(), imgPath);
+        if (fs10.existsSync(fullPath)) {
           chartImage = await loadImage(fullPath);
           const maxChartWidth = CARD_WIDTH - PADDING * 2 - 40;
           const maxChartHeight = 200;
@@ -49180,8 +54494,8 @@ async function repairCandles(symbol, timeframe, eaCandles) {
   const verdict = assessCandles(eaCandles);
   if (verdict.usable) return { candles: eaCandles, repaired: false, reason: verdict.reason };
   const key = `${symbol}:${timeframe}`;
-  const hit = cache7.get(key);
-  if (hit && Date.now() - hit.at < CACHE_TTL_MS4) {
+  const hit = cache9.get(key);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS7) {
     return { candles: hit.candles, repaired: true, reason: `${verdict.reason} \u2014 substituted cached Twelve Data bars` };
   }
   if (!process.env.TWELVE_DATA_API_KEY) {
@@ -49203,7 +54517,7 @@ async function repairCandles(symbol, timeframe, eaCandles) {
     if (!check.usable) {
       return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 replacement bars also unusable (${check.reason})` };
     }
-    cache7.set(key, { at: Date.now(), candles: mapped });
+    cache9.set(key, { at: Date.now(), candles: mapped });
     console.log(`[candle-repair] ${symbol} ${timeframe}: EA feed unusable (${verdict.reason}); substituted ${mapped.length} Twelve Data bars, ${check.barsWithRange} with real range`);
     return { candles: mapped, repaired: true, reason: `${verdict.reason} \u2014 substituted Twelve Data bars` };
   } catch (e) {
@@ -49211,12 +54525,12 @@ async function repairCandles(symbol, timeframe, eaCandles) {
     return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 fetch failed: ${e?.message}` };
   }
 }
-var cache7, CACHE_TTL_MS4, lastFetchAt, MIN_FETCH_GAP_MS;
+var cache9, CACHE_TTL_MS7, lastFetchAt, MIN_FETCH_GAP_MS;
 var init_candle_repair = __esm({
   "server/services/candle-repair.ts"() {
     "use strict";
-    cache7 = /* @__PURE__ */ new Map();
-    CACHE_TTL_MS4 = 6e4;
+    cache9 = /* @__PURE__ */ new Map();
+    CACHE_TTL_MS7 = 6e4;
     lastFetchAt = 0;
     MIN_FETCH_GAP_MS = 8e3;
   }
@@ -49440,7 +54754,7 @@ __export(ambassador_market_briefing_exports, {
   getLatestMarketBriefing: () => getLatestMarketBriefing,
   saveMarketBriefing: () => saveMarketBriefing
 });
-import { desc as desc5 } from "drizzle-orm";
+import { desc as desc6 } from "drizzle-orm";
 function clampConfidenceBoost(n) {
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(MAX_CONFIDENCE_BOOST, Math.round(n)));
@@ -49460,7 +54774,7 @@ async function saveMarketBriefing(weekStartDate, narrativeText, pairs) {
   });
 }
 async function getLatestMarketBriefing() {
-  const [row] = await db.select().from(ambassadorMarketBriefing).orderBy(desc5(ambassadorMarketBriefing.weekStartDate)).limit(1);
+  const [row] = await db.select().from(ambassadorMarketBriefing).orderBy(desc6(ambassadorMarketBriefing.weekStartDate)).limit(1);
   return row;
 }
 function findBriefingPair(briefing, symbol) {
@@ -49488,7 +54802,7 @@ __export(paper_trade_tracker_exports, {
   getPaperTradeStats: () => getPaperTradeStats,
   resolvePaperTrade: () => resolvePaperTrade
 });
-import { eq as eq13, desc as desc6, and as and8, sql as sql10 } from "drizzle-orm";
+import { eq as eq14, desc as desc7, and as and9, sql as sql11 } from "drizzle-orm";
 async function createPaperTrade(data) {
   try {
     const [trade] = await db.insert(paperTrades).values({
@@ -49504,7 +54818,7 @@ async function createPaperTrade(data) {
 }
 async function resolvePaperTrade(tradeId, currentPrice) {
   try {
-    const [trade] = await db.select().from(paperTrades).where(eq13(paperTrades.id, tradeId));
+    const [trade] = await db.select().from(paperTrades).where(eq14(paperTrades.id, tradeId));
     if (!trade || trade.outcome !== "pending") return;
     const now = /* @__PURE__ */ new Date();
     const ageHours = (now.getTime() - trade.createdAt.getTime()) / (1e3 * 60 * 60);
@@ -49534,7 +54848,7 @@ async function resolvePaperTrade(tradeId, currentPrice) {
       console.log(`[PaperTrade] Resolved #${tradeId} \u2014 ${trade.symbol} ${trade.direction}: ${outcome.toUpperCase()} (${pnlPips > 0 ? "+" : ""}${pnlPips} pips)`);
     }
     if (Object.keys(updates).length > 0) {
-      await db.update(paperTrades).set(updates).where(eq13(paperTrades.id, tradeId));
+      await db.update(paperTrades).set(updates).where(eq14(paperTrades.id, tradeId));
     }
   } catch (e) {
     console.error("[PaperTrade] Failed to resolve:", e);
@@ -49542,12 +54856,12 @@ async function resolvePaperTrade(tradeId, currentPrice) {
 }
 async function getAIAccuracyContext(userId, symbol) {
   try {
-    const conditions = [eq13(paperTrades.userId, userId)];
+    const conditions = [eq14(paperTrades.userId, userId)];
     if (symbol) {
       const cleanSymbol = symbol.replace(/[^A-Z0-9]/gi, "").toUpperCase();
-      conditions.push(sql10`UPPER(REPLACE(${paperTrades.symbol}, '/', '')) = ${cleanSymbol}`);
+      conditions.push(sql11`UPPER(REPLACE(${paperTrades.symbol}, '/', '')) = ${cleanSymbol}`);
     }
-    const trades = await db.select().from(paperTrades).where(and8(...conditions)).orderBy(desc6(paperTrades.createdAt)).limit(50);
+    const trades = await db.select().from(paperTrades).where(and9(...conditions)).orderBy(desc7(paperTrades.createdAt)).limit(50);
     const resolved = trades.filter((t) => t.outcome !== "pending");
     if (resolved.length < 3) return "";
     const wins = resolved.filter((t) => t.outcome === "win").length;
@@ -49597,7 +54911,7 @@ Last ${last5.length} trades:
 }
 async function getPaperTradeStats(userId) {
   try {
-    const trades = await db.select().from(paperTrades).where(eq13(paperTrades.userId, userId)).orderBy(desc6(paperTrades.createdAt));
+    const trades = await db.select().from(paperTrades).where(eq14(paperTrades.userId, userId)).orderBy(desc7(paperTrades.createdAt));
     const resolved = trades.filter((t) => t.outcome !== "pending");
     const wins = resolved.filter((t) => t.outcome === "win");
     const losses = resolved.filter((t) => t.outcome === "loss");
@@ -49883,8 +55197,8 @@ __export(options_brain_exports, {
   loadPersistedOptionsBrain: () => loadPersistedOptionsBrain,
   runOptionsBrainLearning: () => runOptionsBrainLearning
 });
-import * as fs7 from "fs";
-import * as path7 from "path";
+import * as fs11 from "fs";
+import * as path11 from "path";
 function pctReturn(t) {
   if (!t.exitPrice || !t.entryPrice) return 0;
   return (t.exitPrice - t.entryPrice) / t.entryPrice * 100;
@@ -50043,9 +55357,9 @@ async function computeOptionsBrain(userId) {
   global.veddOptionsBrain = global.veddOptionsBrain || {};
   global.veddOptionsBrain[userId] = brain;
   try {
-    const brainDir = path7.join(process.cwd(), "data", "brains");
-    if (!fs7.existsSync(brainDir)) fs7.mkdirSync(brainDir, { recursive: true });
-    fs7.writeFileSync(path7.join(brainDir, `options_brain_${userId}.json`), JSON.stringify(brain));
+    const brainDir = path11.join(process.cwd(), "data", "brains");
+    if (!fs11.existsSync(brainDir)) fs11.mkdirSync(brainDir, { recursive: true });
+    fs11.writeFileSync(path11.join(brainDir, `options_brain_${userId}.json`), JSON.stringify(brain));
   } catch {
   }
   console.log(`[options-brain] Learned from ${closed.length} trades across ${uniqueSymbols.length} underlyings for user ${userId}`);
@@ -50056,9 +55370,9 @@ async function runOptionsBrainLearning(userId) {
 }
 function loadPersistedOptionsBrain(userId) {
   try {
-    const p2 = path7.join(process.cwd(), "data", "brains", `options_brain_${userId}.json`);
-    if (!fs7.existsSync(p2)) return null;
-    const brain = JSON.parse(fs7.readFileSync(p2, "utf-8"));
+    const p2 = path11.join(process.cwd(), "data", "brains", `options_brain_${userId}.json`);
+    if (!fs11.existsSync(p2)) return null;
+    const brain = JSON.parse(fs11.readFileSync(p2, "utf-8"));
     global.veddOptionsBrain = global.veddOptionsBrain || {};
     global.veddOptionsBrain[userId] = brain;
     return brain;
@@ -50147,338 +55461,6 @@ var init_engine_consensus = __esm({
   }
 });
 
-// server/services/crypto-market-data.ts
-var crypto_market_data_exports = {};
-__export(crypto_market_data_exports, {
-  getAggregatedQuote: () => getAggregatedQuote,
-  getAggregatedQuotes: () => getAggregatedQuotes
-});
-function krakenPair(sym2) {
-  const s = sym2.toUpperCase();
-  return (s === "BTC" ? "XBT" : s) + "USD";
-}
-async function coinbaseSpot(sym2) {
-  try {
-    const r = await fetch(`https://api.coinbase.com/v2/prices/${sym2}-USD/spot`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "coinbase", symbol: sym2, price: null, error: `HTTP ${r.status}` };
-    const d = await r.json();
-    const p2 = parseFloat(d?.data?.amount);
-    return { venue: "coinbase", symbol: sym2, price: isFinite(p2) ? p2 : null };
-  } catch (e) {
-    return { venue: "coinbase", symbol: sym2, price: null, error: e.message };
-  }
-}
-async function krakenTicker(sym2) {
-  try {
-    const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${krakenPair(sym2)}`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "kraken", symbol: sym2, price: null, error: `HTTP ${r.status}` };
-    const d = await r.json();
-    const first = Object.values(d?.result || {})[0];
-    const p2 = parseFloat(first?.c?.[0]);
-    const v = parseFloat(first?.v?.[1]);
-    return { venue: "kraken", symbol: sym2, price: isFinite(p2) ? p2 : null, volume24h: isFinite(v) ? v : null, error: d?.error?.length ? d.error.join(",") : void 0 };
-  } catch (e) {
-    return { venue: "kraken", symbol: sym2, price: null, error: e.message };
-  }
-}
-async function geminiTicker(sym2) {
-  try {
-    const r = await fetch(`https://api.gemini.com/v1/pubticker/${sym2.toLowerCase()}usd`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "gemini", symbol: sym2, price: null, error: `HTTP ${r.status}` };
-    const d = await r.json();
-    const p2 = parseFloat(d?.last);
-    const v = parseFloat(d?.volume?.[sym2.toUpperCase()]);
-    return { venue: "gemini", symbol: sym2, price: isFinite(p2) ? p2 : null, volume24h: isFinite(v) ? v : null };
-  } catch (e) {
-    return { venue: "gemini", symbol: sym2, price: null, error: e.message };
-  }
-}
-async function cryptocomTicker(sym2) {
-  try {
-    const r = await fetch(`https://api.crypto.com/v2/public/get-ticker?instrument_name=${sym2.toUpperCase()}_USDT`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "cryptocom", symbol: sym2, price: null, error: `HTTP ${r.status}` };
-    const d = await r.json();
-    const t = d?.result?.data;
-    const row = Array.isArray(t) ? t[0] : t;
-    const p2 = parseFloat(row?.a ?? row?.k);
-    const v = parseFloat(row?.v);
-    return { venue: "cryptocom", symbol: sym2, price: isFinite(p2) ? p2 : null, volume24h: isFinite(v) ? v : null };
-  } catch (e) {
-    return { venue: "cryptocom", symbol: sym2, price: null, error: e.message };
-  }
-}
-async function getAggregatedQuote(symbol) {
-  const sym2 = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const hit = _cache6.get(sym2);
-  if (hit && Date.now() - hit.ts < TTL_MS7) return hit.q;
-  const venues = await Promise.all([coinbaseSpot(sym2), krakenTicker(sym2), geminiTicker(sym2), cryptocomTicker(sym2)]);
-  const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
-  let best = null;
-  let spreadPct = null;
-  if (priced.length) {
-    const lo2 = priced.reduce((a, b) => b.price < a.price ? b : a);
-    const hi2 = priced.reduce((a, b) => b.price > a.price ? b : a);
-    best = { venue: lo2.venue, price: lo2.price };
-    spreadPct = lo2.price > 0 ? Math.round((hi2.price - lo2.price) / lo2.price * 1e4) / 100 : null;
-  }
-  const q = { symbol: sym2, best, spreadPct, venues, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
-  _cache6.set(sym2, { q, ts: Date.now() });
-  return q;
-}
-async function getAggregatedQuotes(symbols) {
-  const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
-  return Promise.all(uniq.map(getAggregatedQuote));
-}
-var TTL_MS7, _cache6;
-var init_crypto_market_data = __esm({
-  "server/services/crypto-market-data.ts"() {
-    "use strict";
-    TTL_MS7 = 15e3;
-    _cache6 = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/onchain-indexer.ts
-var onchain_indexer_exports = {};
-__export(onchain_indexer_exports, {
-  getIndexedBalances: () => getIndexedBalances,
-  isIndexerAvailable: () => isIndexerAvailable
-});
-async function rpc(url, method, params) {
-  const res2 = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: 1, jsonrpc: "2.0", method, params }),
-    signal: AbortSignal.timeout(12e3)
-  });
-  if (!res2.ok) throw new Error(`Alchemy ${res2.status}`);
-  const d = await res2.json();
-  if (d.error) throw new Error(d.error.message || "alchemy error");
-  return d.result;
-}
-function hexToNum(hex, decimals) {
-  if (!hex || hex === "0x") return 0;
-  try {
-    return Number(BigInt(hex)) / Math.pow(10, decimals);
-  } catch {
-    return 0;
-  }
-}
-function isIndexerAvailable() {
-  return !!process.env.ALCHEMY_API_KEY;
-}
-async function getIndexedBalances(address) {
-  const key = process.env.ALCHEMY_API_KEY;
-  const holdings = [];
-  const scanned = [];
-  await Promise.all(Object.entries(ALCHEMY_NETS).map(async ([, cfg]) => {
-    const url = `https://${cfg.net}.g.alchemy.com/v2/${key}`;
-    try {
-      const nativeHex = await rpc(url, "eth_getBalance", [address, "latest"]);
-      const nativeAmt = hexToNum(nativeHex, 18);
-      if (nativeAmt > 0) holdings.push({ chain: cfg.name, symbol: cfg.nativeSymbol, amount: nativeAmt });
-      const balRes = await rpc(url, "alchemy_getTokenBalances", [address, "erc20"]);
-      const tokens = (balRes?.tokenBalances ?? []).filter((t) => t.tokenBalance && t.tokenBalance !== "0x" && !/^0x0+$/.test(t.tokenBalance));
-      for (const t of tokens.slice(0, 40)) {
-        const contract = t.contractAddress;
-        let meta = _metaCache.get(contract);
-        if (meta === void 0) {
-          try {
-            const m = await rpc(url, "alchemy_getTokenMetadata", [contract]);
-            meta = typeof m?.decimals === "number" && m?.symbol ? { symbol: m.symbol, decimals: m.decimals } : null;
-          } catch {
-            meta = null;
-          }
-          _metaCache.set(contract, meta);
-        }
-        if (!meta) continue;
-        const amt = hexToNum(t.tokenBalance, meta.decimals);
-        if (amt > 0) holdings.push({ chain: cfg.name, symbol: meta.symbol, amount: amt, contract });
-      }
-      scanned.push(cfg.name);
-    } catch {
-    }
-  }));
-  let totalUsd = 0;
-  const priceCache3 = /* @__PURE__ */ new Map();
-  for (const h of holdings) {
-    const s = h.symbol.toUpperCase();
-    if (["USDC", "USDT", "DAI", "GUSD", "USDC.E", "FRAX", "TUSD"].includes(s)) {
-      h.usdValue = h.amount;
-      totalUsd += h.amount;
-      continue;
-    }
-    const priceSym = s === "WBTC" ? "BTC" : s === "WETH" ? "ETH" : s === "POL" ? "MATIC" : s;
-    if (!priceCache3.has(priceSym)) {
-      const q = await getAggregatedQuote(priceSym).catch(() => null);
-      priceCache3.set(priceSym, q?.best?.price ?? null);
-    }
-    const px = priceCache3.get(priceSym) ?? null;
-    h.usdValue = px != null ? Math.round(h.amount * px * 100) / 100 : null;
-    if (h.usdValue) totalUsd += h.usdValue;
-  }
-  holdings.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
-  return { address, holdings, totalUsd: Math.round(totalUsd * 100) / 100, chainsScanned: scanned, source: "alchemy" };
-}
-var ALCHEMY_NETS, _metaCache;
-var init_onchain_indexer = __esm({
-  "server/services/onchain-indexer.ts"() {
-    "use strict";
-    init_crypto_market_data();
-    ALCHEMY_NETS = {
-      ethereum: { net: "eth-mainnet", name: "Ethereum", nativeSymbol: "ETH" },
-      base: { net: "base-mainnet", name: "Base", nativeSymbol: "ETH" },
-      arbitrum: { net: "arb-mainnet", name: "Arbitrum", nativeSymbol: "ETH" },
-      optimism: { net: "opt-mainnet", name: "Optimism", nativeSymbol: "ETH" },
-      polygon: { net: "polygon-mainnet", name: "Polygon", nativeSymbol: "POL" }
-    };
-    _metaCache = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/onchain-balances.ts
-var onchain_balances_exports = {};
-__export(onchain_balances_exports, {
-  getOnchainBalances: () => getOnchainBalances,
-  isValidEvmAddress: () => isValidEvmAddress
-});
-async function rpc2(url, method, params) {
-  const res2 = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "User-Agent": "VEDD/1.0" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    signal: AbortSignal.timeout(9e3)
-  });
-  if (!res2.ok) throw new Error(`RPC ${res2.status}`);
-  const d = await res2.json();
-  if (d.error) throw new Error(d.error.message || "rpc error");
-  return d.result;
-}
-function hexToNum2(hex, decimals) {
-  if (!hex || hex === "0x") return 0;
-  try {
-    return Number(BigInt(hex)) / Math.pow(10, decimals);
-  } catch {
-    return 0;
-  }
-}
-function isValidEvmAddress(addr) {
-  return /^0x[a-fA-F0-9]{40}$/.test(addr);
-}
-async function getOnchainBalances(address) {
-  if (!isValidEvmAddress(address)) throw new Error("Invalid EVM address");
-  try {
-    const { isIndexerAvailable: isIndexerAvailable2, getIndexedBalances: getIndexedBalances2 } = await Promise.resolve().then(() => (init_onchain_indexer(), onchain_indexer_exports));
-    if (isIndexerAvailable2()) {
-      const idx = await getIndexedBalances2(address);
-      return { address, holdings: idx.holdings, totalUsd: idx.totalUsd, chainsScanned: idx.chainsScanned };
-    }
-  } catch {
-  }
-  const holdings = [];
-  const scanned = [];
-  await Promise.all(CHAINS.map(async (chain) => {
-    try {
-      const nativeHex = await rpc2(chain.rpc, "eth_getBalance", [address, "latest"]);
-      const nativeAmt = hexToNum2(nativeHex, 18);
-      if (nativeAmt > 0) holdings.push({ chain: chain.name, symbol: chain.nativeSymbol, amount: nativeAmt });
-      for (const t of chain.tokens) {
-        try {
-          const data = "0x70a08231" + address.slice(2).toLowerCase().padStart(64, "0");
-          const raw = await rpc2(chain.rpc, "eth_call", [{ to: t.address, data }, "latest"]);
-          const amt = hexToNum2(raw, t.decimals);
-          if (amt > 0) holdings.push({ chain: chain.name, symbol: t.symbol, amount: amt });
-        } catch {
-        }
-      }
-      scanned.push(chain.name);
-    } catch {
-    }
-  }));
-  let totalUsd = 0;
-  try {
-    const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
-    const priceCache3 = /* @__PURE__ */ new Map();
-    for (const h of holdings) {
-      if (["USDC", "USDT", "DAI", "GUSD"].includes(h.symbol)) {
-        h.usdValue = h.amount;
-        totalUsd += h.amount;
-        continue;
-      }
-      const priceSym = h.symbol === "WBTC" ? "BTC" : h.symbol === "POL" ? "MATIC" : h.symbol;
-      if (!priceCache3.has(priceSym)) {
-        const q = await getAggregatedQuote2(priceSym).catch(() => null);
-        priceCache3.set(priceSym, q?.best?.price ?? null);
-      }
-      const px = priceCache3.get(priceSym) ?? null;
-      h.usdValue = px != null ? Math.round(h.amount * px * 100) / 100 : null;
-      if (h.usdValue) totalUsd += h.usdValue;
-    }
-  } catch {
-  }
-  holdings.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
-  return { address, holdings, totalUsd: Math.round(totalUsd * 100) / 100, chainsScanned: scanned };
-}
-var CHAINS;
-var init_onchain_balances = __esm({
-  "server/services/onchain-balances.ts"() {
-    "use strict";
-    CHAINS = [
-      {
-        key: "ethereum",
-        name: "Ethereum",
-        rpc: "https://ethereum-rpc.publicnode.com",
-        nativeSymbol: "ETH",
-        explorer: "https://etherscan.io",
-        tokens: [
-          { symbol: "USDC", address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6 },
-          { symbol: "USDT", address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", decimals: 6 },
-          { symbol: "DAI", address: "0x6B175474E89094C44Da98b954EedeAC495271d0F", decimals: 18 },
-          { symbol: "WBTC", address: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", decimals: 8 }
-        ]
-      },
-      {
-        key: "base",
-        name: "Base",
-        rpc: "https://base-rpc.publicnode.com",
-        nativeSymbol: "ETH",
-        explorer: "https://basescan.org",
-        tokens: [{ symbol: "USDC", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6 }]
-      },
-      {
-        key: "arbitrum",
-        name: "Arbitrum",
-        rpc: "https://arbitrum-one-rpc.publicnode.com",
-        nativeSymbol: "ETH",
-        explorer: "https://arbiscan.io",
-        tokens: [
-          { symbol: "USDC", address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", decimals: 6 },
-          { symbol: "USDT", address: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9", decimals: 6 }
-        ]
-      },
-      {
-        key: "optimism",
-        name: "Optimism",
-        rpc: "https://optimism-rpc.publicnode.com",
-        nativeSymbol: "ETH",
-        explorer: "https://optimistic.etherscan.io",
-        tokens: [{ symbol: "USDC", address: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", decimals: 6 }]
-      },
-      {
-        key: "polygon",
-        name: "Polygon",
-        rpc: "https://polygon-bor-rpc.publicnode.com",
-        nativeSymbol: "POL",
-        explorer: "https://polygonscan.com",
-        tokens: [
-          { symbol: "USDC", address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", decimals: 6 },
-          { symbol: "USDT", address: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F", decimals: 6 }
-        ]
-      }
-    ];
-  }
-});
-
 // server/services/process-fingerprint.ts
 var PROCESS_BOOT_ID;
 var init_process_fingerprint = __esm({
@@ -50495,7 +55477,7 @@ __export(coinbase_exports, {
   decryptApiSecret: () => decryptApiSecret,
   encryptApiSecret: () => encryptApiSecret
 });
-import crypto10 from "crypto";
+import crypto12 from "crypto";
 import jwt from "jsonwebtoken";
 function buildJwt(keyName, privateKeyPem, method, path20) {
   const uri = `${method} ${API_HOST}${path20}`;
@@ -50503,7 +55485,7 @@ function buildJwt(keyName, privateKeyPem, method, path20) {
   const payload2 = { sub: keyName, iss: "cdp", nbf: now, exp: now + 120, uri };
   return jwt.sign(payload2, privateKeyPem, {
     algorithm: "ES256",
-    header: { kid: keyName, nonce: crypto10.randomBytes(16).toString("hex"), typ: "JWT", alg: "ES256" }
+    header: { kid: keyName, nonce: crypto12.randomBytes(16).toString("hex"), typ: "JWT", alg: "ES256" }
   });
 }
 var API_HOST, CoinbaseService;
@@ -50553,7 +55535,7 @@ var init_coinbase = __esm({
        *  - limitPrice: required for limit orders
        */
       async placeOrder(o) {
-        const clientOrderId = crypto10.randomUUID();
+        const clientOrderId = crypto12.randomUUID();
         let order_configuration;
         if (o.type === "market") {
           order_configuration = o.side === "BUY" && o.quoteSize ? { market_market_ioc: { quote_size: String(o.quoteSize) } } : { market_market_ioc: { base_size: String(o.baseSize) } };
@@ -50625,7 +55607,7 @@ __export(kraken_exports, {
   decryptApiSecret: () => decryptApiSecret,
   encryptApiSecret: () => encryptApiSecret
 });
-import crypto11 from "crypto";
+import crypto13 from "crypto";
 function normalizeAsset(code) {
   const c = code.toUpperCase().replace(/\.(S|F|M)$/, "");
   const map = { XXBT: "BTC", XBT: "BTC", XETH: "ETH", XXRP: "XRP", XLTC: "LTC", XXDG: "DOGE", XDG: "DOGE", ZUSD: "USD", ZEUR: "EUR", ZGBP: "GBP", XXLM: "XLM", XETC: "ETC", XZEC: "ZEC" };
@@ -50647,10 +55629,10 @@ var init_kraken = __esm({
         this.secret = secret;
       }
       sign(path20, nonce, postData) {
-        const sha256 = crypto11.createHash("sha256").update(nonce + postData).digest();
+        const sha256 = crypto13.createHash("sha256").update(nonce + postData).digest();
         const message = Buffer.concat([Buffer.from(path20, "utf8"), sha256]);
         const key = Buffer.from(this.secret, "base64");
-        return crypto11.createHmac("sha512", key).update(message).digest("base64");
+        return crypto13.createHmac("sha512", key).update(message).digest("base64");
       }
       async privatePost(endpoint, params = {}) {
         const path20 = `/0/private/${endpoint}`;
@@ -50734,7 +55716,7 @@ __export(gemini_exports, {
   decryptApiSecret: () => decryptApiSecret,
   encryptApiSecret: () => encryptApiSecret
 });
-import crypto12 from "crypto";
+import crypto14 from "crypto";
 var API_HOST3, GeminiService;
 var init_gemini = __esm({
   "server/gemini.ts"() {
@@ -50752,7 +55734,7 @@ var init_gemini = __esm({
         const nonce = Date.now();
         const payload2 = { request: endpoint, nonce, ...params };
         const b64 = Buffer.from(JSON.stringify(payload2)).toString("base64");
-        const signature = crypto12.createHmac("sha384", this.secret).update(b64).digest("hex");
+        const signature = crypto14.createHmac("sha384", this.secret).update(b64).digest("hex");
         const res2 = await fetch(`${API_HOST3}${endpoint}`, {
           method: "POST",
           headers: {
@@ -52741,11 +57723,11 @@ async function monitorOpenPositions(userId, cfg) {
         } catch {
         }
         if (trade.takeProfit && px >= trade.takeProfit) {
-          await closePosition(userId, trade, px, "take_profit");
+          await closePosition2(userId, trade, px, "take_profit");
           continue;
         }
         if (trade.stopLoss && px <= trade.stopLoss) {
-          await closePosition(userId, trade, px, "stop_loss");
+          await closePosition2(userId, trade, px, "stop_loss");
           continue;
         }
         if (process.env.CRYPTO_TRAIL !== "off" && Number(trade.stopLoss) > 0 && trade.entryPrice > 0) {
@@ -52792,7 +57774,7 @@ async function monitorOpenPositions(userId, cfg) {
             if (ageDays >= maxDays && Math.abs(movePct) < flatPct && !_trendHolds) {
               await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "exit", strategy: trade.strategy, reasoning: `${trade.symbol}: time exit \u2014 open ${ageDays.toFixed(1)} days (limit ${maxDays}) and only ${movePct.toFixed(2)}% from entry (flat band \xB1${flatPct}%).`, score: null, price: px, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
               });
-              await closePosition(userId, trade, px, "time_exit");
+              await closePosition2(userId, trade, px, "time_exit");
               continue;
             }
           }
@@ -52805,7 +57787,7 @@ async function monitorOpenPositions(userId, cfg) {
         currentPrice = await hlx.hlMid(userId, trade.symbol).catch(() => null);
         const stillOpen = await hlx.hlPositionOpen(userId, trade.symbol, trade.direction).catch(() => null);
         if (stillOpen === false) {
-          await closePosition(userId, trade, currentPrice ?? 0, "exchange_stop");
+          await closePosition2(userId, trade, currentPrice ?? 0, "exchange_stop");
           continue;
         }
       } else {
@@ -52814,11 +57796,11 @@ async function monitorOpenPositions(userId, cfg) {
       if (!currentPrice || currentPrice <= 0) continue;
       const isLong = trade.direction === "long";
       if (trade.takeProfit && (isLong ? currentPrice >= trade.takeProfit : currentPrice <= trade.takeProfit)) {
-        await closePosition(userId, trade, currentPrice, "take_profit");
+        await closePosition2(userId, trade, currentPrice, "take_profit");
         continue;
       }
       if (trade.stopLoss && (isLong ? currentPrice <= trade.stopLoss : currentPrice >= trade.stopLoss)) {
-        await closePosition(userId, trade, currentPrice, "stop_loss");
+        await closePosition2(userId, trade, currentPrice, "stop_loss");
         continue;
       }
       if (!trade.stopLoss) continue;
@@ -52830,13 +57812,13 @@ async function monitorOpenPositions(userId, cfg) {
       const tCfg = tgProfile ? { ...cfg, trailMethod: tgProfile.method, trailActivationR: tgProfile.activationR, trailFixedR: tgProfile.fixedR, trailStepR: tgProfile.stepR, trailProfitLockPct: tgProfile.profitLockPct, trailSarInitialAF: tgProfile.sarInitialAF, trailSarMaxAF: tgProfile.sarMaxAF, breakevenBufferR: tgProfile.breakevenBufferR } : cfg;
       const armed = trade.trailArmed || peakR >= tCfg.trailActivationR;
       if (currentR <= -1) {
-        await closePosition(userId, trade, currentPrice, "stop_loss");
+        await closePosition2(userId, trade, currentPrice, "stop_loss");
         continue;
       }
       if (tCfg.trailMethod !== "none" && armed) {
         const floor = Math.max(computeTrailFloorR(tCfg, peakR), tCfg.breakevenBufferR);
         if (currentR <= floor) {
-          await closePosition(userId, trade, currentPrice, "trailing_stop");
+          await closePosition2(userId, trade, currentPrice, "trailing_stop");
           continue;
         }
       }
@@ -52848,7 +57830,7 @@ async function monitorOpenPositions(userId, cfg) {
     }
   }
 }
-async function closePosition(userId, trade, currentPrice, reason) {
+async function closePosition2(userId, trade, currentPrice, reason) {
   const claimed = await storage.claimCryptocomEngineTradeForClose(trade.id).catch((e) => {
     console.error(`[cryptocom-scanner] could not claim trade ${trade.id} for close (${e?.message}) \u2014 skipping to avoid a duplicate order`);
     return void 0;
@@ -52992,7 +57974,7 @@ async function manualCloseCryptoTrade(userId, tradeId) {
     } catch {
     }
     if (!(px > 0)) return { ok: false, error: "Could not fetch current price to close" };
-    await closePosition(userId, trade, px, "manual");
+    await closePosition2(userId, trade, px, "manual");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err?.message || "close failed" };
@@ -53396,7 +58378,7 @@ async function executeSignalSingle(service, connection2, userId, symbol, result,
               saveRuntimeState2("crypto_rotation", String(userId), { at: Date.now(), sold: pick3.t.symbol, for: symbol });
               await storage.createCryptocomEngineActivity({ userId, symbol: pick3.t.symbol, decision: "exit", strategy: pick3.t.strategy, reasoning: `${pick3.t.symbol}: ROTATION \u2014 open ${pick3.ageH.toFixed(0)}h, only ${pick3.move >= 0 ? "+" : ""}${pick3.move.toFixed(2)}% and no H1+H4 uptrend; selling to fund ${symbol} (score ${result.score}, $${usdc.toFixed(2)} USDC < $${notionalD.toFixed(2)} needed).`, score: null, price: pick3.px, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
               });
-              await closePosition(userId, pick3.t, pick3.px, "rotation");
+              await closePosition2(userId, pick3.t, pick3.px, "rotation");
               const after = await hotWalletUsdc2(userId, chain);
               if (after == null || after < notionalD) {
                 await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: rotation sale did not free enough USDC yet ($${(after ?? 0).toFixed(2)}) \u2014 entry deferred.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" }).catch(() => {
@@ -54460,7 +59442,7 @@ __export(strategy_backtest_exports, {
 function contractSize(symbol) {
   return CONTRACT_SIZE[symbol.replace(/[^A-Z]/g, "")] ?? 1e5;
 }
-function sma2(values, period) {
+function sma3(values, period) {
   const out = new Array(values.length).fill(null);
   let sum = 0;
   for (let i = 0; i < values.length; i++) {
@@ -54470,7 +59452,7 @@ function sma2(values, period) {
   }
   return out;
 }
-function ema3(values, period) {
+function ema5(values, period) {
   const out = new Array(values.length).fill(null);
   const k2 = 2 / (period + 1);
   let prev = null;
@@ -54899,11 +59881,11 @@ function buildSeries(spec, bars) {
           const src = map.get(`${ind.sourceId}:value`);
           if (!src) return;
           const nums = src.map((v) => v ?? NaN);
-          const raw = ind.kind === "EMA" ? ema3(nums, ind.period ?? 21) : sma2(nums, ind.period ?? 50);
+          const raw = ind.kind === "EMA" ? ema5(nums, ind.period ?? 21) : sma3(nums, ind.period ?? 50);
           map.set(key("value"), raw.map((v, i) => src[i] == null || v == null || Number.isNaN(v) ? null : v));
           return;
         }
-        map.set(key("value"), ind.kind === "EMA" ? ema3(closes, ind.period ?? 21) : sma2(closes, ind.period ?? 50));
+        map.set(key("value"), ind.kind === "EMA" ? ema5(closes, ind.period ?? 21) : sma3(closes, ind.period ?? 50));
         break;
       }
       case "RSI":
@@ -54913,12 +59895,12 @@ function buildSeries(spec, bars) {
         map.set(key("value"), atrSeries(bars, ind.period ?? 14));
         break;
       case "MACD": {
-        const fast = ema3(closes, ind.fastPeriod ?? 12);
-        const slow = ema3(closes, ind.slowPeriod ?? 26);
+        const fast = ema5(closes, ind.fastPeriod ?? 12);
+        const slow = ema5(closes, ind.slowPeriod ?? 26);
         const macd2 = closes.map((_, i) => fast[i] != null && slow[i] != null ? fast[i] - slow[i] : null);
         const macdNums = macd2.map((v) => v ?? 0);
         const firstValid = macd2.findIndex((v) => v != null);
-        const sigRaw = ema3(macdNums, ind.signalPeriod ?? 9);
+        const sigRaw = ema5(macdNums, ind.signalPeriod ?? 9);
         const signal = macd2.map((v, i) => v == null || i < firstValid + (ind.signalPeriod ?? 9) - 1 ? null : sigRaw[i]);
         map.set(key("value"), macd2);
         map.set(key("signal"), signal);
@@ -54937,7 +59919,7 @@ function buildSeries(spec, bars) {
           kSeries[i] = hh === ll ? 50 : (bars[i].close - ll) / (hh - ll) * 100;
         }
         const kNums = kSeries.map((v) => v ?? 50);
-        const dRaw = sma2(kNums, ind.signalPeriod ?? 3);
+        const dRaw = sma3(kNums, ind.signalPeriod ?? 3);
         map.set(key("k"), kSeries);
         map.set(key("value"), kSeries);
         map.set(key("d"), kSeries.map((v, i) => v == null ? null : dRaw[i]));
@@ -54945,7 +59927,7 @@ function buildSeries(spec, bars) {
       }
       case "BOLLINGER": {
         const period = ind.period ?? 20;
-        const mid = sma2(closes, period);
+        const mid = sma3(closes, period);
         const upper = new Array(bars.length).fill(null);
         const lower = new Array(bars.length).fill(null);
         for (let i = period - 1; i < bars.length; i++) {
@@ -56421,3505 +61403,6 @@ var init_brain_marketplace = __esm({
   }
 });
 
-// server/services/btc-5min-predictor.ts
-var btc_5min_predictor_exports = {};
-__export(btc_5min_predictor_exports, {
-  clearBTCPredictionCache: () => clearBTCPredictionCache,
-  clearCryptoPredictionCache: () => clearCryptoPredictionCache,
-  getBTC5MinPrediction: () => getBTC5MinPrediction,
-  getBTCCandles: () => getBTCCandles,
-  getCryptoCandles: () => getCryptoCandles,
-  getCryptoPrediction: () => getCryptoPrediction
-});
-function ema4(values, period) {
-  const k2 = 2 / (period + 1);
-  const result = [];
-  let e = values[0];
-  result.push(e);
-  for (let i = 1; i < values.length; i++) {
-    e = values[i] * k2 + e * (1 - k2);
-    result.push(e);
-  }
-  return result;
-}
-function rsi3(closes, period = 14) {
-  if (closes.length < period + 1) return 50;
-  let gains = 0, losses = 0;
-  for (let i = closes.length - period; i < closes.length; i++) {
-    const d = closes[i] - closes[i - 1];
-    if (d >= 0) gains += d;
-    else losses -= d;
-  }
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return Math.round(100 - 100 / (1 + rs));
-}
-function macd(closes) {
-  const ema12 = ema4(closes, 12);
-  const ema26 = ema4(closes, 26);
-  const macdLine = ema12.map((v, i) => v - ema26[i]);
-  const signalLine = ema4(macdLine, 9);
-  const last2 = closes.length - 1;
-  return {
-    macdLine: macdLine[last2],
-    signalLine: signalLine[last2],
-    histogram: macdLine[last2] - signalLine[last2]
-  };
-}
-function sma3(values, period) {
-  const slice = values.slice(-period);
-  return slice.reduce((a, b) => a + b, 0) / slice.length;
-}
-async function fetchBinanceCandles(symbol, interval, limit) {
-  const url = `${BINANCE_BASE}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-  const res2 = await fetch(url, {
-    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
-    signal: AbortSignal.timeout(8e3)
-  });
-  if (!res2.ok) throw new Error(`Binance API ${res2.status}: ${res2.statusText}`);
-  const raw = await res2.json();
-  return raw.map((c) => ({
-    openTime: c[0],
-    open: parseFloat(c[1]),
-    high: parseFloat(c[2]),
-    low: parseFloat(c[3]),
-    close: parseFloat(c[4]),
-    volume: parseFloat(c[5])
-  }));
-}
-async function fetchCoinbaseCandles(limit, product = "BTC-USD") {
-  const url = `${COINBASE_BASE}/products/${product}/candles?granularity=300`;
-  const res2 = await fetch(url, {
-    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
-    signal: AbortSignal.timeout(8e3)
-  });
-  if (!res2.ok) throw new Error(`Coinbase API ${res2.status}: ${res2.statusText}`);
-  const raw = await res2.json();
-  const ascending = raw.slice().reverse();
-  return ascending.slice(-limit).map((c) => ({
-    openTime: c[0] * 1e3,
-    // seconds → ms
-    low: parseFloat(c[1]),
-    high: parseFloat(c[2]),
-    open: parseFloat(c[3]),
-    close: parseFloat(c[4]),
-    volume: parseFloat(c[5])
-  }));
-}
-async function fetchCandlesWithFallback(symbol, interval, limit, coinbaseProduct = "BTC-USD") {
-  try {
-    const candles = await fetchBinanceCandles(symbol, interval, limit);
-    return { candles, source: "binance" };
-  } catch (binanceErr) {
-    console.warn(`[BTC5Min] Binance fetch failed (${binanceErr.message}); falling back to Coinbase`);
-    const candles = await fetchCoinbaseCandles(limit, coinbaseProduct);
-    return { candles, source: "coinbase" };
-  }
-}
-async function fetchYahooCandles(yahooSymbol, limit) {
-  const url = `${YAHOO_BASE}/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=5m&range=1d`;
-  const res2 = await fetch(url, {
-    headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0 (VEDD-Trading-AI/1.0)" },
-    signal: AbortSignal.timeout(1e4)
-  });
-  if (!res2.ok) throw new Error(`Yahoo Finance API ${res2.status}: ${res2.statusText}`);
-  const data = await res2.json();
-  const result = data?.chart?.result?.[0];
-  if (!result) throw new Error(`Yahoo Finance returned no chart data for ${yahooSymbol}`);
-  const timestamps = result.timestamp ?? [];
-  const q = result.indicators?.quote?.[0] ?? {};
-  const candles = [];
-  for (let i = 0; i < timestamps.length; i++) {
-    if (q.open?.[i] == null || q.close?.[i] == null || q.high?.[i] == null || q.low?.[i] == null) continue;
-    candles.push({
-      openTime: timestamps[i] * 1e3,
-      open: q.open[i],
-      high: q.high[i],
-      low: q.low[i],
-      close: q.close[i],
-      volume: q.volume?.[i] ?? 0
-    });
-  }
-  return candles.slice(-limit);
-}
-function buildPrediction(candles, fromCache, source = "binance", binanceSymbol = "BTCUSDT", coinbaseProduct = "BTC-USD") {
-  const closes = candles.map((c) => c.close);
-  const volumes = candles.map((c) => c.volume);
-  const highs = candles.map((c) => c.high);
-  const lows = candles.map((c) => c.low);
-  const last2 = candles[candles.length - 1];
-  const prev = candles[candles.length - 2];
-  const currentPrice = last2.close;
-  const priceChange5m = (last2.close - prev.close) / prev.close * 100;
-  const priceChange1h = (last2.close - candles[candles.length - 13].close) / candles[candles.length - 13].close * 100;
-  const ema9Val = ema4(closes, 9)[closes.length - 1];
-  const ema21Val = ema4(closes, 21)[closes.length - 1];
-  const ema50Val = ema4(closes, 50)[closes.length - 1];
-  const rsiVal = rsi3(closes, 14);
-  const { macdLine, signalLine, histogram } = macd(closes);
-  const volSma20 = sma3(volumes, 20);
-  const volLast3 = sma3(volumes.slice(-3), 3);
-  const volumeTrend = volLast3 > volSma20 * 1.15 ? "rising" : volLast3 < volSma20 * 0.85 ? "falling" : "flat";
-  const macdSignalDir = histogram > 0 ? "bullish" : histogram < 0 ? "bearish" : "neutral";
-  const recent20H = Math.max(...highs.slice(-20));
-  const recent20L = Math.min(...lows.slice(-20));
-  const signals = [];
-  if (ema9Val > ema21Val && ema21Val > ema50Val) {
-    signals.push({ score: 2, reason: "EMA stack bullish (9 > 21 > 50)" });
-  } else if (ema9Val < ema21Val && ema21Val < ema50Val) {
-    signals.push({ score: -2, reason: "EMA stack bearish (9 < 21 < 50)" });
-  }
-  if (currentPrice > ema9Val) {
-    signals.push({ score: 1, reason: `Price above EMA9 ($${ema9Val.toFixed(0)})` });
-  } else {
-    signals.push({ score: -1, reason: `Price below EMA9 ($${ema9Val.toFixed(0)})` });
-  }
-  if (rsiVal > 60) {
-    signals.push({ score: 1, reason: `RSI ${rsiVal} \u2014 momentum bullish` });
-  } else if (rsiVal < 40) {
-    signals.push({ score: -1, reason: `RSI ${rsiVal} \u2014 momentum bearish` });
-  } else if (rsiVal > 50) {
-    signals.push({ score: 0.5, reason: `RSI ${rsiVal} \u2014 mildly bullish` });
-  } else {
-    signals.push({ score: -0.5, reason: `RSI ${rsiVal} \u2014 mildly bearish` });
-  }
-  if (macdSignalDir === "bullish") {
-    signals.push({ score: histogram > 50 ? 2 : 1, reason: `MACD histogram positive (+${histogram.toFixed(1)})` });
-  } else {
-    signals.push({ score: histogram < -50 ? -2 : -1, reason: `MACD histogram negative (${histogram.toFixed(1)})` });
-  }
-  if (volumeTrend === "rising" && priceChange5m > 0) {
-    signals.push({ score: 1, reason: "Volume rising with price \u2014 buyers active" });
-  } else if (volumeTrend === "rising" && priceChange5m < 0) {
-    signals.push({ score: -1, reason: "Volume rising with drop \u2014 sellers active" });
-  }
-  if (priceChange1h > 0.5) {
-    signals.push({ score: 1, reason: `1h trend +${priceChange1h.toFixed(2)}%` });
-  } else if (priceChange1h < -0.5) {
-    signals.push({ score: -1, reason: `1h trend ${priceChange1h.toFixed(2)}%` });
-  }
-  if (rsiVal >= 75) {
-    signals.push({ score: -1, reason: `RSI ${rsiVal} \u2014 overbought, watch for reversal` });
-  } else if (rsiVal <= 25) {
-    signals.push({ score: 1, reason: `RSI ${rsiVal} \u2014 oversold, watch for bounce` });
-  }
-  const rawScore = signals.reduce((s, x) => s + x.score, 0);
-  const maxScore = 9;
-  const normalised = (rawScore / maxScore + 1) / 2;
-  const confidence2 = Math.min(95, Math.max(30, Math.round(normalised * 100)));
-  let direction;
-  if (rawScore >= 2) direction = "BUY";
-  else if (rawScore <= -2) direction = "SELL";
-  else direction = "NEUTRAL";
-  const sorted = signals.sort((a, b) => direction === "BUY" ? b.score - a.score : a.score - b.score).slice(0, 3).map((s) => s.reason);
-  return {
-    direction,
-    confidence: direction === "NEUTRAL" ? Math.round(50 + Math.abs(rawScore) * 5) : confidence2,
-    currentPrice,
-    priceChange5m: Math.round(priceChange5m * 1e3) / 1e3,
-    priceChange1h: Math.round(priceChange1h * 1e3) / 1e3,
-    rsi: rsiVal,
-    macdSignal: macdSignalDir,
-    macdHistogram: Math.round(histogram * 100) / 100,
-    ema9: Math.round(ema9Val),
-    ema21: Math.round(ema21Val),
-    ema50: Math.round(ema50Val),
-    volumeTrend,
-    supportLevel: Math.round(recent20L),
-    resistanceLevel: Math.round(recent20H),
-    reasons: sorted,
-    fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    fromCache,
-    symbol: source === "coinbase" ? coinbaseProduct : binanceSymbol,
-    source
-  };
-}
-async function getCryptoPrediction(coin, forceRefresh = false) {
-  const now = Date.now();
-  const cached2 = predictionCache.get(coin);
-  if (!forceRefresh && cached2 && now - cached2.ts < CACHE_TTL_MS5) {
-    return { ...cached2.prediction, fromCache: true };
-  }
-  if (coin === "GOLD") {
-    const candles2 = await fetchYahooCandles(YAHOO_SYMBOL.GOLD, 100);
-    const prediction2 = buildPrediction(candles2, false, "yahoo", YAHOO_SYMBOL.GOLD, YAHOO_SYMBOL.GOLD);
-    predictionCache.set(coin, { prediction: prediction2, ts: now });
-    return prediction2;
-  }
-  const { binance, coinbase } = COIN_MAP[coin];
-  const { candles, source } = await fetchCandlesWithFallback(binance, "5m", 100, coinbase);
-  const prediction = buildPrediction(candles, false, source, binance, coinbase);
-  predictionCache.set(coin, { prediction, ts: now });
-  return prediction;
-}
-function clearCryptoPredictionCache(coin) {
-  if (coin) predictionCache.delete(coin);
-  else predictionCache.clear();
-}
-async function getCryptoCandles(coin, limit = 100) {
-  if (coin === "GOLD") {
-    const candles = await fetchYahooCandles(YAHOO_SYMBOL.GOLD, limit);
-    return { candles, source: "yahoo" };
-  }
-  const { binance, coinbase } = COIN_MAP[coin];
-  return fetchCandlesWithFallback(binance, "5m", limit, coinbase);
-}
-async function getBTC5MinPrediction(forceRefresh = false) {
-  return getCryptoPrediction("BTC", forceRefresh);
-}
-function clearBTCPredictionCache() {
-  clearCryptoPredictionCache("BTC");
-}
-async function getBTCCandles(limit = 100) {
-  return getCryptoCandles("BTC", limit);
-}
-var BINANCE_BASE, COINBASE_BASE, YAHOO_BASE, CACHE_TTL_MS5, COIN_MAP, YAHOO_SYMBOL, predictionCache;
-var init_btc_5min_predictor = __esm({
-  "server/services/btc-5min-predictor.ts"() {
-    "use strict";
-    BINANCE_BASE = "https://api.binance.com";
-    COINBASE_BASE = "https://api.exchange.coinbase.com";
-    YAHOO_BASE = "https://query1.finance.yahoo.com";
-    CACHE_TTL_MS5 = 3e4;
-    COIN_MAP = {
-      BTC: { binance: "BTCUSDT", coinbase: "BTC-USD" },
-      ETH: { binance: "ETHUSDT", coinbase: "ETH-USD" },
-      SOL: { binance: "SOLUSDT", coinbase: "SOL-USD" },
-      XRP: { binance: "XRPUSDT", coinbase: "XRP-USD" },
-      DOGE: { binance: "DOGEUSDT", coinbase: "DOGE-USD" }
-    };
-    YAHOO_SYMBOL = {
-      GOLD: "GC=F"
-    };
-    predictionCache = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/kalshi.ts
-var kalshi_exports = {};
-__export(kalshi_exports, {
-  KALSHI_SERIES_MAP: () => KALSHI_SERIES_MAP,
-  clearKalshiCache: () => clearKalshiCache,
-  getKalshiBTCEvent: () => getKalshiBTCEvent,
-  getKalshiCryptoEvent: () => getKalshiCryptoEvent,
-  getKalshiMarketStatus: () => getKalshiMarketStatus,
-  isKalshiBrokerTradeable: () => isKalshiBrokerTradeable
-});
-function isKalshiBrokerTradeable(coin, timeframe) {
-  if (coin === "GOLD" && timeframe === "fifteen_min") return false;
-  return true;
-}
-function parseDollars(val) {
-  if (val == null) return 0;
-  const n = parseFloat(String(val));
-  return isNaN(n) ? 0 : Math.round(n * 100);
-}
-async function fetchNearestEvent(seriesTicker) {
-  const url = `${KALSHI_BASE}/events?series_ticker=${seriesTicker}&limit=10&status=open`;
-  const res2 = await fetch(url, {
-    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
-    signal: AbortSignal.timeout(8e3)
-  });
-  if (!res2.ok) throw new Error(`Kalshi events API ${res2.status}`);
-  const data = await res2.json();
-  const events = data.events ?? [];
-  if (!events.length) return null;
-  const now = Date.now();
-  const upcoming = events.map((e) => ({
-    eventTicker: e.event_ticker,
-    title: e.title,
-    closeTime: e.strike_date ?? ""
-  })).filter((e) => new Date(e.closeTime).getTime() > now).sort((a, b) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime());
-  return upcoming[0] ?? null;
-}
-async function fetchEventMarkets(eventTicker) {
-  const url = `${KALSHI_BASE}/markets?event_ticker=${eventTicker}&limit=200`;
-  const res2 = await fetch(url, {
-    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
-    signal: AbortSignal.timeout(1e4)
-  });
-  if (!res2.ok) throw new Error(`Kalshi markets API ${res2.status}`);
-  const data = await res2.json();
-  return data.markets ?? [];
-}
-function buildBrackets(rawMarkets) {
-  return rawMarkets.filter((m) => m.status === "active" || m.status === "open").map((m) => {
-    const yesAsk = parseDollars(m.yes_ask_dollars);
-    const yesBid = parseDollars(m.yes_bid_dollars);
-    const noAsk = parseDollars(m.no_ask_dollars);
-    const noBid = parseDollars(m.no_bid_dollars);
-    const lastPct = parseDollars(m.last_price_dollars);
-    const volume = parseFloat(m.volume_fp ?? "0") || 0;
-    let yesProbability;
-    if (lastPct > 0) {
-      yesProbability = lastPct;
-    } else if (yesBid > 0 || yesAsk > 0) {
-      yesProbability = yesBid > 0 && yesAsk > 0 ? Math.round((yesBid + yesAsk) / 2) : Math.max(yesBid, yesAsk);
-    } else if (noBid > 0) {
-      yesProbability = 100 - noBid;
-    } else {
-      yesProbability = 0;
-    }
-    const hasLiquidity = volume > 0 || yesBid > 1 && yesAsk < 99;
-    return {
-      ticker: m.ticker,
-      subtitle: m.subtitle ?? m.yes_sub_title ?? "",
-      strikeType: m.strike_type,
-      floorStrike: m.floor_strike != null ? Number(m.floor_strike) : null,
-      capStrike: m.cap_strike != null ? Number(m.cap_strike) : null,
-      yesProbability,
-      noProb: Math.max(0, 100 - yesProbability),
-      hasLiquidity,
-      volume,
-      yesAsk,
-      yesBid
-    };
-  });
-}
-async function getKalshiCryptoEvent(seriesTicker, currentPrice, forceRefresh = false) {
-  const now = Date.now();
-  const hit = eventCache.get(seriesTicker);
-  if (!forceRefresh && hit && now - hit.ts < CACHE_TTL_MS6) {
-    return { ...hit.event, fromCache: true };
-  }
-  const nearestEvent = await fetchNearestEvent(seriesTicker);
-  if (!nearestEvent) {
-    throw new Error(`No active ${seriesTicker} events on Kalshi`);
-  }
-  const rawMarkets = await fetchEventMarkets(nearestEvent.eventTicker);
-  const brackets = buildBrackets(rawMarkets);
-  const totalVolume = brackets.reduce((s, b) => s + b.volume, 0);
-  const hasActiveLiquidity = brackets.some((b) => b.hasLiquidity);
-  const consensusBracket = brackets.reduce((best, b) => b.yesProbability > (best?.yesProbability ?? -1) ? b : best, null);
-  let nearestBracket = null;
-  if (currentPrice && brackets.length) {
-    nearestBracket = brackets.reduce((best, b) => {
-      const mid = b.floorStrike != null && b.capStrike != null ? (b.floorStrike + b.capStrike) / 2 : b.floorStrike ?? b.capStrike ?? 0;
-      const bestMid = best.floorStrike != null && best.capStrike != null ? (best.floorStrike + best.capStrike) / 2 : best.floorStrike ?? best.capStrike ?? 0;
-      return Math.abs(mid - currentPrice) < Math.abs(bestMid - currentPrice) ? b : best;
-    });
-  }
-  const msUntilClose = Math.max(0, new Date(nearestEvent.closeTime).getTime() - now);
-  const result = {
-    eventTicker: nearestEvent.eventTicker,
-    title: nearestEvent.title,
-    closeTime: nearestEvent.closeTime,
-    msUntilClose,
-    brackets: brackets.sort((a, b) => b.yesProbability - a.yesProbability).slice(0, 10),
-    nearestBracket,
-    consensusBracket,
-    totalVolume,
-    hasActiveLiquidity,
-    fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    fromCache: false
-  };
-  eventCache.set(seriesTicker, { event: result, ts: now });
-  return result;
-}
-async function getKalshiBTCEvent(currentBTCPrice, forceRefresh = false) {
-  return getKalshiCryptoEvent("KXBTC", currentBTCPrice, forceRefresh);
-}
-async function getKalshiMarketStatus(ticker) {
-  const url = `${KALSHI_BASE}/markets/${encodeURIComponent(ticker)}`;
-  const res2 = await fetch(url, {
-    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
-    signal: AbortSignal.timeout(8e3)
-  });
-  if (!res2.ok) return null;
-  const data = await res2.json();
-  const m = data.market;
-  if (!m) return null;
-  return {
-    ticker: m.ticker,
-    status: m.status ?? "",
-    result: m.result === "yes" || m.result === "no" ? m.result : "",
-    yesBid: parseDollars(m.yes_bid_dollars),
-    yesAsk: parseDollars(m.yes_ask_dollars),
-    lastPrice: parseDollars(m.last_price_dollars)
-  };
-}
-function clearKalshiCache(seriesTicker) {
-  if (seriesTicker) eventCache.delete(seriesTicker);
-  else eventCache.clear();
-}
-var KALSHI_BASE, CACHE_TTL_MS6, KALSHI_SERIES_MAP, eventCache;
-var init_kalshi = __esm({
-  "server/services/kalshi.ts"() {
-    "use strict";
-    KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2";
-    CACHE_TTL_MS6 = 6e4;
-    KALSHI_SERIES_MAP = {
-      BTC: { hourly: "KXBTC", fifteenMin: "KXBTC15M" },
-      ETH: { hourly: "KXETH", fifteenMin: "KXETH15M" },
-      SOL: { hourly: "KXSOL", fifteenMin: "KXSOL15M" },
-      XRP: { hourly: "KXXRP", fifteenMin: "KXXRP15M" },
-      DOGE: { hourly: "KXDOGE", fifteenMin: "KXDOGE15M" },
-      GOLD: { hourly: "KXGOLDH", fifteenMin: "KXGOLD15M" }
-    };
-    eventCache = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/polymarket-autonomous-engine.ts
-var polymarket_autonomous_engine_exports = {};
-__export(polymarket_autonomous_engine_exports, {
-  closeAllPositions: () => closeAllPositions,
-  closePosition: () => closePosition2,
-  getEngineState: () => getEngineState,
-  manualScan: () => manualScan,
-  restoreEngineStateFromDb: () => restoreEngineStateFromDb,
-  setPolymarketLiveMode: () => setPolymarketLiveMode,
-  startEngine: () => startEngine,
-  stopEngine: () => stopEngine,
-  updateEngineConfig: () => updateEngineConfig
-});
-import * as fs8 from "fs";
-import * as path8 from "path";
-function _loadPolymarketPrivateKey(userId) {
-  try {
-    const fp = path8.join(process.cwd(), "data", "polymarket_keys.json");
-    if (!fs8.existsSync(fp)) return null;
-    const map = JSON.parse(fs8.readFileSync(fp, "utf-8"));
-    const enc = map[String(userId)];
-    return enc ? decryptPassword(enc) : null;
-  } catch {
-    return null;
-  }
-}
-async function _signAndSubmitClobOrder(privateKey, tokenId, side, makerAmt, takerAmt) {
-  try {
-    const { ethers: ethers2 } = await import("ethers");
-    const wallet = new ethers2.Wallet(privateKey);
-    const salt = BigInt(Math.floor(Math.random() * 1e15));
-    const now = BigInt(Math.floor(Date.now() / 1e3));
-    const expiry = now + BigInt(3600);
-    const domain = {
-      name: "Polymarket CTF Exchange",
-      version: "1",
-      chainId: POLY_CHAIN,
-      verifyingContract: CTF_ADDRESS
-    };
-    const types = {
-      Order: [
-        { name: "salt", type: "uint256" },
-        { name: "maker", type: "address" },
-        { name: "signer", type: "address" },
-        { name: "taker", type: "address" },
-        { name: "tokenId", type: "uint256" },
-        { name: "makerAmount", type: "uint256" },
-        { name: "takerAmount", type: "uint256" },
-        { name: "expiration", type: "uint256" },
-        { name: "nonce", type: "uint256" },
-        { name: "feeRateBps", type: "uint256" },
-        { name: "side", type: "uint8" },
-        { name: "signatureType", type: "uint8" }
-      ]
-    };
-    const orderValues = {
-      salt,
-      maker: wallet.address,
-      signer: wallet.address,
-      taker: "0x0000000000000000000000000000000000000000",
-      tokenId: BigInt(tokenId),
-      makerAmount: makerAmt,
-      takerAmount: takerAmt,
-      expiration: expiry,
-      nonce: BigInt(0),
-      feeRateBps: BigInt(0),
-      side: side === "BUY" ? 0 : 1,
-      signatureType: 0
-    };
-    const signature = await wallet.signTypedData(domain, types, orderValues);
-    const body = {
-      order: {
-        salt: salt.toString(),
-        maker: wallet.address,
-        signer: wallet.address,
-        taker: "0x0000000000000000000000000000000000000000",
-        tokenId,
-        makerAmount: makerAmt.toString(),
-        takerAmount: takerAmt.toString(),
-        expiration: expiry.toString(),
-        nonce: "0",
-        feeRateBps: "0",
-        side: side === "BUY" ? 0 : 1,
-        signatureType: 0,
-        signature
-      },
-      owner: wallet.address,
-      orderType: "GTC"
-    };
-    const res2 = await fetch(`${CLOB_BASE2}/order`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(12e3)
-    });
-    const data = await res2.json();
-    if (!res2.ok || data.error) {
-      return { success: false, error: data.error ?? `CLOB ${res2.status}` };
-    }
-    return { success: true, orderId: data.orderID ?? data.order_id ?? "unknown" };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-}
-async function placeClobOrder(privateKey, tokenId, side, priceFloat, sizeUsdc) {
-  const makerAmt = BigInt(Math.round(sizeUsdc * 1e6));
-  const takerAmt = BigInt(Math.round(sizeUsdc / priceFloat * 1e6));
-  return _signAndSubmitClobOrder(privateKey, tokenId, side, makerAmt, takerAmt);
-}
-async function sellClobPosition(privateKey, tokenId, priceFloat, shares) {
-  const makerAmt = BigInt(Math.round(shares * 1e6));
-  const takerAmt = BigInt(Math.round(shares * priceFloat * 1e6));
-  return _signAndSubmitClobOrder(privateKey, tokenId, "SELL", makerAmt, takerAmt);
-}
-function setPolymarketLiveMode(userId, enabled, privateKey) {
-  if (privateKey) _privateKeys.set(userId, privateKey);
-  else _privateKeys.delete(userId);
-  const s = getEngineState(userId);
-  s.isPaperMode = !enabled;
-}
-function getEngineState(userId) {
-  if (!_states.has(userId)) {
-    _states.set(userId, {
-      isRunning: false,
-      isPaperMode: true,
-      lastScanAt: null,
-      lastTradeAt: null,
-      lastScanResult: null,
-      openPositions: [],
-      closedPositions: [],
-      totalRealizedPnl: 0,
-      totalUnrealizedPnl: 0,
-      tradesOpened: 0,
-      config: { ...DEFAULT_CONFIG2 }
-    });
-  }
-  return _states.get(userId);
-}
-function updateEngineConfig(userId, config) {
-  const s = getEngineState(userId);
-  s.config = { ...s.config, ...config };
-}
-function startEngine(userId) {
-  const s = getEngineState(userId);
-  if (s.isRunning) return;
-  s.isRunning = true;
-  _persistRunState(userId, true, s.isPaperMode);
-  _runScan(userId).catch(console.error);
-  const iv = setInterval(() => _runScan(userId).catch(console.error), 5 * 60 * 1e3);
-  _intervals.set(userId, iv);
-}
-function stopEngine(userId) {
-  const s = getEngineState(userId);
-  s.isRunning = false;
-  _persistRunState(userId, false, s.isPaperMode);
-  const iv = _intervals.get(userId);
-  if (iv) {
-    clearInterval(iv);
-    _intervals.delete(userId);
-  }
-}
-function _persistRunState(userId, isRunning, isPaperMode) {
-  Promise.resolve().then(() => (init_db(), db_exports)).then(({ db: db2 }) => {
-    Promise.resolve().then(() => (init_schema(), schema_exports)).then(({ engineRunState: engineRunState2 }) => {
-      db2.insert(engineRunState2).values({ userId, engine: "polymarket", isRunning, isPaperMode }).onConflictDoUpdate({
-        target: [engineRunState2.userId, engineRunState2.engine],
-        set: { isRunning, isPaperMode, updatedAt: /* @__PURE__ */ new Date() }
-      }).catch(console.error);
-    });
-  });
-}
-async function restoreEngineStateFromDb(userId) {
-  try {
-    await _restorePolymarketRealizedPnl(userId);
-    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq21, and: and12 } = await import("drizzle-orm");
-    const rows = await db2.select().from(engineRunState2).where(and12(eq21(engineRunState2.userId, userId), eq21(engineRunState2.engine, "polymarket")));
-    const row = rows[0];
-    if (!row?.isRunning) return;
-    console.log(`[Polymarket] Restoring engine for user ${userId}`);
-    if (row.isPaperMode === false) {
-      const pk = _loadPolymarketPrivateKey(userId);
-      if (pk) {
-        setPolymarketLiveMode(userId, true, pk);
-        console.log(`[Polymarket] Restored LIVE mode for user ${userId} (private key loaded from durable storage)`);
-      } else {
-        console.warn(`[Polymarket] User ${userId} was in LIVE mode before this restart but no private key is available to restore it \u2014 resuming in PAPER mode instead. Re-enable live mode from the UI to resume live trading.`);
-        _persistRunState(userId, true, true);
-      }
-    }
-    startEngine(userId);
-  } catch (e) {
-    console.error("[Polymarket] Failed to restore engine state:", e);
-  }
-}
-async function _restorePolymarketRealizedPnl(userId) {
-  try {
-    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq21, and: and12, sql: sql18 } = await import("drizzle-orm");
-    const [row] = await db2.select({ total: sql18`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(eq21(aiTradeResults2.userId, userId), eq21(aiTradeResults2.source, "polymarket")));
-    const total = parseFloat(row?.total ?? "0") || 0;
-    const s = getEngineState(userId);
-    s.totalRealizedPnl = total;
-  } catch (e) {
-    console.error(`[Polymarket] Failed to restore totalRealizedPnl for user ${userId}:`, e?.message);
-  }
-}
-async function manualScan(userId) {
-  return _runScan(userId, true);
-}
-async function _runScan(userId, manual = false) {
-  const s = getEngineState(userId);
-  s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
-  await _refreshPositionPrices(s, userId);
-  if (s.openPositions.length >= s.config.maxOpenPositions) {
-    const r = `Max open positions (${s.config.maxOpenPositions}) reached`;
-    s.lastScanResult = r;
-    return { fired: false, reason: r };
-  }
-  if (!manual && s.lastTradeAt) {
-    const elapsed = Date.now() - new Date(s.lastTradeAt).getTime();
-    if (elapsed < s.config.cooldownMinutes * 60 * 1e3) {
-      const minsLeft = Math.ceil((s.config.cooldownMinutes * 60 * 1e3 - elapsed) / 6e4);
-      const r = `Cooldown active \u2014 ${minsLeft}m remaining`;
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
-    }
-  }
-  try {
-    const sentiment = await getPolymarketBTCSentiment();
-    const score = sentiment.overallBullishScore;
-    const isBullish = score >= s.config.minBullishScore;
-    const isBearish = 100 - score >= s.config.minBearishScore;
-    if (!isBullish && !isBearish) {
-      const r = `Sentiment neutral \u2014 score ${score}% (need \u2265${s.config.minBullishScore}% bullish or \u2264${100 - s.config.minBearishScore}% bearish)`;
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
-    }
-    const direction = isBullish ? "BUY" : "SELL";
-    const result = await _openPosition(s, sentiment, direction, userId);
-    s.lastScanResult = result.reason;
-    return result;
-  } catch (err) {
-    const r = `Scan error: ${err?.message ?? String(err)}`;
-    s.lastScanResult = r;
-    return { fired: false, reason: r };
-  }
-}
-async function _openPosition(s, sentiment, direction, userId) {
-  const openIds = new Set(s.openPositions.map((p2) => p2.market.id));
-  const now = Date.now();
-  const candidates = sentiment.markets.filter((m) => {
-    if (openIds.has(m.id)) return false;
-    if (m.closed) return false;
-    if (m.endDate) {
-      const end = new Date(m.endDate).getTime();
-      if (end - now < 2 * 60 * 60 * 1e3) return false;
-    }
-    if (direction === "BUY" && m.direction === "bullish") return true;
-    if (direction === "SELL" && m.direction === "bearish") return true;
-    return false;
-  });
-  if (candidates.length === 0) {
-    return { fired: false, reason: `No suitable open ${direction} market available on Polymarket` };
-  }
-  const best = candidates.sort((a, b) => b.volume - a.volume)[0];
-  const entryProb = best.yesProbability;
-  if (entryProb <= 5 || entryProb >= 95) {
-    return { fired: false, reason: `Market probability ${entryProb}% too extreme \u2014 skipping` };
-  }
-  const position = {
-    id: `pm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    market: { id: best.id, question: best.question, endDate: best.endDate },
-    side: "YES",
-    direction,
-    entryProbability: entryProb,
-    currentProbability: entryProb,
-    stake: s.config.stakePerTrade,
-    currentValue: s.config.stakePerTrade,
-    unrealizedPnl: 0,
-    unrealizedPnlPct: 0,
-    openedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    signal: {
-      bullishScore: sentiment.overallBullishScore,
-      sentimentLabel: sentiment.sentimentLabel,
-      direction
-    },
-    status: "open"
-  };
-  let liveOrderId;
-  if (!s.isPaperMode && best.yesTokenId) {
-    const pk = _privateKeys.get(userId);
-    if (pk && best.yesTokenId) {
-      const result = await placeClobOrder(pk, best.yesTokenId, "BUY", entryProb / 100, s.config.stakePerTrade);
-      if (!result.success) {
-        return { fired: false, reason: `CLOB order failed: ${result.error}` };
-      }
-      liveOrderId = result.orderId;
-      position.tokenId = best.yesTokenId;
-    }
-  }
-  position.clobOrderId = liveOrderId;
-  s.openPositions.push(position);
-  s.lastTradeAt = (/* @__PURE__ */ new Date()).toISOString();
-  s.tradesOpened++;
-  const modeStr = s.isPaperMode ? "[PAPER]" : "[LIVE]";
-  return {
-    fired: true,
-    reason: `${modeStr} Opened YES on "${best.question.slice(0, 60)}..." at ${entryProb}% \u2014 stake $${s.config.stakePerTrade}`
-  };
-}
-async function _refreshPositionPrices(s, userId) {
-  if (s.openPositions.length === 0) return;
-  try {
-    const sentiment = await getPolymarketBTCSentiment();
-    for (const pos of s.openPositions) {
-      const market = sentiment.markets.find((m) => m.id === pos.market.id);
-      if (!market) continue;
-      const currentProb = pos.side === "YES" ? market.yesProbability : 100 - market.yesProbability;
-      pos.currentProbability = currentProb;
-      const shares = pos.stake * 100 / pos.entryProbability;
-      pos.currentValue = shares * (currentProb / 100);
-      pos.unrealizedPnl = pos.currentValue - pos.stake;
-      pos.unrealizedPnlPct = pos.unrealizedPnl / pos.stake * 100;
-      if (market.closed) {
-        await closePosition2(s, pos.id, currentProb, userId, true);
-      }
-    }
-    s.totalUnrealizedPnl = s.openPositions.reduce((acc, p2) => acc + p2.unrealizedPnl, 0);
-  } catch {
-  }
-}
-async function closePosition2(s, positionId, exitProb, userId, viaMarketResolution = false) {
-  const idx = s.openPositions.findIndex((p2) => p2.id === positionId);
-  if (idx === -1) return false;
-  const pos = s.openPositions[idx];
-  const ep = exitProb ?? pos.currentProbability;
-  const shares = pos.stake * 100 / pos.entryProbability;
-  if (pos.clobOrderId && !viaMarketResolution) {
-    if (!pos.tokenId) {
-      console.error(`[Polymarket] Cannot close live position ${pos.id} \u2014 no tokenId recorded to sell.`);
-      return false;
-    }
-    const pk = userId != null ? _privateKeys.get(userId) : void 0;
-    if (!pk) {
-      console.error(`[Polymarket] Cannot close live position ${pos.id} \u2014 no private key cached (was it deleted or the process restarted?).`);
-      return false;
-    }
-    const sellPrice = Math.max(0.01, Math.min(0.99, ep / 100));
-    const result = await sellClobPosition(pk, pos.tokenId, sellPrice, shares);
-    if (!result.success) {
-      console.error(`[Polymarket] Sell order failed for position ${pos.id} (leaving position open, will retry): ${result.error}`);
-      return false;
-    }
-  }
-  const exitValue = shares * (ep / 100);
-  const realizedPnl = exitValue - pos.stake;
-  pos.status = ep >= 99 ? "resolved" : "closed";
-  pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-  pos.closedProbability = ep;
-  pos.realizedPnl = realizedPnl;
-  pos.unrealizedPnl = 0;
-  pos.unrealizedPnlPct = 0;
-  s.openPositions.splice(idx, 1);
-  s.closedPositions.unshift(pos);
-  if (s.closedPositions.length > 50) s.closedPositions.length = 50;
-  s.totalRealizedPnl += realizedPnl;
-  s.totalUnrealizedPnl = s.openPositions.reduce((acc, p2) => acc + p2.unrealizedPnl, 0);
-  if (userId != null) {
-    Promise.resolve().then(async () => {
-      try {
-        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-        const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        await db2.insert(aiTradeResults2).values({
-          userId,
-          symbol: `POLYMARKET:BTC`,
-          direction: pos.direction,
-          entryPrice: pos.entryProbability / 100,
-          exitPrice: ep / 100,
-          result: realizedPnl > 0 ? "WIN" : realizedPnl < 0 ? "LOSS" : "BREAKEVEN",
-          profitLoss: Math.round(realizedPnl * 100) / 100,
-          closedAt: /* @__PURE__ */ new Date(),
-          source: "polymarket",
-          mt5Ticket: pos.id,
-          notes: `${pos.market.question.slice(0, 100)} | ${pos.status}`
-        });
-      } catch {
-      }
-    });
-  }
-  return true;
-}
-async function closeAllPositions(userId) {
-  const s = getEngineState(userId);
-  const ids = s.openPositions.map((p2) => p2.id);
-  let closed = 0;
-  for (const id of ids) {
-    if (await closePosition2(s, id, void 0, userId)) closed++;
-  }
-  return closed;
-}
-var CLOB_BASE2, POLY_CHAIN, CTF_ADDRESS, _privateKeys, _states, _intervals, DEFAULT_CONFIG2;
-var init_polymarket_autonomous_engine = __esm({
-  "server/services/polymarket-autonomous-engine.ts"() {
-    "use strict";
-    init_polymarket();
-    init_tradelocker();
-    CLOB_BASE2 = "https://clob.polymarket.com";
-    POLY_CHAIN = 137;
-    CTF_ADDRESS = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E";
-    _privateKeys = /* @__PURE__ */ new Map();
-    _states = /* @__PURE__ */ new Map();
-    _intervals = /* @__PURE__ */ new Map();
-    DEFAULT_CONFIG2 = {
-      minBullishScore: 70,
-      minBearishScore: 70,
-      stakePerTrade: 10,
-      maxOpenPositions: 3,
-      cooldownMinutes: 30
-    };
-  }
-});
-
-// server/services/kalshi-strategies.ts
-function pct1h(candles) {
-  if (candles.length < 13) return 0;
-  const last2 = candles[candles.length - 1].close;
-  const prev = candles[candles.length - 13].close;
-  return (last2 - prev) / prev * 100;
-}
-function volumeProfileSignal(candles) {
-  const price = candles[candles.length - 1].close;
-  const priceChange1h = pct1h(candles);
-  const window = candles.slice(-60);
-  const hi2 = Math.max(...window.map((c) => c.high));
-  const lo2 = Math.min(...window.map((c) => c.low));
-  const bins = 24;
-  const binSize = (hi2 - lo2) / bins || 1;
-  const vol = new Array(bins).fill(0);
-  for (const c of window) {
-    const tp = (c.high + c.low + c.close) / 3;
-    let idx = Math.floor((tp - lo2) / binSize);
-    idx = clamp3(idx, 0, bins - 1);
-    vol[idx] += c.volume;
-  }
-  const totalVol = vol.reduce((a, b) => a + b, 0) || 1;
-  let pocIdx = 0;
-  for (let i = 1; i < bins; i++) if (vol[i] > vol[pocIdx]) pocIdx = i;
-  const pocPrice = lo2 + (pocIdx + 0.5) * binSize;
-  let included = vol[pocIdx];
-  let loIdx = pocIdx, hiIdx = pocIdx;
-  while (included < totalVol * 0.7 && (loIdx > 0 || hiIdx < bins - 1)) {
-    const down = loIdx > 0 ? vol[loIdx - 1] : -1;
-    const up = hiIdx < bins - 1 ? vol[hiIdx + 1] : -1;
-    if (up >= down) {
-      hiIdx++;
-      included += vol[hiIdx];
-    } else {
-      loIdx--;
-      included += vol[loIdx];
-    }
-  }
-  const VAL = lo2 + loIdx * binSize;
-  const VAH = lo2 + (hiIdx + 1) * binSize;
-  const avgVol = totalVol / window.length;
-  const recentVol = window.slice(-3).reduce((s, c) => s + c.volume, 0) / 3;
-  const volConfirm = recentVol > avgVol;
-  let direction = "NEUTRAL";
-  let confidence2 = 50;
-  let reason;
-  if (price > VAH && volConfirm) {
-    direction = "BUY";
-    const dist = (price - VAH) / binSize;
-    confidence2 = clamp3(Math.round(60 + dist * 8), 55, 90);
-    reason = `VP breakout: price $${price.toFixed(0)} above value-area-high $${VAH.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
-  } else if (price < VAL && volConfirm) {
-    direction = "SELL";
-    const dist = (VAL - price) / binSize;
-    confidence2 = clamp3(Math.round(60 + dist * 8), 55, 90);
-    reason = `VP breakdown: price $${price.toFixed(0)} below value-area-low $${VAL.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
-  } else if (price > VAH || price < VAL) {
-    direction = "NEUTRAL";
-    confidence2 = 48;
-    reason = `VP: price outside value area but volume NOT confirming \u2014 likely false breakout, skip`;
-  } else {
-    direction = "NEUTRAL";
-    confidence2 = 45;
-    reason = `VP: price $${price.toFixed(0)} inside value area $${VAL.toFixed(0)}\u2013$${VAH.toFixed(0)} (POC $${pocPrice.toFixed(0)}) \u2014 no breakout edge`;
-  }
-  return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "volume_profile" };
-}
-function markovSignal(candles) {
-  const price = candles[candles.length - 1].close;
-  const priceChange1h = pct1h(candles);
-  const window = candles.slice(-80);
-  const FLAT = 4e-4;
-  const states = window.map((c) => {
-    const ch = (c.close - c.open) / c.open;
-    return ch > FLAT ? "U" : ch < -FLAT ? "D" : "F";
-  });
-  const idx = { U: 0, D: 1, F: 2 };
-  const M = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-  for (let i = 1; i < states.length; i++) M[idx[states[i - 1]]][idx[states[i]]]++;
-  const cur = states[states.length - 1];
-  const row = M[idx[cur]];
-  const rowSum = row[0] + row[1] + row[2] || 1;
-  const pU = row[0] / rowSum;
-  const pD = row[1] / rowSum;
-  let direction = "NEUTRAL";
-  let confidence2 = 50;
-  const MIN_PROB = 0.55;
-  const MIN_MARGIN = 0.12;
-  const enoughSamples = rowSum >= 8;
-  if (enoughSamples && pU >= MIN_PROB && pU - pD >= MIN_MARGIN) {
-    direction = "BUY";
-    confidence2 = clamp3(Math.round(pU * 100), 55, 92);
-  } else if (enoughSamples && pD >= MIN_PROB && pD - pU >= MIN_MARGIN) {
-    direction = "SELL";
-    confidence2 = clamp3(Math.round(pD * 100), 55, 92);
-  } else {
-    direction = "NEUTRAL";
-    confidence2 = clamp3(Math.round(Math.max(pU, pD) * 100), 40, 54);
-  }
-  const reason = `Markov from '${cur}' state: P(up)=${(pU * 100).toFixed(0)}%, P(down)=${(pD * 100).toFixed(0)}% (${rowSum} samples)`;
-  return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "markov" };
-}
-function orderFlowSignal(candles) {
-  const price = candles[candles.length - 1].close;
-  const priceChange1h = pct1h(candles);
-  const cdCandles = candles.map((c) => ({ o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume }));
-  const of = computeOrderFlow(cdCandles, Math.min(30, cdCandles.length));
-  if (of.direction === "NEUTRAL") {
-    return { direction: "NEUTRAL", confidence: 45, currentPrice: price, priceChange1h, reason: "Order flow neutral \u2014 no CVD divergence or imbalance detected", strategy: "order_flow" };
-  }
-  return {
-    direction: of.direction,
-    confidence: of.confidence,
-    currentPrice: price,
-    priceChange1h,
-    reason: of.reason,
-    strategy: "order_flow"
-  };
-}
-function ema5(values, period) {
-  if (!values.length) return 0;
-  const k2 = 2 / (period + 1);
-  let e = values[0];
-  for (let i = 1; i < values.length; i++) e = values[i] * k2 + e * (1 - k2);
-  return e;
-}
-function rsi4(closes, period = 14) {
-  if (closes.length < period + 1) return 50;
-  let gain = 0, loss = 0;
-  for (let i = closes.length - period; i < closes.length; i++) {
-    const d = closes[i] - closes[i - 1];
-    if (d >= 0) gain += d;
-    else loss -= d;
-  }
-  const rs = loss === 0 ? 100 : gain / loss;
-  return 100 - 100 / (1 + rs);
-}
-function macdHist2(closes) {
-  if (closes.length < 26) return 0;
-  const emaArr = (vals, p2) => {
-    const k2 = 2 / (p2 + 1);
-    let e = vals[0];
-    const out = [e];
-    for (let i = 1; i < vals.length; i++) {
-      e = vals[i] * k2 + e * (1 - k2);
-      out.push(e);
-    }
-    return out;
-  };
-  const e12 = emaArr(closes, 12), e26 = emaArr(closes, 26);
-  const macdLine = closes.map((_, i) => e12[i] - e26[i]);
-  const signal = emaArr(macdLine.slice(-9), 9);
-  return macdLine[macdLine.length - 1] - signal[signal.length - 1];
-}
-function linregSlope(values) {
-  const n = values.length;
-  if (n < 2) return 0;
-  const xs = values.map((_, i) => i);
-  const mx = xs.reduce((a, b) => a + b, 0) / n;
-  const my = values.reduce((a, b) => a + b, 0) / n;
-  let num8 = 0, den = 0;
-  for (let i = 0; i < n; i++) {
-    num8 += (xs[i] - mx) * (values[i] - my);
-    den += (xs[i] - mx) ** 2;
-  }
-  return den === 0 ? 0 : num8 / den;
-}
-function ensembleSignal(candles) {
-  const price = candles[candles.length - 1].close;
-  const priceChange1h = pct1h(candles);
-  if (candles.length < 30) {
-    return { direction: "NEUTRAL", confidence: 0, currentPrice: price, priceChange1h, reason: "Not enough candles for ensemble", strategy: "ensemble" };
-  }
-  const closes = candles.map((c) => c.close);
-  const recent = candles.slice(-30);
-  const ema9 = ema5(closes.slice(-40), 9);
-  const ema21 = ema5(closes.slice(-60), 21);
-  const ema50 = ema5(closes.slice(-80), 50);
-  const trendUp = ema9 > ema21 && ema21 > ema50 && price > ema50;
-  const trendDn = ema9 < ema21 && ema21 < ema50 && price < ema50;
-  const r = rsi4(closes);
-  const mh = macdHist2(closes);
-  let aggr = 0, volSum = 0;
-  for (const c of recent.slice(-12)) {
-    const range = c.high - c.low;
-    if (range <= 0) continue;
-    aggr += ((c.close - c.low) / range * 2 - 1) * c.volume;
-    volSum += c.volume;
-  }
-  const aggrNorm = volSum > 0 ? aggr / volSum : 0;
-  const slope = linregSlope(closes.slice(-12)) / price;
-  const emaSpreadPct = Math.abs(ema9 - ema50) / price * 100;
-  const rets = recent.slice(-20).map((c, i, a) => i === 0 ? 0 : (c.close - a[i - 1].close) / a[i - 1].close);
-  const meanRet = rets.reduce((a, b) => a + b, 0) / rets.length;
-  const directionalness = Math.abs(meanRet) / (Math.sqrt(rets.reduce((s, x) => s + (x - meanRet) ** 2, 0) / rets.length) || 1e-9);
-  const choppy = emaSpreadPct < 0.06 && directionalness < 0.25;
-  if (choppy) {
-    return { direction: "NEUTRAL", confidence: 40, currentPrice: price, priceChange1h, reason: `Ensemble: choppy/ranging regime (EMA spread ${emaSpreadPct.toFixed(3)}%, low directionalness) \u2014 standing aside`, strategy: "ensemble" };
-  }
-  let bull = 0, bear = 0;
-  const notes = [];
-  if (trendUp) {
-    bull++;
-    notes.push("EMA stack up");
-  } else if (trendDn) {
-    bear++;
-    notes.push("EMA stack down");
-  }
-  if (mh > 0) bull++;
-  else if (mh < 0) bear++;
-  if (r > 50 && r < 72) {
-    bull++;
-    notes.push(`RSI ${r.toFixed(0)}`);
-  } else if (r < 50 && r > 28) {
-    bear++;
-    notes.push(`RSI ${r.toFixed(0)}`);
-  }
-  if (aggrNorm > 0.1) {
-    bull++;
-    notes.push("buyer aggression");
-  } else if (aggrNorm < -0.1) {
-    bear++;
-    notes.push("seller aggression");
-  }
-  if (slope > 0) bull++;
-  else if (slope < 0) bear++;
-  const total = bull + bear;
-  let direction = "NEUTRAL";
-  let confidence2 = 50;
-  if (bull >= 4 && bull > bear) {
-    direction = "BUY";
-    confidence2 = clamp3(60 + bull * 6, 60, 92);
-  } else if (bear >= 4 && bear > bull) {
-    direction = "SELL";
-    confidence2 = clamp3(60 + bear * 6, 60, 92);
-  } else {
-    direction = "NEUTRAL";
-    confidence2 = clamp3(45 + Math.max(bull, bear) * 3, 40, 58);
-  }
-  const reason = `Ensemble ${direction}: ${Math.max(bull, bear)}/5 factors agree (${notes.join(", ")}). Trending regime confirmed.`;
-  return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "ensemble" };
-}
-async function getKalshiSignal(strategy, coin = "BTC") {
-  if (strategy === "momentum") {
-    const p2 = await getCryptoPrediction(coin);
-    return {
-      direction: p2.direction,
-      confidence: p2.confidence,
-      currentPrice: p2.currentPrice,
-      priceChange1h: p2.priceChange1h,
-      reason: p2.reasons?.[0] ?? "Momentum (RSI/MACD/EMA) signal",
-      strategy: "momentum"
-    };
-  }
-  const { candles } = await getCryptoCandles(coin, 100);
-  if (!candles.length) {
-    return { direction: "NEUTRAL", confidence: 0, currentPrice: 0, priceChange1h: 0, reason: "No candle data available", strategy };
-  }
-  if (strategy === "volume_profile") return volumeProfileSignal(candles);
-  if (strategy === "order_flow") return orderFlowSignal(candles);
-  if (strategy === "ensemble") return ensembleSignal(candles);
-  return markovSignal(candles);
-}
-function estimateHourlyVol(candles) {
-  if (candles.length < 13) return 4e-3;
-  const rets = [];
-  for (let i = 1; i < candles.length; i++) {
-    const prev = candles[i - 1].close;
-    if (prev > 0) rets.push((candles[i].close - prev) / prev);
-  }
-  const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
-  const variance = rets.reduce((a, b) => a + (b - mean) ** 2, 0) / rets.length;
-  const perCandle = Math.sqrt(variance);
-  return perCandle * Math.sqrt(12);
-}
-async function getKalshiConsensus(coin = "BTC") {
-  const { candles } = await getCryptoCandles(coin, 100);
-  if (!candles.length) {
-    return { direction: "NEUTRAL", confidence: 0, agreement: 0, currentPrice: 0, priceChange1h: 0, signals: [], reasons: ["No candle data"] };
-  }
-  const momentumPred = await getCryptoPrediction(coin).catch(() => null);
-  const signals = [];
-  if (momentumPred) {
-    signals.push({
-      direction: momentumPred.direction,
-      confidence: momentumPred.confidence,
-      currentPrice: momentumPred.currentPrice,
-      priceChange1h: momentumPred.priceChange1h,
-      reason: momentumPred.reasons?.[0] ?? "Momentum signal",
-      strategy: "momentum"
-    });
-  }
-  signals.push(volumeProfileSignal(candles));
-  signals.push(markovSignal(candles));
-  signals.push(orderFlowSignal(candles));
-  signals.push(ensembleSignal(candles));
-  const price = candles[candles.length - 1].close;
-  const priceChange1h = pct1h(candles);
-  let buyWeight = 0, sellWeight = 0;
-  for (const sig of signals) {
-    if (sig.direction === "BUY") buyWeight += sig.confidence;
-    if (sig.direction === "SELL") sellWeight += sig.confidence;
-  }
-  const totalWeight = buyWeight + sellWeight;
-  let direction = "NEUTRAL";
-  let confidence2 = 0;
-  let agreement = 0;
-  if (totalWeight > 0) {
-    if (buyWeight > sellWeight) {
-      direction = "BUY";
-      agreement = buyWeight / totalWeight;
-      const buyers = signals.filter((s) => s.direction === "BUY");
-      confidence2 = Math.round(buyers.reduce((a, b) => a + b.confidence, 0) / buyers.length);
-    } else if (sellWeight > buyWeight) {
-      direction = "SELL";
-      agreement = sellWeight / totalWeight;
-      const sellers = signals.filter((s) => s.direction === "SELL");
-      confidence2 = Math.round(sellers.reduce((a, b) => a + b.confidence, 0) / sellers.length);
-    }
-  }
-  const reasons = signals.map((s) => `${s.strategy}: ${s.direction} ${s.confidence}%`);
-  return { direction, confidence: confidence2, agreement, currentPrice: price, priceChange1h, signals, reasons };
-}
-var clamp3;
-var init_kalshi_strategies = __esm({
-  "server/services/kalshi-strategies.ts"() {
-    "use strict";
-    init_btc_5min_predictor();
-    init_orderflow_strategy();
-    clamp3 = (n, lo2, hi2) => Math.max(lo2, Math.min(hi2, n));
-  }
-});
-
-// server/services/kalshi-trading.ts
-var kalshi_trading_exports = {};
-__export(kalshi_trading_exports, {
-  cancelKalshiOrder: () => cancelKalshiOrder,
-  deleteKalshiCredentials: () => deleteKalshiCredentials,
-  getKalshiBalance: () => getKalshiBalance,
-  getKalshiOrders: () => getKalshiOrders,
-  getKalshiPositions: () => getKalshiPositions,
-  loadKalshiCredentials: () => loadKalshiCredentials,
-  placeKalshiOrder: () => placeKalshiOrder,
-  saveKalshiApiKey: () => saveKalshiApiKey,
-  saveKalshiCredentials: () => saveKalshiCredentials,
-  testKalshiCredentials: () => testKalshiCredentials
-});
-import * as fs9 from "fs";
-import * as path9 from "path";
-import * as crypto13 from "crypto";
-function loadAllCreds() {
-  try {
-    if (fs9.existsSync(CREDS_FILE)) return JSON.parse(fs9.readFileSync(CREDS_FILE, "utf-8"));
-  } catch (e) {
-    console.error("[Kalshi] Credential store is unreadable (corrupted JSON?) \u2014 treating as empty:", e?.message);
-  }
-  return {};
-}
-function saveAllCreds(map) {
-  try {
-    const dir = path9.dirname(CREDS_FILE);
-    if (!fs9.existsSync(dir)) fs9.mkdirSync(dir, { recursive: true });
-    const content = JSON.stringify(map, null, 2);
-    fs9.writeFileSync(CREDS_FILE, content);
-    backupDurableFile("kalshi_credentials.json", content);
-  } catch {
-  }
-}
-function saveKalshiCredentials(userId, creds) {
-  const map = loadAllCreds();
-  map[String(userId)] = creds;
-  saveAllCreds(map);
-}
-function normalizePrivateKey(raw) {
-  let pem = (raw ?? "").trim();
-  if (pem.startsWith('"') && pem.endsWith('"') || pem.startsWith("'") && pem.endsWith("'")) {
-    pem = pem.slice(1, -1).trim();
-  }
-  if (pem.includes("\\n")) pem = pem.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n");
-  pem = pem.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const headerMatch = pem.match(/-----BEGIN ([A-Z ]+?)-----/);
-  const footerMatch = pem.match(/-----END ([A-Z ]+?)-----/);
-  if (headerMatch && footerMatch && !pem.includes("\n")) {
-    const label = headerMatch[1];
-    const body = pem.replace(/-----BEGIN [A-Z ]+?-----/, "").replace(/-----END [A-Z ]+?-----/, "").replace(/\s+/g, "");
-    const wrapped = body.match(/.{1,64}/g)?.join("\n") ?? body;
-    pem = `-----BEGIN ${label}-----
-${wrapped}
------END ${label}-----`;
-  }
-  pem = pem.trim();
-  try {
-    crypto13.createPrivateKey(pem);
-  } catch {
-    throw new Error('Private key is not a valid RSA PEM. Paste the full contents of the key file Kalshi gave you, including the "-----BEGIN ... PRIVATE KEY-----" and "-----END ... PRIVATE KEY-----" lines.');
-  }
-  return pem;
-}
-function saveKalshiApiKey(userId, keyId, privateKeyPem) {
-  const normalized = normalizePrivateKey(privateKeyPem);
-  const map = loadAllCreds();
-  map[String(userId)] = { authMethod: "apikey", keyId: keyId.trim(), privateKeyPem: normalized };
-  saveAllCreds(map);
-  _sessions.delete(userId);
-}
-function loadKalshiCredentials(userId) {
-  return loadAllCreds()[String(userId)] ?? null;
-}
-function deleteKalshiCredentials(userId) {
-  const map = loadAllCreds();
-  delete map[String(userId)];
-  saveAllCreds(map);
-  _sessions.delete(userId);
-}
-async function getOrRefreshToken(userId, creds) {
-  const existing = _sessions.get(userId);
-  if (existing && Date.now() < existing.expiresAt) return existing.token;
-  const res2 = await fetch(`${KALSHI_BASE2}/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
-    body: JSON.stringify({ email: creds.email, password: creds.password }),
-    signal: AbortSignal.timeout(1e4)
-  });
-  if (!res2.ok) {
-    const body = await res2.text();
-    if (res2.status === 404) {
-      throw new Error("Kalshi no longer supports email/password API login. Please connect using an API Key instead (Kalshi \u2192 Settings \u2192 API Keys \u2192 kalshi.com/account/api).");
-    }
-    throw new Error(`Kalshi login failed (${res2.status}): ${body.slice(0, 200)}`);
-  }
-  const data = await res2.json();
-  const token = data.token ?? data.access_token;
-  const memberId = data.member_id ?? "";
-  if (!token) throw new Error("Kalshi login response missing token field");
-  const session3 = { token, memberId, expiresAt: Date.now() + 20 * 60 * 60 * 1e3 };
-  _sessions.set(userId, session3);
-  return token;
-}
-function signKalshiRequest(privateKeyPem, timestampMs, method, endpoint) {
-  const pathOnly = endpoint.split("?")[0];
-  const message = String(timestampMs) + method.toUpperCase() + KALSHI_PATH_PREFIX + pathOnly;
-  const sign3 = crypto13.createSign("sha256");
-  sign3.update(message);
-  sign3.end();
-  return sign3.sign(
-    {
-      key: privateKeyPem,
-      padding: crypto13.constants.RSA_PKCS1_PSS_PADDING,
-      saltLength: crypto13.constants.RSA_PSS_SALTLEN_DIGEST
-    },
-    "base64"
-  );
-}
-async function getAuthHeaders(userId, method, endpoint) {
-  const creds = loadKalshiCredentials(userId);
-  if (!creds) throw new Error("No Kalshi credentials saved for this account");
-  const base = { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" };
-  if (creds.authMethod === "apikey" && creds.keyId && creds.privateKeyPem) {
-    const ts = Date.now();
-    const sig = signKalshiRequest(creds.privateKeyPem, ts, method, endpoint);
-    return {
-      ...base,
-      "KALSHI-ACCESS-KEY": creds.keyId,
-      "KALSHI-ACCESS-TIMESTAMP": String(ts),
-      "KALSHI-ACCESS-SIGNATURE": sig
-    };
-  }
-  const token = await getOrRefreshToken(userId, creds);
-  return { ...base, "Authorization": `Bearer ${token}` };
-}
-async function kalshiGet(userId, endpoint) {
-  const headers = await getAuthHeaders(userId, "GET", endpoint);
-  const res2 = await fetch(`${KALSHI_BASE2}${endpoint}`, { headers, signal: AbortSignal.timeout(1e4) });
-  if (!res2.ok) {
-    const body = await res2.text();
-    throw new Error(`Kalshi GET ${endpoint} failed (${res2.status}): ${body.slice(0, 200)}`);
-  }
-  return res2.json();
-}
-async function kalshiPost(userId, endpoint, body) {
-  const headers = await getAuthHeaders(userId, "POST", endpoint);
-  const res2 = await fetch(`${KALSHI_BASE2}${endpoint}`, {
-    method: "POST",
-    headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(1e4)
-  });
-  if (!res2.ok) {
-    const text3 = await res2.text();
-    throw new Error(`Kalshi POST ${endpoint} failed (${res2.status}): ${text3.slice(0, 300)}`);
-  }
-  return res2.json();
-}
-async function testKalshiCredentials(userId) {
-  try {
-    const data = await kalshiGet(userId, "/portfolio/balance");
-    const balance = data.balance ?? 0;
-    const session3 = _sessions.get(userId);
-    const creds = loadKalshiCredentials(userId);
-    const memberId = session3?.memberId ?? (creds?.keyId ? `API Key: ${creds.keyId.slice(0, 8)}\u2026` : void 0);
-    return { valid: true, memberId, balance };
-  } catch (err) {
-    return { valid: false, error: err.message };
-  }
-}
-async function getKalshiBalance(userId) {
-  const data = await kalshiGet(userId, "/portfolio/balance");
-  return {
-    balance: data.balance ?? 0,
-    availableBalance: data.available_balance ?? data.balance ?? 0
-  };
-}
-async function placeKalshiOrder(userId, ticker, side, action, count, priceInCents) {
-  if (side === "no") {
-    throw new Error("placeKalshiOrder: NO-side orders are not supported (this engine only trades YES; the V2 API expresses NO as selling YES at 1-price, not implemented since it is never used)");
-  }
-  const bookSide = action === "buy" ? "bid" : "ask";
-  const payload2 = {
-    ticker,
-    side: bookSide,
-    count: String(count),
-    price: (priceInCents / 100).toFixed(2),
-    time_in_force: "good_till_canceled",
-    self_trade_prevention_type: "taker_at_cross"
-  };
-  const data = await kalshiPost(userId, "/portfolio/events/orders", payload2);
-  const fillCount = parseFloat(data.fill_count ?? "0") || 0;
-  const remainingCount = parseFloat(data.remaining_count ?? String(count)) || 0;
-  return {
-    orderId: data.order_id ?? "unknown",
-    ticker,
-    side,
-    action,
-    count: Math.round(fillCount + remainingCount),
-    priceInCents,
-    status: remainingCount === 0 ? "executed" : "resting",
-    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-    filledCount: fillCount
-  };
-}
-async function getKalshiPositions(userId) {
-  const data = await kalshiGet(userId, "/portfolio/positions?limit=100");
-  return data.positions ?? data.market_positions ?? [];
-}
-async function getKalshiOrders(userId, status = "resting") {
-  const data = await kalshiGet(userId, `/portfolio/orders?status=${status}&limit=50`);
-  return data.orders ?? [];
-}
-async function cancelKalshiOrder(userId, orderId) {
-  try {
-    const headers = await getAuthHeaders(userId, "DELETE", `/portfolio/events/orders/${orderId}`);
-    await fetch(`${KALSHI_BASE2}/portfolio/events/orders/${orderId}`, {
-      method: "DELETE",
-      headers,
-      signal: AbortSignal.timeout(8e3)
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-var KALSHI_BASE2, KALSHI_PATH_PREFIX, CREDS_FILE, _sessions;
-var init_kalshi_trading = __esm({
-  "server/services/kalshi-trading.ts"() {
-    "use strict";
-    init_cred_store();
-    KALSHI_BASE2 = "https://api.elections.kalshi.com/trade-api/v2";
-    KALSHI_PATH_PREFIX = "/trade-api/v2";
-    CREDS_FILE = path9.join(process.cwd(), "data", "kalshi_credentials.json");
-    _sessions = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/kalshi-performance.ts
-var kalshi_performance_exports = {};
-__export(kalshi_performance_exports, {
-  getKalshiPerformance: () => getKalshiPerformance,
-  recordKalshiOutcome: () => recordKalshiOutcome
-});
-import * as fs10 from "fs";
-import * as path10 from "path";
-function emptyStat(strategy) {
-  return {
-    strategy,
-    trades: 0,
-    wins: 0,
-    losses: 0,
-    breakeven: 0,
-    totalPnl: 0,
-    bestPnl: 0,
-    worstPnl: 0,
-    lastResult: null,
-    lastClosedAt: null
-  };
-}
-function loadAll2() {
-  try {
-    if (fs10.existsSync(FILE2)) return JSON.parse(fs10.readFileSync(FILE2, "utf-8"));
-  } catch (e) {
-    console.error("[Kalshi] Performance store is unreadable (corrupted JSON?) \u2014 treating as empty (win-rate history for this read will look reset):", e?.message);
-  }
-  return {};
-}
-function saveAll2(store) {
-  try {
-    const dir = path10.dirname(FILE2);
-    if (!fs10.existsSync(dir)) fs10.mkdirSync(dir, { recursive: true });
-    const content = JSON.stringify(store, null, 2);
-    fs10.writeFileSync(FILE2, content);
-    backupDurableFile("kalshi_performance.json", content);
-  } catch {
-  }
-}
-function recordKalshiOutcome(userId, strategy, realizedPnl) {
-  const store = loadAll2();
-  const uKey = String(userId);
-  store[uKey] = store[uKey] || {};
-  const stat = store[uKey][strategy] ?? emptyStat(strategy);
-  stat.trades += 1;
-  stat.totalPnl = Math.round((stat.totalPnl + realizedPnl) * 100) / 100;
-  if (realizedPnl > 5e-3) {
-    stat.wins += 1;
-    stat.lastResult = "WIN";
-  } else if (realizedPnl < -5e-3) {
-    stat.losses += 1;
-    stat.lastResult = "LOSS";
-  } else {
-    stat.breakeven += 1;
-    stat.lastResult = "BREAKEVEN";
-  }
-  stat.bestPnl = Math.max(stat.bestPnl, Math.round(realizedPnl * 100) / 100);
-  stat.worstPnl = Math.min(stat.worstPnl, Math.round(realizedPnl * 100) / 100);
-  stat.lastClosedAt = (/* @__PURE__ */ new Date()).toISOString();
-  store[uKey][strategy] = stat;
-  saveAll2(store);
-}
-function getKalshiPerformance(userId) {
-  const map = loadAll2()[String(userId)] ?? {};
-  const byStrategy = Object.values(map).map((s) => {
-    const decided2 = s.wins + s.losses;
-    return { ...s, winRate: decided2 > 0 ? Math.round(s.wins / decided2 * 100) : 0 };
-  }).sort((a, b) => b.trades - a.trades);
-  const totals = byStrategy.reduce(
-    (acc, s) => {
-      acc.trades += s.trades;
-      acc.wins += s.wins;
-      acc.losses += s.losses;
-      acc.totalPnl = Math.round((acc.totalPnl + s.totalPnl) * 100) / 100;
-      return acc;
-    },
-    { trades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0 }
-  );
-  const decided = totals.wins + totals.losses;
-  totals.winRate = decided > 0 ? Math.round(totals.wins / decided * 100) : 0;
-  return { byStrategy, totals };
-}
-var FILE2;
-var init_kalshi_performance = __esm({
-  "server/services/kalshi-performance.ts"() {
-    "use strict";
-    init_cred_store();
-    FILE2 = path10.join(process.cwd(), "data", "kalshi_performance.json");
-  }
-});
-
-// server/services/kalshi-brain.ts
-var kalshi_brain_exports = {};
-__export(kalshi_brain_exports, {
-  cachedKalshiBrain: () => cachedKalshiBrain,
-  getOrRefreshKalshiBrain: () => getOrRefreshKalshiBrain,
-  kalshiBrainGate: () => kalshiBrainGate,
-  kalshiBrainSizeMultiplier: () => kalshiBrainSizeMultiplier,
-  kalshiBrainValueWeight: () => kalshiBrainValueWeight,
-  learnFromKalshiTrades: () => learnFromKalshiTrades
-});
-import { and as and9, desc as desc7, eq as eq14, sql as sql11 } from "drizzle-orm";
-function _band(n, size) {
-  const lo2 = Math.floor(n / size) * size;
-  return `${lo2}-${lo2 + size}`;
-}
-function _bump(map, key, win) {
-  const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
-  s.trades++;
-  if (win) s.wins++;
-  s.winRate = Math.round(s.wins / s.trades * 100);
-}
-function coinFromTicker(ticker) {
-  const t = ticker.replace(/^KALSHI:/, "").toUpperCase();
-  for (const c of ["BTC", "ETH", "SOL", "XRP", "DOGE", "GOLD"]) if (t.includes(c)) return c;
-  return "BTC";
-}
-function _sizeMultiplier(winRate2, rr, trades) {
-  if (trades < MIN_TRADES_FOR_COIN) return 1;
-  const w = winRate2 / 100;
-  const r = rr > 0 ? rr : 1;
-  const kelly = w - (1 - w) / r;
-  return Math.max(0.25, Math.min(1.5, 1 + kelly));
-}
-function _valueWeight(winRate2, trades) {
-  if (trades < 5) return 1;
-  return Math.round((0.7 + winRate2 / 100 * 0.6) * 100) / 100;
-}
-async function _backfillIfEmpty(userId) {
-  const [{ n }] = await db.select({ n: sql11`count(*)` }).from(kalshiBrainOutcomes).where(eq14(kalshiBrainOutcomes.userId, userId));
-  if (Number(n) > 0) return;
-  const rows = await db.select().from(aiTradeResults).where(and9(eq14(aiTradeResults.userId, userId), eq14(aiTradeResults.source, "kalshi"))).orderBy(desc7(aiTradeResults.closedAt)).limit(1e3);
-  if (!rows.length) return;
-  const seed = rows.filter((r) => r.closedAt).map((r) => {
-    const strat = (r.notes ?? "").split(":")[0].trim() || "unknown";
-    const d = new Date(r.closedAt);
-    return {
-      userId,
-      coin: coinFromTicker(r.symbol),
-      timeframe: "hourly",
-      strategy: strat,
-      direction: r.direction === "SELL" ? "SELL" : "BUY",
-      strikeType: null,
-      entryPriceCents: r.entryPrice != null ? Math.round(r.entryPrice * 100) : null,
-      confidence: r.aiConfidence ?? null,
-      edgePct: null,
-      valueScore: null,
-      modelProbPct: null,
-      agreement: null,
-      hourUtc: d.getUTCHours(),
-      holdingMinutes: null,
-      exitReason: null,
-      result: r.result ?? (Number(r.profitLoss) > 0 ? "WIN" : Number(r.profitLoss) < 0 ? "LOSS" : "BREAKEVEN"),
-      profitLoss: Number(r.profitLoss ?? 0),
-      source: "backfill",
-      closedAt: d
-    };
-  });
-  if (seed.length) await db.insert(kalshiBrainOutcomes).values(seed);
-}
-async function learnFromKalshiTrades(userId) {
-  await _backfillIfEmpty(userId).catch(() => {
-  });
-  const rows = await db.select().from(kalshiBrainOutcomes).where(eq14(kalshiBrainOutcomes.userId, userId)).orderBy(desc7(kalshiBrainOutcomes.closedAt)).limit(2e3);
-  const coins = {};
-  const winSum = {}, winN = {};
-  const lossSum = {}, lossN = {};
-  let totalWins = 0, totalDecided = 0, totalPnl = 0;
-  for (const r of rows) {
-    const coin = r.coin || "BTC";
-    const k2 = coins[coin] ??= {
-      totalTrades: 0,
-      wins: 0,
-      losses: 0,
-      winRate: 0,
-      totalPnl: 0,
-      avgWin: 0,
-      avgLoss: 0,
-      riskReward: 0,
-      byStrikeType: {},
-      byConfidenceBand: {},
-      byEdgeBand: {},
-      byHour: {},
-      bestStrikeType: null,
-      recommendedSizeMultiplier: 1,
-      valueScoreWeight: 1
-    };
-    const pnl = Number(r.profitLoss ?? 0);
-    const win = r.result === "WIN";
-    const loss = r.result === "LOSS";
-    k2.totalTrades++;
-    k2.totalPnl += pnl;
-    totalPnl += pnl;
-    if (win) {
-      k2.wins++;
-      totalWins++;
-      winSum[coin] = (winSum[coin] ?? 0) + pnl;
-      winN[coin] = (winN[coin] ?? 0) + 1;
-    }
-    if (loss) {
-      k2.losses++;
-      lossSum[coin] = (lossSum[coin] ?? 0) + Math.abs(pnl);
-      lossN[coin] = (lossN[coin] ?? 0) + 1;
-    }
-    if (win || loss) totalDecided++;
-    if (r.strikeType) _bump(k2.byStrikeType, r.strikeType, win);
-    if (r.confidence != null) _bump(k2.byConfidenceBand, _band(r.confidence, 10), win);
-    if (r.edgePct != null) _bump(k2.byEdgeBand, _band(r.edgePct, 5), win);
-    if (r.hourUtc != null) _bump(k2.byHour, String(r.hourUtc), win);
-  }
-  for (const [coin, k2] of Object.entries(coins)) {
-    const decided = k2.wins + k2.losses;
-    k2.winRate = decided ? Math.round(k2.wins / decided * 100) : 0;
-    k2.avgWin = winN[coin] ? winSum[coin] / winN[coin] : 0;
-    k2.avgLoss = lossN[coin] ? lossSum[coin] / lossN[coin] : 0;
-    k2.riskReward = k2.avgLoss > 0 ? k2.avgWin / k2.avgLoss : k2.avgWin > 0 ? 2 : 1;
-    k2.recommendedSizeMultiplier = _sizeMultiplier(k2.winRate, k2.riskReward, decided);
-    k2.valueScoreWeight = _valueWeight(k2.winRate, decided);
-    let best = null, bestWr = -1;
-    for (const [t, s] of Object.entries(k2.byStrikeType)) if (s.trades >= 3 && s.winRate > bestWr) {
-      best = t;
-      bestWr = s.winRate;
-    }
-    k2.bestStrikeType = best;
-  }
-  const insights = [];
-  for (const [coin, k2] of Object.entries(coins)) {
-    if (k2.wins + k2.losses >= MIN_TRADES_FOR_COIN) {
-      insights.push(`${coin}: ${k2.winRate}% win rate over ${k2.wins + k2.losses} trades \u2192 sizing \xD7${k2.recommendedSizeMultiplier}, value \xD7${k2.valueScoreWeight}.`);
-      if (k2.bestStrikeType) insights.push(`${coin}: best on "${k2.bestStrikeType}" brackets.`);
-    } else {
-      insights.push(`${coin}: still learning (${k2.wins + k2.losses}/${MIN_TRADES_FOR_COIN} decided) \u2014 neutral sizing.`);
-    }
-  }
-  const brain = {
-    userId,
-    lastLearned: (/* @__PURE__ */ new Date()).toISOString(),
-    totalTrades: rows.length,
-    overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0,
-    totalPnl: Math.round(totalPnl * 100) / 100,
-    coinKnowledge: coins,
-    insights
-  };
-  _cache7.set(userId, { brain, at: Date.now() });
-  return brain;
-}
-async function getOrRefreshKalshiBrain(userId, force = false) {
-  const hit = _cache7.get(userId);
-  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS3) return hit.brain;
-  return learnFromKalshiTrades(userId);
-}
-function cachedKalshiBrain(userId) {
-  return _cache7.get(userId)?.brain ?? null;
-}
-function kalshiBrainSizeMultiplier(userId, coin) {
-  const b = _cache7.get(userId)?.brain;
-  const k2 = b?.coinKnowledge[coin];
-  return k2 ? k2.recommendedSizeMultiplier : 1;
-}
-function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
-  const k2 = _cache7.get(userId)?.brain?.coinKnowledge[coin];
-  if (!k2) return { blocked: false, reason: "" };
-  const decided = k2.wins + k2.losses;
-  if (decided >= 15 && k2.winRate < 35) {
-    return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin} win rate ${k2.winRate}% over ${decided} trades \u2014 skipping coin` };
-  }
-  if (strikeType) {
-    const st = k2.byStrikeType[strikeType];
-    if (st && st.trades >= 8 && st.winRate < 30) {
-      return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin}/${strikeType} win rate ${st.winRate}% over ${st.trades} \u2014 skipping bracket type` };
-    }
-  }
-  if (hourUtc != null) {
-    const h = k2.byHour[String(hourUtc)];
-    if (h && h.trades >= 8 && h.winRate < 30) {
-      return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin} @ ${hourUtc}:00 UTC win rate ${h.winRate}% over ${h.trades} \u2014 skipping this hour` };
-    }
-  }
-  if (confidence2 != null) {
-    const cb = k2.byConfidenceBand[_band(confidence2, 10)];
-    if (cb && cb.trades >= 8 && cb.winRate < 30) {
-      return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin} at ${_band(confidence2, 10)} confidence win rate ${cb.winRate}% over ${cb.trades} \u2014 skipping` };
-    }
-  }
-  return { blocked: false, reason: "" };
-}
-function kalshiBrainValueWeight(userId, coin, strikeType) {
-  const k2 = _cache7.get(userId)?.brain?.coinKnowledge[coin];
-  if (!k2) return 1;
-  let w = k2.valueScoreWeight;
-  if (strikeType) {
-    const st = k2.byStrikeType[strikeType];
-    if (st && st.trades >= 5) w *= 0.85 + st.winRate / 100 * 0.3;
-  }
-  return Math.max(0.6, Math.min(1.4, Math.round(w * 100) / 100));
-}
-var MIN_TRADES_FOR_COIN, REFRESH_TTL_MS3, _cache7;
-var init_kalshi_brain = __esm({
-  "server/services/kalshi-brain.ts"() {
-    "use strict";
-    init_db();
-    init_schema();
-    MIN_TRADES_FOR_COIN = 10;
-    REFRESH_TTL_MS3 = 60 * 1e3;
-    _cache7 = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/kalshi-weather.ts
-function localDateInTz(ms, tz) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
-}
-async function fetchEnsembleDailyMax(city, targetLocalDate) {
-  const cacheKey = `${city.code}:${targetLocalDate}`;
-  const hit = _ensembleCache.get(cacheKey);
-  if (hit && Date.now() - hit.ts < ENSEMBLE_TTL_MS) return hit.members;
-  const url = `https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${city.lat}&longitude=${city.lon}&hourly=temperature_2m&models=gfs025&forecast_days=4&temperature_unit=fahrenheit&timezone=${encodeURIComponent(city.tz)}`;
-  const res2 = await fetch(url, { headers: { "User-Agent": "VEDD-Trading-AI/1.0" }, signal: AbortSignal.timeout(1e4) });
-  if (!res2.ok) throw new Error(`Open-Meteo ensemble ${res2.status}`);
-  const data = await res2.json();
-  const hourly = data.hourly;
-  if (!hourly?.time?.length) throw new Error("Open-Meteo ensemble: no hourly data");
-  const times = hourly.time;
-  const dayIdx = [];
-  for (let i = 0; i < times.length; i++) if (times[i].slice(0, 10) === targetLocalDate) dayIdx.push(i);
-  if (!dayIdx.length) throw new Error(`Open-Meteo ensemble: target day ${targetLocalDate} not in forecast window`);
-  const memberKeys = Object.keys(hourly).filter((k2) => k2 === "temperature_2m" || k2.startsWith("temperature_2m_member"));
-  const members = [];
-  for (const key of memberKeys) {
-    const arr2 = hourly[key];
-    let mx = -Infinity;
-    for (const i of dayIdx) {
-      const v = arr2[i];
-      if (typeof v === "number" && v > mx) mx = v;
-    }
-    if (mx > -Infinity) members.push(mx);
-  }
-  if (!members.length) throw new Error("Open-Meteo ensemble: no member maxima computed");
-  _ensembleCache.set(cacheKey, { members, targetDate: targetLocalDate, ts: Date.now() });
-  return members;
-}
-function bucketProbFromMembers(members, b) {
-  if (!members.length) return 0;
-  let yes = 0;
-  for (const m of members) {
-    const r = Math.round(m);
-    let win = false;
-    if (b.strikeType === "between") {
-      win = b.floorStrike != null && b.capStrike != null && r >= b.floorStrike && r <= b.capStrike;
-    } else if (b.strikeType === "greater" || b.strikeType === "greater_or_equal") {
-      win = b.floorStrike != null && (b.strikeType === "greater" ? r > b.floorStrike : r >= b.floorStrike);
-    } else if (b.strikeType === "less" || b.strikeType === "less_or_equal") {
-      win = b.capStrike != null && (b.strikeType === "less" ? r < b.capStrike : r <= b.capStrike);
-    }
-    if (win) yes++;
-  }
-  return yes / members.length;
-}
-function ensembleConfidence(members) {
-  if (members.length < 3) return 50;
-  const mean = members.reduce((a, b) => a + b, 0) / members.length;
-  const sd = Math.sqrt(members.reduce((s, x) => s + (x - mean) ** 2, 0) / members.length);
-  return Math.round(Math.max(50, Math.min(95, 95 - (sd - 1) * 9)));
-}
-async function scanKalshiWeatherPicks(cityCodes, opts = {}) {
-  const minEntry = opts.minEntryCents ?? 15;
-  const minEdge = opts.minEdgeCents ?? 8;
-  const spreadMax = opts.spreadMaxCents ?? 12;
-  const limit = opts.limit ?? 5;
-  const maxBias = opts.maxBiasDegrees ?? 3;
-  const biasOffsets = opts.biasOffsets ?? {};
-  const picks = [];
-  const perCityReasons = [];
-  for (const raw of cityCodes) {
-    const key = raw.toUpperCase().replace(/^WX-?/, "");
-    const city = WEATHER_CITIES[key];
-    if (!city) {
-      perCityReasons.push(`${raw}: unknown weather city`);
-      continue;
-    }
-    try {
-      const event = await getKalshiCryptoEvent(city.series);
-      if (!event.brackets.length) {
-        perCityReasons.push(`${city.name}: no open ${city.series} brackets`);
-        continue;
-      }
-      const strikeMs = new Date(event.closeTime).getTime();
-      const targetDate = localDateInTz(strikeMs - 6 * 36e5, city.tz);
-      const offset = biasOffsets[city.code] ?? 0;
-      const members = (await fetchEnsembleDailyMax(city, targetDate)).map((m) => m + offset);
-      const conf = ensembleConfidence(members);
-      const sorted = [...members].sort((a, b) => a - b);
-      const median = sorted[Math.floor(sorted.length / 2)];
-      const favBucket = event.brackets.filter((b) => b.strikeType === "between" && b.floorStrike != null && b.capStrike != null).reduce((best, b) => b.yesAsk > (best?.yesAsk ?? -1) ? b : best, null);
-      if (favBucket) {
-        const favMid = ((favBucket.floorStrike ?? 0) + (favBucket.capStrike ?? 0)) / 2;
-        const disagree = Math.abs(median - favMid);
-        if (disagree > maxBias) {
-          perCityReasons.push(`${city.name}: SKIP \u2014 model median ${median.toFixed(1)}\xB0F disagrees with market favorite "${favBucket.subtitle}" by ${disagree.toFixed(1)}\xB0F (> ${maxBias}\xB0 bias guard; needs calibration${offset ? `, offset ${offset > 0 ? "+" : ""}${offset}\xB0` : ""})`);
-          continue;
-        }
-      }
-      let cityBest = null;
-      for (const b of event.brackets) {
-        if (!b.hasLiquidity) continue;
-        const ask = b.yesAsk > 0 ? b.yesAsk : b.yesProbability;
-        if (ask < minEntry || ask >= 97) continue;
-        const spread = b.yesBid > 0 ? ask - b.yesBid : spreadMax + 1;
-        if (spread > spreadMax) continue;
-        const modelProbPct = Math.round(bucketProbFromMembers(members, b) * 100);
-        const edgePct = modelProbPct - ask;
-        if (edgePct < minEdge) continue;
-        const probW = 0.6 + modelProbPct / 100 * 0.4;
-        const confW = 0.5 + conf / 100 * 0.5;
-        const valueScore = Math.round(edgePct * probW * confW * 10) / 10;
-        const pick3 = {
-          city: city.name,
-          cityCode: city.code,
-          ticker: b.ticker,
-          subtitle: b.subtitle,
-          strikeType: b.strikeType,
-          marketAskCents: ask,
-          modelProbPct,
-          edgePct,
-          valueScore,
-          confidence: conf,
-          targetDate,
-          rationale: `${city.name} ${targetDate}: GEFS ensemble ${modelProbPct}% vs market ${ask}\xA2 \u2192 +${edgePct}\xA2 edge on "${b.subtitle}" (${members.length} members, spread-conf ${conf}%).`
-        };
-        picks.push(pick3);
-        if (!cityBest || pick3.valueScore > cityBest.valueScore) cityBest = pick3;
-      }
-      perCityReasons.push(cityBest ? `${city.name}: best +${cityBest.edgePct}\xA2 edge on "${cityBest.subtitle}" (score ${cityBest.valueScore})` : `${city.name}: no positive-edge bucket (ensemble agrees with the market)`);
-    } catch (err) {
-      perCityReasons.push(`${city.name}: ${err.message}`);
-    }
-  }
-  picks.sort((a, b) => b.valueScore - a.valueScore);
-  return { picks: picks.slice(0, limit), perCityReasons, scannedAt: (/* @__PURE__ */ new Date()).toISOString() };
-}
-var WEATHER_CITIES, ENSEMBLE_TTL_MS, _ensembleCache;
-var init_kalshi_weather = __esm({
-  "server/services/kalshi-weather.ts"() {
-    "use strict";
-    init_kalshi();
-    WEATHER_CITIES = {
-      NY: { code: "WX-NY", series: "KXHIGHNY", name: "New York City", lat: 40.78, lon: -73.97, tz: "America/New_York" },
-      CHI: { code: "WX-CHI", series: "KXHIGHCHI", name: "Chicago", lat: 41.79, lon: -87.75, tz: "America/Chicago" },
-      MIA: { code: "WX-MIA", series: "KXHIGHMIA", name: "Miami", lat: 25.79, lon: -80.29, tz: "America/New_York" },
-      AUS: { code: "WX-AUS", series: "KXHIGHAUS", name: "Austin", lat: 30.18, lon: -97.68, tz: "America/Chicago" },
-      LAX: { code: "WX-LAX", series: "KXHIGHLAX", name: "Los Angeles", lat: 33.94, lon: -118.4, tz: "America/Los_Angeles" },
-      DEN: { code: "WX-DEN", series: "KXHIGHDEN", name: "Denver", lat: 39.85, lon: -104.66, tz: "America/Denver" },
-      PHIL: { code: "WX-PHIL", series: "KXHIGHPHIL", name: "Philadelphia", lat: 39.87, lon: -75.23, tz: "America/New_York" }
-    };
-    ENSEMBLE_TTL_MS = 30 * 60 * 1e3;
-    _ensembleCache = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/kalshi-engine.ts
-var kalshi_engine_exports = {};
-__export(kalshi_engine_exports, {
-  KALSHI_TRADEABLE_COINS: () => KALSHI_TRADEABLE_COINS,
-  closeAllKalshiTrades: () => closeAllKalshiTrades,
-  closeKalshiTrade: () => closeKalshiTrade,
-  getKalshiEngineState: () => getKalshiEngineState,
-  hydratePersistedKalshiConfigs: () => hydratePersistedKalshiConfigs,
-  kalshiBankroll: () => kalshiBankroll,
-  kalshiContractsFor: () => kalshiContractsFor,
-  manualKalshiScan: () => manualKalshiScan,
-  previewKalshiWeatherPicks: () => previewKalshiWeatherPicks,
-  refreshKalshiCredValidity: () => refreshKalshiCredValidity,
-  restoreKalshiEngineStateFromDb: () => restoreKalshiEngineStateFromDb,
-  ruinGuardStatus: () => ruinGuardStatus,
-  scanAllKalshiStrategies: () => scanAllKalshiStrategies,
-  scanKalshiValuePicks: () => scanKalshiValuePicks,
-  startKalshiEngine: () => startKalshiEngine,
-  stopKalshiEngine: () => stopKalshiEngine,
-  updateKalshiEngineConfig: () => updateKalshiEngineConfig
-});
-function _coinAndTimeframeFromTicker(ticker) {
-  for (const c of KALSHI_TRADEABLE_COINS) {
-    if (ticker.startsWith(KALSHI_SERIES_MAP[c].fifteenMin)) return { coin: c, timeframe: "fifteen_min" };
-  }
-  for (const c of KALSHI_TRADEABLE_COINS) {
-    if (ticker.startsWith(KALSHI_SERIES_MAP[c].hourly)) return { coin: c, timeframe: "hourly" };
-  }
-  return { coin: "BTC", timeframe: "hourly" };
-}
-async function refreshKalshiCredValidity(userId) {
-  if (!loadKalshiCredentials(userId)) {
-    _credValidity.delete(userId);
-    return;
-  }
-  const cached2 = _credValidity.get(userId);
-  if (cached2 && Date.now() - cached2.checkedAt < CRED_VALIDITY_TTL_MS) return;
-  try {
-    const { testKalshiCredentials: testKalshiCredentials2 } = await Promise.resolve().then(() => (init_kalshi_trading(), kalshi_trading_exports));
-    const result = await testKalshiCredentials2(userId);
-    _credValidity.set(userId, { valid: result.valid, error: result.error, checkedAt: Date.now() });
-  } catch {
-  }
-}
-function getKalshiEngineState(userId) {
-  if (!_states2.has(userId)) {
-    const override = _persistedConfigOverrides.get(userId);
-    _states2.set(userId, {
-      isRunning: false,
-      isPaperMode: !loadKalshiCredentials(userId),
-      credentialError: null,
-      lastScanAt: null,
-      lastScanResult: null,
-      lastTradeAt: null,
-      tradesToday: 0,
-      tradesTodayUtcDate: null,
-      openTrades: [],
-      closedTrades: [],
-      totalRealizedPnl: 0,
-      totalUnrealizedPnl: 0,
-      config: override ? { ...DEFAULT_CONFIG3, ...override } : { ...DEFAULT_CONFIG3 }
-    });
-  }
-  const s = _states2.get(userId);
-  const hasCreds = !!loadKalshiCredentials(userId);
-  const validity = _credValidity.get(userId);
-  const knownInvalid = validity?.valid === false;
-  s.isPaperMode = !hasCreds || knownInvalid;
-  s.credentialError = knownInvalid ? validity.error ?? "Credential check failed" : null;
-  return s;
-}
-function updateKalshiEngineConfig(userId, patch) {
-  const s = getKalshiEngineState(userId);
-  const clean = { ...patch };
-  if (clean.strategy && !STRATEGY_LABELS[clean.strategy]) delete clean.strategy;
-  if (clean.symbols) {
-    const deduped = Array.from(new Set(clean.symbols)).filter((c) => KALSHI_TRADEABLE_COINS.includes(c));
-    clean.symbols = deduped.length ? deduped : ["BTC"];
-  }
-  if (clean.timeframe && clean.timeframe !== "hourly" && clean.timeframe !== "fifteen_min") delete clean.timeframe;
-  if (clean.minValueScore != null) clean.minValueScore = Math.max(1, Math.min(50, clean.minValueScore));
-  if (clean.minEntryPriceCents != null) clean.minEntryPriceCents = Math.max(1, Math.min(95, clean.minEntryPriceCents));
-  if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(500, clean.takeProfitCents));
-  if (clean.stopLossCents != null) clean.stopLossCents = Math.max(0, Math.min(99, clean.stopLossCents));
-  if (clean.riskPctPerTrade != null) clean.riskPctPerTrade = Math.max(1, Math.min(25, clean.riskPctPerTrade));
-  if (clean.startingBankroll != null) clean.startingBankroll = Math.max(10, Math.min(1e6, clean.startingBankroll));
-  if (clean.dailyLossLimitPct != null) clean.dailyLossLimitPct = Math.max(1, Math.min(100, clean.dailyLossLimitPct));
-  if (clean.maxDrawdownLimitPct != null) clean.maxDrawdownLimitPct = Math.max(1, Math.min(100, clean.maxDrawdownLimitPct));
-  if (clean.weatherMinEdgeCents != null) clean.weatherMinEdgeCents = Math.max(1, Math.min(50, clean.weatherMinEdgeCents));
-  if (clean.weatherMaxBiasDegrees != null) clean.weatherMaxBiasDegrees = Math.max(1, Math.min(15, clean.weatherMaxBiasDegrees));
-  s.config = { ...s.config, ...clean };
-  _persistKalshiConfig(userId, s.config);
-}
-function _persistKalshiConfig(userId, config) {
-  Promise.resolve().then(() => (init_db(), db_exports)).then(({ db: db2 }) => {
-    Promise.resolve().then(() => (init_schema(), schema_exports)).then(({ kalshiEngineConfigs: kalshiEngineConfigs2 }) => {
-      db2.insert(kalshiEngineConfigs2).values({ userId, config }).onConflictDoUpdate({
-        target: kalshiEngineConfigs2.userId,
-        set: { config, updatedAt: /* @__PURE__ */ new Date() }
-      }).catch(console.error);
-    });
-  });
-}
-async function hydratePersistedKalshiConfigs() {
-  try {
-    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { kalshiEngineConfigs: kalshiEngineConfigs2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const rows = await db2.select().from(kalshiEngineConfigs2);
-    for (const row of rows) {
-      _persistedConfigOverrides.set(row.userId, row.config);
-    }
-    console.log(`[Kalshi] Hydrated ${rows.length} persisted engine config(s) \u2014 coin/strategy/risk settings will survive this restart.`);
-  } catch (e) {
-    console.error("[Kalshi] Failed to hydrate persisted engine configs:", e);
-  }
-}
-function kalshiBankroll(s) {
-  return Math.max(1, (s.config.startingBankroll || 100) + (s.totalRealizedPnl || 0));
-}
-async function kalshiContractsFor(userId, s, priceInCents, coin) {
-  const baseContracts = (() => {
-    if (!s.config.compounding) return s.config.contractsPerTrade;
-    const bankroll = kalshiBankroll(s);
-    const stakeTarget = bankroll * ((s.config.riskPctPerTrade || 5) / 100);
-    const perContract = Math.max(0.01, priceInCents / 100);
-    return Math.max(1, Math.min(200, Math.floor(stakeTarget / perContract)));
-  })();
-  let riskMultiplier = 1;
-  if (s.config.drawdownShieldThreshold > 0) {
-    const bankroll = kalshiBankroll(s);
-    const peak = Math.max(_sessionPeakBankroll.get(userId) ?? bankroll, bankroll);
-    _sessionPeakBankroll.set(userId, peak);
-    const ddFromPeakPct = peak > 0 ? (peak - bankroll) / peak * 100 : 0;
-    if (ddFromPeakPct >= s.config.drawdownShieldThreshold) riskMultiplier = 0.25;
-  }
-  const brainMult = s.config.kalshiBrainEnabled && coin ? kalshiBrainSizeMultiplier(userId, coin) : 1;
-  const shieldedBase = Math.max(1, Math.round(baseContracts * riskMultiplier * brainMult));
-  const shieldNote = (riskMultiplier < 1 ? ` \u26A0\uFE0F Drawdown Shield active \u2014 sized to ${Math.round(riskMultiplier * 100)}%.` : "") + (brainMult !== 1 ? ` \u{1F9E0} Brain sizing \xD7${brainMult}${coin ? ` (${coin})` : ""}.` : "");
-  if (s.config.brainLearningMode) {
-    const perf = getKalshiPerformance(userId);
-    const brainLocked = perf.totals.trades < 10 || perf.totals.winRate < 60;
-    if (brainLocked) {
-      return { contracts: 1, reasoning: `\u{1F9E0} Learning Mode: locked at 1 contract (${perf.totals.trades}/10 trades, ${perf.totals.winRate}%/60% WR).${shieldNote}` };
-    }
-    if (s.config.useKellyCriterion) {
-      const fractionalKelly = perf.totals.winRate / 100 * 0.25;
-      const kellyContracts = Math.max(1, Math.round(shieldedBase * (1 + fractionalKelly)));
-      return { contracts: kellyContracts, reasoning: `\u{1F9E0} Brain unlocked (${perf.totals.trades} trades @ ${perf.totals.winRate}% WR) + Kelly sizing.${shieldNote}` };
-    }
-    return { contracts: shieldedBase, reasoning: `\u{1F9E0} Brain unlocked (${perf.totals.trades} trades @ ${perf.totals.winRate}% WR).${shieldNote}` };
-  }
-  if (s.config.useKellyCriterion) {
-    const perf = getKalshiPerformance(userId);
-    const fractionalKelly = perf.totals.winRate / 100 * 0.25;
-    const kellyContracts = Math.max(1, Math.round(shieldedBase * (1 + fractionalKelly)));
-    return { contracts: kellyContracts, reasoning: `Kelly sizing (${perf.totals.winRate}% WR over ${perf.totals.trades} trades).${shieldNote}` };
-  }
-  return { contracts: shieldedBase, reasoning: shieldNote.trim() };
-}
-function startKalshiEngine(userId) {
-  const s = getKalshiEngineState(userId);
-  if (s.isRunning) return;
-  s.isRunning = true;
-  _persistKalshiRunState(userId, true, s.isPaperMode);
-  _runKalshiScan(userId).catch(console.error);
-  const iv = setInterval(() => _runKalshiScan(userId).catch(console.error), 5 * 60 * 1e3);
-  _timers.set(userId, iv);
-  const pv = setInterval(() => {
-    const st = getKalshiEngineState(userId);
-    if (st.isRunning && st.openTrades.length) _updateOpenTradePrices(userId, st).catch(() => {
-    });
-  }, 60 * 1e3);
-  _priceTimers.set(userId, pv);
-}
-function stopKalshiEngine(userId) {
-  const s = getKalshiEngineState(userId);
-  s.isRunning = false;
-  _persistKalshiRunState(userId, false, s.isPaperMode);
-  const iv = _timers.get(userId);
-  if (iv) {
-    clearInterval(iv);
-    _timers.delete(userId);
-  }
-  const pv = _priceTimers.get(userId);
-  if (pv) {
-    clearInterval(pv);
-    _priceTimers.delete(userId);
-  }
-}
-function _persistKalshiRunState(userId, isRunning, isPaperMode) {
-  Promise.resolve().then(() => (init_db(), db_exports)).then(({ db: db2 }) => {
-    Promise.resolve().then(() => (init_schema(), schema_exports)).then(({ engineRunState: engineRunState2 }) => {
-      db2.insert(engineRunState2).values({ userId, engine: "kalshi", isRunning, isPaperMode }).onConflictDoUpdate({
-        target: [engineRunState2.userId, engineRunState2.engine],
-        set: { isRunning, isPaperMode, updatedAt: /* @__PURE__ */ new Date() }
-      }).catch(console.error);
-    });
-  });
-}
-async function restoreKalshiEngineStateFromDb(userId) {
-  try {
-    await _restoreKalshiRealizedPnl(userId);
-    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq21, and: and12 } = await import("drizzle-orm");
-    const rows = await db2.select().from(engineRunState2).where(and12(eq21(engineRunState2.userId, userId), eq21(engineRunState2.engine, "kalshi")));
-    const row = rows[0];
-    if (row?.isRunning) {
-      console.log(`[Kalshi] Restoring engine for user ${userId}`);
-      await _reconcileKalshiPositionsOnBoot(userId);
-      startKalshiEngine(userId);
-    }
-  } catch (e) {
-    console.error("[Kalshi] Failed to restore engine state:", e);
-  }
-}
-async function _restoreKalshiRealizedPnl(userId) {
-  try {
-    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq21, and: and12, sql: sql18 } = await import("drizzle-orm");
-    const [row] = await db2.select({ total: sql18`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(eq21(aiTradeResults2.userId, userId), eq21(aiTradeResults2.source, "kalshi")));
-    const total = parseFloat(row?.total ?? "0") || 0;
-    const s = getKalshiEngineState(userId);
-    s.totalRealizedPnl = total;
-  } catch (e) {
-    console.error(`[Kalshi] Failed to restore totalRealizedPnl for user ${userId}:`, e?.message);
-  }
-}
-async function _reconcileKalshiPositionsOnBoot(userId) {
-  if (!loadKalshiCredentials(userId)) return;
-  const s = getKalshiEngineState(userId);
-  try {
-    const positions = await getKalshiPositions(userId);
-    const trackedTickers = new Set(s.openTrades.map((t) => t.ticker));
-    let untracked = 0;
-    for (const p2 of positions) {
-      const netContracts = p2.position_fp != null ? parseFloat(p2.position_fp) : Number(p2.position ?? 0);
-      if (!netContracts || netContracts <= 0) continue;
-      if (trackedTickers.has(p2.ticker)) continue;
-      untracked++;
-      const count = Math.round(Math.abs(netContracts));
-      const exposureCents = p2.market_exposure_dollars != null ? Math.abs(parseFloat(p2.market_exposure_dollars)) * 100 : Math.abs(Number(p2.market_exposure ?? 0));
-      const avgEntryCents = count > 0 && exposureCents > 0 ? Math.round(exposureCents / count) : 50;
-      const { coin, timeframe } = _coinAndTimeframeFromTicker(p2.ticker);
-      s.openTrades.push({
-        id: `kalshi-reconciled-${p2.ticker}-${Date.now()}`,
-        coin,
-        timeframe,
-        ticker: p2.ticker,
-        subtitle: p2.ticker,
-        side: "yes",
-        action: "buy",
-        count,
-        entryPriceCents: avgEntryCents,
-        currentPriceCents: avgEntryCents,
-        stake: avgEntryCents / 100 * count,
-        currentValue: avgEntryCents / 100 * count,
-        unrealizedPnl: 0,
-        signal: { direction: "BUY", confidence: 0, btcPrice: 0 },
-        strategy: "reconciled",
-        openedAt: (/* @__PURE__ */ new Date()).toISOString(),
-        status: "open",
-        paper: false
-      });
-    }
-    if (untracked > 0) {
-      console.warn(`[Kalshi] Boot reconciliation: found ${untracked} real open position(s) for user ${userId} with no local record (server restart wiped it) \u2014 re-added as tracked trades so exposure/exit logic sees them.`);
-      _recalcUnrealized(s);
-    }
-  } catch (e) {
-    console.error(`[Kalshi] Boot position reconciliation failed for user ${userId} (continuing without it):`, e?.message);
-  }
-}
-async function manualKalshiScan(userId) {
-  return _runKalshiScan(userId, true);
-}
-async function _verifyKalshiFill(userId, orderId) {
-  await new Promise((res2) => setTimeout(res2, 1500));
-  try {
-    const resting = await getKalshiOrders(userId, "resting");
-    const stillResting = resting.some((o) => (o.order_id ?? o.id) === orderId);
-    if (stillResting) {
-      await cancelKalshiOrder(userId, orderId);
-      return false;
-    }
-    return true;
-  } catch {
-    return true;
-  }
-}
-async function _placeKalshiYes(userId, s, p2) {
-  const { contracts, reasoning: sizingReasoning } = await kalshiContractsFor(userId, s, p2.priceInCents, p2.coin);
-  const stakeUsd = p2.priceInCents / 100 * contracts;
-  let kalshiOrderId;
-  if (!s.isPaperMode) {
-    try {
-      const result = await placeKalshiOrder(
-        userId,
-        p2.ticker,
-        "yes",
-        "buy",
-        contracts,
-        p2.priceInCents
-      );
-      kalshiOrderId = result.orderId;
-      const filled = result.status === "executed" ? true : await _verifyKalshiFill(userId, result.orderId);
-      if (!filled) {
-        const r3 = `Order for "${p2.subtitle}" didn't fill (price moved) \u2014 canceled, no position opened.`;
-        s.lastScanResult = r3;
-        return { fired: false, reason: r3 };
-      }
-    } catch (err) {
-      const r3 = `Order failed: ${err.message}`;
-      s.lastScanResult = r3;
-      return { fired: false, reason: r3 };
-    }
-  }
-  const trade = {
-    id: `kalshi-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-    coin: p2.coin,
-    timeframe: p2.timeframe,
-    ticker: p2.ticker,
-    subtitle: p2.subtitle,
-    side: "yes",
-    action: "buy",
-    count: contracts,
-    entryPriceCents: p2.priceInCents,
-    currentPriceCents: p2.priceInCents,
-    stake: stakeUsd,
-    currentValue: stakeUsd,
-    unrealizedPnl: 0,
-    signal: { direction: p2.direction, confidence: p2.confidence, btcPrice: p2.btcPrice },
-    strategy: p2.strategy,
-    openedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    status: "open",
-    paper: s.isPaperMode,
-    kalshiOrderId,
-    strikeType: p2.strikeType,
-    edgePct: p2.edgePct,
-    valueScore: p2.valueScore,
-    modelProbPct: p2.modelProbPct,
-    agreement: p2.agreement
-  };
-  s.openTrades.push(trade);
-  s.lastTradeAt = (/* @__PURE__ */ new Date()).toISOString();
-  const _fireDay = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  if (s.tradesTodayUtcDate !== _fireDay) {
-    s.tradesTodayUtcDate = _fireDay;
-    s.tradesToday = 0;
-  }
-  s.tradesToday = (s.tradesToday ?? 0) + 1;
-  _recalcUnrealized(s);
-  const modeStr = s.isPaperMode ? "[PAPER]" : "[LIVE]";
-  const exitNote = s.config.takeProfitCents > 0 || s.config.stopLossCents > 0 ? ` \xB7 auto-exit +${s.config.takeProfitCents}%/-${s.config.stopLossCents}% of entry` : "";
-  const compNote = s.config.compounding ? ` \xB7 compounding ${s.config.riskPctPerTrade}% of $${kalshiBankroll(s).toFixed(0)} bankroll` : "";
-  const r = `${modeStr} ${p2.label}: bought YES \xD7 ${contracts} on "${p2.subtitle}" at ${p2.priceInCents}\xA2 \u2014 stake $${stakeUsd.toFixed(2)}${compNote}${exitNote}${sizingReasoning ? ` ${sizingReasoning}` : ""}`;
-  s.lastScanResult = r;
-  return { fired: true, reason: r };
-}
-async function ruinGuardStatus(userId, s) {
-  if (!s.config.ruinGuardEnabled) return { blocked: false, reason: "" };
-  const base = Math.max(1, s.config.startingBankroll || 100);
-  const dailyLimit = base * ((s.config.dailyLossLimitPct ?? 5) / 100);
-  const ddLimit = base * ((s.config.maxDrawdownLimitPct ?? 10) / 100);
-  const now = /* @__PURE__ */ new Date();
-  const startOfDayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  let dailyRealized = 0;
-  try {
-    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { and: and12, eq: eq21, gte: gte7, sql: sql18 } = await import("drizzle-orm");
-    const [row] = await db2.select({ total: sql18`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(
-      eq21(aiTradeResults2.userId, userId),
-      eq21(aiTradeResults2.source, "kalshi"),
-      gte7(aiTradeResults2.closedAt, startOfDayUtc)
-    ));
-    dailyRealized = parseFloat(row?.total ?? "0") || 0;
-  } catch {
-    const todayKey = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`;
-    for (const t of s.closedTrades) {
-      if (!t.closedAt) continue;
-      const d = new Date(t.closedAt);
-      if (`${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}` === todayKey) dailyRealized += t.realizedPnl || 0;
-    }
-  }
-  const dayPnL = dailyRealized + (s.totalUnrealizedPnl || 0);
-  if (dayPnL <= -dailyLimit) {
-    return { blocked: true, reason: `\u{1F6D1} Ruin Guard: daily P&L $${dayPnL.toFixed(2)} hit the \u2212$${dailyLimit.toFixed(2)} daily-loss limit \u2014 no new trades until next UTC day` };
-  }
-  const bankroll = kalshiBankroll(s);
-  const peak = Math.max(_sessionPeakBankroll.get(userId) ?? bankroll, bankroll);
-  _sessionPeakBankroll.set(userId, peak);
-  const dd = peak - bankroll;
-  if (dd >= ddLimit) {
-    return { blocked: true, reason: `\u{1F6D1} Ruin Guard: drawdown $${dd.toFixed(2)} from peak $${peak.toFixed(2)} hit the $${ddLimit.toFixed(2)} max-DD limit \u2014 no new trades until equity recovers` };
-  }
-  return { blocked: false, reason: "" };
-}
-async function _runKalshiScan(userId, manual = false) {
-  await refreshKalshiCredValidity(userId);
-  const s = getKalshiEngineState(userId);
-  s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
-  await _updateOpenTradePrices(userId, s);
-  if (s.config.kalshiBrainEnabled) await getOrRefreshKalshiBrain(userId).catch(() => {
-  });
-  if (s.openTrades.length >= s.config.maxOpenTrades) {
-    const r = `Max open trades (${s.config.maxOpenTrades}) reached`;
-    s.lastScanResult = r;
-    return { fired: false, reason: r };
-  }
-  if (!manual && s.lastTradeAt) {
-    const elapsed = Date.now() - new Date(s.lastTradeAt).getTime();
-    const cooldownMs = s.config.cooldownMinutes * 60 * 1e3;
-    if (elapsed < cooldownMs) {
-      const minsLeft = Math.ceil((cooldownMs - elapsed) / 6e4);
-      const r = `Cooldown: ${minsLeft}m remaining`;
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
-    }
-  }
-  const _todayUtc = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  if (s.tradesTodayUtcDate !== _todayUtc) {
-    s.tradesTodayUtcDate = _todayUtc;
-    s.tradesToday = 0;
-  }
-  const _dailyCap = s.config.maxTradesPerDay ?? 0;
-  if (!manual && _dailyCap > 0 && s.tradesToday >= _dailyCap) {
-    const r = `Daily trade cap reached (${s.tradesToday}/${_dailyCap}) \u2014 pausing new trades until UTC midnight`;
-    s.lastScanResult = r;
-    return { fired: false, reason: r };
-  }
-  const guard = await ruinGuardStatus(userId, s);
-  if (guard.blocked) {
-    s.lastScanResult = guard.reason;
-    return { fired: false, reason: guard.reason };
-  }
-  let weatherReason = "";
-  if (s.config.weatherEnabled) {
-    const wx = await _scanWeather(userId, s);
-    if (wx.fired) {
-      s.lastScanResult = wx.reason;
-      return wx;
-    }
-    weatherReason = wx.reason;
-  }
-  const symbols = s.config.symbols?.length ? s.config.symbols : ["BTC"];
-  if (s.config.autoTradeValuePicks) {
-    const vpResult = await _scanBestValuePickAcrossSymbols(userId, s, symbols);
-    if (!vpResult.fired && weatherReason) {
-      const combined2 = `${weatherReason} \xB7 ${vpResult.reason}`;
-      s.lastScanResult = combined2;
-      return { fired: false, reason: combined2 };
-    }
-    return vpResult;
-  }
-  const perSymbolReasons = [];
-  for (const coin of symbols) {
-    const result = await _scanOneCoin(userId, s, coin);
-    if (result.fired) {
-      s.lastScanResult = result.reason;
-      return result;
-    }
-    perSymbolReasons.push(result.reason);
-  }
-  const combined = [weatherReason, ...perSymbolReasons].filter(Boolean).join(" \xB7 ");
-  s.lastScanResult = combined;
-  return { fired: false, reason: combined };
-}
-async function _scanWeather(userId, s) {
-  const cities = s.config.weatherCities?.length ? s.config.weatherCities : ["NY", "CHI", "MIA", "AUS", "LAX", "DEN", "PHIL"];
-  let scan;
-  try {
-    scan = await scanKalshiWeatherPicks(cities, {
-      minEntryCents: s.config.minEntryPriceCents ?? 15,
-      minEdgeCents: s.config.weatherMinEdgeCents ?? 8,
-      maxBiasDegrees: s.config.weatherMaxBiasDegrees ?? 3
-    });
-  } catch (err) {
-    return { fired: false, reason: `Weather: scan error: ${err.message}` };
-  }
-  const top = scan.picks[0];
-  if (!top) {
-    return { fired: false, reason: `Weather: no qualifying pick \u2014 ${scan.perCityReasons.join(" \xB7 ")}` };
-  }
-  if (s.config.kalshiBrainEnabled && s.config.kalshiBrainGating) {
-    const g = kalshiBrainGate(userId, top.cityCode, top.strikeType, (/* @__PURE__ */ new Date()).getUTCHours(), top.confidence);
-    if (g.blocked) return { fired: false, reason: g.reason };
-  }
-  return _placeKalshiYes(userId, s, {
-    coin: top.cityCode,
-    timeframe: "hourly",
-    // daily market; the per-ticker pricing/settlement fallback handles it regardless
-    ticker: top.ticker,
-    subtitle: `${top.city} ${top.subtitle}`,
-    priceInCents: top.marketAskCents,
-    confidence: top.confidence,
-    btcPrice: 0,
-    direction: "BUY",
-    label: `Weather: ${top.city} "${top.subtitle}" (+${top.edgePct}\xA2 edge, score ${top.valueScore})`,
-    strategy: "weather",
-    strikeType: top.strikeType,
-    edgePct: top.edgePct,
-    valueScore: top.valueScore,
-    modelProbPct: top.modelProbPct
-  });
-}
-async function previewKalshiWeatherPicks(userId) {
-  const s = getKalshiEngineState(userId);
-  const cities = s.config.weatherCities?.length ? s.config.weatherCities : ["NY", "CHI", "MIA", "AUS", "LAX", "DEN", "PHIL"];
-  return scanKalshiWeatherPicks(cities, {
-    minEntryCents: s.config.minEntryPriceCents ?? 15,
-    minEdgeCents: s.config.weatherMinEdgeCents ?? 8,
-    maxBiasDegrees: s.config.weatherMaxBiasDegrees ?? 3
-  });
-}
-async function _scanBestValuePickAcrossSymbols(userId, s, symbols) {
-  const perSymbolReasons = [];
-  let best = null;
-  for (const coin2 of symbols) {
-    if (!isKalshiBrokerTradeable(coin2, s.config.timeframe)) {
-      perSymbolReasons.push(`${coin2}: ${s.config.timeframe === "fifteen_min" ? "15-min" : "hourly"} market exists but isn't broker/API-tradeable \u2014 skipping`);
-      continue;
-    }
-    try {
-      const vp2 = await scanKalshiValuePicks(userId, 1, coin2, s.config.timeframe);
-      const top2 = vp2.picks[0];
-      if (!top2) {
-        perSymbolReasons.push(`${coin2}: no positive-edge bracket right now (${vp2.consensus.direction} consensus)`);
-        continue;
-      }
-      if (top2.valueScore < s.config.minValueScore) {
-        perSymbolReasons.push(`${coin2}: best score ${top2.valueScore} below threshold (${s.config.minValueScore}) \u2014 "${top2.subtitle}"`);
-        continue;
-      }
-      perSymbolReasons.push(`${coin2}: qualifying pick, score ${top2.valueScore} \u2014 "${top2.subtitle}"`);
-      if (!best || top2.valueScore > best.top.valueScore) best = { coin: coin2, top: top2, vp: vp2 };
-    } catch (err) {
-      perSymbolReasons.push(`${coin2}: value-pick scan error: ${err.message}`);
-    }
-  }
-  if (!best) {
-    const combined = perSymbolReasons.join(" \xB7 ");
-    s.lastScanResult = combined;
-    return { fired: false, reason: combined };
-  }
-  const { coin, top, vp } = best;
-  const result = await _placeKalshiYes(userId, s, {
-    coin,
-    timeframe: s.config.timeframe,
-    ticker: top.ticker,
-    subtitle: top.subtitle,
-    priceInCents: top.marketAskCents,
-    confidence: top.confidence,
-    btcPrice: vp.btcPrice,
-    direction: vp.consensus.direction === "SELL" ? "SELL" : "BUY",
-    label: `${coin} value pick (score ${top.valueScore}, +${top.edgePct}\xA2 edge) [best of ${symbols.length}]`,
-    strategy: "consensus",
-    strikeType: top.strikeType,
-    edgePct: top.edgePct,
-    valueScore: top.valueScore,
-    modelProbPct: top.modelProbPct,
-    agreement: top.agreement
-  });
-  return result;
-}
-async function _scanOneCoin(userId, s, coin) {
-  if (!isKalshiBrokerTradeable(coin, s.config.timeframe)) {
-    return { fired: false, reason: `${coin}: ${s.config.timeframe === "fifteen_min" ? "15-min" : "hourly"} market exists but isn't broker/API-tradeable on Kalshi's side \u2014 skipping` };
-  }
-  if (s.config.kalshiBrainEnabled && s.config.kalshiBrainGating) {
-    const g = kalshiBrainGate(userId, coin, null, (/* @__PURE__ */ new Date()).getUTCHours());
-    if (g.blocked) return { fired: false, reason: g.reason };
-  }
-  try {
-    let effectiveStrategy;
-    let stratLabel;
-    if (s.config.strategy === "auto") {
-      const scan = await scanAllKalshiStrategies(userId, coin);
-      if (!scan.selected) {
-        return { fired: false, reason: `${coin} Auto: all strategies NEUTRAL this cycle \u2014 no trade` };
-      }
-      effectiveStrategy = scan.selected;
-      const sel = scan.rows.find((row) => row.strategy === effectiveStrategy);
-      stratLabel = `${coin} Auto\u2192${STRATEGY_LABELS[effectiveStrategy]} (acc ${sel.winRate}%/${sel.decidedTrades}t \xB7 conf ${sel.confidence}%)`;
-    } else {
-      effectiveStrategy = s.config.strategy;
-      stratLabel = `${coin} ${STRATEGY_LABELS[effectiveStrategy] ?? effectiveStrategy}`;
-    }
-    const pred = await getKalshiSignal(effectiveStrategy, coin);
-    if (!pred || pred.direction === "NEUTRAL") {
-      return { fired: false, reason: `${stratLabel}: NEUTRAL \u2014 ${pred?.reason ?? "no clear direction"}` };
-    }
-    if (pred.confidence < s.config.minConfidence) {
-      return { fired: false, reason: `${stratLabel}: confidence ${pred.confidence}% below threshold (${s.config.minConfidence}%)` };
-    }
-    if (s.config.requireAlignedHourly) {
-      const aligned = pred.direction === "BUY" && pred.priceChange1h > 0 || pred.direction === "SELL" && pred.priceChange1h < 0;
-      if (!aligned) {
-        return { fired: false, reason: `${stratLabel}: 1h trend (${pred.priceChange1h > 0 ? "+" : ""}${pred.priceChange1h.toFixed(2)}%) conflicts with ${pred.direction} signal` };
-      }
-    }
-    if (s.config.requireConfluence !== false) {
-      const consensus = await getKalshiConsensus(coin);
-      const agrees = consensus.direction === pred.direction && consensus.agreement >= 0.6;
-      if (!agrees) {
-        return { fired: false, reason: `${stratLabel}: Confluence fail: says ${pred.direction} but consensus is ${consensus.direction} @ ${Math.round(consensus.agreement * 100)}% agree (need \u226560% agreeing)` };
-      }
-    }
-    const seriesTicker = s.config.timeframe === "fifteen_min" ? KALSHI_SERIES_MAP[coin].fifteenMin : KALSHI_SERIES_MAP[coin].hourly;
-    const event = await getKalshiCryptoEvent(seriesTicker, pred.currentPrice);
-    if (!event.brackets.length) {
-      return { fired: false, reason: `${coin}: No active ${seriesTicker} brackets available` };
-    }
-    const minCloseBufferMs = s.config.timeframe === "fifteen_min" ? 3 * 60 * 1e3 : 15 * 60 * 1e3;
-    if (event.msUntilClose < minCloseBufferMs) {
-      return { fired: false, reason: `${coin}: Nearest ${seriesTicker} event closes in <${Math.round(minCloseBufferMs / 6e4)}min \u2014 waiting for next event` };
-    }
-    const bracket = _selectBracket(event.brackets, pred);
-    if (!bracket) {
-      return { fired: false, reason: `${coin}: Could not find a suitable bracket for current signal` };
-    }
-    const priceInCents = bracket.yesAsk > 0 ? bracket.yesAsk : Math.max(1, bracket.yesProbability);
-    if (priceInCents >= 97) {
-      return { fired: false, reason: `${coin}: Bracket ${bracket.subtitle} already at ${priceInCents}\xA2 \u2014 too expensive` };
-    }
-    const _minEntry = s.config.minEntryPriceCents ?? 30;
-    if (priceInCents < _minEntry) {
-      return { fired: false, reason: `${coin}: Bracket ${bracket.subtitle} at ${priceInCents}\xA2 is below the ${_minEntry}\xA2 longshot floor (cheap brackets win ~17% \u2014 skipping)` };
-    }
-    if (priceInCents > pred.confidence - 5) {
-      return { fired: false, reason: `${coin}: No edge: ${bracket.subtitle} costs ${priceInCents}\xA2 but signal implies ~${pred.confidence}% win \u2014 need \u2264${pred.confidence - 5}\xA2. Skip.` };
-    }
-    return await _placeKalshiYes(userId, s, {
-      coin,
-      timeframe: s.config.timeframe,
-      ticker: bracket.ticker,
-      subtitle: bracket.subtitle,
-      priceInCents,
-      confidence: pred.confidence,
-      btcPrice: pred.currentPrice,
-      direction: pred.direction === "SELL" ? "SELL" : "BUY",
-      label: stratLabel,
-      strategy: effectiveStrategy,
-      strikeType: bracket.strikeType
-    });
-  } catch (err) {
-    return { fired: false, reason: `${coin}: Scan error: ${err.message}` };
-  }
-}
-function _selectBracket(brackets, pred) {
-  const btcPrice = pred.currentPrice;
-  if (pred.direction === "BUY") {
-    const greaterBrackets = brackets.filter((b) => b.strikeType === "greater" || b.strikeType === "greater_or_equal");
-    if (greaterBrackets.length) {
-      return greaterBrackets.sort((a, b) => {
-        const da = btcPrice - (a.floorStrike ?? 0);
-        const db2 = btcPrice - (b.floorStrike ?? 0);
-        return Math.abs(da) - Math.abs(db2);
-      })[0];
-    }
-    return _findNearestBetween(brackets, btcPrice);
-  }
-  if (pred.direction === "SELL") {
-    const lessBrackets = brackets.filter((b) => b.strikeType === "less" || b.strikeType === "less_or_equal");
-    if (lessBrackets.length) {
-      return lessBrackets.sort((a, b) => {
-        const da = (a.capStrike ?? btcPrice) - btcPrice;
-        const db2 = (b.capStrike ?? btcPrice) - btcPrice;
-        return Math.abs(da) - Math.abs(db2);
-      })[0];
-    }
-    const below = brackets.filter(
-      (b) => b.strikeType === "between" && b.capStrike != null && b.capStrike < btcPrice
-    ).sort((a, b) => (b.capStrike ?? 0) - (a.capStrike ?? 0));
-    return below[0] ?? null;
-  }
-  return null;
-}
-function _findNearestBetween(brackets, btcPrice) {
-  const between = brackets.filter((b) => b.strikeType === "between");
-  if (!between.length) return null;
-  return between.sort((a, b) => {
-    const midA = ((a.floorStrike ?? 0) + (a.capStrike ?? 0)) / 2;
-    const midB = ((b.floorStrike ?? 0) + (b.capStrike ?? 0)) / 2;
-    return Math.abs(midA - btcPrice) - Math.abs(midB - btcPrice);
-  })[0];
-}
-async function scanAllKalshiStrategies(userId, coin = "BTC") {
-  const scannedAt = (/* @__PURE__ */ new Date()).toISOString();
-  const consensus = await getKalshiConsensus(coin);
-  const perf = getKalshiPerformance(userId);
-  const rows = consensus.signals.map((sig) => {
-    const stat = perf.byStrategy.find((p2) => p2.strategy === sig.strategy);
-    const winRate2 = stat?.winRate ?? 0;
-    const decided = stat ? stat.wins + stat.losses : 0;
-    const totalPnl = stat?.totalPnl ?? 0;
-    const hasHistory = decided >= 3;
-    const accuracyFactor = hasHistory ? winRate2 / 100 : 0.5;
-    const selectScore = sig.direction === "NEUTRAL" ? 0 : Math.round(sig.confidence * (0.4 + accuracyFactor * 0.6));
-    return {
-      strategy: sig.strategy,
-      label: STRATEGY_LABELS[sig.strategy] ?? sig.strategy,
-      direction: sig.direction,
-      confidence: sig.confidence,
-      reason: sig.reason,
-      winRate: winRate2,
-      decidedTrades: decided,
-      totalPnl,
-      selectScore,
-      selected: false
-    };
-  });
-  let best = null;
-  for (const r of rows) if (r.selectScore > 0 && (!best || r.selectScore > best.selectScore)) best = r;
-  if (best) best.selected = true;
-  rows.sort((a, b) => b.selectScore - a.selectScore);
-  return { rows, selected: best?.strategy ?? null, btcPrice: consensus.currentPrice, scannedAt };
-}
-function normalCdf(x) {
-  const t = 1 / (1 + 0.2316419 * Math.abs(x));
-  const d = 0.3989423 * Math.exp(-x * x / 2);
-  let p2 = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
-  if (x > 0) p2 = 1 - p2;
-  return p2;
-}
-function _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice) {
-  if (sigmaPrice <= 0) sigmaPrice = btcPrice * 4e-3;
-  const expected = btcPrice + driftPrice;
-  if ((b.strikeType === "greater" || b.strikeType === "greater_or_equal") && b.floorStrike != null) {
-    return 1 - normalCdf((b.floorStrike - expected) / sigmaPrice);
-  }
-  if ((b.strikeType === "less" || b.strikeType === "less_or_equal") && b.capStrike != null) {
-    return normalCdf((b.capStrike - expected) / sigmaPrice);
-  }
-  if (b.strikeType === "between" && b.floorStrike != null && b.capStrike != null) {
-    return normalCdf((b.capStrike - expected) / sigmaPrice) - normalCdf((b.floorStrike - expected) / sigmaPrice);
-  }
-  return 0;
-}
-async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC", timeframe = "hourly") {
-  const scannedAt = (/* @__PURE__ */ new Date()).toISOString();
-  const consensus = await getKalshiConsensus(coin);
-  const btcPrice = consensus.currentPrice;
-  const base = {
-    consensus: { direction: consensus.direction, confidence: consensus.confidence, agreement: consensus.agreement, reasons: consensus.reasons },
-    btcPrice,
-    eventTicker: null,
-    minutesToClose: null,
-    picks: [],
-    scannedAt
-  };
-  if (!btcPrice) return base;
-  const seriesTicker = timeframe === "fifteen_min" ? KALSHI_SERIES_MAP[coin].fifteenMin : KALSHI_SERIES_MAP[coin].hourly;
-  const event = await getKalshiCryptoEvent(seriesTicker, btcPrice).catch(() => null);
-  if (!event || !event.brackets.length) return base;
-  base.eventTicker = event.eventTicker;
-  base.minutesToClose = Math.round(event.msUntilClose / 6e4);
-  const _minBufferMin = timeframe === "fifteen_min" ? 2 : 8;
-  const _maxWindowMin = timeframe === "fifteen_min" ? 20 : 240;
-  if (base.minutesToClose < _minBufferMin || base.minutesToClose > _maxWindowMin) return base;
-  const { candles } = await getCryptoCandles(coin, 100).catch(() => ({ candles: [] }));
-  const hourlyVolFrac = candles.length ? estimateHourlyVol(candles) : 4e-3;
-  const hoursLeft = Math.max(0.02, event.msUntilClose / 36e5);
-  const sigmaPrice = btcPrice * hourlyVolFrac * Math.sqrt(hoursLeft);
-  const dirSign = consensus.direction === "BUY" ? 1 : consensus.direction === "SELL" ? -1 : 0;
-  const driftFrac = consensus.agreement >= 0.6 ? dirSign * (consensus.confidence / 100) * consensus.agreement * 0.35 : 0;
-  const driftPrice = sigmaPrice * driftFrac;
-  const perf = getKalshiPerformance(userId);
-  const consStat = perf.byStrategy.find((st) => st.strategy === "consensus");
-  let winRateWeight = 1;
-  if (consStat && consStat.wins + consStat.losses >= 5) {
-    winRateWeight = Math.round((0.7 + consStat.winRate / 100 * 0.6) * 100) / 100;
-  }
-  const _brainCfg = getKalshiEngineState(userId).config;
-  const brainEnabled = _brainCfg.kalshiBrainEnabled;
-  const brainGating = brainEnabled && _brainCfg.kalshiBrainGating;
-  if (brainEnabled) await getOrRefreshKalshiBrain(userId).catch(() => {
-  });
-  const LONGSHOT_FLOOR_CENTS = Math.max(12, getKalshiEngineState(userId).config.minEntryPriceCents ?? 30);
-  const SPREAD_MAX_CENTS = 12;
-  const EDGE_MIN_CENTS = 4;
-  const picks = [];
-  for (const b of event.brackets) {
-    if (!b.hasLiquidity) continue;
-    const ask = b.yesAsk > 0 ? b.yesAsk : b.yesProbability;
-    if (ask <= 1 || ask >= 97) continue;
-    if (ask < LONGSHOT_FLOOR_CENTS) continue;
-    const spread = b.yesBid > 0 ? ask - b.yesBid : SPREAD_MAX_CENTS + 1;
-    if (spread > SPREAD_MAX_CENTS) continue;
-    if (brainGating && kalshiBrainGate(userId, coin, b.strikeType, (/* @__PURE__ */ new Date()).getUTCHours(), consensus.confidence).blocked) continue;
-    const modelProb = _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice);
-    const modelProbPct = Math.round(modelProb * 100);
-    const rawEdgePct = modelProbPct - ask;
-    const longshotFactor = Math.min(1, 0.6 + (ask - LONGSHOT_FLOOR_CENTS) / 60);
-    const edgePct = Math.round(rawEdgePct * longshotFactor);
-    if (edgePct < EDGE_MIN_CENTS) continue;
-    const agreementW = 0.5 + consensus.agreement * 0.5;
-    const confW = 0.5 + consensus.confidence / 100 * 0.5;
-    const probW = 0.6 + modelProb * 0.4;
-    const brainW = brainEnabled ? kalshiBrainValueWeight(userId, coin, b.strikeType) : 1;
-    const valueScore = Math.round(edgePct * agreementW * confW * probW * winRateWeight * brainW * 10) / 10;
-    const brainNote = brainW !== 1 ? ` \u{1F9E0} Brain ${brainW}\xD7 (${coin}${b.strikeType ? `/${b.strikeType}` : ""}).` : "";
-    const learnNote = winRateWeight !== 1 ? ` Learned ${winRateWeight}\xD7 (consensus WR ${consStat.winRate}% over ${consStat.wins + consStat.losses}).` : "";
-    const haircutNote = longshotFactor < 1 ? ` Longshot haircut ${Math.round(longshotFactor * 100)}% (raw +${rawEdgePct}\xA2).` : "";
-    picks.push({
-      ticker: b.ticker,
-      subtitle: b.subtitle,
-      strikeType: b.strikeType,
-      marketAskCents: ask,
-      modelProbPct,
-      edgePct,
-      valueScore,
-      confidence: consensus.confidence,
-      agreement: consensus.agreement,
-      winRateWeight,
-      rationale: `${consensus.direction} consensus (${Math.round(consensus.agreement * 100)}% agree, ${consensus.confidence}% conf). Model ${modelProbPct}% vs market ${ask}\xA2 \u2192 +${edgePct}\xA2 edge.${haircutNote}${learnNote}${brainNote}`
-    });
-  }
-  picks.sort((a, b) => b.valueScore - a.valueScore);
-  base.picks = picks.slice(0, limit);
-  return base;
-}
-async function _updateOpenTradePrices(userId, s) {
-  if (!s.openTrades.length) return;
-  const keysInPlay = Array.from(new Set(s.openTrades.map((t) => `${t.coin || "BTC"}:${t.timeframe || "hourly"}`)));
-  const bracketsByKey = /* @__PURE__ */ new Map();
-  for (const key of keysInPlay) {
-    const [coin, timeframe] = key.split(":");
-    if (!KALSHI_SERIES_MAP[coin]) continue;
-    try {
-      const seriesTicker = timeframe === "fifteen_min" ? KALSHI_SERIES_MAP[coin]?.fifteenMin ?? "KXBTC15M" : KALSHI_SERIES_MAP[coin]?.hourly ?? "KXBTC";
-      const event = await getKalshiCryptoEvent(seriesTicker, void 0, true);
-      bracketsByKey.set(key, event.brackets);
-    } catch {
-    }
-  }
-  for (const t of [...s.openTrades]) {
-    const brackets = bracketsByKey.get(`${t.coin || "BTC"}:${t.timeframe || "hourly"}`);
-    const b = brackets?.find((x) => x.ticker === t.ticker);
-    if (b) {
-      const liveCents = b.yesBid > 0 ? b.yesBid : b.yesProbability > 0 ? b.yesProbability : t.currentPriceCents;
-      await _applyLivePriceAndCheckExits(userId, s, t, liveCents);
-      continue;
-    }
-    try {
-      const market = await getKalshiMarketStatus(t.ticker);
-      if (!market) continue;
-      if (market.status === "finalized" || market.status === "settled" || market.result) {
-        const settledCents = market.result === "yes" ? 100 : market.result === "no" ? 0 : market.lastPrice || t.currentPriceCents;
-        await _settleKalshiTrade(userId, s, t, settledCents);
-      } else {
-        const liveCents = market.yesBid > 0 ? market.yesBid : market.lastPrice > 0 ? market.lastPrice : t.currentPriceCents;
-        await _applyLivePriceAndCheckExits(userId, s, t, liveCents);
-      }
-    } catch {
-    }
-  }
-  _recalcUnrealized(s);
-}
-async function _applyLivePriceAndCheckExits(userId, s, t, liveCents) {
-  t.currentPriceCents = liveCents;
-  t.currentValue = liveCents / 100 * t.count;
-  t.unrealizedPnl = t.currentValue - t.stake;
-  const tpPct = s.config.takeProfitCents;
-  const slPct = s.config.stopLossCents;
-  const tpLevel = tpPct > 0 ? Math.min(99, Math.round(t.entryPriceCents * (1 + tpPct / 100))) : null;
-  const slLevel = slPct > 0 ? Math.max(1, Math.round(t.entryPriceCents * (1 - slPct / 100))) : null;
-  if (tpLevel != null && liveCents >= tpLevel) {
-    const ok = await closeKalshiTrade(userId, t.id, liveCents, "take_profit");
-    if (ok) s.lastScanResult = `\u2705 Take-profit: closed "${t.subtitle}" at ${liveCents}\xA2 (entry ${t.entryPriceCents}\xA2 + ${tpPct}% target) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
-  } else if (slLevel != null && liveCents <= slLevel) {
-    const ok = await closeKalshiTrade(userId, t.id, liveCents, "stop_loss");
-    if (ok) s.lastScanResult = `\u{1F6D1} Stop-loss: closed "${t.subtitle}" at ${liveCents}\xA2 (entry ${t.entryPriceCents}\xA2 - ${slPct}% stop) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
-  }
-}
-function _recalcUnrealized(s) {
-  s.totalUnrealizedPnl = s.openTrades.reduce((sum, t) => sum + t.unrealizedPnl, 0);
-}
-function _finalizeKalshiClose(userId, s, idx, exitCents, exitReason) {
-  const trade = s.openTrades[idx];
-  if (!trade) return false;
-  const exitValue = exitCents / 100 * trade.count;
-  const realizedPnl = exitValue - trade.stake;
-  trade.status = "closed";
-  trade.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-  trade.exitPriceCents = exitCents;
-  trade.realizedPnl = realizedPnl;
-  trade.exitReason = exitReason;
-  trade.unrealizedPnl = 0;
-  s.openTrades.splice(idx, 1);
-  s.closedTrades.unshift(trade);
-  if (s.closedTrades.length > 50) s.closedTrades.length = 50;
-  s.totalRealizedPnl += realizedPnl;
-  _recalcUnrealized(s);
-  try {
-    recordKalshiOutcome(userId, trade.strategy || "unknown", realizedPnl);
-  } catch {
-  }
-  Promise.resolve().then(async () => {
-    try {
-      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-      const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      await db2.insert(aiTradeResults2).values({
-        userId,
-        symbol: `KALSHI:${trade.ticker}`,
-        direction: trade.signal.direction === "SELL" ? "SELL" : "BUY",
-        entryPrice: trade.entryPriceCents / 100,
-        exitPrice: exitCents / 100,
-        result: realizedPnl > 0 ? "WIN" : realizedPnl < 0 ? "LOSS" : "BREAKEVEN",
-        profitLoss: Math.round(realizedPnl * 100) / 100,
-        closedAt: /* @__PURE__ */ new Date(),
-        source: "kalshi",
-        mt5Ticket: trade.id,
-        notes: `${trade.strategy}: ${trade.subtitle}${exitReason !== "manual" ? " | " + exitReason : ""}`
-      });
-    } catch {
-    }
-  });
-  Promise.resolve().then(async () => {
-    try {
-      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-      const { kalshiBrainOutcomes: kalshiBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const openedMs = new Date(trade.openedAt).getTime();
-      await db2.insert(kalshiBrainOutcomes2).values({
-        userId,
-        coin: trade.coin || "BTC",
-        timeframe: trade.timeframe || "hourly",
-        strategy: trade.strategy || "unknown",
-        direction: trade.signal.direction === "SELL" ? "SELL" : "BUY",
-        strikeType: trade.strikeType ?? null,
-        entryPriceCents: trade.entryPriceCents,
-        confidence: trade.signal.confidence ?? null,
-        edgePct: trade.edgePct ?? null,
-        valueScore: trade.valueScore ?? null,
-        modelProbPct: trade.modelProbPct ?? null,
-        agreement: trade.agreement ?? null,
-        hourUtc: new Date(trade.openedAt).getUTCHours(),
-        holdingMinutes: Math.max(0, Math.round((Date.now() - openedMs) / 6e4)),
-        exitReason,
-        result: realizedPnl > 0 ? "WIN" : realizedPnl < 0 ? "LOSS" : "BREAKEVEN",
-        profitLoss: Math.round(realizedPnl * 100) / 100,
-        source: "live"
-      });
-      await learnFromKalshiTrades(userId);
-    } catch {
-    }
-  });
-  return true;
-}
-async function _settleKalshiTrade(userId, s, t, settledCents) {
-  const idx = s.openTrades.findIndex((x) => x.id === t.id);
-  if (idx === -1) return;
-  _finalizeKalshiClose(userId, s, idx, settledCents, "settlement");
-}
-async function closeKalshiTrade(userId, tradeId, exitPriceCents, exitReason = "manual") {
-  const s = getKalshiEngineState(userId);
-  const idx = s.openTrades.findIndex((t) => t.id === tradeId);
-  if (idx === -1) return false;
-  const trade = s.openTrades[idx];
-  const exitCents = exitPriceCents ?? trade.currentPriceCents;
-  if (!trade.paper) {
-    try {
-      await placeKalshiOrder(userId, trade.ticker, "yes", "sell", trade.count, exitCents);
-    } catch (err) {
-      console.error(`[Kalshi] Sell order failed for ${trade.ticker} (leaving position open, will retry next cycle): ${err.message}`);
-      s.lastScanResult = `\u26A0\uFE0F Could not close "${trade.subtitle}": ${err.message}`;
-      return false;
-    }
-  }
-  return _finalizeKalshiClose(userId, s, idx, exitCents, exitReason);
-}
-async function closeAllKalshiTrades(userId) {
-  const s = getKalshiEngineState(userId);
-  const ids = s.openTrades.map((t) => t.id);
-  let closed = 0;
-  for (const id of ids) {
-    if (await closeKalshiTrade(userId, id)) closed++;
-  }
-  return closed;
-}
-var KALSHI_TRADEABLE_COINS, _sessionPeakBankroll, _states2, _timers, DEFAULT_CONFIG3, STRATEGY_LABELS, _persistedConfigOverrides, _credValidity, CRED_VALIDITY_TTL_MS, _priceTimers;
-var init_kalshi_engine = __esm({
-  "server/services/kalshi-engine.ts"() {
-    "use strict";
-    init_kalshi();
-    init_kalshi_trading();
-    init_kalshi_strategies();
-    init_btc_5min_predictor();
-    init_kalshi_performance();
-    init_kalshi_brain();
-    init_kalshi_weather();
-    KALSHI_TRADEABLE_COINS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "GOLD"];
-    _sessionPeakBankroll = /* @__PURE__ */ new Map();
-    _states2 = /* @__PURE__ */ new Map();
-    _timers = /* @__PURE__ */ new Map();
-    DEFAULT_CONFIG3 = {
-      symbols: ["BTC"],
-      // preserves existing behavior for accounts that never touch this setting
-      timeframe: "hourly",
-      contractsPerTrade: 5,
-      maxOpenTrades: 3,
-      cooldownMinutes: 20,
-      maxTradesPerDay: 10,
-      // throttle overtrading (logs showed 30+ BTC trades/day at 23% WR); 0 = unlimited
-      minConfidence: 70,
-      requireAlignedHourly: true,
-      requireConfluence: true,
-      strategy: "auto",
-      // was 'momentum' — the WORST performer in this account's history (14% win over 14 trades). 'auto' picks the best strategy by live confidence × historical accuracy each cycle.
-      autoTradeValuePicks: false,
-      minValueScore: 5,
-      // was 8 — too strict; combined with the value filters it blocked every pick
-      minEntryPriceCents: 30,
-      // favorite-longshot floor (data-backed: <30¢ won 17%, 50¢+ won 55%+)
-      takeProfitCents: 50,
-      // +50% of entry price
-      stopLossCents: 40,
-      // -40% of entry price
-      compounding: false,
-      riskPctPerTrade: 5,
-      startingBankroll: 100,
-      useKellyCriterion: false,
-      brainLearningMode: true,
-      drawdownShieldThreshold: 0,
-      // 0 = disabled by default (opt-in, unlike options/futures/cryptocom)
-      ruinGuardEnabled: true,
-      // ON: circuit-breaker halts new trades after a bad day / drawdown
-      dailyLossLimitPct: 5,
-      // FTUK-style daily loss limit (% of starting bankroll)
-      maxDrawdownLimitPct: 10,
-      // FTUK-style max drawdown limit (% of starting bankroll)
-      kalshiBrainEnabled: true,
-      // brain influence on (bounded + neutral until it has data)
-      kalshiBrainGating: true,
-      // ON: hard-blocks setups the brain has proven to lose (≥15 trades & <35% WR)
-      weatherEnabled: false,
-      // opt-in; paper-first (needs a per-city calibration period before live)
-      weatherCities: ["NY", "CHI", "MIA", "AUS", "LAX", "DEN", "PHIL"],
-      weatherMinEdgeCents: 8,
-      weatherMaxBiasDegrees: 3
-    };
-    STRATEGY_LABELS = {
-      momentum: "Momentum",
-      volume_profile: "Volume Profile",
-      markov: "Markov",
-      order_flow: "Order Flow",
-      ensemble: "AI Ensemble",
-      auto: "Auto (Best)"
-    };
-    _persistedConfigOverrides = /* @__PURE__ */ new Map();
-    _credValidity = /* @__PURE__ */ new Map();
-    CRED_VALIDITY_TTL_MS = 10 * 60 * 1e3;
-    _priceTimers = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/polymarket-us.ts
-var polymarket_us_exports = {};
-__export(polymarket_us_exports, {
-  deletePmUsCredentials: () => deletePmUsCredentials,
-  findPmUsCryptoMarket: () => findPmUsCryptoMarket,
-  getPmUsBbo: () => getPmUsBbo,
-  getPmUsMarkets: () => getPmUsMarkets,
-  getPmUsPositions: () => getPmUsPositions,
-  hasPmUsCredentials: () => hasPmUsCredentials,
-  loadPmUsCredentials: () => loadPmUsCredentials,
-  placePmUsOrder: () => placePmUsOrder,
-  pmUsRequest: () => pmUsRequest,
-  savePmUsCredentials: () => savePmUsCredentials,
-  testPmUsConnection: () => testPmUsConnection,
-  toPmUsNum: () => toPmUsNum
-});
-import * as fs11 from "fs";
-import * as path11 from "path";
-import * as crypto14 from "crypto";
-function loadAll3() {
-  try {
-    if (fs11.existsSync(FILE3)) return JSON.parse(fs11.readFileSync(FILE3, "utf-8"));
-  } catch (e) {
-    console.error("[PolymarketUS] Credential store is unreadable (corrupted JSON?) \u2014 treating as empty:", e?.message);
-  }
-  return {};
-}
-function saveAll3(map) {
-  try {
-    const dir = path11.dirname(FILE3);
-    if (!fs11.existsSync(dir)) fs11.mkdirSync(dir, { recursive: true });
-    const content = JSON.stringify(map, null, 2);
-    fs11.writeFileSync(FILE3, content);
-    backupDurableFile("polymarket_us.json", content);
-  } catch {
-  }
-}
-function savePmUsCredentials(userId, keyId, secretKey) {
-  const map = loadAll3();
-  map[String(userId)] = { keyId: keyId.trim(), secretEnc: encryptPassword(secretKey.trim()), savedAt: (/* @__PURE__ */ new Date()).toISOString() };
-  saveAll3(map);
-}
-function loadPmUsCredentials(userId) {
-  const c = loadAll3()[String(userId)];
-  if (!c) return null;
-  try {
-    return { keyId: c.keyId, secret: decryptPassword(c.secretEnc) };
-  } catch {
-    return null;
-  }
-}
-function hasPmUsCredentials(userId) {
-  return !!loadAll3()[String(userId)];
-}
-function deletePmUsCredentials(userId) {
-  const map = loadAll3();
-  delete map[String(userId)];
-  saveAll3(map);
-}
-function ed25519KeyFromSecret(secretKeyB64) {
-  const raw = Buffer.from(secretKeyB64, "base64");
-  const seed = raw.subarray(0, 32);
-  const der = Buffer.concat([PKCS8_ED25519_PREFIX, seed]);
-  return crypto14.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
-}
-function signHeaders(keyId, secret, method, reqPath) {
-  const timestamp2 = Date.now().toString();
-  const message = `${timestamp2}${method.toUpperCase()}${reqPath}`;
-  const key = ed25519KeyFromSecret(secret);
-  const signature = crypto14.sign(null, Buffer.from(message, "utf-8"), key).toString("base64");
-  return {
-    "X-PM-Access-Key": keyId,
-    "X-PM-Timestamp": timestamp2,
-    "X-PM-Signature": signature,
-    "Content-Type": "application/json"
-  };
-}
-async function pmUsRequest(userId, method, reqPath, body) {
-  const creds = loadPmUsCredentials(userId);
-  if (!creds) return { ok: false, status: 0, data: { error: "No Polymarket US credentials saved" } };
-  const headers = signHeaders(creds.keyId, creds.secret, method, reqPath);
-  const init = { method: method.toUpperCase(), headers, signal: AbortSignal.timeout(2e4) };
-  if (body !== void 0) init.body = JSON.stringify(body);
-  try {
-    const res2 = await fetch(`${BASE_URL}${reqPath}`, init);
-    const text3 = await res2.text();
-    let data;
-    try {
-      data = text3 ? JSON.parse(text3) : {};
-    } catch {
-      data = { raw: text3 };
-    }
-    return { ok: res2.ok, status: res2.status, data };
-  } catch (e) {
-    return { ok: false, status: 0, data: { error: e?.message || String(e) } };
-  }
-}
-async function testPmUsConnection(userId) {
-  const r = await pmUsRequest(userId, "GET", "/v1/portfolio/positions");
-  return { connected: r.ok, status: r.status, detail: r.data };
-}
-async function getPmUsPositions(userId) {
-  return pmUsRequest(userId, "GET", "/v1/portfolio/positions");
-}
-async function placePmUsOrder(userId, order) {
-  return pmUsRequest(userId, "POST", "/v1/orders", order);
-}
-async function getPmUsMarkets(params = {}) {
-  const qs = new URLSearchParams({ active: "true", closed: "false", limit: "200", ...params }).toString();
-  try {
-    const res2 = await fetch(`${GATEWAY_URL}/v1/markets?${qs}`, { signal: AbortSignal.timeout(15e3) });
-    if (!res2.ok) return [];
-    const data = await res2.json();
-    return Array.isArray(data) ? data : data.markets || [];
-  } catch {
-    return [];
-  }
-}
-async function findPmUsCryptoMarket(asset = "bitcoin") {
-  const terms = asset === "bitcoin" ? ["bitcoin", "btc"] : asset === "ethereum" ? ["ethereum", "eth"] : [asset.toLowerCase()];
-  const markets = await getPmUsMarkets({ limit: 500 });
-  const candidates = markets.filter((m) => {
-    if (!m.active || m.closed) return false;
-    const hay = `${m.title || ""} ${m.question || ""} ${m.slug || ""} ${m.category || ""}`.toLowerCase();
-    return terms.some((t) => hay.includes(t));
-  });
-  candidates.sort((a, b) => new Date(a.endDate || 0).getTime() - new Date(b.endDate || 0).getTime());
-  return candidates[0] || null;
-}
-async function getPmUsBbo(slug) {
-  try {
-    const res2 = await fetch(`${GATEWAY_URL}/v1/markets/${encodeURIComponent(slug)}/bbo`, { signal: AbortSignal.timeout(12e3) });
-    if (!res2.ok) return null;
-    const d = await res2.json();
-    const md = d.marketData || d;
-    return { bestBid: _toNum(md.bestBid), bestAsk: _toNum(md.bestAsk), currentPx: _toNum(md.currentPx ?? md.lastTradePx ?? md.bestAsk) };
-  } catch {
-    return null;
-  }
-}
-var BASE_URL, GATEWAY_URL, FILE3, PKCS8_ED25519_PREFIX, toPmUsNum, _toNum;
-var init_polymarket_us = __esm({
-  "server/services/polymarket-us.ts"() {
-    "use strict";
-    init_tradelocker();
-    init_cred_store();
-    BASE_URL = "https://api.polymarket.us";
-    GATEWAY_URL = "https://gateway.polymarket.us";
-    FILE3 = path11.join(process.cwd(), "data", "polymarket_us.json");
-    PKCS8_ED25519_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
-    toPmUsNum = (x) => (x && typeof x === "object" ? parseFloat(x.value) : parseFloat(x)) || 0;
-    _toNum = toPmUsNum;
-  }
-});
-
-// server/services/polymarket-us-engine.ts
-var polymarket_us_engine_exports = {};
-__export(polymarket_us_engine_exports, {
-  closePmUsTrade: () => closePmUsTrade,
-  getPmUsEngineState: () => getPmUsEngineState,
-  manualPmUsScan: () => manualPmUsScan,
-  pmUsBankroll: () => pmUsBankroll,
-  pmUsContractsFor: () => pmUsContractsFor,
-  refreshPmUsCredValidity: () => refreshPmUsCredValidity,
-  restorePmUsEngineStateFromDb: () => restorePmUsEngineStateFromDb,
-  startPmUsEngine: () => startPmUsEngine,
-  stopPmUsEngine: () => stopPmUsEngine,
-  updatePmUsEngineConfig: () => updatePmUsEngineConfig
-});
-async function refreshPmUsCredValidity(userId) {
-  if (!hasPmUsCredentials(userId)) {
-    _credValidity2.delete(userId);
-    return;
-  }
-  const cached2 = _credValidity2.get(userId);
-  if (cached2 && Date.now() - cached2.checkedAt < CRED_VALIDITY_TTL_MS2) return;
-  try {
-    const result = await testPmUsConnection(userId);
-    _credValidity2.set(userId, { valid: result.connected, error: result.connected ? void 0 : JSON.stringify(result.detail).slice(0, 200), checkedAt: Date.now() });
-  } catch {
-  }
-}
-function getPmUsEngineState(userId) {
-  if (!_states3.has(userId)) {
-    _states3.set(userId, {
-      isRunning: false,
-      isPaperMode: !hasPmUsCredentials(userId),
-      credentialError: null,
-      lastScanAt: null,
-      lastScanResult: null,
-      lastTradeAt: null,
-      openTrades: [],
-      closedTrades: [],
-      totalRealizedPnl: 0,
-      totalUnrealizedPnl: 0,
-      config: { ...DEFAULT_CONFIG4 }
-    });
-  }
-  const s = _states3.get(userId);
-  const hasCreds = hasPmUsCredentials(userId);
-  const validity = _credValidity2.get(userId);
-  const knownInvalid = validity?.valid === false;
-  const nextPaperMode = !hasCreds || knownInvalid;
-  if (s.isPaperMode !== nextPaperMode && s.isRunning) {
-    _persistPmUsRunState(userId, s.isRunning, nextPaperMode);
-  }
-  s.isPaperMode = nextPaperMode;
-  s.credentialError = knownInvalid ? validity.error ?? "Credential check failed" : null;
-  return s;
-}
-function updatePmUsEngineConfig(userId, patch) {
-  const s = getPmUsEngineState(userId);
-  const clean = { ...patch };
-  if (clean.strategy && !STRATEGY_LABELS2[clean.strategy]) delete clean.strategy;
-  if (clean.minValueScore != null) clean.minValueScore = Math.max(1, Math.min(50, clean.minValueScore));
-  if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(99, clean.takeProfitCents));
-  if (clean.stopLossCents != null) clean.stopLossCents = Math.max(0, Math.min(95, clean.stopLossCents));
-  if (clean.riskPctPerTrade != null) clean.riskPctPerTrade = Math.max(1, Math.min(25, clean.riskPctPerTrade));
-  if (clean.startingBankroll != null) clean.startingBankroll = Math.max(10, Math.min(1e6, clean.startingBankroll));
-  s.config = { ...s.config, ...clean };
-}
-function pmUsBankroll(s) {
-  return Math.max(1, (s.config.startingBankroll || 100) + (s.totalRealizedPnl || 0));
-}
-function pmUsContractsFor(s, priceInCents) {
-  if (!s.config.compounding) return s.config.contractsPerTrade;
-  const stakeTarget = pmUsBankroll(s) * ((s.config.riskPctPerTrade || 5) / 100);
-  const perContract = Math.max(0.01, priceInCents / 100);
-  return Math.max(1, Math.min(200, Math.floor(stakeTarget / perContract)));
-}
-function startPmUsEngine(userId) {
-  const s = getPmUsEngineState(userId);
-  if (s.isRunning) return;
-  s.isRunning = true;
-  _persistPmUsRunState(userId, true, s.isPaperMode);
-  _runScan2(userId).catch(console.error);
-  _timers2.set(userId, setInterval(() => _runScan2(userId).catch(console.error), 5 * 60 * 1e3));
-}
-function stopPmUsEngine(userId) {
-  const s = getPmUsEngineState(userId);
-  s.isRunning = false;
-  _persistPmUsRunState(userId, false, s.isPaperMode);
-  const iv = _timers2.get(userId);
-  if (iv) {
-    clearInterval(iv);
-    _timers2.delete(userId);
-  }
-}
-function _persistPmUsRunState(userId, isRunning, isPaperMode) {
-  Promise.resolve().then(() => (init_db(), db_exports)).then(({ db: db2 }) => {
-    Promise.resolve().then(() => (init_schema(), schema_exports)).then(({ engineRunState: engineRunState2 }) => {
-      db2.insert(engineRunState2).values({ userId, engine: "polymarket-us", isRunning, isPaperMode }).onConflictDoUpdate({
-        target: [engineRunState2.userId, engineRunState2.engine],
-        set: { isRunning, isPaperMode, updatedAt: /* @__PURE__ */ new Date() }
-      }).catch(console.error);
-    });
-  });
-}
-async function restorePmUsEngineStateFromDb(userId) {
-  try {
-    await _restorePmUsRealizedPnl(userId);
-    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq21, and: and12 } = await import("drizzle-orm");
-    const rows = await db2.select().from(engineRunState2).where(and12(eq21(engineRunState2.userId, userId), eq21(engineRunState2.engine, "polymarket-us")));
-    const row = rows[0];
-    if (row?.isRunning) {
-      console.log(`[PolymarketUS] Restoring engine for user ${userId}`);
-      startPmUsEngine(userId);
-    }
-  } catch (e) {
-    console.error("[PolymarketUS] Failed to restore engine state:", e);
-  }
-}
-async function _restorePmUsRealizedPnl(userId) {
-  try {
-    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq21, and: and12, sql: sql18 } = await import("drizzle-orm");
-    const [row] = await db2.select({ total: sql18`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(eq21(aiTradeResults2.userId, userId), eq21(aiTradeResults2.source, "polymarket-us")));
-    const total = parseFloat(row?.total ?? "0") || 0;
-    const s = getPmUsEngineState(userId);
-    s.totalRealizedPnl = total;
-  } catch (e) {
-    console.error(`[PolymarketUS] Failed to restore totalRealizedPnl for user ${userId}:`, e?.message);
-  }
-}
-async function manualPmUsScan(userId) {
-  return _runScan2(userId, true);
-}
-function _recalc(s) {
-  s.totalUnrealizedPnl = Math.round(s.openTrades.reduce((sum, t) => sum + t.unrealizedPnl, 0) * 100) / 100;
-}
-async function _updateOpenTrades(userId, s) {
-  for (const t of [...s.openTrades]) {
-    const bbo = await getPmUsBbo(t.marketSlug);
-    if (!bbo) continue;
-    const rawYesCents = Math.round((bbo.bestBid > 0 ? bbo.bestBid : bbo.currentPx) * 100);
-    if (!rawYesCents) continue;
-    const liveCents = t.side === "yes" ? rawYesCents : Math.max(1, Math.min(99, 100 - rawYesCents));
-    t.currentPriceCents = liveCents;
-    t.unrealizedPnl = Math.round((liveCents / 100 * t.count - t.stake) * 100) / 100;
-    const tp = s.config.takeProfitCents, sl = s.config.stopLossCents;
-    if (tp > 0 && liveCents >= tp) await _closeTrade(userId, t.id, liveCents, "take_profit");
-    else if (sl > 0 && liveCents <= sl) await _closeTrade(userId, t.id, liveCents, "stop_loss");
-  }
-  _recalc(s);
-}
-async function _closeTrade(userId, id, exitCents, reason) {
-  const s = getPmUsEngineState(userId);
-  const idx = s.openTrades.findIndex((t2) => t2.id === id);
-  if (idx === -1) return false;
-  const t = s.openTrades[idx];
-  if (!t.paper) {
-    const intent = t.side === "yes" ? "ORDER_INTENT_SELL_LONG" : "ORDER_INTENT_SELL_SHORT";
-    try {
-      const r = await placePmUsOrder(userId, {
-        marketSlug: t.marketSlug,
-        intent,
-        type: "ORDER_TYPE_MARKET",
-        quantity: t.count
-      });
-      if (!r.ok) {
-        const msg = `Could not close "${t.title}": HTTP ${r.status} ${JSON.stringify(r.data).slice(0, 160)}`;
-        console.error(`[PolymarketUS] ${msg} \u2014 leaving position open, will retry next cycle.`);
-        s.lastScanResult = `\u26A0\uFE0F ${msg}`;
-        return false;
-      }
-    } catch (err) {
-      console.error(`[PolymarketUS] Sell order threw for ${t.marketSlug} (leaving position open, will retry next cycle): ${err.message}`);
-      s.lastScanResult = `\u26A0\uFE0F Could not close "${t.title}": ${err.message}`;
-      return false;
-    }
-  }
-  const realized = Math.round((exitCents / 100 * t.count - t.stake) * 100) / 100;
-  t.status = "closed";
-  t.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-  t.realizedPnl = realized;
-  t.exitReason = reason;
-  t.unrealizedPnl = 0;
-  s.openTrades.splice(idx, 1);
-  s.closedTrades.unshift(t);
-  if (s.closedTrades.length > 50) s.closedTrades.length = 50;
-  s.totalRealizedPnl = Math.round((s.totalRealizedPnl + realized) * 100) / 100;
-  try {
-    const { recordKalshiOutcome: recordKalshiOutcome2 } = (init_kalshi_performance(), __toCommonJS(kalshi_performance_exports));
-    recordKalshiOutcome2(userId, `pmus:${t.signal.strategy}`, realized);
-  } catch {
-  }
-  Promise.resolve().then(async () => {
-    try {
-      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-      const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      await db2.insert(aiTradeResults2).values({
-        userId,
-        symbol: `PMUS:${t.marketSlug}`,
-        direction: t.signal.direction === "SELL" ? "SELL" : "BUY",
-        entryPrice: t.entryPriceCents / 100,
-        exitPrice: exitCents / 100,
-        result: realized > 0 ? "WIN" : realized < 0 ? "LOSS" : "BREAKEVEN",
-        profitLoss: realized,
-        closedAt: /* @__PURE__ */ new Date(),
-        source: "polymarket-us",
-        mt5Ticket: t.id,
-        notes: `${t.signal.strategy}: ${t.title}${reason !== "manual" ? " | " + reason : ""}`
-      });
-    } catch {
-    }
-  });
-  _recalc(s);
-  return true;
-}
-async function closePmUsTrade(userId, id) {
-  const s = getPmUsEngineState(userId);
-  const t = s.openTrades.find((x) => x.id === id);
-  return t ? _closeTrade(userId, id, t.currentPriceCents, "manual") : false;
-}
-async function _runScan2(userId, manual = false) {
-  await refreshPmUsCredValidity(userId);
-  const s = getPmUsEngineState(userId);
-  s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
-  await _updateOpenTrades(userId, s);
-  if (s.openTrades.length >= s.config.maxOpenTrades) {
-    const r = `Max open trades (${s.config.maxOpenTrades}) reached`;
-    s.lastScanResult = r;
-    return { fired: false, reason: r };
-  }
-  if (!manual && s.lastTradeAt) {
-    const elapsed = Date.now() - new Date(s.lastTradeAt).getTime();
-    if (elapsed < s.config.cooldownMinutes * 6e4) {
-      const r = `Cooldown: ${Math.ceil((s.config.cooldownMinutes * 6e4 - elapsed) / 6e4)}m left`;
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
-    }
-  }
-  try {
-    let strat;
-    let label;
-    if (s.config.strategy === "auto") {
-      const scan = await scanAllKalshiStrategies(userId);
-      if (!scan.selected) {
-        const r3 = "Auto: all strategies NEUTRAL";
-        s.lastScanResult = r3;
-        return { fired: false, reason: r3 };
-      }
-      strat = scan.selected;
-      label = `Auto\u2192${STRATEGY_LABELS2[strat]}`;
-    } else {
-      strat = s.config.strategy;
-      label = STRATEGY_LABELS2[strat] ?? strat;
-    }
-    const pred = await getKalshiSignal(strat);
-    if (!pred || pred.direction === "NEUTRAL") {
-      const r3 = `${label}: NEUTRAL`;
-      s.lastScanResult = r3;
-      return { fired: false, reason: r3 };
-    }
-    if (pred.confidence < s.config.minConfidence) {
-      const r3 = `${label}: ${pred.confidence}% < ${s.config.minConfidence}%`;
-      s.lastScanResult = r3;
-      return { fired: false, reason: r3 };
-    }
-    if (s.config.requireAlignedHourly) {
-      const aligned = pred.direction === "BUY" && pred.priceChange1h > 0 || pred.direction === "SELL" && pred.priceChange1h < 0;
-      if (!aligned) {
-        const r3 = `1h trend conflicts with ${pred.direction}`;
-        s.lastScanResult = r3;
-        return { fired: false, reason: r3 };
-      }
-    }
-    if (s.config.requireConfluence) {
-      const c = await getKalshiConsensus();
-      if (!(c.direction === pred.direction && c.agreement >= 0.6)) {
-        const r3 = `Confluence fail (consensus ${c.direction} ${Math.round(c.agreement * 100)}%)`;
-        s.lastScanResult = r3;
-        return { fired: false, reason: r3 };
-      }
-    }
-    const market = await findPmUsCryptoMarket(s.config.asset);
-    if (!market) {
-      const r3 = `\u{1F7E2} Engine live \u2014 no ${s.config.asset.toUpperCase()} market on Polymarket US yet (waiting). Signal was ${label} ${pred.direction} ${pred.confidence}%.`;
-      s.lastScanResult = r3;
-      return { fired: false, reason: r3 };
-    }
-    const bbo = await getPmUsBbo(market.slug);
-    const rawYesAsk = bbo && bbo.bestAsk > 0 ? Math.round(bbo.bestAsk * 100) : Math.round(toPmUsNum(market.bestAsk) * 100);
-    const rawYesBid = bbo && bbo.bestBid > 0 ? Math.round(bbo.bestBid * 100) : Math.round(toPmUsNum(market.bestBid) * 100);
-    const side = pred.direction === "BUY" ? "yes" : "no";
-    const intent = pred.direction === "BUY" ? "ORDER_INTENT_BUY_LONG" : "ORDER_INTENT_BUY_SHORT";
-    const askCents = side === "yes" ? rawYesAsk : rawYesBid > 0 ? 100 - rawYesBid : 0;
-    if (!askCents || askCents >= 97) {
-      const r3 = `${market.slug}: no/expensive price (${askCents}\xA2)`;
-      s.lastScanResult = r3;
-      return { fired: false, reason: r3 };
-    }
-    if (askCents > pred.confidence - 5) {
-      const r3 = `No edge: ${askCents}\xA2 vs ~${pred.confidence}% \u2014 skip`;
-      s.lastScanResult = r3;
-      return { fired: false, reason: r3 };
-    }
-    const contracts = pmUsContractsFor(s, askCents);
-    const stake = askCents / 100 * contracts;
-    if (!s.isPaperMode) {
-      const r3 = await placePmUsOrder(userId, {
-        marketSlug: market.slug,
-        intent,
-        type: "ORDER_TYPE_MARKET",
-        quantity: contracts
-      });
-      if (!r3.ok) {
-        const msg = `Order failed (HTTP ${r3.status}): ${JSON.stringify(r3.data).slice(0, 160)}`;
-        s.lastScanResult = msg;
-        return { fired: false, reason: msg };
-      }
-    }
-    const trade = {
-      id: `pmus-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-      marketSlug: market.slug,
-      title: market.title || market.question || market.slug,
-      side,
-      count: contracts,
-      entryPriceCents: askCents,
-      currentPriceCents: askCents,
-      stake,
-      unrealizedPnl: 0,
-      signal: { direction: pred.direction, confidence: pred.confidence, strategy: strat },
-      openedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      status: "open",
-      paper: s.isPaperMode
-    };
-    s.openTrades.push(trade);
-    s.lastTradeAt = (/* @__PURE__ */ new Date()).toISOString();
-    _recalc(s);
-    const compNote = s.config.compounding ? ` \xB7 compounding ${s.config.riskPctPerTrade}% of $${pmUsBankroll(s).toFixed(0)}` : "";
-    const r = `${s.isPaperMode ? "[PAPER]" : "[LIVE]"} ${label}: ${side.toUpperCase()} \xD7 ${contracts} on "${trade.title}" @ ${askCents}\xA2 (stake $${stake.toFixed(2)})${compNote}`;
-    s.lastScanResult = r;
-    return { fired: true, reason: r };
-  } catch (err) {
-    const r = `Scan error: ${err.message}`;
-    s.lastScanResult = r;
-    return { fired: false, reason: r };
-  }
-}
-var DEFAULT_CONFIG4, STRATEGY_LABELS2, _states3, _timers2, _credValidity2, CRED_VALIDITY_TTL_MS2;
-var init_polymarket_us_engine = __esm({
-  "server/services/polymarket-us-engine.ts"() {
-    "use strict";
-    init_kalshi_strategies();
-    init_kalshi_engine();
-    init_polymarket_us();
-    DEFAULT_CONFIG4 = {
-      contractsPerTrade: 5,
-      maxOpenTrades: 3,
-      cooldownMinutes: 20,
-      minConfidence: 70,
-      requireAlignedHourly: true,
-      requireConfluence: true,
-      strategy: "ensemble",
-      autoTradeValuePicks: false,
-      minValueScore: 8,
-      takeProfitCents: 90,
-      stopLossCents: 25,
-      asset: "bitcoin",
-      compounding: false,
-      riskPctPerTrade: 5,
-      startingBankroll: 100
-    };
-    STRATEGY_LABELS2 = {
-      momentum: "Momentum",
-      volume_profile: "Volume Profile",
-      markov: "Markov",
-      order_flow: "Order Flow",
-      ensemble: "AI Ensemble",
-      auto: "Auto (Best)"
-    };
-    _states3 = /* @__PURE__ */ new Map();
-    _timers2 = /* @__PURE__ */ new Map();
-    _credValidity2 = /* @__PURE__ */ new Map();
-    CRED_VALIDITY_TTL_MS2 = 10 * 60 * 1e3;
-  }
-});
-
 // server/services/ruin-cone.ts
 var ruin_cone_exports = {};
 __export(ruin_cone_exports, {
@@ -60011,7 +61494,7 @@ async function runRuinConeSimulation(userId, params = {}) {
       },
       warning: `Only ${sourceTradeCount} closed '${source}' trade(s) on record \u2014 need at least 2 to simulate. Let the scanner build more history.`
     };
-    _cache8.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result: result2 });
+    _cache8.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS8, result: result2 });
     return result2;
   }
   const paths = new Array(numSimulations);
@@ -60111,10 +61594,10 @@ async function runRuinConeSimulation(userId, params = {}) {
     },
     warning: sourceTradeCount < 20 ? `Thin history: only ${sourceTradeCount} closed '${source}' trade(s). Results are indicative only until more trades accumulate.` : void 0
   };
-  _cache8.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS7, result });
+  _cache8.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS8, result });
   return result;
 }
-var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS7, _cache8;
+var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS8, _cache8;
 var init_ruin_cone = __esm({
   "server/services/ruin-cone.ts"() {
     "use strict";
@@ -60134,7 +61617,7 @@ var init_ruin_cone = __esm({
     DEFAULT_NUM_SIMULATIONS = 2e3;
     DEFAULT_NUM_TRADES = 100;
     DEFAULT_SOURCE_LIMIT = 200;
-    CACHE_TTL_MS7 = 5 * 60 * 1e3;
+    CACHE_TTL_MS8 = 5 * 60 * 1e3;
     _cache8 = /* @__PURE__ */ new Map();
   }
 });
@@ -62880,7 +64363,7 @@ var host_results_exports = {};
 __export(host_results_exports, {
   getHostResults: () => getHostResults
 });
-async function safe(q, fallback = []) {
+async function safe2(q, fallback = []) {
   try {
     return (await q).rows;
   } catch (e) {
@@ -62899,15 +64382,15 @@ async function getHostResults(userId) {
   const [allTime, last30, recruits, posts, regs, schedules] = await Promise.all([
     pool.query(funnelSql(""), [userId, code]),
     pool.query(funnelSql(`now() - interval '30 days'`), [userId, code]),
-    safe(pool.query(`SELECT user_id FROM profit_split_enrollments WHERE enrolled_by=$1 AND status='active'`, [userId])),
-    safe(
+    safe2(pool.query(`SELECT user_id FROM profit_split_enrollments WHERE enrolled_by=$1 AND status='active'`, [userId])),
+    safe2(
       pool.query(`SELECT count(*) FILTER (WHERE status='posted')::int AS posted, COALESCE(sum(clicks),0)::int AS clicks FROM ambassador_post_queue WHERE user_id=$1`, [userId]),
       [{ posted: 0, clicks: 0 }]
     ),
-    safe(pool.query(`SELECT r.event_id, r.role, r.tokens_earned, e.title, e.scheduled_date, e.status, e.event_type
+    safe2(pool.query(`SELECT r.event_id, r.role, r.tokens_earned, e.title, e.scheduled_date, e.status, e.event_type
                        FROM ambassador_event_registrations r JOIN ambassador_events e ON e.id=r.event_id
                       WHERE r.user_id=$1 AND r.role IN ('host','co_host','speaker')`, [userId])),
-    safe(pool.query(`SELECT id, event_id, title, start_at, status, capacity, current_attendees, share_slug
+    safe2(pool.query(`SELECT id, event_id, title, start_at, status, capacity, current_attendees, share_slug
                        FROM ambassador_event_schedules WHERE host_id=$1`, [userId]))
   ]);
   let netProfit = 0, owed = 0, collected = 0;
@@ -62924,7 +64407,7 @@ async function getHostResults(userId) {
   }
   const events = [];
   for (const r of regs) {
-    const [stats] = await safe(pool.query(
+    const [stats] = await safe2(pool.query(
       `SELECT count(*) FILTER (WHERE role='attendee' OR role IS NULL)::int AS registered,
               count(*) FILTER (WHERE status='attended')::int AS attended,
               avg(rating)::float AS rating
@@ -65360,610 +66843,6 @@ var init_copy_trade_execution = __esm({
     MAX_COPY_SL_DISTANCE_PCT = 5;
     MARGIN_LEVEL_FLOOR_PCT = 200;
     STALE_CACHE_MS = 2 * 60 * 1e3;
-  }
-});
-
-// server/services/sports-predictor.ts
-var sports_predictor_exports = {};
-__export(sports_predictor_exports, {
-  getSportsPredictions: () => getSportsPredictions,
-  refreshSportsPredictions: () => refreshSportsPredictions
-});
-import axios from "axios";
-function getElo(teamId) {
-  return eloRatings[teamId] ?? ELO_DEFAULT;
-}
-function expectedScore(own, opp) {
-  return 1 / (1 + Math.pow(10, (opp - own) / 400));
-}
-function updateElo(winnerId, loserId) {
-  const wElo = getElo(winnerId);
-  const lElo = getElo(loserId);
-  const wExp = expectedScore(wElo, lElo);
-  const lExp = expectedScore(lElo, wElo);
-  eloRatings[winnerId] = wElo + ELO_K * (1 - wExp);
-  eloRatings[loserId] = lElo + ELO_K * (0 - lExp);
-}
-function eloProbabilityHome(homeId, awayId) {
-  const h = getElo(homeId);
-  const a = getElo(awayId);
-  return expectedScore(h, a);
-}
-function kellySize(modelProb, marketPrice) {
-  const p2 = modelProb / 100;
-  const q = 1 - p2;
-  const mkt = marketPrice / 100;
-  if (mkt <= 0 || mkt >= 1) return void 0;
-  const b = 1 / mkt - 1;
-  const f = (b * p2 - q) / b;
-  if (f <= 0) return void 0;
-  return Math.min(f * 100, 5);
-}
-async function safeGet(url, params) {
-  try {
-    const res2 = await axios.get(url, {
-      params,
-      timeout: 1e4,
-      headers: { "User-Agent": "Mozilla/5.0 VEDD-Sports/1.0" }
-    });
-    return res2.data;
-  } catch {
-    return null;
-  }
-}
-function normalizeName(name) {
-  return name.toLowerCase().replace(/\s+/g, " ").replace(/[^a-z0-9 ]/g, "").trim();
-}
-function teamsMatchMarket(homeTeam, awayTeam, question) {
-  const q = normalizeName(question);
-  const h = normalizeName(homeTeam).split(" ").pop();
-  const a = normalizeName(awayTeam).split(" ").pop();
-  const hFull = normalizeName(homeTeam);
-  const aFull = normalizeName(awayTeam);
-  return (q.includes(h) || q.includes(hFull)) && (q.includes(a) || q.includes(aFull));
-}
-async function fetchScoreboard(sport) {
-  const path20 = SPORT_PATHS[sport];
-  const data = await safeGet(`${ESPN_BASE}/${path20}/scoreboard`);
-  return data?.events ?? [];
-}
-function injuryAdjustment(injuries, sport) {
-  const keyPos = KEY_POSITIONS[sport];
-  let adj = 0;
-  const labels = [];
-  for (const inj of injuries) {
-    const isKey = keyPos.some((p2) => inj.position.toUpperCase().startsWith(p2));
-    if (!isKey) continue;
-    if (inj.status === "OUT") {
-      adj -= 0.1;
-      labels.push(`${inj.name} (${inj.position}) OUT`);
-    } else if (["QUESTIONABLE", "DOUBTFUL"].includes(inj.status)) {
-      adj -= 0.04;
-      labels.push(`${inj.name} (${inj.position}) ${inj.status}`);
-    }
-  }
-  return { adj: Math.max(adj, -0.2), labels };
-}
-async function fetchNewsHeadlines(query) {
-  try {
-    const url = `${GOOGLE_NEWS_BASE}?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
-    const res2 = await axios.get(url, { timeout: 8e3 });
-    const xml = res2.data;
-    const titles = [];
-    const titleRegex = /<item>[\s\S]*?<title>([\s\S]*?)<\/title>/g;
-    let match;
-    while ((match = titleRegex.exec(xml)) !== null && titles.length < 5) {
-      const raw = match[1].replace(/<!\[CDATA\[/, "").replace(/\]\]>/, "").trim();
-      if (raw) titles.push(raw);
-    }
-    return titles;
-  } catch {
-    return [];
-  }
-}
-async function fetchPolymarketSportsMarkets() {
-  const tags = ["sports", "nba", "nfl", "mlb", "nhl"];
-  const results = await Promise.allSettled(
-    tags.map(
-      (tag) => safeGet(
-        `${GAMMA_BASE2}/markets`,
-        { active: true, closed: false, tag, limit: 100 }
-      )
-    )
-  );
-  const seen = /* @__PURE__ */ new Set();
-  const markets = [];
-  for (const r of results) {
-    if (r.status !== "fulfilled" || !r.value) continue;
-    const raw = r.value;
-    const arr2 = Array.isArray(raw) ? raw : raw.markets ?? [];
-    for (const m of arr2) {
-      if (!seen.has(m.id)) {
-        seen.add(m.id);
-        markets.push(m);
-      }
-    }
-  }
-  return markets;
-}
-function parseOutcomePrice(market) {
-  try {
-    if (!market.outcomePrices) return void 0;
-    const prices = JSON.parse(market.outcomePrices);
-    const p2 = prices[0];
-    return typeof p2 === "number" ? p2 * 100 : void 0;
-  } catch {
-    return void 0;
-  }
-}
-function buildPolymarketUrl(market) {
-  const slug = market.slug ?? market.id;
-  return `https://polymarket.com/event/${slug}`;
-}
-function registerGameDate(teamId, dateStr) {
-  if (!recentGameDates[teamId]) recentGameDates[teamId] = [];
-  if (!recentGameDates[teamId].includes(dateStr)) {
-    recentGameDates[teamId].push(dateStr);
-    if (recentGameDates[teamId].length > 10) recentGameDates[teamId].shift();
-  }
-}
-function restAdjustment(teamId, gameDate) {
-  const dates = recentGameDates[teamId] ?? [];
-  const gameMs = gameDate.getTime();
-  for (const d of dates) {
-    const prev = new Date(d).getTime();
-    const diffHours = (gameMs - prev) / 36e5;
-    if (diffHours > 0 && diffHours <= 28) {
-      return { adj: -0.03, label: "back-to-back (fatigue)" };
-    }
-  }
-  const allPrev = dates.map((d) => new Date(d).getTime()).filter((t) => t < gameMs);
-  if (allPrev.length === 0) return { adj: 0.01, label: "2+ days rest" };
-  const mostRecent = Math.max(...allPrev);
-  const diffDays = (gameMs - mostRecent) / 864e5;
-  if (diffDays >= 2) return { adj: 0.01, label: "2+ days rest" };
-  return { adj: 0, label: null };
-}
-async function processSport(sport) {
-  const events = await fetchScoreboard(sport);
-  if (!events.length) return [];
-  const teamIds = /* @__PURE__ */ new Set();
-  for (const ev of events) {
-    const comp = ev.competitions?.[0];
-    if (!comp) continue;
-    const home = comp.competitors?.find((c) => c.homeAway === "home");
-    const away = comp.competitors?.find((c) => c.homeAway === "away");
-    if (home) teamIds.add(home.team.id);
-    if (away) teamIds.add(away.team.id);
-    const isFinal = ev.status?.type?.completed === true || ev.status?.type?.name === "STATUS_FINAL";
-    if (isFinal && home && away) {
-      registerGameDate(home.team.id, ev.date);
-      registerGameDate(away.team.id, ev.date);
-      const homeWon = home.winner === true;
-      const awayWon = away.winner === true;
-      if (homeWon) updateElo(home.team.id, away.team.id);
-      else if (awayWon) updateElo(away.team.id, home.team.id);
-    }
-  }
-  const allInjuriesRes = await safeGet(
-    `${ESPN_BASE}/${SPORT_PATHS[sport]}/injuries`
-  );
-  function getTeamInjuries(teamId) {
-    if (!allInjuriesRes?.injuries) return [];
-    const result = [];
-    for (const entry of allInjuriesRes.injuries ?? []) {
-      if (String(entry.team?.id) !== String(teamId)) continue;
-      for (const inj of entry.injuries ?? []) {
-        if (inj.athlete?.displayName && inj.status) {
-          result.push({
-            name: inj.athlete.displayName,
-            position: inj.athlete.position?.abbreviation ?? "",
-            status: inj.status.toUpperCase()
-          });
-        }
-      }
-    }
-    return result;
-  }
-  const predictions = [];
-  for (const ev of events) {
-    let parseRecord2 = function(comp2) {
-      const overall = comp2.records?.find((r) => r.type === "total" || r.type === "overall");
-      const rec = overall?.summary ?? comp2.records?.[0]?.summary;
-      if (!rec) return null;
-      const parts = rec.split("-").map(Number);
-      if (parts.length >= 2) return { w: parts[0], l: parts[1] };
-      return null;
-    }, winPct2 = function(rec) {
-      if (!rec) return 0.5;
-      const total = rec.w + rec.l;
-      return total === 0 ? 0.5 : rec.w / total;
-    };
-    var parseRecord = parseRecord2, winPct = winPct2;
-    const comp = ev.competitions?.[0];
-    if (!comp) continue;
-    const homeComp = comp.competitors?.find((c) => c.homeAway === "home");
-    const awayComp = comp.competitors?.find((c) => c.homeAway === "away");
-    if (!homeComp || !awayComp) continue;
-    const homeId = homeComp.team.id;
-    const awayId = awayComp.team.id;
-    const statusName = ev.status?.type?.name ?? "";
-    const isFinal = ev.status?.type?.completed === true || statusName === "STATUS_FINAL";
-    const isInProgress = statusName === "STATUS_IN_PROGRESS" || statusName.includes("HALFTIME") || statusName.includes("INTERMISSION");
-    const status = isFinal ? "final" : isInProgress ? "in_progress" : "scheduled";
-    const gameDate = new Date(ev.date);
-    registerGameDate(homeId, ev.date);
-    registerGameDate(awayId, ev.date);
-    const eloHome = getElo(homeId);
-    const eloAway = getElo(awayId);
-    const eloProb = eloProbabilityHome(homeId, awayId);
-    const homeRecord = parseRecord2(homeComp);
-    const awayRecord = parseRecord2(awayComp);
-    const homeWinPct = winPct2(homeRecord);
-    const awayWinPct = winPct2(awayRecord);
-    const totalWinPct = homeWinPct + awayWinPct || 1;
-    const winPctProb = homeWinPct / totalWinPct;
-    const homeAdv = 0.06;
-    const homeRest = restAdjustment(homeId, gameDate);
-    const awayRest = restAdjustment(awayId, gameDate);
-    const homeInjuries = getTeamInjuries(homeId);
-    const awayInjuries = getTeamInjuries(awayId);
-    const homeInjAdj = injuryAdjustment(homeInjuries, sport);
-    const awayInjAdj = injuryAdjustment(awayInjuries, sport);
-    const injProb = 0.5 + homeInjAdj.adj - awayInjAdj.adj;
-    const h2hProb = 0.5;
-    let rawProb = 0.4 * eloProb + 0.25 * winPctProb + 0.1 * (0.5 + (homeRest.adj - awayRest.adj)) + 0.15 * Math.max(0, Math.min(1, injProb)) + 0.1 * h2hProb;
-    rawProb = Math.min(0.95, Math.max(0.05, rawProb + homeAdv * 0.5));
-    const modelProbHome = Math.round(rawProb * 100 * 10) / 10;
-    const modelProbAway = Math.round((1 - rawProb) * 100 * 10) / 10;
-    const eloDiff = Math.abs(eloHome - eloAway);
-    const confidence2 = eloDiff > 100 ? "high" : eloDiff > 50 ? "medium" : "low";
-    const reasons = [
-      `ELO: ${homeComp.team.displayName} ${eloHome.toFixed(0)} vs ${awayComp.team.displayName} ${eloAway.toFixed(0)} \u2192 ${(eloProb * 100).toFixed(1)}% home`,
-      `Win%: ${homeComp.team.displayName} ${(homeWinPct * 100).toFixed(1)}% vs ${awayComp.team.displayName} ${(awayWinPct * 100).toFixed(1)}%`,
-      `Home advantage: +6% boost applied`
-    ];
-    if (homeRest.label) reasons.push(`${homeComp.team.displayName} rest: ${homeRest.label}`);
-    if (awayRest.label) reasons.push(`${awayComp.team.displayName} rest: ${awayRest.label}`);
-    if (homeInjAdj.labels.length > 0) reasons.push(`${homeComp.team.displayName} injuries: ${homeInjAdj.labels.join(", ")}`);
-    if (awayInjAdj.labels.length > 0) reasons.push(`${awayComp.team.displayName} injuries: ${awayInjAdj.labels.join(", ")}`);
-    let newsHeadlines = [];
-    try {
-      newsHeadlines = await fetchNewsHeadlines(
-        `${homeComp.team.displayName} vs ${awayComp.team.displayName}`
-      );
-    } catch {
-    }
-    predictions.push({
-      gameId: ev.id,
-      sport,
-      homeTeam: homeComp.team.displayName,
-      awayTeam: awayComp.team.displayName,
-      gameTime: ev.date,
-      status,
-      modelProbHome,
-      modelProbAway,
-      confidence: confidence2,
-      reasons,
-      homeRecord: homeRecord ? `${homeRecord.w}-${homeRecord.l}` : void 0,
-      awayRecord: awayRecord ? `${awayRecord.w}-${awayRecord.l}` : void 0,
-      homeInjuries: homeInjAdj.labels.length ? homeInjuries.filter((i) => {
-        const keyPos = KEY_POSITIONS[sport];
-        return keyPos.some((p2) => i.position.toUpperCase().startsWith(p2));
-      }).map((i) => `${i.name} (${i.status})`).slice(0, 5) : void 0,
-      awayInjuries: awayInjAdj.labels.length ? awayInjuries.filter((i) => {
-        const keyPos = KEY_POSITIONS[sport];
-        return keyPos.some((p2) => i.position.toUpperCase().startsWith(p2));
-      }).map((i) => `${i.name} (${i.status})`).slice(0, 5) : void 0,
-      newsHeadlines: newsHeadlines.length ? newsHeadlines : void 0,
-      eloHome: Math.round(eloHome),
-      eloAway: Math.round(eloAway)
-    });
-  }
-  return predictions;
-}
-function matchPolymarket(prediction, markets) {
-  const matched = markets.find(
-    (m) => teamsMatchMarket(prediction.homeTeam, prediction.awayTeam, m.question)
-  );
-  if (!matched) return {};
-  const price = parseOutcomePrice(matched);
-  if (price === void 0) return { polymarketMarketId: matched.id, polymarketQuestion: matched.question, polymarketUrl: buildPolymarketUrl(matched) };
-  const edgePct = Math.round((prediction.modelProbHome - price) * 10) / 10;
-  const kelly = kellySize(prediction.modelProbHome, price);
-  return {
-    polymarketMarketId: matched.id,
-    polymarketQuestion: matched.question,
-    polymarketHomePrice: Math.round(price * 10) / 10,
-    polymarketUrl: buildPolymarketUrl(matched),
-    edgePct,
-    kellySizePct: kelly !== void 0 ? Math.round(kelly * 100) / 100 : void 0
-  };
-}
-async function fetchAllPredictions() {
-  const sports = ["nba", "nfl", "mlb", "nhl"];
-  const [sportResults, polymarkets] = await Promise.all([
-    Promise.allSettled(sports.map((s) => processSport(s))),
-    fetchPolymarketSportsMarkets().catch(() => [])
-  ]);
-  let predictions = [];
-  for (const r of sportResults) {
-    if (r.status === "fulfilled") {
-      predictions = predictions.concat(r.value);
-    }
-  }
-  for (let i = 0; i < predictions.length; i++) {
-    const match = matchPolymarket(predictions[i], polymarkets);
-    if (Object.keys(match).length > 0) {
-      predictions[i] = { ...predictions[i], ...match };
-      if (predictions[i].edgePct !== void 0 && Math.abs(predictions[i].edgePct) > 3) {
-        predictions[i].reasons.push(
-          `Polymarket edge: ${predictions[i].edgePct > 0 ? "+" : ""}${predictions[i].edgePct}% (bet HOME)`
-        );
-      }
-      if (predictions[i].kellySizePct !== void 0) {
-        predictions[i].reasons.push(
-          `Kelly position size: ${predictions[i].kellySizePct}% of bankroll`
-        );
-      }
-    }
-  }
-  predictions.sort((a, b) => {
-    if (a.status === "scheduled" && b.status !== "scheduled") return -1;
-    if (a.status !== "scheduled" && b.status === "scheduled") return 1;
-    return new Date(a.gameTime).getTime() - new Date(b.gameTime).getTime();
-  });
-  return predictions;
-}
-async function getSportsPredictions() {
-  if (cache8 && Date.now() - cache8.fetchedAt < CACHE_TTL_MS8) {
-    return cache8.data;
-  }
-  return refreshSportsPredictions();
-}
-async function refreshSportsPredictions() {
-  try {
-    const data = await fetchAllPredictions();
-    cache8 = { data, fetchedAt: Date.now() };
-    return data;
-  } catch (err) {
-    console.error("[sports-predictor] Fatal error during refresh:", err);
-    return cache8?.data ?? [];
-  }
-}
-var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS8, ELO_K, ELO_DEFAULT, eloRatings, cache8, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
-var init_sports_predictor = __esm({
-  "server/services/sports-predictor.ts"() {
-    "use strict";
-    ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports";
-    GAMMA_BASE2 = "https://gamma-api.polymarket.com";
-    GOOGLE_NEWS_BASE = "https://news.google.com/rss/search";
-    CACHE_TTL_MS8 = 15 * 60 * 1e3;
-    ELO_K = 20;
-    ELO_DEFAULT = 1500;
-    eloRatings = {};
-    cache8 = null;
-    SPORT_PATHS = {
-      nba: "basketball/nba",
-      nfl: "football/nfl",
-      mlb: "baseball/mlb",
-      nhl: "hockey/nhl"
-    };
-    KEY_POSITIONS = {
-      nfl: ["QB", "WR1", "RB"],
-      nba: ["PG", "SG", "SF"],
-      mlb: ["SP", "RP"],
-      nhl: ["G", "C", "LW", "RW"]
-    };
-    recentGameDates = {};
-  }
-});
-
-// server/services/sports-trade-engine.ts
-var sports_trade_engine_exports = {};
-__export(sports_trade_engine_exports, {
-  closeSportsTrade: () => closeSportsTrade,
-  getSportsEngineState: () => getSportsEngineState,
-  manualSportsScan: () => manualSportsScan,
-  startSportsEngine: () => startSportsEngine,
-  stopSportsEngine: () => stopSportsEngine,
-  updateSportsEngineConfig: () => updateSportsEngineConfig
-});
-function getSportsEngineState(userId) {
-  if (!_states4.has(userId)) {
-    _states4.set(userId, {
-      isRunning: false,
-      lastScanAt: null,
-      lastScanResult: null,
-      openTrades: [],
-      closedTrades: [],
-      totalRealizedPnl: 0,
-      totalUnrealizedPnl: 0,
-      config: { ...DEFAULT_CONFIG5, paperMode: !hasPmUsCredentials(userId) }
-    });
-  }
-  return _states4.get(userId);
-}
-function updateSportsEngineConfig(userId, patch) {
-  const s = getSportsEngineState(userId);
-  if (patch.minEdgePct != null) patch.minEdgePct = Math.max(0, Math.min(50, patch.minEdgePct));
-  if (patch.stakePerGame != null) patch.stakePerGame = Math.max(1, Math.min(500, patch.stakePerGame));
-  if (patch.maxOpenTrades != null) patch.maxOpenTrades = Math.max(1, Math.min(20, patch.maxOpenTrades));
-  s.config = { ...s.config, ...patch };
-}
-function startSportsEngine(userId) {
-  const s = getSportsEngineState(userId);
-  if (s.isRunning) return;
-  s.isRunning = true;
-  _runScan3(userId).catch(console.error);
-  const intervalMs = Math.max(5, s.config.cooldownMinutes) * 60 * 1e3;
-  _timers3.set(userId, setInterval(() => _runScan3(userId).catch(console.error), intervalMs));
-}
-function stopSportsEngine(userId) {
-  const s = getSportsEngineState(userId);
-  s.isRunning = false;
-  const iv = _timers3.get(userId);
-  if (iv) {
-    clearInterval(iv);
-    _timers3.delete(userId);
-  }
-}
-async function manualSportsScan(userId) {
-  return _runScan3(userId, true);
-}
-function closeSportsTrade(userId, tradeId) {
-  const s = getSportsEngineState(userId);
-  const idx = s.openTrades.findIndex((t2) => t2.id === tradeId);
-  if (idx === -1) return false;
-  const t = s.openTrades[idx];
-  const realized = Math.round((t.currentPriceCents / 100 * (t.stake / (t.entryPriceCents / 100)) - t.stake) * 100) / 100;
-  t.status = "closed";
-  t.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-  t.realizedPnl = realized;
-  t.exitReason = "manual";
-  t.unrealizedPnl = 0;
-  s.openTrades.splice(idx, 1);
-  s.closedTrades.unshift(t);
-  if (s.closedTrades.length > 100) s.closedTrades.length = 100;
-  s.totalRealizedPnl = Math.round((s.totalRealizedPnl + realized) * 100) / 100;
-  _recalc2(s);
-  return true;
-}
-function _recalc2(s) {
-  s.totalUnrealizedPnl = Math.round(s.openTrades.reduce((sum, t) => sum + t.unrealizedPnl, 0) * 100) / 100;
-}
-async function _updateOpenTrades2(s) {
-  for (const t of s.openTrades) {
-    if (!t.marketId) continue;
-    try {
-      const bbo = await getPmUsBbo(t.marketId);
-      if (!bbo) continue;
-      const liveCents = Math.round((bbo.bestBid > 0 ? bbo.bestBid : bbo.currentPx) * 100);
-      if (!liveCents) continue;
-      t.currentPriceCents = liveCents;
-      const contracts = t.stake / (t.entryPriceCents / 100);
-      t.unrealizedPnl = Math.round((liveCents / 100 * contracts - t.stake) * 100) / 100;
-    } catch {
-    }
-  }
-  _recalc2(s);
-}
-async function _runScan3(userId, manual = false) {
-  const s = getSportsEngineState(userId);
-  s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
-  await _updateOpenTrades2(s);
-  if (s.openTrades.length >= s.config.maxOpenTrades) {
-    const r3 = `Max open trades (${s.config.maxOpenTrades}) reached`;
-    s.lastScanResult = r3;
-    return { fired: 0, reason: r3, trades: [] };
-  }
-  let predictions;
-  try {
-    predictions = manual ? await refreshSportsPredictions() : await getSportsPredictions();
-  } catch (err) {
-    const r3 = `Prediction fetch error: ${err.message}`;
-    s.lastScanResult = r3;
-    return { fired: 0, reason: r3, trades: [] };
-  }
-  const openGameIds = new Set(s.openTrades.map((t) => t.gameId));
-  const confOrder = { high: 2, medium: 1, low: 0 };
-  const minConfOrder = confOrder[s.config.minConfidence] ?? 2;
-  const eligible = predictions.filter(
-    (p2) => p2.polymarketMarketId && p2.polymarketHomePrice != null && Math.abs(p2.edgePct ?? 0) >= s.config.minEdgePct && (confOrder[p2.confidence] ?? 0) >= minConfOrder && !openGameIds.has(p2.gameId) && p2.status === "scheduled"
-  ).sort((a, b) => Math.abs(b.edgePct ?? 0) - Math.abs(a.edgePct ?? 0));
-  if (eligible.length === 0) {
-    const r3 = `No eligible games (need edge \u2265${s.config.minEdgePct}%, confidence \u2265${s.config.minConfidence}, Polymarket market found)`;
-    s.lastScanResult = r3;
-    return { fired: 0, reason: r3, trades: [] };
-  }
-  const newTrades = [];
-  const slots = s.config.maxOpenTrades - s.openTrades.length;
-  for (const game of eligible.slice(0, slots)) {
-    const edge = game.edgePct ?? 0;
-    const side = edge >= 0 ? "yes" : "no";
-    const predictedTeam = edge >= 0 ? game.homeTeam : game.awayTeam;
-    const modelPricePct = edge >= 0 ? game.modelProbHome : game.modelProbAway;
-    const marketPricePct = game.polymarketHomePrice ?? 50;
-    const entryPriceCents = Math.round((side === "yes" ? marketPricePct : 100 - marketPricePct) * 1);
-    let actualEntryCents = entryPriceCents;
-    if (!s.config.paperMode && hasPmUsCredentials(userId)) {
-      try {
-        const bbo = await getPmUsBbo(game.polymarketMarketId);
-        if (bbo) {
-          const ask = side === "yes" ? bbo.bestAsk : 1 - bbo.bestBid;
-          if (ask > 0) actualEntryCents = Math.round(ask * 100);
-        }
-      } catch {
-      }
-    }
-    if (!s.config.paperMode && hasPmUsCredentials(userId)) {
-      try {
-        const result = await placePmUsOrder(userId, {
-          marketSlug: game.polymarketMarketId,
-          intent: side === "yes" ? "ORDER_INTENT_BUY_LONG" : "ORDER_INTENT_BUY_SHORT",
-          type: "ORDER_TYPE_MARKET",
-          quantity: Math.round(s.config.stakePerGame / (actualEntryCents / 100))
-        });
-        if (!result.ok) {
-          console.warn(`[SportsEngine] Order failed for ${game.gameId}:`, result.data);
-          continue;
-        }
-      } catch (err) {
-        console.warn(`[SportsEngine] Order error for ${game.gameId}:`, err.message);
-        continue;
-      }
-    }
-    const trade = {
-      id: `sports-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      gameId: game.gameId,
-      sport: game.sport,
-      homeTeam: game.homeTeam,
-      awayTeam: game.awayTeam,
-      marketId: game.polymarketMarketId,
-      marketQuestion: game.polymarketQuestion ?? `${game.awayTeam} @ ${game.homeTeam}`,
-      polymarketUrl: game.polymarketUrl,
-      side,
-      predictedTeam,
-      entryEdgePct: Math.abs(edge),
-      modelProbPct: modelPricePct,
-      marketPricePct,
-      kellySizePct: game.kellySizePct ?? 0,
-      stake: s.config.stakePerGame,
-      entryPriceCents: actualEntryCents,
-      currentPriceCents: actualEntryCents,
-      unrealizedPnl: 0,
-      gameTime: game.gameTime,
-      openedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      status: "open",
-      paper: s.config.paperMode,
-      reasons: game.reasons ?? []
-    };
-    s.openTrades.push(trade);
-    newTrades.push(trade);
-    openGameIds.add(game.gameId);
-    console.log(`[SportsEngine] ${s.config.paperMode ? "[PAPER]" : "[LIVE]"} Opened ${side.toUpperCase()} on "${trade.marketQuestion}" edge=${edge.toFixed(1)}% kelly=${game.kellySizePct?.toFixed(1)}%`);
-  }
-  _recalc2(s);
-  const r = newTrades.length > 0 ? `${s.config.paperMode ? "[PAPER]" : "[LIVE]"} Opened ${newTrades.length} trade(s): ${newTrades.map((t) => `${t.predictedTeam} (${t.sport.toUpperCase()})`).join(", ")}` : "Scan complete \u2014 no new trades opened";
-  s.lastScanResult = r;
-  return { fired: newTrades.length, reason: r, trades: newTrades };
-}
-var DEFAULT_CONFIG5, _states4, _timers3;
-var init_sports_trade_engine = __esm({
-  "server/services/sports-trade-engine.ts"() {
-    "use strict";
-    init_sports_predictor();
-    init_polymarket_us();
-    DEFAULT_CONFIG5 = {
-      minEdgePct: 4,
-      minConfidence: "high",
-      stakePerGame: 10,
-      maxOpenTrades: 5,
-      cooldownMinutes: 30,
-      paperMode: true
-    };
-    _states4 = /* @__PURE__ */ new Map();
-    _timers3 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -70507,7 +71386,7 @@ var prop_firm_consistency_audit_loop_exports = {};
 __export(prop_firm_consistency_audit_loop_exports, {
   startPropFirmConsistencyAuditLoop: () => startPropFirmConsistencyAuditLoop
 });
-function cache9() {
+function cache10() {
   global.tlConsistencyStatus = global.tlConsistencyStatus || {};
   return global.tlConsistencyStatus;
 }
@@ -70520,7 +71399,7 @@ async function auditTradeLocker() {
     return;
   }
   if (!connections.length) return;
-  const store = cache9();
+  const store = cache10();
   for (const conn of connections) {
     try {
       const result = await getConsistencyStatus(conn.id, "tradelocker", conn.consistencyThresholdPct, conn.consistencyEnabled !== false);
@@ -70549,7 +71428,7 @@ async function auditDxtrade() {
     return;
   }
   if (!connections.length) return;
-  const store = cache9();
+  const store = cache10();
   for (const conn of connections) {
     try {
       const result = await getConsistencyStatus(conn.id, "dxtrade", conn.consistency_threshold_pct, conn.consistency_enabled === true);
@@ -72604,6 +73483,7 @@ async function tradingTipsHandler(req, res2) {
 
 // server/routes.ts
 init_abba_strategist();
+init_abba_engine_room();
 
 // server/market-insights.ts
 init_openai();
@@ -72761,7 +73641,7 @@ async function marketInsightsHandler(req, res2) {
 // server/services/stopOrderService.ts
 init_db();
 init_schema();
-import { eq as eq6, and as and5, sql as sql7 } from "drizzle-orm";
+import { eq as eq7, and as and6, sql as sql8 } from "drizzle-orm";
 async function createStopOrder(params) {
   const { currentPrice, ...insertData } = params;
   if (currentPrice != null && currentPrice > 0) {
@@ -72788,9 +73668,9 @@ async function checkBreakoutTriggers(symbol, currentPrice) {
   let pending;
   try {
     pending = await db.select().from(stopOrders).where(
-      and5(
-        eq6(stopOrders.symbol, normalised),
-        eq6(stopOrders.status, "PENDING")
+      and6(
+        eq7(stopOrders.symbol, normalised),
+        eq7(stopOrders.status, "PENDING")
       )
     );
   } catch (err) {
@@ -72807,7 +73687,7 @@ async function checkBreakoutTriggers(symbol, currentPrice) {
         status: "TRIGGERED",
         triggeredAt: /* @__PURE__ */ new Date(),
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(and5(eq6(stopOrders.id, order.id), eq6(stopOrders.status, "PENDING"))).returning();
+      }).where(and6(eq7(stopOrders.id, order.id), eq7(stopOrders.status, "PENDING"))).returning();
       if (updated) {
         triggered.push(updated);
         console.log(
@@ -72821,41 +73701,41 @@ async function checkBreakoutTriggers(symbol, currentPrice) {
   return triggered;
 }
 async function cancelStopOrder(orderId, userId) {
-  const [existing] = await db.select().from(stopOrders).where(and5(eq6(stopOrders.id, orderId), eq6(stopOrders.userId, userId)));
+  const [existing] = await db.select().from(stopOrders).where(and6(eq7(stopOrders.id, orderId), eq7(stopOrders.userId, userId)));
   if (!existing) {
     throw new Error(`Stop order id=${orderId} not found for this user`);
   }
   if (existing.status !== "PENDING") {
     throw new Error(`Stop order id=${orderId} is already ${existing.status}`);
   }
-  const [cancelled] = await db.update(stopOrders).set({ status: "CANCELLED", cancelledAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and5(eq6(stopOrders.id, orderId), eq6(stopOrders.userId, userId))).returning();
+  const [cancelled] = await db.update(stopOrders).set({ status: "CANCELLED", cancelledAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and6(eq7(stopOrders.id, orderId), eq7(stopOrders.userId, userId))).returning();
   console.log(`[StopOrders] Cancelled id=${orderId} userId=${userId}`);
   return cancelled;
 }
 async function getStopOrdersForUser(userId, filters = {}) {
-  const conditions = [eq6(stopOrders.userId, userId)];
+  const conditions = [eq7(stopOrders.userId, userId)];
   if (filters.symbol) {
-    conditions.push(eq6(stopOrders.symbol, filters.symbol.toUpperCase().replace("/", "")));
+    conditions.push(eq7(stopOrders.symbol, filters.symbol.toUpperCase().replace("/", "")));
   }
   if (filters.status) {
-    conditions.push(eq6(stopOrders.status, filters.status.toUpperCase()));
+    conditions.push(eq7(stopOrders.status, filters.status.toUpperCase()));
   }
-  return db.select().from(stopOrders).where(and5(...conditions)).orderBy(sql7`${stopOrders.createdAt} DESC`);
+  return db.select().from(stopOrders).where(and6(...conditions)).orderBy(sql8`${stopOrders.createdAt} DESC`);
 }
 
 // server/routes.ts
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "7f5b427-dirty";
-var BUILD_BRANCH = "fix/abba-voice-routing";
-var BUILT_AT = "2026-11-09T02:41:54.588Z";
+var BUILD_COMMIT = "8debbe3-dirty";
+var BUILD_BRANCH = "feat/abba-unify-engine-room";
+var BUILT_AT = "2026-11-09T03:47:29.269Z";
 
 // server/stripe.ts
 init_db();
 init_schema();
 import Stripe2 from "stripe";
-import { eq as eq7 } from "drizzle-orm";
+import { eq as eq8 } from "drizzle-orm";
 
 // server/stripeClient.ts
 import Stripe from "stripe";
@@ -72906,7 +73786,7 @@ async function createStripeCustomer(userId, email, name) {
     });
     await db.update(users).set({
       stripeCustomerId: customer.id
-    }).where(eq7(users.id, userId));
+    }).where(eq8(users.id, userId));
     return customer;
   } catch (error) {
     console.error("Error creating Stripe customer:", error);
@@ -72916,11 +73796,11 @@ async function createStripeCustomer(userId, email, name) {
 async function createSubscription(userId, planId, successUrl, cancelUrl) {
   try {
     const stripeClient = await getStripe();
-    const [user] = await db.select().from(users).where(eq7(users.id, userId));
+    const [user] = await db.select().from(users).where(eq8(users.id, userId));
     if (!user) {
       throw new Error("User not found");
     }
-    const [plan] = await db.select().from(subscriptionPlans).where(eq7(subscriptionPlans.id, planId));
+    const [plan] = await db.select().from(subscriptionPlans).where(eq8(subscriptionPlans.id, planId));
     if (!plan) {
       throw new Error("Subscription plan not found");
     }
@@ -72933,7 +73813,7 @@ async function createSubscription(userId, planId, successUrl, cancelUrl) {
       } catch (e) {
         console.log("Stripe customer not found, creating new one:", e.message);
         user.stripeCustomerId = null;
-        await db.update(users).set({ stripeCustomerId: null }).where(eq7(users.id, user.id));
+        await db.update(users).set({ stripeCustomerId: null }).where(eq8(users.id, user.id));
       }
     }
     if (!user.stripeCustomerId) {
@@ -72965,7 +73845,7 @@ async function createSubscription(userId, planId, successUrl, cancelUrl) {
       await db.update(subscriptionPlans).set({
         stripeProductId: product.id,
         stripePriceId: price.id
-      }).where(eq7(subscriptionPlans.id, plan.id));
+      }).where(eq8(subscriptionPlans.id, plan.id));
       plan.stripeProductId = product.id;
       plan.stripePriceId = price.id;
     }
@@ -72975,7 +73855,7 @@ async function createSubscription(userId, planId, successUrl, cancelUrl) {
         subscriptionStatus: "active",
         subscriptionCurrentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3)
         // 30 days
-      }).where(eq7(users.id, userId));
+      }).where(eq8(users.id, userId));
       return {
         status: "active",
         currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3),
@@ -73033,7 +73913,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
       monthlySocialShareCount: users.monthlySocialShareCount,
       lastCountReset: users.lastCountReset,
       membershipTier: users.membershipTier
-    }).from(users).where(eq7(users.id, userId));
+    }).from(users).where(eq8(users.id, userId));
     if (!user) {
       throw new Error("User not found");
     }
@@ -73041,7 +73921,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
       await db.update(users).set({
         subscriptionPlanId: 1,
         subscriptionStatus: "active"
-      }).where(eq7(users.id, userId));
+      }).where(eq8(users.id, userId));
       user.subscriptionPlanId = 1;
       user.subscriptionStatus = "active";
     }
@@ -73049,14 +73929,14 @@ async function checkUserSubscriptionLimits(userId, actionType) {
     if (user.membershipTier && user.membershipTier !== "none") {
       const equivalentPlanName = MEMBERSHIP_PLAN_MAP[user.membershipTier];
       if (equivalentPlanName) {
-        const [tokenPlan] = await db.select().from(subscriptionPlans).where(eq7(subscriptionPlans.name, equivalentPlanName));
+        const [tokenPlan] = await db.select().from(subscriptionPlans).where(eq8(subscriptionPlans.name, equivalentPlanName));
         if (tokenPlan) {
           plan = tokenPlan;
         }
       }
     }
     if (!plan) {
-      const [dbPlan] = await db.select().from(subscriptionPlans).where(eq7(subscriptionPlans.id, user.subscriptionPlanId));
+      const [dbPlan] = await db.select().from(subscriptionPlans).where(eq8(subscriptionPlans.id, user.subscriptionPlanId));
       plan = dbPlan;
     }
     if (!plan) {
@@ -73070,7 +73950,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
         monthlyAnalysisCount: 0,
         monthlySocialShareCount: 0,
         lastCountReset: now
-      }).where(eq7(users.id, userId));
+      }).where(eq8(users.id, userId));
       user.monthlyAnalysisCount = 0;
       user.monthlySocialShareCount = 0;
       user.lastCountReset = now;
@@ -73085,7 +73965,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
       if (allowed) {
         await db.update(users).set({
           monthlyAnalysisCount: (user.monthlyAnalysisCount || 0) + 1
-        }).where(eq7(users.id, userId));
+        }).where(eq8(users.id, userId));
       }
     } else if (actionType === "social_share") {
       currentCount = user.monthlySocialShareCount || 0;
@@ -73094,7 +73974,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
       if (allowed) {
         await db.update(users).set({
           monthlySocialShareCount: (user.monthlySocialShareCount || 0) + 1
-        }).where(eq7(users.id, userId));
+        }).where(eq8(users.id, userId));
       }
     }
     return {
@@ -73112,7 +73992,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
 async function cancelSubscription(userId) {
   try {
     const stripeClient = await getStripe();
-    const [user] = await db.select().from(users).where(eq7(users.id, userId));
+    const [user] = await db.select().from(users).where(eq8(users.id, userId));
     if (!user) {
       throw new Error("User not found");
     }
@@ -73122,7 +74002,7 @@ async function cancelSubscription(userId) {
     const subscription = await stripeClient.subscriptions.cancel(user.stripeSubscriptionId);
     await db.update(users).set({
       subscriptionStatus: subscription.status
-    }).where(eq7(users.id, userId));
+    }).where(eq8(users.id, userId));
     return {
       status: subscription.status
     };
@@ -73133,7 +74013,7 @@ async function cancelSubscription(userId) {
 }
 async function getSubscriptionPlans() {
   try {
-    return await db.select().from(subscriptionPlans).where(eq7(subscriptionPlans.isActive, true));
+    return await db.select().from(subscriptionPlans).where(eq8(subscriptionPlans.isActive, true));
   } catch (error) {
     console.error("Error getting subscription plans:", error);
     throw error;
@@ -73141,14 +74021,14 @@ async function getSubscriptionPlans() {
 }
 async function getUserSubscription(userId) {
   try {
-    const [user] = await db.select().from(users).where(eq7(users.id, userId));
+    const [user] = await db.select().from(users).where(eq8(users.id, userId));
     if (!user) {
       throw new Error("User not found");
     }
     if (!user.subscriptionPlanId) {
       return null;
     }
-    const [plan] = await db.select().from(subscriptionPlans).where(eq7(subscriptionPlans.id, user.subscriptionPlanId));
+    const [plan] = await db.select().from(subscriptionPlans).where(eq8(subscriptionPlans.id, user.subscriptionPlanId));
     if (!plan) {
       return null;
     }
@@ -73172,15 +74052,15 @@ async function getUserSubscription(userId) {
 // server/lemonsqueezy.ts
 init_db();
 init_schema();
-import crypto6 from "crypto";
-import { eq as eq8 } from "drizzle-orm";
+import crypto10 from "crypto";
+import { eq as eq9 } from "drizzle-orm";
 
 // server/veddConversionHook.ts
-import crypto5 from "crypto";
+import crypto9 from "crypto";
 var PORTAL_URL = process.env.VEDD_PORTAL_URL || "";
 var WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
-function sign(body) {
-  return crypto5.createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex");
+function sign2(body) {
+  return crypto9.createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex");
 }
 async function fireConversionHook(payload2) {
   if (!PORTAL_URL || !WEBHOOK_SECRET) {
@@ -73188,7 +74068,7 @@ async function fireConversionHook(payload2) {
     return;
   }
   const body = JSON.stringify(payload2);
-  const sig = sign(body);
+  const sig = sign2(body);
   try {
     const res2 = await fetch(`${PORTAL_URL}/webhook/signup`, {
       method: "POST",
@@ -73286,11 +74166,11 @@ async function lsCancelSubscription(subscriptionId) {
 }
 function lsVerifyWebhook(rawBody, signature) {
   if (!LS_WEBHOOK_SECRET || !signature) return false;
-  const hmac = crypto6.createHmac("sha256", LS_WEBHOOK_SECRET);
+  const hmac = crypto10.createHmac("sha256", LS_WEBHOOK_SECRET);
   hmac.update(rawBody);
   const digest = hmac.digest("hex");
   try {
-    return crypto6.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(signature, "hex"));
+    return crypto10.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(signature, "hex"));
   } catch {
     return false;
   }
@@ -73319,16 +74199,16 @@ async function lsHandleWebhookEvent(event) {
         subscriptionPlanId: planId || void 0,
         subscriptionStatus: status === "active" ? "active" : status,
         subscriptionCurrentPeriodEnd: renewsAt || void 0
-      }).where(eq8(users.id, userId));
+      }).where(eq9(users.id, userId));
       const [userRow] = await db.select({
         email: users.email,
         username: users.username,
         referredBy: users.referredBy
-      }).from(users).where(eq8(users.id, userId)).limit(1).catch(() => [null]);
+      }).from(users).where(eq9(users.id, userId)).limit(1).catch(() => [null]);
       if (userRow) {
         let resolvedReferralCode = referralCode;
         if (!resolvedReferralCode && userRow.referredBy) {
-          const [referrer] = await db.select({ referralCode: users.referralCode }).from(users).where(eq8(users.id, userRow.referredBy)).limit(1).catch(() => [null]);
+          const [referrer] = await db.select({ referralCode: users.referralCode }).from(users).where(eq9(users.id, userRow.referredBy)).limit(1).catch(() => [null]);
           resolvedReferralCode = referrer?.referralCode ?? void 0;
         }
         const planName = planId === 2 ? "pro" : planId === 3 ? "enterprise" : "pro";
@@ -73353,7 +74233,7 @@ async function lsHandleWebhookEvent(event) {
       await db.update(users).set({
         subscriptionStatus: status,
         subscriptionCurrentPeriodEnd: renewsAt || void 0
-      }).where(eq8(users.id, userId));
+      }).where(eq9(users.id, userId));
       return { handled: true, action: "updated" };
     }
     case "subscription_cancelled":
@@ -73362,7 +74242,7 @@ async function lsHandleWebhookEvent(event) {
         subscriptionStatus: "canceled",
         subscriptionPlanId: 1,
         lsSubscriptionId: null
-      }).where(eq8(users.id, userId));
+      }).where(eq9(users.id, userId));
       return { handled: true, action: "cancelled" };
     }
     case "subscription_payment_success": {
@@ -73371,13 +74251,13 @@ async function lsHandleWebhookEvent(event) {
       await db.update(users).set({
         subscriptionStatus: "active",
         subscriptionCurrentPeriodEnd: renewsAt || void 0
-      }).where(eq8(users.id, userId));
+      }).where(eq9(users.id, userId));
       return { handled: true, action: "payment_success" };
     }
     case "subscription_payment_failed": {
       await db.update(users).set({
         subscriptionStatus: "past_due"
-      }).where(eq8(users.id, userId));
+      }).where(eq9(users.id, userId));
       return { handled: true, action: "payment_failed" };
     }
     default:
@@ -73385,7 +74265,7 @@ async function lsHandleWebhookEvent(event) {
   }
 }
 async function lsSetPlanVariantId(planId, variantId) {
-  await db.update(subscriptionPlans).set({ lsVariantId: variantId }).where(eq8(subscriptionPlans.id, planId));
+  await db.update(subscriptionPlans).set({ lsVariantId: variantId }).where(eq9(subscriptionPlans.id, planId));
 }
 async function lsGetPlanVariants() {
   const plans2 = await db.select({
@@ -73531,21 +74411,21 @@ async function sendPasswordResetEmail(to, resetLink) {
 
 // server/video-processor.ts
 import { spawn } from "child_process";
-import fs3 from "fs";
-import path3 from "path";
+import fs8 from "fs";
+import path8 from "path";
 import { v4 as uuidv4 } from "uuid";
-var uploadsDir = path3.join(process.cwd(), "uploads");
-var framesDir = path3.join(uploadsDir, "frames");
-if (!fs3.existsSync(framesDir)) {
-  fs3.mkdirSync(framesDir, { recursive: true });
+var uploadsDir = path8.join(process.cwd(), "uploads");
+var framesDir = path8.join(uploadsDir, "frames");
+if (!fs8.existsSync(framesDir)) {
+  fs8.mkdirSync(framesDir, { recursive: true });
 }
 async function extractFramesFromVideo(videoBuffer, numFrames = 4, videoMimeType = "video/mp4") {
   const videoId = uuidv4();
   const extension = videoMimeType.includes("quicktime") ? "mov" : videoMimeType.includes("webm") ? "webm" : "mp4";
-  const videoPath = path3.join(uploadsDir, `${videoId}.${extension}`);
-  const framePattern = path3.join(framesDir, `${videoId}_frame_%03d.jpg`);
+  const videoPath = path8.join(uploadsDir, `${videoId}.${extension}`);
+  const framePattern = path8.join(framesDir, `${videoId}_frame_%03d.jpg`);
   try {
-    await fs3.promises.writeFile(videoPath, videoBuffer);
+    await fs8.promises.writeFile(videoPath, videoBuffer);
     console.log("Video saved to:", videoPath);
     const duration = await getVideoDuration(videoPath);
     console.log("Video duration:", duration, "seconds");
@@ -73556,10 +74436,10 @@ async function extractFramesFromVideo(videoBuffer, numFrames = 4, videoMimeType 
     const frames = [];
     for (let i = 1; i <= numFrames; i++) {
       const timestamp2 = interval * i;
-      const framePath = path3.join(framesDir, `${videoId}_frame_${String(i).padStart(3, "0")}.jpg`);
+      const framePath = path8.join(framesDir, `${videoId}_frame_${String(i).padStart(3, "0")}.jpg`);
       await extractFrameAtTime(videoPath, framePath, timestamp2);
-      if (fs3.existsSync(framePath)) {
-        const frameBuffer = await fs3.promises.readFile(framePath);
+      if (fs8.existsSync(framePath)) {
+        const frameBuffer = await fs8.promises.readFile(framePath);
         const base64 = frameBuffer.toString("base64");
         frames.push({
           path: framePath,
@@ -73568,12 +74448,12 @@ async function extractFramesFromVideo(videoBuffer, numFrames = 4, videoMimeType 
         });
       }
     }
-    await fs3.promises.unlink(videoPath).catch(() => {
+    await fs8.promises.unlink(videoPath).catch(() => {
     });
     console.log(`Extracted ${frames.length} frames from video`);
     return frames;
   } catch (error) {
-    await fs3.promises.unlink(videoPath).catch(() => {
+    await fs8.promises.unlink(videoPath).catch(() => {
     });
     console.error("Error extracting frames:", error);
     throw error;
@@ -73646,8 +74526,8 @@ async function extractFrameAtTime(videoPath, outputPath, timestamp2) {
 async function cleanupFrames(frames) {
   for (const frame of frames) {
     try {
-      if (fs3.existsSync(frame.path)) {
-        await fs3.promises.unlink(frame.path);
+      if (fs8.existsSync(frame.path)) {
+        await fs8.promises.unlink(frame.path);
       }
     } catch (error) {
       console.error("Error cleaning up frame:", frame.path, error);
@@ -73895,14 +74775,14 @@ init_db();
 init_schema();
 init_token_rewards();
 import { Router } from "express";
-import { eq as eq10, desc as desc3, sql as sql9 } from "drizzle-orm";
+import { eq as eq11, desc as desc4, sql as sql10 } from "drizzle-orm";
 var router = Router();
 async function requireAdmin(req, res2, next) {
   if (!req.isAuthenticated()) {
     return res2.status(401).json({ error: "Not authenticated" });
   }
   const userId = req.user.id;
-  const [user] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq10(users.id, userId)).limit(1);
+  const [user] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq11(users.id, userId)).limit(1);
   if (!user?.isAdmin) {
     return res2.status(403).json({ error: "Admin access required" });
   }
@@ -73947,7 +74827,7 @@ router.get("/daily-missions", async (req, res2) => {
     const weekStart2 = new Date(now);
     weekStart2.setDate(now.getDate() + diffToMon);
     weekStart2.setHours(0, 0, 0, 0);
-    const rawToday = await db.execute(sql9`
+    const rawToday = await db.execute(sql10`
       SELECT action_type, COUNT(*) as count, COALESCE(SUM(total_reward),0) as earned
       FROM ambassador_action_rewards
       WHERE user_id = ${userId} AND created_at >= ${todayStart.toISOString()}
@@ -73956,7 +74836,7 @@ router.get("/daily-missions", async (req, res2) => {
     const todayRows = Array.isArray(rawToday) ? rawToday : rawToday.rows || [];
     const todayMap = {};
     for (const r of todayRows) todayMap[r.action_type] = { count: Number(r.count), earned: Number(r.earned) };
-    const rawWeek = await db.execute(sql9`
+    const rawWeek = await db.execute(sql10`
       SELECT action_type, COUNT(*) as count, COALESCE(SUM(total_reward),0) as earned
       FROM ambassador_action_rewards
       WHERE user_id = ${userId} AND created_at >= ${weekStart2.toISOString()}
@@ -73991,7 +74871,7 @@ router.get("/daily-missions", async (req, res2) => {
       const veddReward = TOKEN_REWARDS[t.actionType] ?? t.veddReward;
       return { ...t, veddReward, completedCount: done, earnedVedd: earned, completed: done >= t.maxCount };
     });
-    const rawDevDays = await db.execute(sql9`
+    const rawDevDays = await db.execute(sql10`
       SELECT COUNT(DISTINCT DATE(created_at)) as days
       FROM ambassador_action_rewards
       WHERE user_id = ${userId}
@@ -74029,7 +74909,7 @@ router.post("/track", async (req, res2) => {
 });
 router.get("/config", async (req, res2) => {
   try {
-    const configs = await db.select().from(veddRewardConfig).where(eq10(veddRewardConfig.isActive, true));
+    const configs = await db.select().from(veddRewardConfig).where(eq11(veddRewardConfig.isActive, true));
     res2.json(configs.map((c) => ({
       actionType: c.actionType,
       baseAmount: c.baseAmount,
@@ -74104,7 +74984,7 @@ router.post("/admin/pool/:walletId/sync", requireAdmin, async (req, res2) => {
 });
 router.get("/admin/pending-rewards", requireAdmin, async (req, res2) => {
   try {
-    const pendingRewards = await db.select().from(ambassadorActionRewards).where(eq10(ambassadorActionRewards.verificationStatus, "pending")).orderBy(desc3(ambassadorActionRewards.createdAt)).limit(100);
+    const pendingRewards = await db.select().from(ambassadorActionRewards).where(eq11(ambassadorActionRewards.verificationStatus, "pending")).orderBy(desc4(ambassadorActionRewards.createdAt)).limit(100);
     res2.json(pendingRewards);
   } catch (error) {
     console.error("Error fetching pending rewards:", error);
@@ -74133,9 +75013,9 @@ router.get("/admin/transfers", requireAdmin, async (req, res2) => {
   try {
     const status = req.query.status;
     const limit = parseInt(req.query.limit) || 50;
-    let query = db.select().from(veddTransferJobs).orderBy(desc3(veddTransferJobs.createdAt)).limit(limit);
+    let query = db.select().from(veddTransferJobs).orderBy(desc4(veddTransferJobs.createdAt)).limit(limit);
     if (status) {
-      query = query.where(eq10(veddTransferJobs.status, status));
+      query = query.where(eq11(veddTransferJobs.status, status));
     }
     const transfers = await query;
     res2.json(transfers);
@@ -74147,7 +75027,7 @@ router.get("/admin/transfers", requireAdmin, async (req, res2) => {
 router.post("/admin/transfers/:jobId/retry", requireAdmin, async (req, res2) => {
   try {
     const jobId = parseInt(req.params.jobId);
-    await db.update(veddTransferJobs).set({ status: "pending", retryCount: 0 }).where(eq10(veddTransferJobs.id, jobId));
+    await db.update(veddTransferJobs).set({ status: "pending", retryCount: 0 }).where(eq11(veddTransferJobs.id, jobId));
     const result = await veddTokenService.processTransfer(jobId);
     res2.json(result);
   } catch (error) {
@@ -74167,7 +75047,7 @@ router.post("/admin/config/:actionType", requireAdmin, async (req, res2) => {
       ...description !== void 0 && { description },
       ...isActive !== void 0 && { isActive },
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq10(veddRewardConfig.actionType, actionType));
+    }).where(eq11(veddRewardConfig.actionType, actionType));
     res2.json({ success: true });
   } catch (error) {
     console.error("Error updating reward config:", error);
@@ -74176,7 +75056,7 @@ router.post("/admin/config/:actionType", requireAdmin, async (req, res2) => {
 });
 router.get("/admin/blacklist", requireAdmin, async (req, res2) => {
   try {
-    const list = await db.select().from(veddWalletBlacklist).orderBy(desc3(veddWalletBlacklist.createdAt)).limit(200);
+    const list = await db.select().from(veddWalletBlacklist).orderBy(desc4(veddWalletBlacklist.createdAt)).limit(200);
     res2.json(list);
   } catch (error) {
     res2.status(500).json({ error: "Failed to fetch blacklist" });
@@ -74201,7 +75081,7 @@ router.post("/admin/blacklist", requireAdmin, async (req, res2) => {
 });
 router.delete("/admin/blacklist/:address", requireAdmin, async (req, res2) => {
   try {
-    await db.update(veddWalletBlacklist).set({ isActive: false }).where(eq10(veddWalletBlacklist.walletAddress, req.params.address));
+    await db.update(veddWalletBlacklist).set({ isActive: false }).where(eq11(veddWalletBlacklist.walletAddress, req.params.address));
     res2.json({ success: true });
   } catch (error) {
     res2.status(500).json({ error: "Failed to remove from blacklist" });
@@ -74209,7 +75089,7 @@ router.delete("/admin/blacklist/:address", requireAdmin, async (req, res2) => {
 });
 router.get("/admin/security-alerts", requireAdmin, async (req, res2) => {
   try {
-    const flagged = await db.select().from(ambassadorActionRewards).where(sql9`${ambassadorActionRewards.securityFlag} IS NOT NULL`).orderBy(desc3(ambassadorActionRewards.createdAt)).limit(100);
+    const flagged = await db.select().from(ambassadorActionRewards).where(sql10`${ambassadorActionRewards.securityFlag} IS NOT NULL`).orderBy(desc4(ambassadorActionRewards.createdAt)).limit(100);
     res2.json(flagged);
   } catch (error) {
     res2.status(500).json({ error: "Failed to fetch security alerts" });
@@ -74225,7 +75105,7 @@ router.post("/referral/trade-profit", async (req, res2) => {
     if (typeof profitAmount !== "number" || profitAmount <= 0) {
       return res2.status(400).json({ error: "Valid positive profitAmount required" });
     }
-    const [referral] = await db.select().from(referrals2).where(eq10(referrals2.referredId, traderId)).limit(1);
+    const [referral] = await db.select().from(referrals2).where(eq11(referrals2.referredId, traderId)).limit(1);
     if (!referral) {
       return res2.json({ success: false, message: "No referrer found for this user" });
     }
@@ -74261,7 +75141,7 @@ router.post("/referral/signup", async (req, res2) => {
       return res2.status(401).json({ error: "Not authenticated" });
     }
     const newUserId = req.user.id;
-    const [referral] = await db.select().from(referrals2).where(eq10(referrals2.referredId, newUserId)).limit(1);
+    const [referral] = await db.select().from(referrals2).where(eq11(referrals2.referredId, newUserId)).limit(1);
     if (!referral) {
       return res2.json({ success: false, message: "No referrer found for this user" });
     }
@@ -74296,7 +75176,7 @@ router.get("/referral/stats", async (req, res2) => {
       return res2.status(401).json({ error: "Not authenticated" });
     }
     const userId = req.user.id;
-    const referralRewards = await db.select().from(ambassadorActionRewards).where(eq10(ambassadorActionRewards.userId, userId));
+    const referralRewards = await db.select().from(ambassadorActionRewards).where(eq11(ambassadorActionRewards.userId, userId));
     const referralTypes = ["referral_signup", "referral_profit_share", "referral_first_trade", "referral_ambassador"];
     const referralOnlyRewards = referralRewards.filter((r) => referralTypes.includes(r.actionType));
     const totalReferrals = referralOnlyRewards.filter((r) => r.actionType === "referral_signup").length;
@@ -74883,8 +75763,8 @@ router2.get("/tradovate/connection", async (req, res2) => {
   try {
     const connection2 = await storage.getUserTradovateConnection(getUserId(req));
     if (!connection2) return res2.json({ connected: false });
-    const { encryptedPassword: _, accessToken, ...safe2 } = connection2;
-    res2.json({ connected: true, ...safe2 });
+    const { encryptedPassword: _, accessToken, ...safe3 } = connection2;
+    res2.json({ connected: true, ...safe3 });
   } catch (err) {
     res2.status(500).json({ error: err.message });
   }
@@ -74923,8 +75803,8 @@ router2.post("/tradovate/connection", async (req, res2) => {
       startingBalance,
       peakEquity: startingBalance
     });
-    const { encryptedPassword: _pw, accessToken, ...safe2 } = connection2;
-    res2.json({ connected: true, ...safe2, startingBalance });
+    const { encryptedPassword: _pw, accessToken, ...safe3 } = connection2;
+    res2.json({ connected: true, ...safe3, startingBalance });
   } catch (err) {
     res2.status(500).json({ error: err.message });
   }
@@ -74941,8 +75821,8 @@ router2.patch("/tradovate/connection", async (req, res2) => {
       if (req.body[key] !== void 0) updates[key] = req.body[key];
     }
     const updated = await storage.updateTradovateConnection(connection2.id, updates);
-    const { encryptedPassword: _, accessToken, ...safe2 } = updated;
-    res2.json(safe2);
+    const { encryptedPassword: _, accessToken, ...safe3 } = updated;
+    res2.json(safe3);
   } catch (err) {
     res2.status(500).json({ error: err.message });
   }
@@ -75518,7 +76398,7 @@ var moomoo_default = router3;
 init_db();
 init_schema();
 import { Router as Router4 } from "express";
-import { eq as eq11, desc as desc4 } from "drizzle-orm";
+import { eq as eq12, desc as desc5 } from "drizzle-orm";
 var router4 = Router4();
 function requireAuth3(req, res2) {
   if (!req.isAuthenticated || !req.isAuthenticated()) {
@@ -75611,15 +76491,15 @@ router4.get("/biz-builder/my-profile", async (req, res2) => {
   if (!requireAuth3(req, res2)) return;
   const userId = getUserId3(req);
   try {
-    const profiles = await db.select().from(bizProfiles).where(eq11(bizProfiles.userId, userId)).orderBy(desc4(bizProfiles.createdAt)).limit(1);
+    const profiles = await db.select().from(bizProfiles).where(eq12(bizProfiles.userId, userId)).orderBy(desc5(bizProfiles.createdAt)).limit(1);
     if (!profiles.length) return res2.json({ profile: null });
     const profile = profiles[0];
     const [nameChecks, formationLinks, bankLinks, creditTasks, fundingMatches] = await Promise.all([
-      db.select().from(bizNameChecks).where(eq11(bizNameChecks.bizProfileId, profile.id)),
-      db.select().from(bizFormationLinks).where(eq11(bizFormationLinks.bizProfileId, profile.id)),
-      db.select().from(bizBankLinks).where(eq11(bizBankLinks.bizProfileId, profile.id)),
-      db.select().from(bizCreditTasks).where(eq11(bizCreditTasks.bizProfileId, profile.id)),
-      db.select().from(bizFundingMatches).where(eq11(bizFundingMatches.bizProfileId, profile.id))
+      db.select().from(bizNameChecks).where(eq12(bizNameChecks.bizProfileId, profile.id)),
+      db.select().from(bizFormationLinks).where(eq12(bizFormationLinks.bizProfileId, profile.id)),
+      db.select().from(bizBankLinks).where(eq12(bizBankLinks.bizProfileId, profile.id)),
+      db.select().from(bizCreditTasks).where(eq12(bizCreditTasks.bizProfileId, profile.id)),
+      db.select().from(bizFundingMatches).where(eq12(bizFundingMatches.bizProfileId, profile.id))
     ]);
     res2.json({ profile, nameChecks, formationLinks, bankLinks, creditTasks, fundingMatches });
   } catch (e) {
@@ -75631,15 +76511,15 @@ router4.get("/biz-builder/:profileId", async (req, res2) => {
   if (!requireAuth3(req, res2)) return;
   try {
     const profileId = parseInt(req.params.profileId);
-    const profiles = await db.select().from(bizProfiles).where(eq11(bizProfiles.id, profileId)).limit(1);
+    const profiles = await db.select().from(bizProfiles).where(eq12(bizProfiles.id, profileId)).limit(1);
     if (!profiles.length) return res2.status(404).json({ error: "Profile not found" });
     const profile = profiles[0];
     const [nameChecks, formationLinks, bankLinks, creditTasks, fundingMatches] = await Promise.all([
-      db.select().from(bizNameChecks).where(eq11(bizNameChecks.bizProfileId, profile.id)),
-      db.select().from(bizFormationLinks).where(eq11(bizFormationLinks.bizProfileId, profile.id)),
-      db.select().from(bizBankLinks).where(eq11(bizBankLinks.bizProfileId, profile.id)),
-      db.select().from(bizCreditTasks).where(eq11(bizCreditTasks.bizProfileId, profile.id)),
-      db.select().from(bizFundingMatches).where(eq11(bizFundingMatches.bizProfileId, profile.id))
+      db.select().from(bizNameChecks).where(eq12(bizNameChecks.bizProfileId, profile.id)),
+      db.select().from(bizFormationLinks).where(eq12(bizFormationLinks.bizProfileId, profile.id)),
+      db.select().from(bizBankLinks).where(eq12(bizBankLinks.bizProfileId, profile.id)),
+      db.select().from(bizCreditTasks).where(eq12(bizCreditTasks.bizProfileId, profile.id)),
+      db.select().from(bizFundingMatches).where(eq12(bizFundingMatches.bizProfileId, profile.id))
     ]);
     res2.json({ profile, nameChecks, formationLinks, bankLinks, creditTasks, fundingMatches });
   } catch (e) {
@@ -75679,7 +76559,7 @@ router4.post("/biz-builder/:profileId/select-formation", async (req, res2) => {
     }
     const redirectUrl = FORMATION_URLS[provider];
     await db.insert(bizFormationLinks).values({ bizProfileId: profileId, provider, redirectUrl });
-    await db.update(bizProfiles).set({ status: "formation", updatedAt: /* @__PURE__ */ new Date() }).where(eq11(bizProfiles.id, profileId));
+    await db.update(bizProfiles).set({ status: "formation", updatedAt: /* @__PURE__ */ new Date() }).where(eq12(bizProfiles.id, profileId));
     res2.json({ provider, redirectUrl });
   } catch (e) {
     console.error("[BizBuilder] select-formation error:", e.message);
@@ -75696,7 +76576,7 @@ router4.post("/biz-builder/:profileId/select-bank", async (req, res2) => {
     }
     const referralUrl = BANK_URLS[provider];
     await db.insert(bizBankLinks).values({ bizProfileId: profileId, provider, referralUrl });
-    await db.update(bizProfiles).set({ status: "banking", updatedAt: /* @__PURE__ */ new Date() }).where(eq11(bizProfiles.id, profileId));
+    await db.update(bizProfiles).set({ status: "banking", updatedAt: /* @__PURE__ */ new Date() }).where(eq12(bizProfiles.id, profileId));
     res2.json({ provider, referralUrl });
   } catch (e) {
     console.error("[BizBuilder] select-bank error:", e.message);
@@ -75707,7 +76587,7 @@ router4.post("/biz-builder/:profileId/generate-credit-tasks", async (req, res2) 
   if (!requireAuth3(req, res2)) return;
   try {
     const profileId = parseInt(req.params.profileId);
-    const profiles = await db.select().from(bizProfiles).where(eq11(bizProfiles.id, profileId)).limit(1);
+    const profiles = await db.select().from(bizProfiles).where(eq12(bizProfiles.id, profileId)).limit(1);
     if (!profiles.length) return res2.status(404).json({ error: "Profile not found" });
     const p2 = profiles[0];
     const today = /* @__PURE__ */ new Date();
@@ -75748,7 +76628,7 @@ Return a JSON array: [{ "task_name": "string", "task_type": "net30"|"credit_moni
         status: "pending"
       }))
     ).returning();
-    await db.update(bizProfiles).set({ status: "credit_building", updatedAt: /* @__PURE__ */ new Date() }).where(eq11(bizProfiles.id, profileId));
+    await db.update(bizProfiles).set({ status: "credit_building", updatedAt: /* @__PURE__ */ new Date() }).where(eq12(bizProfiles.id, profileId));
     res2.json({ tasks: inserted });
   } catch (e) {
     console.error("[BizBuilder] generate-credit-tasks error:", e.message);
@@ -75759,7 +76639,7 @@ router4.post("/biz-builder/:profileId/generate-funding-matches", async (req, res
   if (!requireAuth3(req, res2)) return;
   try {
     const profileId = parseInt(req.params.profileId);
-    const profiles = await db.select().from(bizProfiles).where(eq11(bizProfiles.id, profileId)).limit(1);
+    const profiles = await db.select().from(bizProfiles).where(eq12(bizProfiles.id, profileId)).limit(1);
     if (!profiles.length) return res2.status(404).json({ error: "Profile not found" });
     const p2 = profiles[0];
     const raw = await callClaude(
@@ -75781,7 +76661,7 @@ Return a JSON array: [{ "funder_name": "string", "funder_type": "grant"|"cdfi"|"
         notes: f.notes || null
       }))
     ).returning();
-    await db.update(bizProfiles).set({ status: "funded", updatedAt: /* @__PURE__ */ new Date() }).where(eq11(bizProfiles.id, profileId));
+    await db.update(bizProfiles).set({ status: "funded", updatedAt: /* @__PURE__ */ new Date() }).where(eq12(bizProfiles.id, profileId));
     res2.json({ matches: inserted });
   } catch (e) {
     console.error("[BizBuilder] generate-funding-matches error:", e.message);
@@ -75792,14 +76672,14 @@ router4.patch("/biz-builder/tasks/:taskId/complete", async (req, res2) => {
   if (!requireAuth3(req, res2)) return;
   try {
     const taskId = parseInt(req.params.taskId);
-    const existing = await db.select().from(bizCreditTasks).where(eq11(bizCreditTasks.id, taskId)).limit(1);
+    const existing = await db.select().from(bizCreditTasks).where(eq12(bizCreditTasks.id, taskId)).limit(1);
     if (!existing.length) return res2.status(404).json({ error: "Task not found" });
     const isComplete = existing[0].status === "complete";
     const newStatus = isComplete ? "pending" : "complete";
     const [updated] = await db.update(bizCreditTasks).set({
       status: newStatus,
       completedAt: newStatus === "complete" ? /* @__PURE__ */ new Date() : null
-    }).where(eq11(bizCreditTasks.id, taskId)).returning();
+    }).where(eq12(bizCreditTasks.id, taskId)).returning();
     res2.json({ task: updated });
   } catch (e) {
     console.error("[BizBuilder] complete task error:", e.message);
@@ -79744,7 +80624,20 @@ data: ${JSON.stringify(data)}
           break;
         }
       }
-      const systemPrompt = `You are ABBA \u2014 VEDD AI. God Body intelligence meets fund manager precision. Built for ${firstName}. No fluff. No corporate speak. Just real knowledge, right and exact.
+      const canonicalCtx = await abbaContextText(userId);
+      let engineRoomText = "";
+      try {
+        engineRoomText = engineRoomContextText(await buildEngineRoom(userId));
+      } catch {
+        engineRoomText = "";
+      }
+      const systemPrompt = `${ABBA_PERSONA_SPEC}
+
+=== STREAM STYLE (this surface's length parameter \u2014 the persona above is the shared ABBA spec) ===
+Keep responses under 120 words. Lead with the most important insight. Make ${firstName} feel like you KNOW their situation because you do.
+NAV: include [NAV:/path] to navigate. Use EXACT paths only \u2014 wrong paths lead to dead pages.
+Routes: /dashboard | /analysis | /multi-timeframe | /weekly-strategy | /orb-breakout | /historical | /what-if | /my-eas | /ea-marketplace | /mt5-chart-data | /mobile-alerts | /live-monitor | /solana-scanner | /activity | /streak | /community | /social-hub | /blog | /devotional | /vedd-wallet | /my-wallet | /account-growth | /referral | /grants | /credit-builder | /achievements | /profile | /ai-api-keys | /training-calendar | /ambassador/free-path | /vedd-clothing | /subscription | /support
+PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.
 
 LIVE NUMBERS (speak these cold): Balance $${balance.toLocaleString("en-US", { minimumFractionDigits: 2 })} (MT5 $${_mt5BalS.toLocaleString()} + TradeLocker $${_tlBalS.toLocaleString()}) | TL accounts: ${tlAcctLine} | Week ${weekPct}% ($${weekProfit}/$${weekTarget}) | Today $${todayProfit}/$${dailyTarget} | ${tradingDaysLeft2}d left | Need $${pacingNeededPerDay}/day | Open(${openPositions.length}): ${openSummary || "None"} | Pairs: ${planPairs.join(",") || "None"} | Today: ${today} | Page: ${currentPage}
 BRAIN (live \u2014 learns from MT5 + TradeLocker closed trades): ${(() => {
@@ -79757,15 +80650,13 @@ ORB LIVE: ${orbStreamContext.join(" || ")}` : ""}
 ORB KNOWLEDGE: 9:30 AM NYSE open. First 15-min candle = Opening Range (High/Low). After 9:45, 6-min chart \u2014 full-body close ABOVE ORB High (LONG) or BELOW ORB Low (SHORT). NEVER chase \u2014 wait for RETEST. At retest: confirming candle (Engulfing, Hammer, Doji) + SS AI Bot \u226570 = entry. ONE trade per instrument per day. Stop = 10% of range outside ORB. T1=2:1 R:R, T2=3:1. Invalidated if price re-enters range.
 
 SUPREME MATH (weave naturally): 1=Knowledge(foundation) 2=Wisdom(right action) 3=Understanding(full picture) 4=Culture/Freedom(discipline=profits) 5=Power/Refinement(sharpen the edge) 6=Equality(no emotions) 7=God(self-mastery) 8=Build/Destroy(protect gains, kill bad habits) 9=Born(trade completed, P&L grows) 0=Cipher(the complete circle \u2014 close the week whole)
-
-VOICE: A sharp Black man from the streets who mastered these markets \u2014 big homie energy, God-level precision. Street intelligence + fund manager precision. Talk like a God who runs money. "Peace", "Word is bond", "Show and prove", "right and exact", "drop science", "from the root", "the cipher is complete" \u2014 plus natural street flow: "bro", "my boy", "fam", "gang", "no cap", "keep it a buck", "we eatin'", "that's bread", "lock in", "secure the bag", "say less", "you feel me?". Celebrate wins LOUD ("SHEESH, we UP!"), deliver losses straight with a comeback plan ("Ima keep it a buck with you bro..."). Slang is the flavor \u2014 numbers stay exact, advice stays elite. Direct. Real. Powerful.
-
-Keep responses under 120 words. Lead with the most important insight. Make ${firstName} feel like you KNOW their situation because you do.
-HARD RULE: NEVER include code, code blocks, JSON, or markdown fences in replies \u2014 plain talk only. ONLY exception: user explicitly asks for an EA/indicator/script (MQL4, MQL5, Pine Script) \u2014 then point them to the EA Generator with [NAV:/futures-ea-generator].
-NAV: include [NAV:/path] to navigate. Use EXACT paths only \u2014 wrong paths lead to dead pages.
-Routes: /dashboard | /analysis | /multi-timeframe | /weekly-strategy | /orb-breakout | /historical | /what-if | /my-eas | /ea-marketplace | /mt5-chart-data | /mobile-alerts | /live-monitor | /solana-scanner | /activity | /streak | /community | /social-hub | /blog | /devotional | /vedd-wallet | /my-wallet | /account-growth | /referral | /grants | /credit-builder | /achievements | /profile | /ai-api-keys | /training-calendar | /ambassador/free-path | /vedd-clothing | /subscription | /support
-PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.
-
+${canonicalCtx ? `
+=== TRADER'S TRADE RECORD (canonical \u2014 same context builder as ABBA chat) ===
+${canonicalCtx}
+` : ""}${engineRoomText ? `
+=== ENGINE ROOM (per-user, read-only) ===
+${engineRoomText}
+` : ""}
 ${await abbaIdeaLabPrompt(userId)}`;
       const { getUniversalAIClientForUser: getStreamAI } = await Promise.resolve().then(() => (init_openai(), openai_exports));
       const aiClient = await getStreamAI(userId);
@@ -80168,6 +81059,17 @@ IMPORTANT:
       });
     } catch (err) {
       res2.json({ weekPct: 0, weekProfit: 0, weekTarget: 0, unrealizedPnL: 0, openCount: 0, hasStrategy: false });
+    }
+  });
+  app2.get("/api/abba/engine-room", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const room = await buildEngineRoom(userId);
+      res2.json(room);
+    } catch (err) {
+      console.error("[ABBA] engine-room failed:", err);
+      res2.status(500).json({ error: "Engine room unavailable" });
     }
   });
   app2.get("/api/abba/platform-sync", async (req, res2) => {
@@ -86814,8 +87716,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     const userId = req.user.id;
     const { symbol, timeframe } = req.params;
     const chartDataKey = `mt5_chart_${userId}_${symbol}_${timeframe}`;
-    const cache10 = global.mt5ChartDataCache || {};
-    const chartData = cache10[chartDataKey];
+    const cache11 = global.mt5ChartDataCache || {};
+    const chartData = cache11[chartDataKey];
     if (!chartData) {
       return res2.status(404).json({ error: "No chart data found. Make sure your MT5 Chart Data EA is running." });
     }
@@ -88264,8 +89166,8 @@ Respond with ONLY valid JSON:
     strategy.progressWinRate = winRate2;
     strategy.progressPercentage = Math.min(100, Math.max(0, Math.round(closedProfit / strategy.profitTarget * 100)));
     const _mt5BalLive = (() => {
-      const cache10 = global.mt5AccountData?.[userId];
-      return cache10 ? Object.values(cache10).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
+      const cache11 = global.mt5AccountData?.[userId];
+      return cache11 ? Object.values(cache11).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
     })();
     const _tlBalLive = Object.values(global.tlAccountData?.[userId] || {}).reduce((s, a) => s + (a?.balance || 0), 0);
     const _liveBalance = _mt5BalLive + _tlBalLive;
@@ -89353,7 +90255,7 @@ Rules:
     const userId = req.user.id;
     const connections = await storage.getUserTradelockerConnections(userId);
     const { getTLRisk: getTLRisk2 } = await Promise.resolve().then(() => (init_tl_risk_settings(), tl_risk_settings_exports));
-    const safe2 = connections.map(({ encryptedPassword, accessToken, refreshToken, ...c }) => {
+    const safe3 = connections.map(({ encryptedPassword, accessToken, refreshToken, ...c }) => {
       const _json = getTLRisk2(c.id);
       return {
         ...c,
@@ -89361,7 +90263,7 @@ Rules:
         riskPercent: c.riskPercent ?? _json.riskPercent
       };
     });
-    res2.json(safe2);
+    res2.json(safe3);
   });
   app2.get("/api/tradelocker/account-balance", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
@@ -89768,7 +90670,7 @@ Rules:
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const connections = await storage.getUserAlpacaConnections(userId);
-    res2.json(connections.map(({ encryptedApiSecret: _s, ...safe2 }) => safe2));
+    res2.json(connections.map(({ encryptedApiSecret: _s, ...safe3 }) => safe3));
   });
   app2.post("/api/alpaca/connection", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
@@ -89901,7 +90803,7 @@ Rules:
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const connections = await storage.getUserTastytradeConnections(userId);
-    res2.json(connections.map(({ encryptedPassword: _p, sessionToken: _t, ...safe2 }) => safe2));
+    res2.json(connections.map(({ encryptedPassword: _p, sessionToken: _t, ...safe3 }) => safe3));
   });
   app2.post("/api/tastytrade/connection", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
@@ -90361,7 +91263,7 @@ Rules:
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const connections = await storage.getUserCryptocomConnections(userId);
-    res2.json(connections.map(({ encryptedApiSecret: _s, ...safe2 }) => safe2));
+    res2.json(connections.map(({ encryptedApiSecret: _s, ...safe3 }) => safe3));
   });
   app2.post("/api/cryptocom/connection", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
@@ -93414,8 +94316,8 @@ Respond with ONLY valid JSON:
         newestTradeAt: stats.newestTradeAt
       });
       await recordWizardBrain2(userId, strategyId, { listingId: listing.id });
-      const { snapshotData: _omit, ...safe2 } = listing;
-      return res2.status(201).json({ listing: safe2, brain });
+      const { snapshotData: _omit, ...safe3 } = listing;
+      return res2.status(201).json({ listing: safe3, brain });
     } catch (err) {
       console.error("[strategy-wizard] list-brain failed:", err);
       return res2.status(500).json({ error: err?.message || "listing failed" });
@@ -102698,15 +103600,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Unauthorized" });
     const userId = req.user.id;
     const rawSymbol = req.params.symbol.toUpperCase().replace(/[^A-Za-z0-9/_.-]/g, "");
-    const cache10 = global.mt5ChartDataCache || {};
-    const allKeys = Object.keys(cache10);
+    const cache11 = global.mt5ChartDataCache || {};
+    const allKeys = Object.keys(cache11);
     const PREFER_TF = ["M6", "M5", "M1", "M15", "M30", "H1", "H4"];
     let found = null;
     let foundTf = "";
     for (const tf of PREFER_TF) {
       const key = `mt5_chart_${userId}_${rawSymbol}_${tf}`;
-      if (cache10[key]) {
-        found = cache10[key];
+      if (cache11[key]) {
+        found = cache11[key];
         foundTf = tf;
         break;
       }
@@ -102714,7 +103616,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!found) {
       const partialKey = allKeys.find((k2) => k2.includes(`_${userId}_`) && k2.includes(rawSymbol));
       if (partialKey) {
-        found = cache10[partialKey];
+        found = cache11[partialKey];
         foundTf = partialKey.split("_").pop() || "";
       }
     }
@@ -104538,9 +105440,9 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const enriched = await Promise.all(listings.map(async (l) => {
         const seller = await storage.getUser(l.sellerId);
         const purchase = await storage.getBrainPurchaseByListingAndBuyer(l.id, userId);
-        const { snapshotData: _omit, ...safe2 } = l;
+        const { snapshotData: _omit, ...safe3 } = l;
         return {
-          ...safe2,
+          ...safe3,
           sellerUsername: seller?.username || "Unknown",
           alreadyPurchased: !!purchase,
           isOwnListing: l.sellerId === userId
@@ -104556,8 +105458,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     const userId = req.user.id;
     try {
       const listings = await storage.getUserBrainListings(userId);
-      const safe2 = listings.map(({ snapshotData: _omit, ...rest }) => rest);
-      res2.json(safe2);
+      const safe3 = listings.map(({ snapshotData: _omit, ...rest }) => rest);
+      res2.json(safe3);
     } catch (e) {
       res2.status(500).json({ error: e.message });
     }
@@ -104567,11 +105469,11 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     const userId = req.user.id;
     try {
       const purchases = await storage.getUserBrainPurchases(userId);
-      const safe2 = purchases.map((p2) => {
+      const safe3 = purchases.map((p2) => {
         const { snapshotData: _omit, ...safeListing } = p2.listing;
         return { ...p2, listing: safeListing };
       });
-      res2.json(safe2);
+      res2.json(safe3);
     } catch (e) {
       res2.status(500).json({ error: e.message });
     }

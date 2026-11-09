@@ -26,7 +26,8 @@ import { setupTwilio, sendTradingSignal, sendSmsRaw } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
 import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
 import { tradingCoachHandler, tradingTipsHandler } from "./trading-coach";
-import { abbaStrategistHandler, abbaChatHandler, abbaIdeaLabPrompt, extractIdeaDraft, IDEA_MARKER, extractSetupDraft, SETUP_MARKER, wantsSetupCard, wantsIdeaCard } from "./abba-strategist";
+import { abbaStrategistHandler, abbaChatHandler, abbaIdeaLabPrompt, extractIdeaDraft, IDEA_MARKER, extractSetupDraft, SETUP_MARKER, wantsSetupCard, wantsIdeaCard, ABBA_PERSONA_SPEC, abbaContextText } from "./abba-strategist";
+import { buildEngineRoom, engineRoomContextText } from "./services/abba-engine-room";
 import { marketInsightsHandler, contextualInsightHandler } from "./market-insights";
 import { createStopOrder, checkBreakoutTriggers, cancelStopOrder, getStopOrdersForUser } from "./services/stopOrderService";
 import { insertStopOrderSchema, stopOrders } from "@shared/schema";
@@ -4365,7 +4366,17 @@ Respond ONLY in valid JSON format with these exact keys:
         }
       }
 
-      const systemPrompt = `You are ABBA — VEDD AI. God Body intelligence meets fund manager precision. Built for ${firstName}. No fluff. No corporate speak. Just real knowledge, right and exact.
+      const canonicalCtx = await abbaContextText(userId);
+      // Phase B: per-user engine room snapshot (read-only; never blocks chat).
+      let engineRoomText = '';
+      try { engineRoomText = engineRoomContextText(await buildEngineRoom(userId)); } catch { engineRoomText = ''; }
+      const systemPrompt = `${ABBA_PERSONA_SPEC}
+
+=== STREAM STYLE (this surface's length parameter — the persona above is the shared ABBA spec) ===
+Keep responses under 120 words. Lead with the most important insight. Make ${firstName} feel like you KNOW their situation because you do.
+NAV: include [NAV:/path] to navigate. Use EXACT paths only — wrong paths lead to dead pages.
+Routes: /dashboard | /analysis | /multi-timeframe | /weekly-strategy | /orb-breakout | /historical | /what-if | /my-eas | /ea-marketplace | /mt5-chart-data | /mobile-alerts | /live-monitor | /solana-scanner | /activity | /streak | /community | /social-hub | /blog | /devotional | /vedd-wallet | /my-wallet | /account-growth | /referral | /grants | /credit-builder | /achievements | /profile | /ai-api-keys | /training-calendar | /ambassador/free-path | /vedd-clothing | /subscription | /support
+PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.
 
 LIVE NUMBERS (speak these cold): Balance $${balance.toLocaleString('en-US',{minimumFractionDigits:2})} (MT5 $${_mt5BalS.toLocaleString()} + TradeLocker $${_tlBalS.toLocaleString()}) | TL accounts: ${tlAcctLine} | Week ${weekPct}% ($${weekProfit}/$${weekTarget}) | Today $${todayProfit}/$${dailyTarget} | ${tradingDaysLeft}d left | Need $${pacingNeededPerDay}/day | Open(${openPositions.length}): ${openSummary||'None'} | Pairs: ${planPairs.join(',')||'None'} | Today: ${today} | Page: ${currentPage}
 BRAIN (live — learns from MT5 + TradeLocker closed trades): ${(() => { const b = (global as any).veddAIBrain?.[userId]; return b ? `${b.overallWinRate ?? '?'}% WR over ${b.totalTradesAnalyzed ?? '?'} trades · ${(b.learningInsights ?? []).slice(0, 3).join(' / ') || 'building insights'}` : 'still learning — no closed trades analyzed yet'; })()}
@@ -4374,15 +4385,13 @@ ${orbStreamContext.length > 0 ? `\nORB LIVE: ${orbStreamContext.join(' || ')}` :
 ORB KNOWLEDGE: 9:30 AM NYSE open. First 15-min candle = Opening Range (High/Low). After 9:45, 6-min chart — full-body close ABOVE ORB High (LONG) or BELOW ORB Low (SHORT). NEVER chase — wait for RETEST. At retest: confirming candle (Engulfing, Hammer, Doji) + SS AI Bot ≥70 = entry. ONE trade per instrument per day. Stop = 10% of range outside ORB. T1=2:1 R:R, T2=3:1. Invalidated if price re-enters range.
 
 SUPREME MATH (weave naturally): 1=Knowledge(foundation) 2=Wisdom(right action) 3=Understanding(full picture) 4=Culture/Freedom(discipline=profits) 5=Power/Refinement(sharpen the edge) 6=Equality(no emotions) 7=God(self-mastery) 8=Build/Destroy(protect gains, kill bad habits) 9=Born(trade completed, P&L grows) 0=Cipher(the complete circle — close the week whole)
-
-VOICE: A sharp Black man from the streets who mastered these markets — big homie energy, God-level precision. Street intelligence + fund manager precision. Talk like a God who runs money. "Peace", "Word is bond", "Show and prove", "right and exact", "drop science", "from the root", "the cipher is complete" — plus natural street flow: "bro", "my boy", "fam", "gang", "no cap", "keep it a buck", "we eatin'", "that's bread", "lock in", "secure the bag", "say less", "you feel me?". Celebrate wins LOUD ("SHEESH, we UP!"), deliver losses straight with a comeback plan ("Ima keep it a buck with you bro..."). Slang is the flavor — numbers stay exact, advice stays elite. Direct. Real. Powerful.
-
-Keep responses under 120 words. Lead with the most important insight. Make ${firstName} feel like you KNOW their situation because you do.
-HARD RULE: NEVER include code, code blocks, JSON, or markdown fences in replies — plain talk only. ONLY exception: user explicitly asks for an EA/indicator/script (MQL4, MQL5, Pine Script) — then point them to the EA Generator with [NAV:/futures-ea-generator].
-NAV: include [NAV:/path] to navigate. Use EXACT paths only — wrong paths lead to dead pages.
-Routes: /dashboard | /analysis | /multi-timeframe | /weekly-strategy | /orb-breakout | /historical | /what-if | /my-eas | /ea-marketplace | /mt5-chart-data | /mobile-alerts | /live-monitor | /solana-scanner | /activity | /streak | /community | /social-hub | /blog | /devotional | /vedd-wallet | /my-wallet | /account-growth | /referral | /grants | /credit-builder | /achievements | /profile | /ai-api-keys | /training-calendar | /ambassador/free-path | /vedd-clothing | /subscription | /support
-PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.
-
+${canonicalCtx ? `
+=== TRADER'S TRADE RECORD (canonical — same context builder as ABBA chat) ===
+${canonicalCtx}
+` : ''}${engineRoomText ? `
+=== ENGINE ROOM (per-user, read-only) ===
+${engineRoomText}
+` : ''}
 ${await abbaIdeaLabPrompt(userId)}`;
 
       const { getUniversalAIClientForUser: getStreamAI } = await import('./openai');
@@ -4821,6 +4830,22 @@ IMPORTANT:
     }
   });
   
+  // ABBA Engine Room (Phase B) — per-user, READ-ONLY snapshot: this user's
+  // engine states, accounts, open positions, recent closes, guard pressure.
+  // userId comes from the session only; the snapshot builders never call
+  // engine start/stop or config-apply paths.
+  app.get('/api/abba/engine-room', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    const userId = (req.user as User).id;
+    try {
+      const room = await buildEngineRoom(userId);
+      res.json(room);
+    } catch (err) {
+      console.error('[ABBA] engine-room failed:', err);
+      res.status(500).json({ error: 'Engine room unavailable' });
+    }
+  });
+
   // ABBA platform sync status
   app.get('/api/abba/platform-sync', async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
