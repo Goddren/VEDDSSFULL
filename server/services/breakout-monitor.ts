@@ -1,4 +1,5 @@
 import { detectMarketOpenBreakout, type CandleData } from '../indicators';
+import { safeInterval, safeTimeout } from '../process-guards';
 
 interface BreakoutResult {
   symbol: string;
@@ -232,7 +233,11 @@ export function startBreakoutMonitor(): void {
 
   console.log('Independent breakout monitor started (M15 polling during session windows)');
 
-  pollInterval = setInterval(async () => {
+  // safeInterval/safeTimeout (crash-hardening, 2026-11-10): same periods and
+  // first-fire timing; per-user work was already try/caught, but the outer
+  // frame (session check + user enumeration) was not — an escape there now
+  // gets recorded under this job's name on /api/health.
+  pollInterval = safeInterval('breakout-monitor', 90 * 1000, async () => {
     const sessionCheck = isInSessionWindow();
     if (!sessionCheck.inWindow) return;
 
@@ -243,9 +248,9 @@ export function startBreakoutMonitor(): void {
       } catch (err) {
       }
     }
-  }, 90 * 1000);
+  });
 
-  setTimeout(async () => {
+  safeTimeout('breakout-monitor-initial', 5000, async () => {
     const sessionCheck = isInSessionWindow();
     if (!sessionCheck.inWindow) return;
 
@@ -256,7 +261,7 @@ export function startBreakoutMonitor(): void {
       } catch (err) {
       }
     }
-  }, 5000);
+  });
 }
 
 export function stopBreakoutMonitor(): void {

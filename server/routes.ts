@@ -1343,6 +1343,21 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
           return await getCryptoEngineHealth();
         } catch { return null; }
       })(),
+      // Process errors (2026-11-10, crash-hardening): every unhandledRejection
+      // / uncaughtException / guarded-job failure the global handlers in
+      // server/process-guards.ts have recorded since boot (message + stack),
+      // plus persistedLastError — the latest record persisted to
+      // runtime_state, which after a crash + restart is the PREVIOUS
+      // process's last error: the prime suspect, named here instead of
+      // buried in Render's log stream. Same invisible-failure shape as the
+      // fields above: the 2026-11-10 crash loop was anonymous precisely
+      // because nothing recorded the killing error anywhere readable.
+      processErrors: await (async () => {
+        try {
+          const { processErrorsHealth } = await import('./process-guards');
+          return await processErrorsHealth();
+        } catch { return null; }
+      })(),
     });
   });
 

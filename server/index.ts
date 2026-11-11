@@ -2,6 +2,11 @@
 // Render auto-upgrading to Node v26 (broken built-in fetch for POST bodies). The
 // fix is pinning Node 22 LTS (.node-version / engines), NOT a custom dispatcher —
 // so no undici dependency is needed here.
+// Crash-hardening FIRST: installs the global unhandledRejection /
+// uncaughtException handlers (log + record + persist, never exit) and prints
+// the [boot] marker before any other module's side effects run. See
+// server/process-guards.ts for the rationale and the deliberate tradeoff.
+import "./process-guards";
 import express, { type Request, Response, NextFunction } from "express";
 import { createServer } from "http";
 import { registerRoutes } from "./routes";
@@ -42,13 +47,11 @@ import { sql } from "drizzle-orm";
   }
 })();
 
-// Prevent DB connection errors from crashing the server
-process.on('unhandledRejection', (reason: any) => {
-  console.error('[process] Unhandled rejection (non-fatal):', reason?.message ?? reason);
-});
-process.on('uncaughtException', (err: any) => {
-  console.error('[process] Uncaught exception (non-fatal):', err?.message ?? err);
-});
+// Global process handlers live in ./process-guards (imported first, above):
+// they log the full stack, record the error for /api/health, persist the
+// latest to runtime_state, and never exit. The handlers that used to sit
+// here logged only err.message and left no record — the shape that let the
+// 2026-11-10 crash loop stay anonymous. Do not re-add local handlers here.
 
 const app = express();
 // Increase the JSON payload limit to handle bulk chart uploads (multiple base64 images)

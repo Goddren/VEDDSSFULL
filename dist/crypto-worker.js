@@ -15963,6 +15963,92 @@ var init_pipUtils = __esm({
   }
 });
 
+// server/process-guards.ts
+function formatError(err) {
+  try {
+    if (err instanceof Error) {
+      const stack = err.stack ? err.stack.split("\n").slice(0, MAX_STACK_LINES).join("\n") : null;
+      return { message: err.message || String(err), stack };
+    }
+    if (typeof err === "string") return { message: err, stack: null };
+    let message;
+    try {
+      message = JSON.stringify(err);
+    } catch {
+      message = String(err);
+    }
+    return { message: message ?? String(err), stack: null };
+  } catch {
+    return { message: "unformattable error", stack: null };
+  }
+}
+function recordProcessError(type, err, job) {
+  try {
+    const { message, stack } = formatError(err);
+    const record = {
+      type,
+      message,
+      stack,
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      ...job ? { job } : {}
+    };
+    totalSinceBoot += 1;
+    recentErrors.push(record);
+    if (recentErrors.length > MAX_RECENT) recentErrors.shift();
+    console.error(
+      `[process-guard] ${type}${job ? ` in job "${job}"` : ""} \u2014 RECORDED, process kept alive (#${totalSinceBoot} since boot). Fix the cause; do not rely on this net.
+  message: ${message}
+` + (stack ? `  stack: ${stack.split("\n").join("\n  ")}` : "  stack: (none)")
+    );
+    try {
+      void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => {
+        try {
+          m.saveRuntimeState("process_errors", "latest", record);
+        } catch {
+        }
+      }).catch(() => {
+      });
+    } catch {
+    }
+  } catch {
+    try {
+      console.error("[process-guard] recordProcessError itself failed (suppressed)");
+    } catch {
+    }
+  }
+}
+function installProcessGuards() {
+  if (installed) return;
+  installed = true;
+  process.on("unhandledRejection", (reason) => {
+    recordProcessError("unhandledRejection", reason);
+  });
+  process.on("uncaughtException", (err) => {
+    recordProcessError("uncaughtException", err);
+  });
+  console.log(
+    `[boot] process started pid=${process.pid} at=${(/* @__PURE__ */ new Date()).toISOString()} \u2014 process guards installed: unhandledRejection/uncaughtException are logged + recorded on /api/health, never exit.`
+  );
+}
+function safeInterval(name, ms, fn) {
+  return setInterval(() => {
+    Promise.resolve().then(fn).catch((e) => recordProcessError("guardedJob", e, name));
+  }, ms);
+}
+var MAX_RECENT, MAX_STACK_LINES, PROCESS_BOOTED_AT, recentErrors, totalSinceBoot, installed;
+var init_process_guards = __esm({
+  "server/process-guards.ts"() {
+    "use strict";
+    MAX_RECENT = 10;
+    MAX_STACK_LINES = 8;
+    PROCESS_BOOTED_AT = (/* @__PURE__ */ new Date()).toISOString();
+    recentErrors = [];
+    totalSinceBoot = 0;
+    installed = false;
+    installProcessGuards();
+  }
+});
+
 // server/services/signal-confidence.ts
 var signal_confidence_exports = {};
 __export(signal_confidence_exports, {
@@ -16665,7 +16751,7 @@ function refreshTlAfterTrade(userId) {
 function startTradeLockerSync() {
   if (started) return;
   started = true;
-  setInterval(async () => {
+  safeInterval("tradelocker-sync", SYNC_INTERVAL_MS, async () => {
     const now = Date.now();
     for (const [userId, seenAt] of Array.from(activeUsers.entries())) {
       if (now - seenAt > ACTIVE_WINDOW_MS) {
@@ -16677,7 +16763,7 @@ function startTradeLockerSync() {
       } catch {
       }
     }
-  }, SYNC_INTERVAL_MS);
+  });
   console.log("[TL-sync] Background TradeLocker balance sync started (20s interval).");
 }
 var lastOpenTickets, lastOutcomeReconcile, OUTCOME_RECONCILE_MS, lastDeepBackfill, DEEP_BACKFILL_MS, lastBalancePersist, BALANCE_PERSIST_MS, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, PENDING_SWEEP_MS, _lastPendingSweep, started;
@@ -16688,6 +16774,7 @@ var init_tradelocker_sync = __esm({
     init_pipUtils();
     init_tradelocker();
     init_prop_firm_consistency();
+    init_process_guards();
     lastOpenTickets = /* @__PURE__ */ new Map();
     lastOutcomeReconcile = /* @__PURE__ */ new Map();
     OUTCOME_RECONCILE_MS = 5 * 60 * 1e3;

@@ -10,6 +10,7 @@ import { storage } from '../storage';
 import { computePips } from '../utils/pipUtils';
 import { getOrCreateService as tlGetOrCreateService } from '../tradelocker';
 import { recordRealizedPnl } from './prop-firm-consistency';
+import { safeInterval } from '../process-guards';
 
 // ── Self-learning Brain visibility for TradeLocker trades ──────────────────
 // storage.resolveConfirmationOutcome only UPDATES an existing PENDING row
@@ -987,7 +988,11 @@ let started = false;
 export function startTradeLockerSync(): void {
   if (started) return;
   started = true;
-  setInterval(async () => {
+  // safeInterval (crash-hardening, 2026-11-10): same 20s period and first-fire
+  // timing; per-user work was already try/caught, but the loop's outer frame
+  // (clock + map iteration) was not — an escape there now gets recorded under
+  // this job's name on /api/health instead of an anonymous rejection.
+  safeInterval('tradelocker-sync', SYNC_INTERVAL_MS, async () => {
     const now = Date.now();
     for (const [userId, seenAt] of Array.from(activeUsers.entries())) {
       if (now - seenAt > ACTIVE_WINDOW_MS) {
@@ -998,6 +1003,6 @@ export function startTradeLockerSync(): void {
         await syncUserTradeLocker(userId);
       } catch { /* per-user failure is non-fatal */ }
     }
-  }, SYNC_INTERVAL_MS);
+  });
   console.log('[TL-sync] Background TradeLocker balance sync started (20s interval).');
 }

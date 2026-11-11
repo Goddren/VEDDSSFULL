@@ -25,6 +25,257 @@ var __copyProps = (to, from, except, desc12) => {
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
+// server/db.ts
+var db_exports = {};
+__export(db_exports, {
+  client: () => client,
+  db: () => db,
+  pool: () => pool
+});
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import pg from "pg";
+var buildHeliumUrl, DATABASE_URL, isNeon, isSupabase, isSupabasePooler, isHelium, needsSsl, pool, client, db;
+var init_db = __esm({
+  "server/db.ts"() {
+    "use strict";
+    buildHeliumUrl = () => {
+      const { PGHOST, PGDATABASE, PGUSER, PGPASSWORD, PGPORT } = process.env;
+      if (PGHOST && PGDATABASE && PGUSER && PGPASSWORD) {
+        const port = PGPORT || "5432";
+        return `postgresql://${PGUSER}:${encodeURIComponent(PGPASSWORD)}@${PGHOST}:${port}/${PGDATABASE}`;
+      }
+      return null;
+    };
+    DATABASE_URL = buildHeliumUrl() || process.env.DATABASE_URL || "postgres://localhost:5432/veddai";
+    if (process.env.NODE_ENV === "production" && !process.env.DATABASE_URL && !buildHeliumUrl()) {
+      console.error(
+        "[db] FATAL-ish: DATABASE_URL is NOT SET in a production process \u2014 falling back to postgres://localhost:5432/veddai, which will fail every query. Render does NOT copy env vars between services: set DATABASE_URL on THIS service."
+      );
+    }
+    isNeon = DATABASE_URL.includes("neon.tech");
+    isSupabase = DATABASE_URL.includes("supabase.co") || DATABASE_URL.includes("supabase.com");
+    isSupabasePooler = DATABASE_URL.includes("pooler.supabase.com");
+    isHelium = DATABASE_URL.includes("helium") || process.env.PGHOST && !DATABASE_URL.includes("neon.tech");
+    needsSsl = isNeon || isSupabase || !DATABASE_URL.includes("localhost") && !isHelium;
+    console.log(`[db] Connecting to: ${DATABASE_URL.replace(/:\/\/[^@]+@/, "://***@")}`);
+    pool = new pg.Pool({
+      connectionString: DATABASE_URL,
+      ssl: needsSsl ? { rejectUnauthorized: false } : false,
+      connectionTimeoutMillis: 3e4,
+      idleTimeoutMillis: 3e4,
+      max: 10
+    });
+    pool.on("error", (err) => {
+      console.error("[db] Pool error (non-fatal):", err.message);
+    });
+    client = postgres(DATABASE_URL, {
+      ssl: needsSsl ? "require" : false,
+      connect_timeout: 30,
+      max: 10,
+      idle_timeout: 30,
+      max_lifetime: 1800,
+      prepare: !isSupabasePooler
+    });
+    db = drizzle(client);
+  }
+});
+
+// server/services/runtime-state.ts
+var runtime_state_exports = {};
+__export(runtime_state_exports, {
+  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
+  getRuntimeStateStrict: () => getRuntimeStateStrict,
+  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
+  loadRuntimeState: () => loadRuntimeState,
+  saveRuntimeState: () => saveRuntimeState
+});
+function ensureRuntimeStateTable() {
+  if (!ensured) {
+    ensured = pool.query(DDL).then(() => void 0).catch((err) => {
+      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
+      ensured = null;
+    });
+  }
+  return ensured;
+}
+function saveRuntimeState(scope, key, value) {
+  void (async () => {
+    try {
+      await ensureRuntimeStateTable();
+      await pool.query(
+        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+        [scope, key, JSON.stringify(value)]
+      );
+    } catch (err) {
+      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
+    }
+  })();
+}
+async function loadRuntimeState(scope) {
+  try {
+    await ensureRuntimeStateTable();
+    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
+    return rows;
+  } catch (err) {
+    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
+    return [];
+  }
+}
+async function getRuntimeStateStrict(scope, key) {
+  await ensureRuntimeStateTable();
+  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
+  return rows[0]?.value ?? null;
+}
+async function insertRuntimeStateIfAbsent(scope, key, value) {
+  await ensureRuntimeStateTable();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
+    [scope, key, JSON.stringify(value)]
+  );
+  return getRuntimeStateStrict(scope, key);
+}
+var DDL, ensured;
+var init_runtime_state = __esm({
+  "server/services/runtime-state.ts"() {
+    "use strict";
+    init_db();
+    DDL = `
+CREATE TABLE IF NOT EXISTS "runtime_state" (
+  "scope" text NOT NULL,
+  "key" text NOT NULL,
+  "value" jsonb NOT NULL,
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  PRIMARY KEY ("scope", "key")
+);
+`;
+    ensured = null;
+  }
+});
+
+// server/process-guards.ts
+var process_guards_exports = {};
+__export(process_guards_exports, {
+  PROCESS_BOOTED_AT: () => PROCESS_BOOTED_AT,
+  getProcessErrors: () => getProcessErrors,
+  installProcessGuards: () => installProcessGuards,
+  processErrorsHealth: () => processErrorsHealth,
+  recordProcessError: () => recordProcessError,
+  safeInterval: () => safeInterval,
+  safeTimeout: () => safeTimeout
+});
+function formatError(err) {
+  try {
+    if (err instanceof Error) {
+      const stack = err.stack ? err.stack.split("\n").slice(0, MAX_STACK_LINES).join("\n") : null;
+      return { message: err.message || String(err), stack };
+    }
+    if (typeof err === "string") return { message: err, stack: null };
+    let message;
+    try {
+      message = JSON.stringify(err);
+    } catch {
+      message = String(err);
+    }
+    return { message: message ?? String(err), stack: null };
+  } catch {
+    return { message: "unformattable error", stack: null };
+  }
+}
+function recordProcessError(type, err, job) {
+  try {
+    const { message, stack } = formatError(err);
+    const record = {
+      type,
+      message,
+      stack,
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      ...job ? { job } : {}
+    };
+    totalSinceBoot += 1;
+    recentErrors.push(record);
+    if (recentErrors.length > MAX_RECENT) recentErrors.shift();
+    console.error(
+      `[process-guard] ${type}${job ? ` in job "${job}"` : ""} \u2014 RECORDED, process kept alive (#${totalSinceBoot} since boot). Fix the cause; do not rely on this net.
+  message: ${message}
+` + (stack ? `  stack: ${stack.split("\n").join("\n  ")}` : "  stack: (none)")
+    );
+    try {
+      void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => {
+        try {
+          m.saveRuntimeState("process_errors", "latest", record);
+        } catch {
+        }
+      }).catch(() => {
+      });
+    } catch {
+    }
+  } catch {
+    try {
+      console.error("[process-guard] recordProcessError itself failed (suppressed)");
+    } catch {
+    }
+  }
+}
+function installProcessGuards() {
+  if (installed) return;
+  installed = true;
+  process.on("unhandledRejection", (reason) => {
+    recordProcessError("unhandledRejection", reason);
+  });
+  process.on("uncaughtException", (err) => {
+    recordProcessError("uncaughtException", err);
+  });
+  console.log(
+    `[boot] process started pid=${process.pid} at=${(/* @__PURE__ */ new Date()).toISOString()} \u2014 process guards installed: unhandledRejection/uncaughtException are logged + recorded on /api/health, never exit.`
+  );
+}
+function getProcessErrors() {
+  return {
+    bootedAt: PROCESS_BOOTED_AT,
+    totalSinceBoot,
+    lastError: recentErrors.length ? recentErrors[recentErrors.length - 1] : null,
+    recent: [...recentErrors].reverse()
+  };
+}
+async function processErrorsHealth() {
+  const base = getProcessErrors();
+  let persistedLastError = null;
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const v = await getRuntimeStateStrict2("process_errors", "latest");
+    if (v && typeof v === "object" && typeof v.at === "string" && typeof v.message === "string") {
+      persistedLastError = v;
+    }
+  } catch {
+  }
+  return { ...base, persistedLastError };
+}
+function safeInterval(name, ms, fn) {
+  return setInterval(() => {
+    Promise.resolve().then(fn).catch((e) => recordProcessError("guardedJob", e, name));
+  }, ms);
+}
+function safeTimeout(name, ms, fn) {
+  return setTimeout(() => {
+    Promise.resolve().then(fn).catch((e) => recordProcessError("guardedJob", e, name));
+  }, ms);
+}
+var MAX_RECENT, MAX_STACK_LINES, PROCESS_BOOTED_AT, recentErrors, totalSinceBoot, installed;
+var init_process_guards = __esm({
+  "server/process-guards.ts"() {
+    "use strict";
+    MAX_RECENT = 10;
+    MAX_STACK_LINES = 8;
+    PROCESS_BOOTED_AT = (/* @__PURE__ */ new Date()).toISOString();
+    recentErrors = [];
+    totalSinceBoot = 0;
+    installed = false;
+    installProcessGuards();
+  }
+});
+
 // server/services/pair-filter.ts
 var pair_filter_exports = {};
 __export(pair_filter_exports, {
@@ -3967,62 +4218,6 @@ var init_schema = __esm({
   }
 });
 
-// server/db.ts
-var db_exports = {};
-__export(db_exports, {
-  client: () => client,
-  db: () => db,
-  pool: () => pool
-});
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
-import pg from "pg";
-var buildHeliumUrl, DATABASE_URL, isNeon, isSupabase, isSupabasePooler, isHelium, needsSsl, pool, client, db;
-var init_db = __esm({
-  "server/db.ts"() {
-    "use strict";
-    buildHeliumUrl = () => {
-      const { PGHOST, PGDATABASE, PGUSER, PGPASSWORD, PGPORT } = process.env;
-      if (PGHOST && PGDATABASE && PGUSER && PGPASSWORD) {
-        const port = PGPORT || "5432";
-        return `postgresql://${PGUSER}:${encodeURIComponent(PGPASSWORD)}@${PGHOST}:${port}/${PGDATABASE}`;
-      }
-      return null;
-    };
-    DATABASE_URL = buildHeliumUrl() || process.env.DATABASE_URL || "postgres://localhost:5432/veddai";
-    if (process.env.NODE_ENV === "production" && !process.env.DATABASE_URL && !buildHeliumUrl()) {
-      console.error(
-        "[db] FATAL-ish: DATABASE_URL is NOT SET in a production process \u2014 falling back to postgres://localhost:5432/veddai, which will fail every query. Render does NOT copy env vars between services: set DATABASE_URL on THIS service."
-      );
-    }
-    isNeon = DATABASE_URL.includes("neon.tech");
-    isSupabase = DATABASE_URL.includes("supabase.co") || DATABASE_URL.includes("supabase.com");
-    isSupabasePooler = DATABASE_URL.includes("pooler.supabase.com");
-    isHelium = DATABASE_URL.includes("helium") || process.env.PGHOST && !DATABASE_URL.includes("neon.tech");
-    needsSsl = isNeon || isSupabase || !DATABASE_URL.includes("localhost") && !isHelium;
-    console.log(`[db] Connecting to: ${DATABASE_URL.replace(/:\/\/[^@]+@/, "://***@")}`);
-    pool = new pg.Pool({
-      connectionString: DATABASE_URL,
-      ssl: needsSsl ? { rejectUnauthorized: false } : false,
-      connectionTimeoutMillis: 3e4,
-      idleTimeoutMillis: 3e4,
-      max: 10
-    });
-    pool.on("error", (err) => {
-      console.error("[db] Pool error (non-fatal):", err.message);
-    });
-    client = postgres(DATABASE_URL, {
-      ssl: needsSsl ? "require" : false,
-      connect_timeout: 30,
-      max: 10,
-      idle_timeout: 30,
-      max_lifetime: 1800,
-      prepare: !isSupabasePooler
-    });
-    db = drizzle(client);
-  }
-});
-
 // server/storage.ts
 var storage_exports = {};
 __export(storage_exports, {
@@ -7433,79 +7628,6 @@ var init_ai_budget_guard = __esm({
     COOLDOWN_429_MS = 6e4;
     creditsOutUntil = 0;
     FX_402_PAUSE_MS = Number(process.env.FX_AI_402_PAUSE_SECONDS ?? 120) * 1e3;
-  }
-});
-
-// server/services/runtime-state.ts
-var runtime_state_exports = {};
-__export(runtime_state_exports, {
-  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
-  getRuntimeStateStrict: () => getRuntimeStateStrict,
-  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
-  loadRuntimeState: () => loadRuntimeState,
-  saveRuntimeState: () => saveRuntimeState
-});
-function ensureRuntimeStateTable() {
-  if (!ensured) {
-    ensured = pool.query(DDL).then(() => void 0).catch((err) => {
-      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
-      ensured = null;
-    });
-  }
-  return ensured;
-}
-function saveRuntimeState(scope, key, value) {
-  void (async () => {
-    try {
-      await ensureRuntimeStateTable();
-      await pool.query(
-        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
-         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-        [scope, key, JSON.stringify(value)]
-      );
-    } catch (err) {
-      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
-    }
-  })();
-}
-async function loadRuntimeState(scope) {
-  try {
-    await ensureRuntimeStateTable();
-    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
-    return rows;
-  } catch (err) {
-    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
-    return [];
-  }
-}
-async function getRuntimeStateStrict(scope, key) {
-  await ensureRuntimeStateTable();
-  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
-  return rows[0]?.value ?? null;
-}
-async function insertRuntimeStateIfAbsent(scope, key, value) {
-  await ensureRuntimeStateTable();
-  await pool.query(
-    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
-    [scope, key, JSON.stringify(value)]
-  );
-  return getRuntimeStateStrict(scope, key);
-}
-var DDL, ensured;
-var init_runtime_state = __esm({
-  "server/services/runtime-state.ts"() {
-    "use strict";
-    init_db();
-    DDL = `
-CREATE TABLE IF NOT EXISTS "runtime_state" (
-  "scope" text NOT NULL,
-  "key" text NOT NULL,
-  "value" jsonb NOT NULL,
-  "updated_at" timestamp NOT NULL DEFAULT now(),
-  PRIMARY KEY ("scope", "key")
-);
-`;
-    ensured = null;
   }
 });
 
@@ -14599,7 +14721,7 @@ function refreshTlAfterTrade(userId) {
 function startTradeLockerSync() {
   if (started) return;
   started = true;
-  setInterval(async () => {
+  safeInterval("tradelocker-sync", SYNC_INTERVAL_MS, async () => {
     const now = Date.now();
     for (const [userId, seenAt] of Array.from(activeUsers.entries())) {
       if (now - seenAt > ACTIVE_WINDOW_MS) {
@@ -14611,7 +14733,7 @@ function startTradeLockerSync() {
       } catch {
       }
     }
-  }, SYNC_INTERVAL_MS);
+  });
   console.log("[TL-sync] Background TradeLocker balance sync started (20s interval).");
 }
 var lastOpenTickets, lastOutcomeReconcile, OUTCOME_RECONCILE_MS, lastDeepBackfill, DEEP_BACKFILL_MS, lastBalancePersist, BALANCE_PERSIST_MS, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, PENDING_SWEEP_MS, _lastPendingSweep, started;
@@ -14622,6 +14744,7 @@ var init_tradelocker_sync = __esm({
     init_pipUtils();
     init_tradelocker();
     init_prop_firm_consistency();
+    init_process_guards();
     lastOpenTickets = /* @__PURE__ */ new Map();
     lastOutcomeReconcile = /* @__PURE__ */ new Map();
     OUTCOME_RECONCILE_MS = 5 * 60 * 1e3;
@@ -54807,7 +54930,7 @@ function getIndependentBreakoutStatus(userId) {
 function startBreakoutMonitor() {
   if (pollInterval) return;
   console.log("Independent breakout monitor started (M15 polling during session windows)");
-  pollInterval = setInterval(async () => {
+  pollInterval = safeInterval("breakout-monitor", 90 * 1e3, async () => {
     const sessionCheck = isInSessionWindow();
     if (!sessionCheck.inWindow) return;
     const allUserIds = Object.keys(global.mt5ConnectedPairs || {}).map(Number);
@@ -54817,8 +54940,8 @@ function startBreakoutMonitor() {
       } catch (err) {
       }
     }
-  }, 90 * 1e3);
-  setTimeout(async () => {
+  });
+  safeTimeout("breakout-monitor-initial", 5e3, async () => {
     const sessionCheck = isInSessionWindow();
     if (!sessionCheck.inWindow) return;
     const allUserIds = Object.keys(global.mt5ConnectedPairs || {}).map(Number);
@@ -54828,7 +54951,7 @@ function startBreakoutMonitor() {
       } catch (err) {
       }
     }
-  }, 5e3);
+  });
 }
 function stopBreakoutMonitor() {
   if (pollInterval) {
@@ -54842,6 +54965,7 @@ var init_breakout_monitor = __esm({
   "server/services/breakout-monitor.ts"() {
     "use strict";
     init_indicators();
+    init_process_guards();
     monitorStates = {};
     pollInterval = null;
   }
@@ -74116,6 +74240,7 @@ var init_fx_paper_monitor = __esm({
 });
 
 // server/index.ts
+init_process_guards();
 import express2 from "express";
 import { createServer as createServer2 } from "http";
 
@@ -74719,9 +74844,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "125b44c4-dirty";
-var BUILD_BRANCH = "feat/news-blackout-major-widen";
-var BUILT_AT = "2026-11-11T00:54:32.196Z";
+var BUILD_COMMIT = "20b17113-dirty";
+var BUILD_BRANCH = "fix/crash-hardening";
+var BUILT_AT = "2026-11-11T05:01:05.649Z";
 
 // server/stripe.ts
 init_db();
@@ -79118,6 +79243,23 @@ async function registerRoutes(app2, existingServer) {
         try {
           const { getCryptoEngineHealth: getCryptoEngineHealth2 } = await Promise.resolve().then(() => (init_crypto_health(), crypto_health_exports));
           return await getCryptoEngineHealth2();
+        } catch {
+          return null;
+        }
+      })(),
+      // Process errors (2026-11-10, crash-hardening): every unhandledRejection
+      // / uncaughtException / guarded-job failure the global handlers in
+      // server/process-guards.ts have recorded since boot (message + stack),
+      // plus persistedLastError — the latest record persisted to
+      // runtime_state, which after a crash + restart is the PREVIOUS
+      // process's last error: the prime suspect, named here instead of
+      // buried in Render's log stream. Same invisible-failure shape as the
+      // fields above: the 2026-11-10 crash loop was anonymous precisely
+      // because nothing recorded the killing error anywhere readable.
+      processErrors: await (async () => {
+        try {
+          const { processErrorsHealth: processErrorsHealth2 } = await Promise.resolve().then(() => (init_process_guards(), process_guards_exports));
+          return await processErrorsHealth2();
         } catch {
           return null;
         }
@@ -108329,12 +108471,6 @@ import { sql as sql17 } from "drizzle-orm";
     console.warn("[env] No OpenRouter key found under any known env var name \u2014 AI will fall back to OpenAI/Groq.");
   }
 })();
-process.on("unhandledRejection", (reason) => {
-  console.error("[process] Unhandled rejection (non-fatal):", reason?.message ?? reason);
-});
-process.on("uncaughtException", (err) => {
-  console.error("[process] Uncaught exception (non-fatal):", err?.message ?? err);
-});
 var app = express2();
 app.use(express2.json({ limit: "50mb", verify: (req, _res, buf) => {
   req.rawBody = buf;
