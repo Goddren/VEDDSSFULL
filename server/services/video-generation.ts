@@ -11,6 +11,7 @@
  */
 
 import { generateFalVideo, falConfigured } from './fal-video';
+import { generateOpenRouterVideo, openrouterConfigured } from './openrouter-video';
 
 export type VideoQuality = 'fast' | 'high';
 
@@ -112,21 +113,30 @@ export async function generateContentVideo(
   const aspect: '9:16' | '16:9' = opts?.aspect === '16:9' ? '16:9' : '9:16';
   const shared = { quality, image, durationSeconds, numFrames, aspect };
 
-  // Provider order: Replicate by default; VIDEO_PROVIDER=fal flips it.
-  // Either way, a failure falls back to the other provider when it's
-  // configured — a provider outage or a retired model (Replicate's Veo
-  // 404s, 2026-10-31) no longer takes clip/reel generation down with it.
-  if ((process.env.VIDEO_PROVIDER || '').toLowerCase() === 'fal') {
-    const viaFal = await generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS });
-    if (viaFal) return viaFal;
-    console.log('[video-generation] fal failed — falling back to Replicate');
-    return generateViaReplicate(styledPrompt, shared);
-  }
-  const viaReplicate = await generateViaReplicate(styledPrompt, shared);
-  if (viaReplicate) return viaReplicate;
-  if (falConfigured()) {
-    console.log('[video-generation] Replicate failed — falling back to fal.ai');
-    return generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS });
+  // Provider order: Replicate primary by default, then fal, then
+  // OpenRouter (openrouter-video.ts). VIDEO_PROVIDER=fal or =openrouter
+  // promotes that provider to primary; the others keep their relative
+  // order as fallbacks. Either way, a failure falls back to the next
+  // configured provider — a provider outage or a retired model
+  // (Replicate's Veo 404s, 2026-10-31) no longer takes clip/reel
+  // generation down with it.
+  const pref = (process.env.VIDEO_PROVIDER || '').toLowerCase();
+  const attempts: Array<{ name: string; configured: () => boolean; run: () => Promise<GeneratedVideo | null> }> = [
+    { name: 'replicate', configured: () => !!process.env.REPLICATE_API_TOKEN, run: () => generateViaReplicate(styledPrompt, shared) },
+    { name: 'fal', configured: falConfigured, run: () => generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS }) },
+    { name: 'openrouter', configured: openrouterConfigured, run: () => generateOpenRouterVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS }) },
+  ];
+  const primaryIdx = attempts.findIndex((a) => a.name === pref);
+  if (primaryIdx > 0) attempts.unshift(attempts.splice(primaryIdx, 1)[0]);
+
+  for (let i = 0; i < attempts.length; i++) {
+    const attempt = attempts[i];
+    // Fallbacks are only attempted when configured; the primary always
+    // runs (and logs its own missing key), same as before.
+    if (i > 0 && !attempt.configured()) continue;
+    const video = await attempt.run();
+    if (video) return video;
+    if (i < attempts.length - 1) console.log(`[video-generation] ${attempt.name} failed — falling back to the next provider`);
   }
   return null;
 }
