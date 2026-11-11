@@ -70,6 +70,12 @@ function rowToStrategy(r: any): WizardStrategy {
   };
 }
 
+/** Public handle so other ensure-chains (the shared shadow ledger view,
+ *  which names strategies from this table) can guarantee it exists. */
+export async function ensureWizardStrategiesTable(): Promise<void> {
+  return ensureTable();
+}
+
 const COLS = `id, user_id, name, source, template_id, spec, last_backtest, (ea_code IS NOT NULL) AS has_ea, status, created_at, updated_at, brain_profile, brain_listing_id`;
 
 export async function createWizardStrategy(userId: number, spec: StrategySpec): Promise<WizardStrategy> {

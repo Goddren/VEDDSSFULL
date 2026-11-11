@@ -4,7 +4,12 @@
  * trade log, which is the raw material for per-strategy analytics and
  * the strategy brain.
  *
- * Two kinds of deployment:
+ * Three kinds of deployment:
+ *  - 'shadow' deployments (platform='shadow', no account): the runner
+ *    evaluates the spec on the same closed bars but trades it VIRTUALLY
+ *    — fills resolve from bar prices (services/strategy-shadow.ts) into
+ *    strategy_trades rows with mode='shadow', a separate evidence layer
+ *    that never counts toward Marketplace eligibility.
  *  - 'spec' strategies (templates with mechanical rules + condition-
  *    builder strategies): executed live by services/strategy-runner.ts,
  *    which evaluates the spec on closed bars and dispatches orders ONLY
@@ -60,16 +65,41 @@ function ensureTables(): Promise<void> {
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_deployments_user ON strategy_deployments (user_id, status)`);
       await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS breakeven_applied BOOLEAN NOT NULL DEFAULT false`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_strategy ON strategy_trades (strategy_id, status)`);
+      // ── Shadow deployments (additive) ──────────────────────────────
+      // mode separates the strategy's evidence layers: every pre-shadow
+      // row is 'live' by default, so live stats, the brain's live layer
+      // and Marketplace eligibility are untouched; virtual fills from
+      // shadow deployments are recorded as mode='shadow' and are only
+      // ever read as the Shadow (virtual) layer.
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'live'`);
+      // Virtual-position bookkeeping the broker normally holds for live
+      // trades: the working stop/target (breakeven/trailing move the
+      // stop), the entry-time stop distance (the R denominator), the
+      // favourable extreme tracker, and the resolved R multiple.
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS stop_loss DOUBLE PRECISION`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS take_profit DOUBLE PRECISION`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS risk_price_dist DOUBLE PRECISION`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS extreme_price DOUBLE PRECISION`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS r_multiple DOUBLE PRECISION`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_mode ON strategy_trades (strategy_id, mode, status)`);
     })().catch((e) => { tableReady = null; throw e; });
   }
   return tableReady;
+}
+
+/** Public handle so other ensure-chains (the shared shadow ledger view)
+ *  can guarantee these tables + shadow columns exist first. */
+export async function ensureStrategyTables(): Promise<void> {
+  return ensureTables();
 }
 
 export interface StrategyDeployment {
   id: number;
   userId: number;
   strategyId: number;
-  platform: 'mt5' | 'tradelocker' | 'dxtrade';
+  /** 'shadow' = virtual deployment: no account, no broker — the runner
+   *  trades it on paper into the strategy's shadow layer. */
+  platform: 'mt5' | 'tradelocker' | 'dxtrade' | 'shadow';
   connectionRef: string;
   accountLabel: string | null;
   status: 'running' | 'stopped';
@@ -167,12 +197,21 @@ export async function touchDeployment(id: number, patch: { lastBarTime?: number;
 
 export async function openStrategyTrade(dep: StrategyDeployment, t: {
   symbol: string; direction: string; volume: number; entryPrice: number; platformRef: string | null;
+  /** Evidence layer: 'live' (default — every existing caller) or
+   *  'shadow' for virtual fills. Shadow rows also carry their virtual
+   *  stop/target, entry-time risk distance and extreme tracker. */
+  mode?: 'live' | 'shadow';
+  stopLoss?: number | null;
+  takeProfit?: number | null;
+  riskDist?: number | null;
+  extremePrice?: number | null;
 }): Promise<number> {
   await ensureTables();
   const { rows } = await pool.query(
-    `INSERT INTO strategy_trades (deployment_id, strategy_id, user_id, platform, symbol, direction, volume, entry_price, platform_ref)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-    [dep.id, dep.strategyId, dep.userId, dep.platform, t.symbol, t.direction, t.volume, t.entryPrice, t.platformRef],
+    `INSERT INTO strategy_trades (deployment_id, strategy_id, user_id, platform, symbol, direction, volume, entry_price, platform_ref, mode, stop_loss, take_profit, risk_price_dist, extreme_price)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+    [dep.id, dep.strategyId, dep.userId, dep.platform, t.symbol, t.direction, t.volume, t.entryPrice, t.platformRef,
+     t.mode ?? 'live', t.stopLoss ?? null, t.takeProfit ?? null, t.riskDist ?? null, t.extremePrice ?? null],
   );
   return rows[0].id;
 }
@@ -191,11 +230,29 @@ export async function markStrategyTradeBreakeven(id: number): Promise<void> {
   await pool.query(`UPDATE strategy_trades SET breakeven_applied=true WHERE id=$1`, [id]);
 }
 
-export async function closeStrategyTrade(id: number, exitPrice: number, pnl: number | null, exitReason: string): Promise<void> {
+export async function closeStrategyTrade(id: number, exitPrice: number, pnl: number | null, exitReason: string, rMultiple?: number | null): Promise<void> {
   await ensureTables();
   await pool.query(
-    `UPDATE strategy_trades SET status='closed', exit_price=$2, pnl=$3, exit_reason=$4, closed_at=now() WHERE id=$1`,
-    [id, exitPrice, pnl, exitReason],
+    `UPDATE strategy_trades SET status='closed', exit_price=$2, pnl=$3, exit_reason=$4, closed_at=now(),
+       r_multiple=COALESCE($5, r_multiple) WHERE id=$1`,
+    [id, exitPrice, pnl, exitReason, rMultiple ?? null],
+  );
+}
+
+/** Persist a shadow position's working stop / extreme tracker /
+ *  breakeven flag as bars resolve (the broker holds this state for
+ *  live trades; virtual positions keep it on the trade row). */
+export async function updateStrategyTradeLevels(id: number, patch: {
+  stopLoss?: number | null; extremePrice?: number | null; breakevenApplied?: boolean;
+}): Promise<void> {
+  await ensureTables();
+  await pool.query(
+    `UPDATE strategy_trades SET
+       stop_loss=COALESCE($2, stop_loss),
+       extreme_price=COALESCE($3, extreme_price),
+       breakeven_applied=CASE WHEN $4 THEN true ELSE breakeven_applied END
+     WHERE id=$1`,
+    [id, patch.stopLoss ?? null, patch.extremePrice ?? null, !!patch.breakevenApplied],
   );
 }
 

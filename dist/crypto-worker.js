@@ -19898,6 +19898,372 @@ var init_ensure_kalshi_perp_shadow_tables = __esm({
   }
 });
 
+// server/services/strategy-deployments.ts
+var strategy_deployments_exports = {};
+__export(strategy_deployments_exports, {
+  closeStrategyTrade: () => closeStrategyTrade,
+  createDeployment: () => createDeployment,
+  ensureStrategyTables: () => ensureStrategyTables,
+  getDeployment: () => getDeployment,
+  getOpenStrategyTrade: () => getOpenStrategyTrade,
+  listDeployments: () => listDeployments,
+  listRunningDeployments: () => listRunningDeployments,
+  listStrategyTrades: () => listStrategyTrades,
+  markStrategyTradeBreakeven: () => markStrategyTradeBreakeven,
+  openStrategyTrade: () => openStrategyTrade,
+  stopDeployment: () => stopDeployment,
+  touchDeployment: () => touchDeployment,
+  updateStrategyTradeLevels: () => updateStrategyTradeLevels
+});
+function ensureTables() {
+  if (!tableReady) {
+    tableReady = (async () => {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS strategy_deployments (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL,
+          strategy_id INTEGER NOT NULL,
+          platform TEXT NOT NULL,
+          connection_ref TEXT NOT NULL,
+          account_label TEXT,
+          status TEXT NOT NULL DEFAULT 'running',
+          last_bar_time BIGINT DEFAULT 0,
+          last_signal_at TIMESTAMPTZ,
+          last_error TEXT,
+          error_streak INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          stopped_at TIMESTAMPTZ
+        )`);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS strategy_trades (
+          id SERIAL PRIMARY KEY,
+          deployment_id INTEGER NOT NULL,
+          strategy_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          platform TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          direction TEXT NOT NULL,
+          volume DOUBLE PRECISION NOT NULL DEFAULT 0,
+          entry_price DOUBLE PRECISION NOT NULL DEFAULT 0,
+          exit_price DOUBLE PRECISION,
+          pnl DOUBLE PRECISION,
+          platform_ref TEXT,
+          status TEXT NOT NULL DEFAULT 'open',
+          opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          closed_at TIMESTAMPTZ,
+          exit_reason TEXT
+        )`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_deployments_user ON strategy_deployments (user_id, status)`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS breakeven_applied BOOLEAN NOT NULL DEFAULT false`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_strategy ON strategy_trades (strategy_id, status)`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'live'`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS stop_loss DOUBLE PRECISION`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS take_profit DOUBLE PRECISION`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS risk_price_dist DOUBLE PRECISION`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS extreme_price DOUBLE PRECISION`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS r_multiple DOUBLE PRECISION`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_mode ON strategy_trades (strategy_id, mode, status)`);
+    })().catch((e) => {
+      tableReady = null;
+      throw e;
+    });
+  }
+  return tableReady;
+}
+async function ensureStrategyTables() {
+  return ensureTables();
+}
+function rowToDeployment(r) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    strategyId: r.strategy_id,
+    platform: r.platform,
+    connectionRef: r.connection_ref,
+    accountLabel: r.account_label ?? null,
+    status: r.status,
+    lastBarTime: Number(r.last_bar_time) || 0,
+    lastSignalAt: r.last_signal_at ?? null,
+    lastError: r.last_error ?? null,
+    createdAt: r.created_at,
+    stoppedAt: r.stopped_at ?? null
+  };
+}
+async function createDeployment(userId, strategyId, platform, connectionRef, accountLabel) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `INSERT INTO strategy_deployments (user_id, strategy_id, platform, connection_ref, account_label)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [userId, strategyId, platform, connectionRef, accountLabel]
+  );
+  return rowToDeployment(rows[0]);
+}
+async function listDeployments(userId, strategyId) {
+  await ensureTables();
+  const { rows } = strategyId ? await pool.query(`SELECT * FROM strategy_deployments WHERE user_id=$1 AND strategy_id=$2 ORDER BY created_at DESC`, [userId, strategyId]) : await pool.query(`SELECT * FROM strategy_deployments WHERE user_id=$1 ORDER BY created_at DESC`, [userId]);
+  return rows.map(rowToDeployment);
+}
+async function listRunningDeployments() {
+  await ensureTables();
+  const { rows } = await pool.query(`SELECT * FROM strategy_deployments WHERE status='running' ORDER BY id ASC`);
+  return rows.map(rowToDeployment);
+}
+async function getDeployment(userId, id) {
+  await ensureTables();
+  const { rows } = await pool.query(`SELECT * FROM strategy_deployments WHERE id=$1 AND user_id=$2`, [id, userId]);
+  return rows.length ? rowToDeployment(rows[0]) : null;
+}
+async function stopDeployment(userId, id) {
+  await ensureTables();
+  const r = await pool.query(
+    `UPDATE strategy_deployments SET status='stopped', stopped_at=now() WHERE id=$1 AND user_id=$2 AND status='running'`,
+    [id, userId]
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+async function touchDeployment(id, patch) {
+  await ensureTables();
+  if (patch.error === null) {
+    await pool.query(
+      `UPDATE strategy_deployments SET last_error=NULL, error_streak=0,
+         last_bar_time=COALESCE($2, last_bar_time),
+         last_signal_at=CASE WHEN $3 THEN now() ELSE last_signal_at END
+       WHERE id=$1`,
+      [id, patch.lastBarTime ?? null, !!patch.lastSignalAt]
+    );
+  } else if (typeof patch.error === "string") {
+    await pool.query(
+      `UPDATE strategy_deployments SET last_error=$2, error_streak=error_streak+1,
+         status=CASE WHEN error_streak+1 >= 5 THEN 'stopped' ELSE status END,
+         stopped_at=CASE WHEN error_streak+1 >= 5 THEN now() ELSE stopped_at END
+       WHERE id=$1`,
+      [id, patch.error.slice(0, 500)]
+    );
+  } else if (patch.lastBarTime != null || patch.lastSignalAt) {
+    await pool.query(
+      `UPDATE strategy_deployments SET last_bar_time=COALESCE($2, last_bar_time),
+         last_signal_at=CASE WHEN $3 THEN now() ELSE last_signal_at END WHERE id=$1`,
+      [id, patch.lastBarTime ?? null, !!patch.lastSignalAt]
+    );
+  }
+}
+async function openStrategyTrade(dep, t) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `INSERT INTO strategy_trades (deployment_id, strategy_id, user_id, platform, symbol, direction, volume, entry_price, platform_ref, mode, stop_loss, take_profit, risk_price_dist, extreme_price)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+    [
+      dep.id,
+      dep.strategyId,
+      dep.userId,
+      dep.platform,
+      t.symbol,
+      t.direction,
+      t.volume,
+      t.entryPrice,
+      t.platformRef,
+      t.mode ?? "live",
+      t.stopLoss ?? null,
+      t.takeProfit ?? null,
+      t.riskDist ?? null,
+      t.extremePrice ?? null
+    ]
+  );
+  return rows[0].id;
+}
+async function getOpenStrategyTrade(deploymentId) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `SELECT * FROM strategy_trades WHERE deployment_id=$1 AND status='open' ORDER BY opened_at DESC LIMIT 1`,
+    [deploymentId]
+  );
+  return rows[0] ?? null;
+}
+async function markStrategyTradeBreakeven(id) {
+  await ensureTables();
+  await pool.query(`UPDATE strategy_trades SET breakeven_applied=true WHERE id=$1`, [id]);
+}
+async function closeStrategyTrade(id, exitPrice, pnl, exitReason, rMultiple) {
+  await ensureTables();
+  await pool.query(
+    `UPDATE strategy_trades SET status='closed', exit_price=$2, pnl=$3, exit_reason=$4, closed_at=now(),
+       r_multiple=COALESCE($5, r_multiple) WHERE id=$1`,
+    [id, exitPrice, pnl, exitReason, rMultiple ?? null]
+  );
+}
+async function updateStrategyTradeLevels(id, patch) {
+  await ensureTables();
+  await pool.query(
+    `UPDATE strategy_trades SET
+       stop_loss=COALESCE($2, stop_loss),
+       extreme_price=COALESCE($3, extreme_price),
+       breakeven_applied=CASE WHEN $4 THEN true ELSE breakeven_applied END
+     WHERE id=$1`,
+    [id, patch.stopLoss ?? null, patch.extremePrice ?? null, !!patch.breakevenApplied]
+  );
+}
+async function listStrategyTrades(userId, strategyId, limit = 500) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `SELECT * FROM strategy_trades WHERE user_id=$1 AND strategy_id=$2 ORDER BY opened_at DESC LIMIT $3`,
+    [userId, strategyId, limit]
+  );
+  return rows;
+}
+var tableReady;
+var init_strategy_deployments = __esm({
+  "server/services/strategy-deployments.ts"() {
+    "use strict";
+    init_db();
+    tableReady = null;
+  }
+});
+
+// server/services/wizard-spec-strategies.ts
+var wizard_spec_strategies_exports = {};
+__export(wizard_spec_strategies_exports, {
+  createWizardStrategy: () => createWizardStrategy,
+  deleteWizardStrategy: () => deleteWizardStrategy,
+  ensureWizardStrategiesTable: () => ensureWizardStrategiesTable,
+  getWizardStrategy: () => getWizardStrategy,
+  listWizardStrategies: () => listWizardStrategies,
+  recordWizardBacktest: () => recordWizardBacktest,
+  recordWizardBrain: () => recordWizardBrain,
+  recordWizardEa: () => recordWizardEa,
+  updateWizardStrategySpec: () => updateWizardStrategySpec
+});
+function ensureTable2() {
+  return tableReady2 ??= (async () => {
+    await pool.query(`CREATE TABLE IF NOT EXISTS wizard_strategies (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'builder',
+      template_id TEXT,
+      spec JSONB NOT NULL,
+      last_backtest JSONB,
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS wizard_strategies_user_idx ON wizard_strategies (user_id, id DESC)`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS ea_code TEXT`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS brain_profile JSONB`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS brain_listing_id INTEGER`);
+  })().catch((e) => {
+    tableReady2 = null;
+    throw e;
+  });
+}
+function rowToStrategy(r) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    name: r.name,
+    source: r.source,
+    templateId: r.template_id ?? null,
+    spec: r.spec,
+    lastBacktest: r.last_backtest ?? null,
+    hasEa: !!r.has_ea,
+    brainProfile: r.brain_profile ?? null,
+    brainListingId: r.brain_listing_id ?? null,
+    status: r.status,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at)
+  };
+}
+async function ensureWizardStrategiesTable() {
+  return ensureTable2();
+}
+async function createWizardStrategy(userId, spec) {
+  await ensureTable2();
+  const { rows } = await pool.query(
+    `INSERT INTO wizard_strategies (user_id, name, source, template_id, spec)
+     VALUES ($1,$2,$3,$4,$5) RETURNING ${COLS}`,
+    [userId, spec.name, spec.source, spec.templateId ?? null, JSON.stringify(spec)]
+  );
+  return rowToStrategy(rows[0]);
+}
+async function listWizardStrategies(userId) {
+  await ensureTable2();
+  const { rows } = await pool.query(
+    `SELECT ${COLS} FROM wizard_strategies WHERE user_id=$1 ORDER BY id DESC LIMIT 100`,
+    [userId]
+  );
+  return rows.map(rowToStrategy);
+}
+async function getWizardStrategy(userId, id) {
+  await ensureTable2();
+  const { rows } = await pool.query(
+    `SELECT ${COLS} FROM wizard_strategies WHERE id=$1 AND user_id=$2`,
+    [id, userId]
+  );
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+async function updateWizardStrategySpec(userId, id, spec) {
+  await ensureTable2();
+  const { rows } = await pool.query(
+    `UPDATE wizard_strategies SET name=$3, source=$4, template_id=$5, spec=$6, updated_at=now()
+     WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
+    [id, userId, spec.name, spec.source, spec.templateId ?? null, JSON.stringify(spec)]
+  );
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+async function deleteWizardStrategy(userId, id) {
+  await ensureTable2();
+  const { rowCount } = await pool.query(
+    `DELETE FROM wizard_strategies WHERE id=$1 AND user_id=$2`,
+    [id, userId]
+  );
+  return (rowCount ?? 0) > 0;
+}
+async function recordWizardBrain(userId, id, patch) {
+  await ensureTable2();
+  const sets = [];
+  const params = [id, userId];
+  if (patch.profile !== void 0) {
+    params.push(JSON.stringify(patch.profile));
+    sets.push(`brain_profile = $${params.length}`);
+  }
+  if (patch.listingId !== void 0) {
+    params.push(patch.listingId);
+    sets.push(`brain_listing_id = $${params.length}`);
+  }
+  if (!sets.length) return false;
+  sets.push("updated_at = now()");
+  const r = await pool.query(
+    `UPDATE wizard_strategies SET ${sets.join(", ")} WHERE id = $1 AND user_id = $2`,
+    params
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+async function recordWizardEa(userId, id, code) {
+  await ensureTable2();
+  const { rowCount } = await pool.query(
+    `UPDATE wizard_strategies SET ea_code=$3, updated_at=now() WHERE id=$1 AND user_id=$2`,
+    [id, userId, code]
+  );
+  return (rowCount ?? 0) > 0;
+}
+async function recordWizardBacktest(userId, id, summary) {
+  await ensureTable2();
+  const { rows } = await pool.query(
+    `UPDATE wizard_strategies SET last_backtest=$3, status='backtested', updated_at=now()
+     WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
+    [id, userId, JSON.stringify(summary)]
+  );
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+var tableReady2, COLS;
+var init_wizard_spec_strategies = __esm({
+  "server/services/wizard-spec-strategies.ts"() {
+    "use strict";
+    init_db();
+    tableReady2 = null;
+    COLS = `id, user_id, name, source, template_id, spec, last_backtest, (ea_code IS NOT NULL) AS has_ea, status, created_at, updated_at, brain_profile, brain_listing_id`;
+  }
+});
+
 // server/services/shadow-ledger.ts
 function ensureShadowLedger() {
   if (!_ensured4) {
@@ -19915,6 +20281,16 @@ function ensureShadowLedger() {
       try {
         const { ensureKalshiPerpShadowTables: ensureKalshiPerpShadowTables2 } = await Promise.resolve().then(() => (init_ensure_kalshi_perp_shadow_tables(), ensure_kalshi_perp_shadow_tables_exports));
         await ensureKalshiPerpShadowTables2();
+      } catch {
+      }
+      try {
+        const { ensureStrategyTables: ensureStrategyTables2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
+        await ensureStrategyTables2();
+      } catch {
+      }
+      try {
+        const { ensureWizardStrategiesTable: ensureWizardStrategiesTable2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
+        await ensureWizardStrategiesTable2();
       } catch {
       }
       await pool.query(VIEW_SQL);
@@ -20022,6 +20398,27 @@ CREATE OR REPLACE VIEW shadow_ledger AS
     LEFT JOIN kalshi_perp_shadow_context kc ON kc.trade_id = k.id
    WHERE k.status = 'closed' AND k.return_pct IS NOT NULL AND k.exclude_from_stats IS NOT TRUE
      AND NOT (abs(k.return_pct) >= 40 AND extract(epoch from (k.closed_at - k.opened_at)) < 120)
+  UNION ALL
+  -- Strategy Studio shadow deployments (strategy-shadow.ts): the runner
+  -- trading saved spec strategies virtually \u2014 fills resolved from bar
+  -- prices into strategy_trades rows with mode='shadow'. R comes from
+  -- the row's own r_multiple (P&L vs the entry-time stop distance), so
+  -- only closes that carried a stop participate. return_pct is not
+  -- tracked for spec trades (no account balance to percentage against)
+  -- and stays NULL. Live rows (mode='live') never appear here, and
+  -- these rows never count toward Brain Marketplace eligibility.
+  SELECT ('strategy_studio_shadow:' || t.id)::text, 'strategy_studio_shadow', 'studio', t.user_id,
+         COALESCE(w.name, 'strategy ' || t.strategy_id), t.symbol,
+         CASE WHEN upper(t.direction) = 'SELL' THEN 'SHORT' ELSE 'LONG' END,
+         t.opened_at, t.closed_at,
+         extract(hour from t.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(t.opened_at AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN t.r_multiple > 0 THEN 'WIN' WHEN t.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         t.r_multiple::float, NULL::float
+    FROM strategy_trades t
+    LEFT JOIN wizard_strategies w ON w.id = t.strategy_id
+   WHERE t.mode = 'shadow' AND t.status = 'closed' AND t.r_multiple IS NOT NULL
 `;
     _ensured4 = null;
   }

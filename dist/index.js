@@ -18885,6 +18885,372 @@ var init_ensure_kalshi_perp_shadow_tables = __esm({
   }
 });
 
+// server/services/strategy-deployments.ts
+var strategy_deployments_exports = {};
+__export(strategy_deployments_exports, {
+  closeStrategyTrade: () => closeStrategyTrade,
+  createDeployment: () => createDeployment,
+  ensureStrategyTables: () => ensureStrategyTables,
+  getDeployment: () => getDeployment,
+  getOpenStrategyTrade: () => getOpenStrategyTrade,
+  listDeployments: () => listDeployments,
+  listRunningDeployments: () => listRunningDeployments,
+  listStrategyTrades: () => listStrategyTrades,
+  markStrategyTradeBreakeven: () => markStrategyTradeBreakeven,
+  openStrategyTrade: () => openStrategyTrade,
+  stopDeployment: () => stopDeployment,
+  touchDeployment: () => touchDeployment,
+  updateStrategyTradeLevels: () => updateStrategyTradeLevels
+});
+function ensureTables() {
+  if (!tableReady) {
+    tableReady = (async () => {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS strategy_deployments (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL,
+          strategy_id INTEGER NOT NULL,
+          platform TEXT NOT NULL,
+          connection_ref TEXT NOT NULL,
+          account_label TEXT,
+          status TEXT NOT NULL DEFAULT 'running',
+          last_bar_time BIGINT DEFAULT 0,
+          last_signal_at TIMESTAMPTZ,
+          last_error TEXT,
+          error_streak INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          stopped_at TIMESTAMPTZ
+        )`);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS strategy_trades (
+          id SERIAL PRIMARY KEY,
+          deployment_id INTEGER NOT NULL,
+          strategy_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          platform TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          direction TEXT NOT NULL,
+          volume DOUBLE PRECISION NOT NULL DEFAULT 0,
+          entry_price DOUBLE PRECISION NOT NULL DEFAULT 0,
+          exit_price DOUBLE PRECISION,
+          pnl DOUBLE PRECISION,
+          platform_ref TEXT,
+          status TEXT NOT NULL DEFAULT 'open',
+          opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          closed_at TIMESTAMPTZ,
+          exit_reason TEXT
+        )`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_deployments_user ON strategy_deployments (user_id, status)`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS breakeven_applied BOOLEAN NOT NULL DEFAULT false`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_strategy ON strategy_trades (strategy_id, status)`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'live'`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS stop_loss DOUBLE PRECISION`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS take_profit DOUBLE PRECISION`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS risk_price_dist DOUBLE PRECISION`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS extreme_price DOUBLE PRECISION`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS r_multiple DOUBLE PRECISION`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_mode ON strategy_trades (strategy_id, mode, status)`);
+    })().catch((e) => {
+      tableReady = null;
+      throw e;
+    });
+  }
+  return tableReady;
+}
+async function ensureStrategyTables() {
+  return ensureTables();
+}
+function rowToDeployment(r) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    strategyId: r.strategy_id,
+    platform: r.platform,
+    connectionRef: r.connection_ref,
+    accountLabel: r.account_label ?? null,
+    status: r.status,
+    lastBarTime: Number(r.last_bar_time) || 0,
+    lastSignalAt: r.last_signal_at ?? null,
+    lastError: r.last_error ?? null,
+    createdAt: r.created_at,
+    stoppedAt: r.stopped_at ?? null
+  };
+}
+async function createDeployment(userId, strategyId, platform, connectionRef, accountLabel) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `INSERT INTO strategy_deployments (user_id, strategy_id, platform, connection_ref, account_label)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [userId, strategyId, platform, connectionRef, accountLabel]
+  );
+  return rowToDeployment(rows[0]);
+}
+async function listDeployments(userId, strategyId) {
+  await ensureTables();
+  const { rows } = strategyId ? await pool.query(`SELECT * FROM strategy_deployments WHERE user_id=$1 AND strategy_id=$2 ORDER BY created_at DESC`, [userId, strategyId]) : await pool.query(`SELECT * FROM strategy_deployments WHERE user_id=$1 ORDER BY created_at DESC`, [userId]);
+  return rows.map(rowToDeployment);
+}
+async function listRunningDeployments() {
+  await ensureTables();
+  const { rows } = await pool.query(`SELECT * FROM strategy_deployments WHERE status='running' ORDER BY id ASC`);
+  return rows.map(rowToDeployment);
+}
+async function getDeployment(userId, id) {
+  await ensureTables();
+  const { rows } = await pool.query(`SELECT * FROM strategy_deployments WHERE id=$1 AND user_id=$2`, [id, userId]);
+  return rows.length ? rowToDeployment(rows[0]) : null;
+}
+async function stopDeployment(userId, id) {
+  await ensureTables();
+  const r = await pool.query(
+    `UPDATE strategy_deployments SET status='stopped', stopped_at=now() WHERE id=$1 AND user_id=$2 AND status='running'`,
+    [id, userId]
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+async function touchDeployment(id, patch) {
+  await ensureTables();
+  if (patch.error === null) {
+    await pool.query(
+      `UPDATE strategy_deployments SET last_error=NULL, error_streak=0,
+         last_bar_time=COALESCE($2, last_bar_time),
+         last_signal_at=CASE WHEN $3 THEN now() ELSE last_signal_at END
+       WHERE id=$1`,
+      [id, patch.lastBarTime ?? null, !!patch.lastSignalAt]
+    );
+  } else if (typeof patch.error === "string") {
+    await pool.query(
+      `UPDATE strategy_deployments SET last_error=$2, error_streak=error_streak+1,
+         status=CASE WHEN error_streak+1 >= 5 THEN 'stopped' ELSE status END,
+         stopped_at=CASE WHEN error_streak+1 >= 5 THEN now() ELSE stopped_at END
+       WHERE id=$1`,
+      [id, patch.error.slice(0, 500)]
+    );
+  } else if (patch.lastBarTime != null || patch.lastSignalAt) {
+    await pool.query(
+      `UPDATE strategy_deployments SET last_bar_time=COALESCE($2, last_bar_time),
+         last_signal_at=CASE WHEN $3 THEN now() ELSE last_signal_at END WHERE id=$1`,
+      [id, patch.lastBarTime ?? null, !!patch.lastSignalAt]
+    );
+  }
+}
+async function openStrategyTrade(dep, t) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `INSERT INTO strategy_trades (deployment_id, strategy_id, user_id, platform, symbol, direction, volume, entry_price, platform_ref, mode, stop_loss, take_profit, risk_price_dist, extreme_price)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+    [
+      dep.id,
+      dep.strategyId,
+      dep.userId,
+      dep.platform,
+      t.symbol,
+      t.direction,
+      t.volume,
+      t.entryPrice,
+      t.platformRef,
+      t.mode ?? "live",
+      t.stopLoss ?? null,
+      t.takeProfit ?? null,
+      t.riskDist ?? null,
+      t.extremePrice ?? null
+    ]
+  );
+  return rows[0].id;
+}
+async function getOpenStrategyTrade(deploymentId) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `SELECT * FROM strategy_trades WHERE deployment_id=$1 AND status='open' ORDER BY opened_at DESC LIMIT 1`,
+    [deploymentId]
+  );
+  return rows[0] ?? null;
+}
+async function markStrategyTradeBreakeven(id) {
+  await ensureTables();
+  await pool.query(`UPDATE strategy_trades SET breakeven_applied=true WHERE id=$1`, [id]);
+}
+async function closeStrategyTrade(id, exitPrice, pnl, exitReason, rMultiple2) {
+  await ensureTables();
+  await pool.query(
+    `UPDATE strategy_trades SET status='closed', exit_price=$2, pnl=$3, exit_reason=$4, closed_at=now(),
+       r_multiple=COALESCE($5, r_multiple) WHERE id=$1`,
+    [id, exitPrice, pnl, exitReason, rMultiple2 ?? null]
+  );
+}
+async function updateStrategyTradeLevels(id, patch) {
+  await ensureTables();
+  await pool.query(
+    `UPDATE strategy_trades SET
+       stop_loss=COALESCE($2, stop_loss),
+       extreme_price=COALESCE($3, extreme_price),
+       breakeven_applied=CASE WHEN $4 THEN true ELSE breakeven_applied END
+     WHERE id=$1`,
+    [id, patch.stopLoss ?? null, patch.extremePrice ?? null, !!patch.breakevenApplied]
+  );
+}
+async function listStrategyTrades(userId, strategyId, limit = 500) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `SELECT * FROM strategy_trades WHERE user_id=$1 AND strategy_id=$2 ORDER BY opened_at DESC LIMIT $3`,
+    [userId, strategyId, limit]
+  );
+  return rows;
+}
+var tableReady;
+var init_strategy_deployments = __esm({
+  "server/services/strategy-deployments.ts"() {
+    "use strict";
+    init_db();
+    tableReady = null;
+  }
+});
+
+// server/services/wizard-spec-strategies.ts
+var wizard_spec_strategies_exports = {};
+__export(wizard_spec_strategies_exports, {
+  createWizardStrategy: () => createWizardStrategy,
+  deleteWizardStrategy: () => deleteWizardStrategy,
+  ensureWizardStrategiesTable: () => ensureWizardStrategiesTable,
+  getWizardStrategy: () => getWizardStrategy,
+  listWizardStrategies: () => listWizardStrategies,
+  recordWizardBacktest: () => recordWizardBacktest,
+  recordWizardBrain: () => recordWizardBrain,
+  recordWizardEa: () => recordWizardEa,
+  updateWizardStrategySpec: () => updateWizardStrategySpec
+});
+function ensureTable2() {
+  return tableReady2 ??= (async () => {
+    await pool.query(`CREATE TABLE IF NOT EXISTS wizard_strategies (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'builder',
+      template_id TEXT,
+      spec JSONB NOT NULL,
+      last_backtest JSONB,
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS wizard_strategies_user_idx ON wizard_strategies (user_id, id DESC)`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS ea_code TEXT`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS brain_profile JSONB`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS brain_listing_id INTEGER`);
+  })().catch((e) => {
+    tableReady2 = null;
+    throw e;
+  });
+}
+function rowToStrategy(r) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    name: r.name,
+    source: r.source,
+    templateId: r.template_id ?? null,
+    spec: r.spec,
+    lastBacktest: r.last_backtest ?? null,
+    hasEa: !!r.has_ea,
+    brainProfile: r.brain_profile ?? null,
+    brainListingId: r.brain_listing_id ?? null,
+    status: r.status,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at)
+  };
+}
+async function ensureWizardStrategiesTable() {
+  return ensureTable2();
+}
+async function createWizardStrategy(userId, spec) {
+  await ensureTable2();
+  const { rows } = await pool.query(
+    `INSERT INTO wizard_strategies (user_id, name, source, template_id, spec)
+     VALUES ($1,$2,$3,$4,$5) RETURNING ${COLS}`,
+    [userId, spec.name, spec.source, spec.templateId ?? null, JSON.stringify(spec)]
+  );
+  return rowToStrategy(rows[0]);
+}
+async function listWizardStrategies(userId) {
+  await ensureTable2();
+  const { rows } = await pool.query(
+    `SELECT ${COLS} FROM wizard_strategies WHERE user_id=$1 ORDER BY id DESC LIMIT 100`,
+    [userId]
+  );
+  return rows.map(rowToStrategy);
+}
+async function getWizardStrategy(userId, id) {
+  await ensureTable2();
+  const { rows } = await pool.query(
+    `SELECT ${COLS} FROM wizard_strategies WHERE id=$1 AND user_id=$2`,
+    [id, userId]
+  );
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+async function updateWizardStrategySpec(userId, id, spec) {
+  await ensureTable2();
+  const { rows } = await pool.query(
+    `UPDATE wizard_strategies SET name=$3, source=$4, template_id=$5, spec=$6, updated_at=now()
+     WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
+    [id, userId, spec.name, spec.source, spec.templateId ?? null, JSON.stringify(spec)]
+  );
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+async function deleteWizardStrategy(userId, id) {
+  await ensureTable2();
+  const { rowCount } = await pool.query(
+    `DELETE FROM wizard_strategies WHERE id=$1 AND user_id=$2`,
+    [id, userId]
+  );
+  return (rowCount ?? 0) > 0;
+}
+async function recordWizardBrain(userId, id, patch) {
+  await ensureTable2();
+  const sets = [];
+  const params = [id, userId];
+  if (patch.profile !== void 0) {
+    params.push(JSON.stringify(patch.profile));
+    sets.push(`brain_profile = $${params.length}`);
+  }
+  if (patch.listingId !== void 0) {
+    params.push(patch.listingId);
+    sets.push(`brain_listing_id = $${params.length}`);
+  }
+  if (!sets.length) return false;
+  sets.push("updated_at = now()");
+  const r = await pool.query(
+    `UPDATE wizard_strategies SET ${sets.join(", ")} WHERE id = $1 AND user_id = $2`,
+    params
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+async function recordWizardEa(userId, id, code) {
+  await ensureTable2();
+  const { rowCount } = await pool.query(
+    `UPDATE wizard_strategies SET ea_code=$3, updated_at=now() WHERE id=$1 AND user_id=$2`,
+    [id, userId, code]
+  );
+  return (rowCount ?? 0) > 0;
+}
+async function recordWizardBacktest(userId, id, summary) {
+  await ensureTable2();
+  const { rows } = await pool.query(
+    `UPDATE wizard_strategies SET last_backtest=$3, status='backtested', updated_at=now()
+     WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
+    [id, userId, JSON.stringify(summary)]
+  );
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+var tableReady2, COLS;
+var init_wizard_spec_strategies = __esm({
+  "server/services/wizard-spec-strategies.ts"() {
+    "use strict";
+    init_db();
+    tableReady2 = null;
+    COLS = `id, user_id, name, source, template_id, spec, last_backtest, (ea_code IS NOT NULL) AS has_ea, status, created_at, updated_at, brain_profile, brain_listing_id`;
+  }
+});
+
 // server/services/shadow-ledger.ts
 var shadow_ledger_exports = {};
 __export(shadow_ledger_exports, {
@@ -18907,6 +19273,16 @@ function ensureShadowLedger() {
       try {
         const { ensureKalshiPerpShadowTables: ensureKalshiPerpShadowTables2 } = await Promise.resolve().then(() => (init_ensure_kalshi_perp_shadow_tables(), ensure_kalshi_perp_shadow_tables_exports));
         await ensureKalshiPerpShadowTables2();
+      } catch {
+      }
+      try {
+        const { ensureStrategyTables: ensureStrategyTables2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
+        await ensureStrategyTables2();
+      } catch {
+      }
+      try {
+        const { ensureWizardStrategiesTable: ensureWizardStrategiesTable2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
+        await ensureWizardStrategiesTable2();
       } catch {
       }
       await pool.query(VIEW_SQL);
@@ -19031,6 +19407,27 @@ CREATE OR REPLACE VIEW shadow_ledger AS
     LEFT JOIN kalshi_perp_shadow_context kc ON kc.trade_id = k.id
    WHERE k.status = 'closed' AND k.return_pct IS NOT NULL AND k.exclude_from_stats IS NOT TRUE
      AND NOT (abs(k.return_pct) >= 40 AND extract(epoch from (k.closed_at - k.opened_at)) < 120)
+  UNION ALL
+  -- Strategy Studio shadow deployments (strategy-shadow.ts): the runner
+  -- trading saved spec strategies virtually \u2014 fills resolved from bar
+  -- prices into strategy_trades rows with mode='shadow'. R comes from
+  -- the row's own r_multiple (P&L vs the entry-time stop distance), so
+  -- only closes that carried a stop participate. return_pct is not
+  -- tracked for spec trades (no account balance to percentage against)
+  -- and stays NULL. Live rows (mode='live') never appear here, and
+  -- these rows never count toward Brain Marketplace eligibility.
+  SELECT ('strategy_studio_shadow:' || t.id)::text, 'strategy_studio_shadow', 'studio', t.user_id,
+         COALESCE(w.name, 'strategy ' || t.strategy_id), t.symbol,
+         CASE WHEN upper(t.direction) = 'SELL' THEN 'SHORT' ELSE 'LONG' END,
+         t.opened_at, t.closed_at,
+         extract(hour from t.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(t.opened_at AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN t.r_multiple > 0 THEN 'WIN' WHEN t.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         t.r_multiple::float, NULL::float
+    FROM strategy_trades t
+    LEFT JOIN wizard_strategies w ON w.id = t.strategy_id
+   WHERE t.mode = 'shadow' AND t.status = 'closed' AND t.r_multiple IS NOT NULL
 `;
     _ensured4 = null;
   }
@@ -38002,7 +38399,7 @@ var init_brain_ideas = __esm({
 var wizard_strategies_exports = {};
 __export(wizard_strategies_exports, {
   WIZARD_SUPPORTED: () => WIZARD_SUPPORTED,
-  listWizardStrategies: () => listWizardStrategies,
+  listWizardStrategies: () => listWizardStrategies2,
   promoteToBrain: () => promoteToBrain,
   retireWizardStrategy: () => retireWizardStrategy,
   runWizardBacktest: () => runWizardBacktest,
@@ -38430,7 +38827,7 @@ async function runWizardBacktest(opts) {
   notes.push("Entries at the next candle's open, stop 1.5 ATR, one trade at a time. Spread and commission are not included, so real results will be a bit lower.");
   return summarize({ strategyId: opts.strategyId, symbol: opts.symbol.toUpperCase(), timeframe: tf, from: new Date(b[0].t).toISOString(), to: new Date(b[b.length - 1].t).toISOString(), bars: b.length, trades, notes });
 }
-function ensureTable2() {
+function ensureTable3() {
   if (!ensured6) {
     ensured6 = pool.query(`
 CREATE TABLE IF NOT EXISTS user_wizard_strategies (
@@ -38455,7 +38852,7 @@ CREATE INDEX IF NOT EXISTS user_wizard_strategies_user_idx ON user_wizard_strate
   return ensured6;
 }
 async function saveWizardStrategy(userId, body) {
-  await ensureTable2();
+  await ensureTable3();
   const bt = await runWizardBacktest({ strategyId: body.strategyId, params: body.params, symbol: body.symbol, timeframe: body.timeframe, period: body.period, rr: body.rr });
   const name = String(body.name || `${body.strategyId} ${bt.symbol} ${bt.timeframe}`).slice(0, 80);
   const { rows } = await pool.query(`INSERT INTO user_wizard_strategies (user_id, name, strategy_id, params, symbol, timeframe, rr, backtest)
@@ -38478,8 +38875,8 @@ function paperVerdict(pt) {
   if (pt.totalR <= 0) return { ready: false, label: `Paper test finished: ${pt.totalR}R over ${pt.trades.length} trades. It did not hold up out of sample, so it should not go in the brain.` };
   return { ready: true, label: `Paper test passed: +${pt.totalR}R over ${pt.trades.length} trades (${pt.winRate}% wins). Ready to add to your brain.` };
 }
-async function listWizardStrategies(userId) {
-  await ensureTable2();
+async function listWizardStrategies2(userId) {
+  await ensureTable3();
   const { rows } = await pool.query(`SELECT * FROM user_wizard_strategies WHERE user_id = $1 AND status <> 'retired' ORDER BY created_at DESC LIMIT 20`, [userId]);
   return Promise.all(rows.map(async (r) => {
     const pt = await paperTest(r);
@@ -38500,7 +38897,7 @@ async function listWizardStrategies(userId) {
   }));
 }
 async function promoteToBrain(userId, id) {
-  await ensureTable2();
+  await ensureTable3();
   const { rows } = await pool.query(`SELECT * FROM user_wizard_strategies WHERE id = $1 AND user_id = $2`, [id, userId]);
   const row = rows[0];
   if (!row) throw new Error("Strategy not found.");
@@ -38526,12 +38923,12 @@ async function promoteToBrain(userId, id) {
   return idea;
 }
 async function retireWizardStrategy(userId, id) {
-  await ensureTable2();
+  await ensureTable3();
   await pool.query(`UPDATE user_wizard_strategies SET status = 'retired' WHERE id = $1 AND user_id = $2`, [id, userId]);
 }
 async function wizardContextText(userId) {
   try {
-    await ensureTable2();
+    await ensureTable3();
     const { rows } = await pool.query(`SELECT name, symbol, timeframe, status, backtest->>'totalR' AS r, created_at FROM user_wizard_strategies
       WHERE user_id = $1 AND status <> 'retired' ORDER BY created_at DESC LIMIT 8`, [userId]);
     if (!rows.length) return "";
@@ -39325,7 +39722,7 @@ var init_solana_scanner = __esm({
 function isFakeWinSignature(holdingMinutes, returnPct) {
   return holdingMinutes != null && holdingMinutes <= QUARANTINE_MAX_HOLD_MIN && returnPct != null && Math.abs(returnPct) >= QUARANTINE_MIN_ABS_RETURN_PCT;
 }
-async function ensureTable3() {
+async function ensureTable4() {
   if (_ensured5) return;
   try {
     await pool.query(`
@@ -39389,7 +39786,7 @@ async function backfillIfEmpty2(userId) {
   }
 }
 async function learnFromSolTrades(userId) {
-  await ensureTable3();
+  await ensureTable4();
   await backfillIfEmpty2(userId).catch(() => {
   });
   const { rows } = await pool.query(
@@ -39476,7 +39873,7 @@ function solBrainGate(userId, symbol, strategy, hourUtc) {
 }
 async function recordSolBrainOutcome(o) {
   try {
-    await ensureTable3();
+    await ensureTable4();
     if (o.returnPct != null && (o.returnPct > 1e3 || o.returnPct < -100)) {
       console.warn(`[sol-brain] rejected impossible return ${o.returnPct}% for ${o.symbol} \u2014 not recorded (bad price data)`);
       return;
@@ -44126,22 +44523,22 @@ __export(cred_store_exports, {
 });
 import * as fs2 from "fs";
 import * as path2 from "path";
-function ensureTable4() {
-  if (!tableReady) {
-    tableReady = pool.query(`CREATE TABLE IF NOT EXISTS durable_files (
+function ensureTable5() {
+  if (!tableReady3) {
+    tableReady3 = pool.query(`CREATE TABLE IF NOT EXISTS durable_files (
         name        text PRIMARY KEY,
         content     text NOT NULL,
         updated_at  timestamptz NOT NULL DEFAULT now()
       )`).then(() => void 0).catch((e) => {
       console.error("[cred-store] ensureTable failed (non-fatal):", e?.message);
-      tableReady = null;
+      tableReady3 = null;
     });
   }
-  return tableReady;
+  return tableReady3;
 }
 async function restoreDurableFiles() {
   try {
-    await ensureTable4();
+    await ensureTable5();
     if (!fs2.existsSync(DATA_DIR)) fs2.mkdirSync(DATA_DIR, { recursive: true });
     const { rows } = await pool.query("SELECT name, content FROM durable_files");
     for (const r of rows) {
@@ -44158,7 +44555,7 @@ async function restoreDurableFiles() {
   }
 }
 function backupDurableFile(name, content) {
-  ensureTable4().then(
+  ensureTable5().then(
     () => pool.query(
       `INSERT INTO durable_files (name, content, updated_at)
          VALUES ($1, $2, now())
@@ -44167,7 +44564,7 @@ function backupDurableFile(name, content) {
     )
   ).catch((e) => console.error(`[cred-store] backup ${name} failed (non-fatal):`, e?.message));
 }
-var DATA_DIR, DURABLE_FILES, tableReady;
+var DATA_DIR, DURABLE_FILES, tableReady3;
 var init_cred_store = __esm({
   "server/services/cred-store.ts"() {
     "use strict";
@@ -44183,7 +44580,7 @@ var init_cred_store = __esm({
       "kalshi_performance.json"
       // per-strategy win-rate history feeding Brain Learning Mode / Kelly sizing
     ];
-    tableReady = null;
+    tableReady3 = null;
   }
 });
 
@@ -63088,147 +63485,6 @@ var init_all_time_performance = __esm({
   }
 });
 
-// server/services/wizard-spec-strategies.ts
-var wizard_spec_strategies_exports = {};
-__export(wizard_spec_strategies_exports, {
-  createWizardStrategy: () => createWizardStrategy,
-  deleteWizardStrategy: () => deleteWizardStrategy,
-  getWizardStrategy: () => getWizardStrategy,
-  listWizardStrategies: () => listWizardStrategies2,
-  recordWizardBacktest: () => recordWizardBacktest,
-  recordWizardBrain: () => recordWizardBrain,
-  recordWizardEa: () => recordWizardEa,
-  updateWizardStrategySpec: () => updateWizardStrategySpec
-});
-function ensureTable5() {
-  return tableReady2 ??= (async () => {
-    await pool.query(`CREATE TABLE IF NOT EXISTS wizard_strategies (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      source TEXT NOT NULL DEFAULT 'builder',
-      template_id TEXT,
-      spec JSONB NOT NULL,
-      last_backtest JSONB,
-      status TEXT NOT NULL DEFAULT 'draft',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS wizard_strategies_user_idx ON wizard_strategies (user_id, id DESC)`);
-    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS ea_code TEXT`);
-    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS brain_profile JSONB`);
-    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS brain_listing_id INTEGER`);
-  })().catch((e) => {
-    tableReady2 = null;
-    throw e;
-  });
-}
-function rowToStrategy(r) {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    name: r.name,
-    source: r.source,
-    templateId: r.template_id ?? null,
-    spec: r.spec,
-    lastBacktest: r.last_backtest ?? null,
-    hasEa: !!r.has_ea,
-    brainProfile: r.brain_profile ?? null,
-    brainListingId: r.brain_listing_id ?? null,
-    status: r.status,
-    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
-    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at)
-  };
-}
-async function createWizardStrategy(userId, spec) {
-  await ensureTable5();
-  const { rows } = await pool.query(
-    `INSERT INTO wizard_strategies (user_id, name, source, template_id, spec)
-     VALUES ($1,$2,$3,$4,$5) RETURNING ${COLS}`,
-    [userId, spec.name, spec.source, spec.templateId ?? null, JSON.stringify(spec)]
-  );
-  return rowToStrategy(rows[0]);
-}
-async function listWizardStrategies2(userId) {
-  await ensureTable5();
-  const { rows } = await pool.query(
-    `SELECT ${COLS} FROM wizard_strategies WHERE user_id=$1 ORDER BY id DESC LIMIT 100`,
-    [userId]
-  );
-  return rows.map(rowToStrategy);
-}
-async function getWizardStrategy(userId, id) {
-  await ensureTable5();
-  const { rows } = await pool.query(
-    `SELECT ${COLS} FROM wizard_strategies WHERE id=$1 AND user_id=$2`,
-    [id, userId]
-  );
-  return rows.length ? rowToStrategy(rows[0]) : null;
-}
-async function updateWizardStrategySpec(userId, id, spec) {
-  await ensureTable5();
-  const { rows } = await pool.query(
-    `UPDATE wizard_strategies SET name=$3, source=$4, template_id=$5, spec=$6, updated_at=now()
-     WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
-    [id, userId, spec.name, spec.source, spec.templateId ?? null, JSON.stringify(spec)]
-  );
-  return rows.length ? rowToStrategy(rows[0]) : null;
-}
-async function deleteWizardStrategy(userId, id) {
-  await ensureTable5();
-  const { rowCount } = await pool.query(
-    `DELETE FROM wizard_strategies WHERE id=$1 AND user_id=$2`,
-    [id, userId]
-  );
-  return (rowCount ?? 0) > 0;
-}
-async function recordWizardBrain(userId, id, patch) {
-  await ensureTable5();
-  const sets = [];
-  const params = [id, userId];
-  if (patch.profile !== void 0) {
-    params.push(JSON.stringify(patch.profile));
-    sets.push(`brain_profile = $${params.length}`);
-  }
-  if (patch.listingId !== void 0) {
-    params.push(patch.listingId);
-    sets.push(`brain_listing_id = $${params.length}`);
-  }
-  if (!sets.length) return false;
-  sets.push("updated_at = now()");
-  const r = await pool.query(
-    `UPDATE wizard_strategies SET ${sets.join(", ")} WHERE id = $1 AND user_id = $2`,
-    params
-  );
-  return (r.rowCount ?? 0) > 0;
-}
-async function recordWizardEa(userId, id, code) {
-  await ensureTable5();
-  const { rowCount } = await pool.query(
-    `UPDATE wizard_strategies SET ea_code=$3, updated_at=now() WHERE id=$1 AND user_id=$2`,
-    [id, userId, code]
-  );
-  return (rowCount ?? 0) > 0;
-}
-async function recordWizardBacktest(userId, id, summary) {
-  await ensureTable5();
-  const { rows } = await pool.query(
-    `UPDATE wizard_strategies SET last_backtest=$3, status='backtested', updated_at=now()
-     WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
-    [id, userId, JSON.stringify(summary)]
-  );
-  return rows.length ? rowToStrategy(rows[0]) : null;
-}
-var tableReady2, COLS;
-var init_wizard_spec_strategies = __esm({
-  "server/services/wizard-spec-strategies.ts"() {
-    "use strict";
-    init_db();
-    tableReady2 = null;
-    COLS = `id, user_id, name, source, template_id, spec, last_backtest, (ea_code IS NOT NULL) AS has_ea, status, created_at, updated_at, brain_profile, brain_listing_id`;
-  }
-});
-
 // server/services/spec-ea-generator.ts
 var spec_ea_generator_exports = {};
 __export(spec_ea_generator_exports, {
@@ -63861,193 +64117,53 @@ var init_spec_ea_generator = __esm({
   }
 });
 
-// server/services/strategy-deployments.ts
-var strategy_deployments_exports = {};
-__export(strategy_deployments_exports, {
-  closeStrategyTrade: () => closeStrategyTrade,
-  createDeployment: () => createDeployment,
-  getDeployment: () => getDeployment,
-  getOpenStrategyTrade: () => getOpenStrategyTrade,
-  listDeployments: () => listDeployments,
-  listRunningDeployments: () => listRunningDeployments,
-  listStrategyTrades: () => listStrategyTrades,
-  markStrategyTradeBreakeven: () => markStrategyTradeBreakeven,
-  openStrategyTrade: () => openStrategyTrade,
-  stopDeployment: () => stopDeployment,
-  touchDeployment: () => touchDeployment
-});
-function ensureTables() {
-  if (!tableReady3) {
-    tableReady3 = (async () => {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS strategy_deployments (
-          id SERIAL PRIMARY KEY,
-          user_id INTEGER NOT NULL,
-          strategy_id INTEGER NOT NULL,
-          platform TEXT NOT NULL,
-          connection_ref TEXT NOT NULL,
-          account_label TEXT,
-          status TEXT NOT NULL DEFAULT 'running',
-          last_bar_time BIGINT DEFAULT 0,
-          last_signal_at TIMESTAMPTZ,
-          last_error TEXT,
-          error_streak INTEGER NOT NULL DEFAULT 0,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          stopped_at TIMESTAMPTZ
-        )`);
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS strategy_trades (
-          id SERIAL PRIMARY KEY,
-          deployment_id INTEGER NOT NULL,
-          strategy_id INTEGER NOT NULL,
-          user_id INTEGER NOT NULL,
-          platform TEXT NOT NULL,
-          symbol TEXT NOT NULL,
-          direction TEXT NOT NULL,
-          volume DOUBLE PRECISION NOT NULL DEFAULT 0,
-          entry_price DOUBLE PRECISION NOT NULL DEFAULT 0,
-          exit_price DOUBLE PRECISION,
-          pnl DOUBLE PRECISION,
-          platform_ref TEXT,
-          status TEXT NOT NULL DEFAULT 'open',
-          opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          closed_at TIMESTAMPTZ,
-          exit_reason TEXT
-        )`);
-      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_deployments_user ON strategy_deployments (user_id, status)`);
-      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS breakeven_applied BOOLEAN NOT NULL DEFAULT false`);
-      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_strategy ON strategy_trades (strategy_id, status)`);
-    })().catch((e) => {
-      tableReady3 = null;
-      throw e;
-    });
-  }
-  return tableReady3;
-}
-function rowToDeployment(r) {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    strategyId: r.strategy_id,
-    platform: r.platform,
-    connectionRef: r.connection_ref,
-    accountLabel: r.account_label ?? null,
-    status: r.status,
-    lastBarTime: Number(r.last_bar_time) || 0,
-    lastSignalAt: r.last_signal_at ?? null,
-    lastError: r.last_error ?? null,
-    createdAt: r.created_at,
-    stoppedAt: r.stopped_at ?? null
-  };
-}
-async function createDeployment(userId, strategyId, platform, connectionRef, accountLabel) {
-  await ensureTables();
-  const { rows } = await pool.query(
-    `INSERT INTO strategy_deployments (user_id, strategy_id, platform, connection_ref, account_label)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [userId, strategyId, platform, connectionRef, accountLabel]
-  );
-  return rowToDeployment(rows[0]);
-}
-async function listDeployments(userId, strategyId) {
-  await ensureTables();
-  const { rows } = strategyId ? await pool.query(`SELECT * FROM strategy_deployments WHERE user_id=$1 AND strategy_id=$2 ORDER BY created_at DESC`, [userId, strategyId]) : await pool.query(`SELECT * FROM strategy_deployments WHERE user_id=$1 ORDER BY created_at DESC`, [userId]);
-  return rows.map(rowToDeployment);
-}
-async function listRunningDeployments() {
-  await ensureTables();
-  const { rows } = await pool.query(`SELECT * FROM strategy_deployments WHERE status='running' ORDER BY id ASC`);
-  return rows.map(rowToDeployment);
-}
-async function getDeployment(userId, id) {
-  await ensureTables();
-  const { rows } = await pool.query(`SELECT * FROM strategy_deployments WHERE id=$1 AND user_id=$2`, [id, userId]);
-  return rows.length ? rowToDeployment(rows[0]) : null;
-}
-async function stopDeployment(userId, id) {
-  await ensureTables();
-  const r = await pool.query(
-    `UPDATE strategy_deployments SET status='stopped', stopped_at=now() WHERE id=$1 AND user_id=$2 AND status='running'`,
-    [id, userId]
-  );
-  return (r.rowCount ?? 0) > 0;
-}
-async function touchDeployment(id, patch) {
-  await ensureTables();
-  if (patch.error === null) {
-    await pool.query(
-      `UPDATE strategy_deployments SET last_error=NULL, error_streak=0,
-         last_bar_time=COALESCE($2, last_bar_time),
-         last_signal_at=CASE WHEN $3 THEN now() ELSE last_signal_at END
-       WHERE id=$1`,
-      [id, patch.lastBarTime ?? null, !!patch.lastSignalAt]
-    );
-  } else if (typeof patch.error === "string") {
-    await pool.query(
-      `UPDATE strategy_deployments SET last_error=$2, error_streak=error_streak+1,
-         status=CASE WHEN error_streak+1 >= 5 THEN 'stopped' ELSE status END,
-         stopped_at=CASE WHEN error_streak+1 >= 5 THEN now() ELSE stopped_at END
-       WHERE id=$1`,
-      [id, patch.error.slice(0, 500)]
-    );
-  } else if (patch.lastBarTime != null || patch.lastSignalAt) {
-    await pool.query(
-      `UPDATE strategy_deployments SET last_bar_time=COALESCE($2, last_bar_time),
-         last_signal_at=CASE WHEN $3 THEN now() ELSE last_signal_at END WHERE id=$1`,
-      [id, patch.lastBarTime ?? null, !!patch.lastSignalAt]
-    );
-  }
-}
-async function openStrategyTrade(dep, t) {
-  await ensureTables();
-  const { rows } = await pool.query(
-    `INSERT INTO strategy_trades (deployment_id, strategy_id, user_id, platform, symbol, direction, volume, entry_price, platform_ref)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-    [dep.id, dep.strategyId, dep.userId, dep.platform, t.symbol, t.direction, t.volume, t.entryPrice, t.platformRef]
-  );
-  return rows[0].id;
-}
-async function getOpenStrategyTrade(deploymentId) {
-  await ensureTables();
-  const { rows } = await pool.query(
-    `SELECT * FROM strategy_trades WHERE deployment_id=$1 AND status='open' ORDER BY opened_at DESC LIMIT 1`,
-    [deploymentId]
-  );
-  return rows[0] ?? null;
-}
-async function markStrategyTradeBreakeven(id) {
-  await ensureTables();
-  await pool.query(`UPDATE strategy_trades SET breakeven_applied=true WHERE id=$1`, [id]);
-}
-async function closeStrategyTrade(id, exitPrice, pnl, exitReason) {
-  await ensureTables();
-  await pool.query(
-    `UPDATE strategy_trades SET status='closed', exit_price=$2, pnl=$3, exit_reason=$4, closed_at=now() WHERE id=$1`,
-    [id, exitPrice, pnl, exitReason]
-  );
-}
-async function listStrategyTrades(userId, strategyId, limit = 500) {
-  await ensureTables();
-  const { rows } = await pool.query(
-    `SELECT * FROM strategy_trades WHERE user_id=$1 AND strategy_id=$2 ORDER BY opened_at DESC LIMIT $3`,
-    [userId, strategyId, limit]
-  );
-  return rows;
-}
-var tableReady3;
-var init_strategy_deployments = __esm({
-  "server/services/strategy-deployments.ts"() {
-    "use strict";
-    init_db();
-    tableReady3 = null;
-  }
-});
-
 // server/services/strategy-brain.ts
 var strategy_brain_exports = {};
 __export(strategy_brain_exports, {
-  buildStrategyBrain: () => buildStrategyBrain
+  buildStrategyBrain: () => buildStrategyBrain,
+  summarizeStrategyTrades: () => summarizeStrategyTrades
 });
+function summarizeLayer(rows) {
+  const closed = rows.filter((t) => t.status === "closed" && t.pnl != null);
+  const bySymbol = {};
+  const exitReasons = {};
+  let wins = 0, netPnl = 0, netR = 0, rCount = 0;
+  for (const t of closed) {
+    const pnl = Number(t.pnl) || 0;
+    netPnl += pnl;
+    if (pnl > 0) wins++;
+    if (t.r_multiple != null && isFinite(Number(t.r_multiple))) {
+      netR += Number(t.r_multiple);
+      rCount++;
+    }
+    const sym2 = String(t.symbol || "").toUpperCase();
+    bySymbol[sym2] = bySymbol[sym2] || { trades: 0, wins: 0, netPnl: 0 };
+    bySymbol[sym2].trades++;
+    if (pnl > 0) bySymbol[sym2].wins++;
+    bySymbol[sym2].netPnl += pnl;
+    const reason = String(t.exit_reason || "unknown");
+    exitReasons[reason] = (exitReasons[reason] || 0) + 1;
+  }
+  const times = closed.map((t) => new Date(t.closed_at).getTime()).filter((n) => isFinite(n));
+  return {
+    trades: closed.length,
+    wins,
+    losses: closed.length - wins,
+    winRate: closed.length ? wins / closed.length : null,
+    netPnl: Math.round(netPnl * 100) / 100,
+    netR: rCount ? Math.round(netR * 1e3) / 1e3 : null,
+    openTrades: rows.filter((t) => t.status === "open").length,
+    bySymbol,
+    exitReasons,
+    firstTradeAt: times.length ? new Date(Math.min(...times)).toISOString() : null,
+    lastTradeAt: times.length ? new Date(Math.max(...times)).toISOString() : null
+  };
+}
+function summarizeStrategyTrades(trades) {
+  const live = summarizeLayer(trades.filter((t) => (t.mode ?? "live") !== "shadow"));
+  const shadow = summarizeLayer(trades.filter((t) => t.mode === "shadow"));
+  return { live, shadow, listableTrades: live.trades };
+}
 async function buildStrategyBrain(userId, strategyId) {
   const strat = await getWizardStrategy(userId, strategyId);
   if (!strat) return null;
@@ -64061,23 +64177,7 @@ async function buildStrategyBrain(userId, strategyId) {
     dataPoints: bt.dataPoints ?? null
   } : null;
   const trades = await listStrategyTrades(userId, strategyId, 2e3);
-  const closed = trades.filter((t) => t.status === "closed" && t.pnl != null);
-  const bySymbol = {};
-  const exitReasons = {};
-  let wins = 0, netPnl = 0;
-  for (const t of closed) {
-    const pnl = Number(t.pnl) || 0;
-    netPnl += pnl;
-    if (pnl > 0) wins++;
-    const sym2 = String(t.symbol || "").toUpperCase();
-    bySymbol[sym2] = bySymbol[sym2] || { trades: 0, wins: 0, netPnl: 0 };
-    bySymbol[sym2].trades++;
-    if (pnl > 0) bySymbol[sym2].wins++;
-    bySymbol[sym2].netPnl += pnl;
-    const reason = String(t.exit_reason || "unknown");
-    exitReasons[reason] = (exitReasons[reason] || 0) + 1;
-  }
-  const times = closed.map((t) => new Date(t.closed_at).getTime()).filter((n) => isFinite(n));
+  const { live, shadow, listableTrades } = summarizeStrategyTrades(trades);
   const deployments = await listDeployments(userId, strategyId);
   const profile = {
     strategyId,
@@ -64087,19 +64187,31 @@ async function buildStrategyBrain(userId, strategyId) {
     builtAt: (/* @__PURE__ */ new Date()).toISOString(),
     backtest,
     live: {
-      trades: closed.length,
-      wins,
-      losses: closed.length - wins,
-      winRate: closed.length ? wins / closed.length : null,
-      netPnl: Math.round(netPnl * 100) / 100,
-      openTrades: trades.filter((t) => t.status === "open").length,
-      bySymbol,
-      exitReasons,
-      firstTradeAt: times.length ? new Date(Math.min(...times)).toISOString() : null,
-      lastTradeAt: times.length ? new Date(Math.max(...times)).toISOString() : null
+      trades: live.trades,
+      wins: live.wins,
+      losses: live.losses,
+      winRate: live.winRate,
+      netPnl: live.netPnl,
+      openTrades: live.openTrades,
+      bySymbol: live.bySymbol,
+      exitReasons: live.exitReasons,
+      firstTradeAt: live.firstTradeAt,
+      lastTradeAt: live.lastTradeAt
+    },
+    shadow: {
+      trades: shadow.trades,
+      wins: shadow.wins,
+      losses: shadow.losses,
+      winRate: shadow.winRate,
+      netPnl: shadow.netPnl,
+      netR: shadow.netR,
+      openTrades: shadow.openTrades,
+      exitReasons: shadow.exitReasons,
+      firstTradeAt: shadow.firstTradeAt,
+      lastTradeAt: shadow.lastTradeAt
     },
     deployments: deployments.map((d) => ({ id: d.id, platform: d.platform, accountLabel: d.accountLabel, status: d.status })),
-    listableTrades: closed.length
+    listableTrades
   };
   await recordWizardBrain(userId, strategyId, { profile });
   return profile;
@@ -73822,9 +73934,121 @@ var init_dxtrade_sync = __esm({
   }
 });
 
+// server/services/strategy-shadow.ts
+function specMoneyPnl(spec, direction, entryPrice, exitPrice, volume) {
+  const dirSign = String(direction).toUpperCase() === "BUY" ? 1 : -1;
+  const diff = (exitPrice - entryPrice) * dirSign;
+  const cs = CONTRACT_SIZE2[spec.symbol.replace(/[^A-Z]/g, "")] ?? 1e5;
+  let pnl = diff * cs * volume;
+  if (spec.symbol.length === 6 && spec.symbol.startsWith("USD") && exitPrice > 0) pnl = pnl / exitPrice;
+  return Math.round(pnl * 100) / 100;
+}
+function evaluateShadowBar(args) {
+  const { spec, sig, bar } = args;
+  const pip = getPipSize(spec.symbol);
+  const pos = args.position;
+  if (pos) {
+    const isLong = pos.direction === "BUY";
+    const dirSign = isLong ? 1 : -1;
+    const entry2 = pos.entryPrice;
+    let sl = pos.stopLoss;
+    let beApplied = pos.breakevenApplied;
+    const best = pos.extremePrice;
+    if (spec.risk.breakevenTriggerPips) {
+      const trig = spec.risk.breakevenTriggerPips * pip;
+      const off = (spec.risk.breakevenOffsetPips ?? 0) * pip;
+      const run = isLong ? best - entry2 : entry2 - best;
+      if (run >= trig) {
+        const cand = isLong ? entry2 + off : entry2 - off;
+        if (sl == null || (isLong ? cand > sl : cand < sl)) {
+          sl = cand;
+          beApplied = true;
+        }
+      }
+    }
+    if (spec.risk.trailingStopPips) {
+      const trail = spec.risk.trailingStopPips * pip;
+      const cand = isLong ? best - trail : best + trail;
+      if (sl == null || (isLong ? cand > sl : cand < sl)) sl = cand;
+    }
+    let exitPrice = null;
+    let exitReason = null;
+    if (isLong) {
+      if (sl != null && bar.low <= sl) {
+        exitPrice = sl;
+        exitReason = "stop_loss";
+      } else if (pos.takeProfit != null && bar.high >= pos.takeProfit) {
+        exitPrice = pos.takeProfit;
+        exitReason = "take_profit";
+      }
+    } else {
+      if (sl != null && bar.high >= sl) {
+        exitPrice = sl;
+        exitReason = "stop_loss";
+      } else if (pos.takeProfit != null && bar.low <= pos.takeProfit) {
+        exitPrice = pos.takeProfit;
+        exitReason = "take_profit";
+      }
+    }
+    if (exitPrice == null) {
+      const exitNow = isLong ? sig.exitLong : sig.exitShort;
+      if (exitNow) {
+        exitPrice = sig.close;
+        exitReason = "exit_signal";
+      }
+    }
+    if (exitPrice != null && exitReason) {
+      const pnl = specMoneyPnl(spec, pos.direction, entry2, exitPrice, pos.volume);
+      const riskMoney = pos.riskDist != null && pos.riskDist > 0 ? Math.abs(specMoneyPnl(spec, pos.direction, entry2, entry2 + dirSign * pos.riskDist, pos.volume)) : null;
+      const rMultiple2 = riskMoney && riskMoney > 0 ? Math.round(pnl / riskMoney * 1e3) / 1e3 : null;
+      return { type: "close", exitPrice, exitReason, pnl, rMultiple: rMultiple2 };
+    }
+    const extremePrice = isLong ? Math.max(best, bar.high) : Math.min(best, bar.low);
+    return { type: "update", stopLoss: sl, extremePrice, breakevenApplied: beApplied };
+  }
+  if (!args.entriesAllowed) return { type: "none" };
+  const direction = sig.enterLong && !sig.enterShort ? "BUY" : sig.enterShort && !sig.enterLong ? "SELL" : null;
+  if (!direction) return { type: "none" };
+  const slDist = spec.risk.stopLossAtrMult && sig.atr ? spec.risk.stopLossAtrMult * sig.atr : spec.risk.stopLossPips ? spec.risk.stopLossPips * pip : null;
+  const tpDist = spec.risk.takeProfitAtrMult && sig.atr ? spec.risk.takeProfitAtrMult * sig.atr : spec.risk.takeProfitPips ? spec.risk.takeProfitPips * pip : null;
+  const round5 = (n) => n == null ? null : Math.round(n * 1e5) / 1e5;
+  const entry = sig.close;
+  const stopLoss = round5(slDist ? direction === "BUY" ? entry - slDist : entry + slDist : null);
+  const takeProfit = round5(tpDist ? direction === "BUY" ? entry + tpDist : entry - tpDist : null);
+  return {
+    type: "open",
+    direction,
+    entryPrice: entry,
+    stopLoss,
+    takeProfit,
+    // The entry bar's own extreme seeds the tracker: the backtester's
+    // `best` picks up the entry bar on the next bar's update, so the
+    // state after this bar is identical.
+    extremePrice: direction === "BUY" ? bar.high : bar.low,
+    riskDist: stopLoss != null ? Math.abs(entry - stopLoss) : null,
+    volume: spec.risk.lotSize
+  };
+}
+var CONTRACT_SIZE2;
+var init_strategy_shadow = __esm({
+  "server/services/strategy-shadow.ts"() {
+    "use strict";
+    init_pipUtils();
+    CONTRACT_SIZE2 = {
+      XAUUSD: 100,
+      XAGUSD: 5e3,
+      BTCUSD: 1,
+      ETHUSD: 10,
+      SOLUSD: 100,
+      XRPUSD: 1e4
+    };
+  }
+});
+
 // server/services/strategy-runner.ts
 var strategy_runner_exports = {};
 __export(strategy_runner_exports, {
+  assertBrokerDispatchAllowed: () => assertBrokerDispatchAllowed,
   startStrategyRunner: () => startStrategyRunner
 });
 function startStrategyRunner() {
@@ -73841,7 +74065,9 @@ async function tick() {
   ticking = true;
   try {
     const deps = await listRunningDeployments().catch(() => []);
+    const shadowOff = process.env.STUDIO_SHADOW === "off";
     for (const dep of deps) {
+      if (shadowOff && dep.platform === "shadow") continue;
       try {
         await runDeployment(dep);
       } catch (e) {
@@ -73888,6 +74114,10 @@ async function runDeployment(dep) {
   if (!sig) return;
   if (sig.barTime <= dep.lastBarTime) return;
   await touchDeployment(dep.id, { lastBarTime: sig.barTime });
+  if (dep.platform === "shadow") {
+    await runShadowDeployment(dep, spec, sig, bars);
+    return;
+  }
   const open = await getOpenStrategyTrade(dep.id);
   if (open) {
     if (dep.platform !== "mt5") {
@@ -73965,7 +74195,68 @@ async function runDeployment(dep) {
   });
   await touchDeployment(dep.id, { error: null, lastSignalAt: true });
 }
+function assertBrokerDispatchAllowed(dep, fn) {
+  if (dep.platform === "shadow") {
+    throw new Error(`[Strategy Runner] ${fn}: shadow deployment ${dep.id} reached broker dispatch \u2014 refused (shadow deployments are virtual-only and have no account)`);
+  }
+}
+async function runShadowDeployment(dep, spec, sig, bars) {
+  const bar = bars[bars.length - 1];
+  const open = await getOpenStrategyTrade(dep.id);
+  let position = null;
+  if (open) {
+    const entry = Number(open.entry_price) || 0;
+    position = {
+      direction: String(open.direction).toUpperCase() === "SELL" ? "SELL" : "BUY",
+      entryPrice: entry,
+      stopLoss: open.stop_loss != null ? Number(open.stop_loss) : null,
+      takeProfit: open.take_profit != null ? Number(open.take_profit) : null,
+      extremePrice: open.extreme_price != null ? Number(open.extreme_price) : entry,
+      breakevenApplied: !!open.breakeven_applied,
+      riskDist: open.risk_price_dist != null ? Number(open.risk_price_dist) : null,
+      volume: Number(open.volume) || spec.risk.lotSize
+    };
+  }
+  let entriesAllowed = true;
+  if (!open && spec.risk.maxTradesPerDay && spec.risk.maxTradesPerDay > 0) {
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(
+      `SELECT COUNT(*)::int AS n FROM strategy_trades WHERE deployment_id=$1 AND mode='shadow' AND opened_at::date = CURRENT_DATE`,
+      [dep.id]
+    );
+    entriesAllowed = (rows[0]?.n ?? 0) < spec.risk.maxTradesPerDay;
+  }
+  const decision = evaluateShadowBar({ spec, position, sig, bar, entriesAllowed });
+  if (decision.type === "open") {
+    await openStrategyTrade(dep, {
+      symbol: spec.symbol,
+      direction: decision.direction,
+      volume: decision.volume,
+      entryPrice: decision.entryPrice,
+      platformRef: null,
+      mode: "shadow",
+      stopLoss: decision.stopLoss,
+      takeProfit: decision.takeProfit,
+      riskDist: decision.riskDist,
+      extremePrice: decision.extremePrice
+    });
+    await touchDeployment(dep.id, { error: null, lastSignalAt: true });
+  } else if (decision.type === "close" && open) {
+    await closeStrategyTrade(open.id, decision.exitPrice, decision.pnl, decision.exitReason, decision.rMultiple);
+    await touchDeployment(dep.id, { error: null, lastSignalAt: true });
+  } else if (decision.type === "update" && open) {
+    await updateStrategyTradeLevels(open.id, {
+      stopLoss: decision.stopLoss,
+      extremePrice: decision.extremePrice,
+      breakevenApplied: decision.breakevenApplied
+    });
+    await touchDeployment(dep.id, { error: null });
+  } else {
+    await touchDeployment(dep.id, { error: null });
+  }
+}
 async function resolveVanishedPosition(dep, open, lastClose) {
+  assertBrokerDispatchAllowed(dep, "resolveVanishedPosition");
   try {
     if (dep.platform === "dxtrade") {
       const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
@@ -74025,13 +74316,14 @@ function tradePnl(spec, open, exitPrice) {
   if (open.platform === "dxtrade") {
     pnl = diff * volume;
   } else {
-    const cs = CONTRACT_SIZE2[spec.symbol.replace(/[^A-Z]/g, "")] ?? 1e5;
+    const cs = CONTRACT_SIZE3[spec.symbol.replace(/[^A-Z]/g, "")] ?? 1e5;
     pnl = diff * cs * volume;
   }
   if (spec.symbol.length === 6 && spec.symbol.startsWith("USD") && exitPrice > 0) pnl = pnl / exitPrice;
   return Math.round(pnl * 100) / 100;
 }
 async function dispatchOpen(dep, spec, direction, stopLoss, takeProfit, refPrice) {
+  assertBrokerDispatchAllowed(dep, "dispatchOpen");
   try {
     if (dep.platform === "mt5") {
       const { broadcastMT5Signal: broadcastMT5Signal2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
@@ -74111,6 +74403,7 @@ async function dispatchOpen(dep, spec, direction, stopLoss, takeProfit, refPrice
   return null;
 }
 async function dispatchClose(dep, open) {
+  assertBrokerDispatchAllowed(dep, "dispatchClose");
   try {
     if (dep.platform === "mt5") {
       const { broadcastMT5Signal: broadcastMT5Signal2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
@@ -74173,6 +74466,7 @@ async function dispatchClose(dep, open) {
   return false;
 }
 async function dispatchBreakeven(dep, open, newStop, newTp) {
+  assertBrokerDispatchAllowed(dep, "dispatchBreakeven");
   try {
     if (dep.platform === "mt5") {
       const { broadcastMT5Signal: broadcastMT5Signal2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
@@ -74236,20 +74530,21 @@ async function dispatchBreakeven(dep, open, newStop, newTp) {
   }
   return false;
 }
-var TICK_MS3, TF_API, TF_MS, CRYPTOS, CONTRACT_SIZE2, started5, ticking;
+var TICK_MS3, TF_API, TF_MS, CRYPTOS, CONTRACT_SIZE3, started5, ticking;
 var init_strategy_runner = __esm({
   "server/services/strategy-runner.ts"() {
     "use strict";
     init_wizard_spec_strategies();
     init_strategy_deployments();
     init_strategy_backtest();
+    init_strategy_shadow();
     init_strategy_spec();
     init_pipUtils();
     TICK_MS3 = 3e4;
     TF_API = { M1: "1min", M5: "5min", M15: "15min", M30: "30min", H1: "1h", H4: "4h", D1: "1day" };
     TF_MS = { M1: 6e4, M5: 3e5, M15: 9e5, M30: 18e5, H1: 36e5, H4: 144e5, D1: 864e5 };
     CRYPTOS = /* @__PURE__ */ new Set(["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "LTCUSD", "DOGEUSD"]);
-    CONTRACT_SIZE2 = { XAUUSD: 100, XAGUSD: 5e3, BTCUSD: 1, ETHUSD: 10, SOLUSD: 100, XRPUSD: 1e4 };
+    CONTRACT_SIZE3 = { XAUUSD: 100, XAGUSD: 5e3, BTCUSD: 1, ETHUSD: 10, SOLUSD: 100, XRPUSD: 1e4 };
     started5 = false;
     ticking = false;
   }
@@ -75152,9 +75447,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "c71a48c1-dirty";
-var BUILD_BRANCH = "feat/process-memory-trail";
-var BUILT_AT = "2026-11-11T05:44:37.420Z";
+var BUILD_COMMIT = "99ac48ef-dirty";
+var BUILD_BRANCH = "main";
+var BUILT_AT = "2026-11-11T06:23:23.016Z";
 
 // server/stripe.ts
 init_db();
@@ -95758,7 +96053,9 @@ Respond with ONLY valid JSON:
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     try {
-      const accounts = [];
+      const accounts = [
+        { platform: "shadow", ref: "virtual", label: "Shadow (virtual)", sub: "No account \u2014 the runner trades it virtually", online: true, virtual: true }
+      ];
       const { getMT5Accounts: getMT5Accounts3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       for (const a of getMT5Accounts3(userId)) {
         accounts.push({ platform: "mt5", ref: a.alias, label: a.label || a.alias, sub: a.accountNumber ? `MT5 ${a.accountNumber}` : "MT5 terminal", online: a.online });
@@ -95793,16 +96090,20 @@ Respond with ONLY valid JSON:
     try {
       const strategyId = Number(req.body?.strategyId ?? 0);
       const platform = String(req.body?.platform ?? "");
-      const connectionRef = String(req.body?.connectionRef ?? "");
-      const accountLabel = req.body?.accountLabel ? String(req.body.accountLabel) : null;
-      if (!strategyId || !["mt5", "tradelocker", "dxtrade"].includes(platform) || !connectionRef) {
-        return res2.status(400).json({ error: "strategyId, platform (mt5|tradelocker|dxtrade) and connectionRef are required" });
+      const isShadow = platform === "shadow";
+      const connectionRef = isShadow ? "virtual" : String(req.body?.connectionRef ?? "");
+      const accountLabel = isShadow ? "Shadow (virtual)" : req.body?.accountLabel ? String(req.body.accountLabel) : null;
+      if (!strategyId || !["mt5", "tradelocker", "dxtrade", "shadow"].includes(platform) || !connectionRef) {
+        return res2.status(400).json({ error: "strategyId and platform (mt5|tradelocker|dxtrade|shadow) are required; connectionRef is required for account deployments" });
       }
       const { getWizardStrategy: getWizardStrategy2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
       const strat = await getWizardStrategy2(userId, strategyId);
       if (!strat) return res2.status(404).json({ error: "strategy not found" });
       const spec = strat.spec;
       const isEngine = spec.source === "engine";
+      if (isEngine && isShadow) {
+        return res2.status(400).json({ error: "Engine strategies execute through the FX engine \u2014 there is no per-strategy spec for the shadow runner to evaluate. Shadow deployments are for spec strategies (templates and condition-builder strategies)." });
+      }
       if (!isEngine && !spec.entryLong?.conditions?.length && !spec.entryShort?.conditions?.length) {
         return res2.status(400).json({ error: "This strategy has no mechanical entry rules to run live. Pattern templates need the MT5 EA or a manual run \u2014 there is nothing honest to deploy." });
       }
@@ -95827,8 +96128,8 @@ Respond with ONLY valid JSON:
       const dep = await createDeployment2(userId, strategyId, platform, connectionRef, accountLabel);
       return res2.status(201).json({
         deployment: dep,
-        execution: isEngine ? "engine" : "runner",
-        note: isEngine ? "Engine strategies run through the FX engine, which trades your auto-enabled accounts as one pool. This deployment binds the strategy to the chosen account for tracking and its brain \u2014 it does not re-route the engine." : platform === "mt5" ? "The runner sends this strategy's signals to the chosen MT5 terminal only (its receive-signals flag is now exclusive). The EA on that terminal executes them." : "The runner evaluates this strategy on closed bars and trades only the chosen account."
+        execution: isShadow ? "shadow" : isEngine ? "engine" : "runner",
+        note: isShadow ? "Shadow deployment: the runner evaluates this strategy on closed bars and trades it VIRTUALLY \u2014 fills are simulated from bar prices and no broker order is ever sent. Results build the Shadow (virtual) layer of its brain and feed the shared shadow ledger; they never count toward Brain Marketplace eligibility." : isEngine ? "Engine strategies run through the FX engine, which trades your auto-enabled accounts as one pool. This deployment binds the strategy to the chosen account for tracking and its brain \u2014 it does not re-route the engine." : platform === "mt5" ? "The runner sends this strategy's signals to the chosen MT5 terminal only (its receive-signals flag is now exclusive). The EA on that terminal executes them." : "The runner evaluates this strategy on closed bars and trades only the chosen account."
       });
     } catch (err) {
       console.error("[strategy-wizard] deploy failed:", err);
@@ -95868,7 +96169,7 @@ Respond with ONLY valid JSON:
       }
       const { listStrategyTrades: listStrategyTrades2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
       const trades = await listStrategyTrades2(userId, strategyId, 2e3);
-      const rows = trades.filter((t) => t.status === "closed" && t.pnl != null).map((t) => ({
+      const rows = trades.filter((t) => t.status === "closed" && t.pnl != null && t.mode !== "shadow").map((t) => ({
         symbol: String(t.symbol || "").toUpperCase(),
         direction: t.direction,
         confirmedAt: t.closed_at,
