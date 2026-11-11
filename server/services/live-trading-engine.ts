@@ -78,6 +78,42 @@ interface NewsContext {
   tradingWindowWarning: string | null;
 }
 
+// ── Major-release tier for the news blackout ─────────────────────────────────
+// The standard high-impact blackout in fetchNewsContext() runs from 2h before
+// a release until 5 min after it. On CPI day Nov 10, 2026 the trades that
+// passed every gate bled in the POST-print chop — the gate reopened while the
+// market was still whipping. Major releases (CPI, NFP, FOMC, GDP, retail
+// sales) therefore get a much longer post-release blackout: entries stay
+// blocked until NEWS_MAJOR_POST_MINUTES after the print (default 90).
+// Tunables (no deploy needed): NEWS_MAJOR_POST_MINUTES=<minutes>;
+// NEWS_WIDEN=off restores the exact pre-change behavior (5-min post window
+// for every high-impact event).
+const MAJOR_RELEASE_KEYWORDS = [
+  'cpi', 'consumer price',           // CPI / Consumer Price Index (any currency)
+  'nonfarm', 'non-farm', 'non farm', // Nonfarm Payrolls / NFP
+  'fomc', 'federal funds',           // FOMC decisions / minutes / Fed funds rate
+  'gross domestic product', 'gdp',   // GDP
+  'retail sales',                    // Retail sales
+];
+
+function isMajorNewsRelease(eventName: string): boolean {
+  const name = (eventName || '').toLowerCase();
+  if (!name) return false;
+  // ADP's employment preview is not the NFP print itself — never major-tier.
+  if (name.includes('adp')) return false;
+  return MAJOR_RELEASE_KEYWORDS.some(k => name.includes(k));
+}
+
+function newsWidenEnabled(): boolean {
+  return process.env.NEWS_WIDEN !== 'off';
+}
+
+function newsMajorPostMinutes(): number {
+  const raw = parseInt(process.env.NEWS_MAJOR_POST_MINUTES || '', 10);
+  if (isNaN(raw)) return 90;
+  return Math.min(1440, Math.max(0, raw));
+}
+
 async function fetchNewsContext(pairs: string[]): Promise<NewsContext> {
   const context: NewsContext = {
     headlines: [],
@@ -135,10 +171,20 @@ async function fetchNewsContext(pairs: string[]): Promise<NewsContext> {
               const today = new Date();
               const eventDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), h, m || 0, 0, 0));
               const diff = eventDate.getTime() - now;
-              if (diff > -5 * 60000 && diff < twoHoursMs) {
+              // Post-release window: 5 min for a standard high-impact event;
+              // major releases (CPI/NFP/FOMC/GDP/retail sales) stay blacked
+              // out for newsMajorPostMinutes() — post-print chop protection.
+              const major = newsWidenEnabled() && isMajorNewsRelease(event.event || '');
+              const majorPostMin = newsMajorPostMinutes();
+              const postWindowMs = (major ? majorPostMin : 5) * 60000;
+              if (diff > -postWindowMs && diff < twoHoursMs) {
                 context.highImpactSoon = true;
                 const minsAway = Math.round(diff / 60000);
-                context.tradingWindowWarning = `HIGH IMPACT EVENT ${minsAway > 0 ? `in ${minsAway} minutes` : 'HAPPENING NOW'}: ${event.event} (${eventCurrency}). Consider widening stops or avoiding new entries for affected pairs.`;
+                if (major && minsAway < 0) {
+                  context.tradingWindowWarning = `MAJOR RELEASE EXTENDED BLACKOUT: ${event.event} (${eventCurrency}) released ${-minsAway} min ago — no new entries until ${majorPostMin} min after the print (post-print chop protection).`;
+                } else {
+                  context.tradingWindowWarning = `HIGH IMPACT EVENT ${minsAway > 0 ? `in ${minsAway} minutes` : 'HAPPENING NOW'}: ${event.event} (${eventCurrency}). Consider widening stops or avoiding new entries for affected pairs.`;
+                }
               }
             }
           }
@@ -5934,11 +5980,14 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     const snap = state.marketSnapshot?.[decision.symbol];
     const signalDirection = (decision.direction || '').toUpperCase();
 
-    // ── GATE 1: Hard news blackout (< 15 min before high-impact event) ───────
+    // ── GATE 1: Hard news blackout around high-impact events ────────────────
     // High-impact events (NFP, CPI, FOMC, rate decisions) spike price violently,
-    // hitting even ATR-expanded SLs. No edge exists in the last 15 minutes.
-    // The AI prompt says "avoid 30 min before" but this was advisory only.
-    // Now code-enforced: no new entries within 15 min of high-impact news.
+    // hitting even ATR-expanded SLs. The window is computed in fetchNewsContext
+    // (highImpactSoon): from 2h before a high-impact release until 5 min after
+    // it — and for MAJOR releases (CPI/NFP/FOMC/GDP/retail sales) the
+    // post-release blackout extends to NEWS_MAJOR_POST_MINUTES (default 90;
+    // NEWS_WIDEN=off disables), because post-print chop is where gated-through
+    // trades bled on CPI day Nov 10, 2026.
     if (newsCtx?.highImpactSoon === true) {
       addActivity(userId, {
         type: 'info',
