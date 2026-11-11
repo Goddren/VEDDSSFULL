@@ -21034,6 +21034,20 @@ function computeVolumeMetrics(bars) {
     isHighActivity: relativeVolume >= 1.3
   };
 }
+function isMajorNewsRelease(eventName) {
+  const name = (eventName || "").toLowerCase();
+  if (!name) return false;
+  if (name.includes("adp")) return false;
+  return MAJOR_RELEASE_KEYWORDS.some((k) => name.includes(k));
+}
+function newsWidenEnabled() {
+  return process.env.NEWS_WIDEN !== "off";
+}
+function newsMajorPostMinutes() {
+  const raw = parseInt(process.env.NEWS_MAJOR_POST_MINUTES || "", 10);
+  if (isNaN(raw)) return 90;
+  return Math.min(1440, Math.max(0, raw));
+}
 async function fetchNewsContext(pairs) {
   const context = {
     headlines: [],
@@ -21082,10 +21096,17 @@ async function fetchNewsContext(pairs) {
               const today = /* @__PURE__ */ new Date();
               const eventDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), h, m || 0, 0, 0));
               const diff = eventDate.getTime() - now;
-              if (diff > -5 * 6e4 && diff < twoHoursMs) {
+              const major = newsWidenEnabled() && isMajorNewsRelease(event.event || "");
+              const majorPostMin = newsMajorPostMinutes();
+              const postWindowMs = (major ? majorPostMin : 5) * 6e4;
+              if (diff > -postWindowMs && diff < twoHoursMs) {
                 context.highImpactSoon = true;
                 const minsAway = Math.round(diff / 6e4);
-                context.tradingWindowWarning = `HIGH IMPACT EVENT ${minsAway > 0 ? `in ${minsAway} minutes` : "HAPPENING NOW"}: ${event.event} (${eventCurrency}). Consider widening stops or avoiding new entries for affected pairs.`;
+                if (major && minsAway < 0) {
+                  context.tradingWindowWarning = `MAJOR RELEASE EXTENDED BLACKOUT: ${event.event} (${eventCurrency}) released ${-minsAway} min ago \u2014 no new entries until ${majorPostMin} min after the print (post-print chop protection).`;
+                } else {
+                  context.tradingWindowWarning = `HIGH IMPACT EVENT ${minsAway > 0 ? `in ${minsAway} minutes` : "HAPPENING NOW"}: ${event.event} (${eventCurrency}). Consider widening stops or avoiding new entries for affected pairs.`;
+                }
               }
             }
           }
@@ -28250,7 +28271,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _activityTableReady, _activityLastPrune, _activitySeen, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, tlStopLatest, tlStopInitial, dxLockInitial, _modelIdeaCache, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
+var MAJOR_RELEASE_KEYWORDS, FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _activityTableReady, _activityLastPrune, _activitySeen, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, tlStopLatest, tlStopInitial, dxLockInitial, _modelIdeaCache, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -28274,6 +28295,23 @@ var init_live_trading_engine = __esm({
     init_markov_chain();
     init_breakoutEngine();
     init_db();
+    MAJOR_RELEASE_KEYWORDS = [
+      "cpi",
+      "consumer price",
+      // CPI / Consumer Price Index (any currency)
+      "nonfarm",
+      "non-farm",
+      "non farm",
+      // Nonfarm Payrolls / NFP
+      "fomc",
+      "federal funds",
+      // FOMC decisions / minutes / Fed funds rate
+      "gross domestic product",
+      "gdp",
+      // GDP
+      "retail sales"
+      // Retail sales
+    ];
     FX_MAX_OPEN_PER_SYMBOL = 3;
     FX_SYMBOL_COOLDOWN_MS = 240 * 60 * 1e3;
     mt5AccountQueues = {};
