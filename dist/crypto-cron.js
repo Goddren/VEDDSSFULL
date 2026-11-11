@@ -16276,12 +16276,112 @@ function installProcessGuards() {
     `[boot] process started pid=${process.pid} at=${(/* @__PURE__ */ new Date()).toISOString()} \u2014 process guards installed: unhandledRejection/uncaughtException are logged + recorded on /api/health, never exit.`
   );
 }
+function toMB(bytes) {
+  return Math.round(bytes / 1048576 * 10) / 10;
+}
+function takeMemorySample() {
+  try {
+    const m = process.memoryUsage();
+    return {
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      uptimeSeconds: Math.round(process.uptime()),
+      rssMB: toMB(m.rss),
+      heapUsedMB: toMB(m.heapUsed),
+      heapTotalMB: toMB(m.heapTotal),
+      externalMB: toMB(m.external)
+    };
+  } catch {
+    return null;
+  }
+}
+function currentBootRecord() {
+  const samples = memorySamples.slice(-MEMORY_PERSIST_SAMPLES);
+  return {
+    bootedAt: PROCESS_BOOTED_AT,
+    pid: process.pid,
+    samples,
+    peakRssMB: memoryPeakRssMB,
+    lastSampleAt: samples.length ? samples[samples.length - 1].at : null
+  };
+}
+function persistMemoryTrail() {
+  try {
+    void previousBootCapture.then(() => {
+      try {
+        void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => {
+          try {
+            m.saveRuntimeState("process_memory", "latest", currentBootRecord());
+          } catch {
+          }
+        }).catch(() => {
+        });
+      } catch {
+      }
+    }).catch(() => {
+    });
+  } catch {
+  }
+}
+function sampleMemoryNow() {
+  try {
+    if (!memoryTrailActive) return;
+    const sample = takeMemorySample();
+    if (!sample) return;
+    memorySamples.push(sample);
+    if (memorySamples.length > MEMORY_RING_MAX) memorySamples.shift();
+    if (sample.rssMB > memoryPeakRssMB) memoryPeakRssMB = sample.rssMB;
+    for (const threshold of MEMORY_WARN_THRESHOLDS_MB) {
+      if (sample.rssMB >= threshold && !memoryWarnedThresholds.has(threshold)) {
+        memoryWarnedThresholds.add(threshold);
+        try {
+          console.warn(
+            `[process-guards] RSS crossed ${threshold}MB \u2014 if this process dies next, suspect the instance memory limit`
+          );
+        } catch {
+        }
+      }
+    }
+    persistMemoryTrail();
+  } catch {
+  }
+}
+function startMemoryTrail() {
+  try {
+    if (memoryTrailStarted) return;
+    memoryTrailStarted = true;
+    if (process.env.PROCESS_MEMORY_TRAIL === "off") return;
+    memoryTrailActive = true;
+    previousBootCapture = (async () => {
+      try {
+        const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+        const v = await getRuntimeStateStrict2("process_memory", "latest");
+        if (v && typeof v === "object" && typeof v.bootedAt === "string" && v.bootedAt !== PROCESS_BOOTED_AT && Array.isArray(v.samples)) {
+          previousBootRecord = {
+            bootedAt: v.bootedAt,
+            pid: typeof v.pid === "number" ? v.pid : 0,
+            samples: v.samples,
+            peakRssMB: typeof v.peakRssMB === "number" ? v.peakRssMB : 0,
+            lastSampleAt: typeof v.lastSampleAt === "string" ? v.lastSampleAt : null
+          };
+        }
+      } catch {
+      }
+    })();
+    sampleMemoryNow();
+    const timer = setInterval(sampleMemoryNow, MEMORY_SAMPLE_MS);
+    try {
+      timer.unref();
+    } catch {
+    }
+  } catch {
+  }
+}
 function safeInterval(name, ms, fn) {
   return setInterval(() => {
     Promise.resolve().then(fn).catch((e) => recordProcessError("guardedJob", e, name));
   }, ms);
 }
-var MAX_RECENT, MAX_STACK_LINES, PROCESS_BOOTED_AT, recentErrors, totalSinceBoot, installed;
+var MAX_RECENT, MAX_STACK_LINES, PROCESS_BOOTED_AT, recentErrors, totalSinceBoot, installed, MEMORY_SAMPLE_MS, MEMORY_RING_MAX, MEMORY_PERSIST_SAMPLES, MEMORY_WARN_THRESHOLDS_MB, memorySamples, memoryPeakRssMB, previousBootRecord, memoryTrailActive, memoryTrailStarted, memoryWarnedThresholds, previousBootCapture;
 var init_process_guards = __esm({
   "server/process-guards.ts"() {
     "use strict";
@@ -16292,6 +16392,18 @@ var init_process_guards = __esm({
     totalSinceBoot = 0;
     installed = false;
     installProcessGuards();
+    MEMORY_SAMPLE_MS = 6e4;
+    MEMORY_RING_MAX = 30;
+    MEMORY_PERSIST_SAMPLES = 10;
+    MEMORY_WARN_THRESHOLDS_MB = [400, 700];
+    memorySamples = [];
+    memoryPeakRssMB = 0;
+    previousBootRecord = null;
+    memoryTrailActive = false;
+    memoryTrailStarted = false;
+    memoryWarnedThresholds = /* @__PURE__ */ new Set();
+    previousBootCapture = Promise.resolve();
+    startMemoryTrail();
   }
 });
 

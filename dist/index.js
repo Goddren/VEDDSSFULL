@@ -159,11 +159,15 @@ var process_guards_exports = {};
 __export(process_guards_exports, {
   PROCESS_BOOTED_AT: () => PROCESS_BOOTED_AT,
   getProcessErrors: () => getProcessErrors,
+  getProcessMemory: () => getProcessMemory,
   installProcessGuards: () => installProcessGuards,
   processErrorsHealth: () => processErrorsHealth,
+  processMemoryHealth: () => processMemoryHealth,
   recordProcessError: () => recordProcessError,
   safeInterval: () => safeInterval,
-  safeTimeout: () => safeTimeout
+  safeTimeout: () => safeTimeout,
+  sampleMemoryNow: () => sampleMemoryNow,
+  startMemoryTrail: () => startMemoryTrail
 });
 function formatError(err) {
   try {
@@ -252,6 +256,127 @@ async function processErrorsHealth() {
   }
   return { ...base, persistedLastError };
 }
+function toMB(bytes) {
+  return Math.round(bytes / 1048576 * 10) / 10;
+}
+function takeMemorySample() {
+  try {
+    const m = process.memoryUsage();
+    return {
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      uptimeSeconds: Math.round(process.uptime()),
+      rssMB: toMB(m.rss),
+      heapUsedMB: toMB(m.heapUsed),
+      heapTotalMB: toMB(m.heapTotal),
+      externalMB: toMB(m.external)
+    };
+  } catch {
+    return null;
+  }
+}
+function currentBootRecord() {
+  const samples = memorySamples.slice(-MEMORY_PERSIST_SAMPLES);
+  return {
+    bootedAt: PROCESS_BOOTED_AT,
+    pid: process.pid,
+    samples,
+    peakRssMB: memoryPeakRssMB,
+    lastSampleAt: samples.length ? samples[samples.length - 1].at : null
+  };
+}
+function persistMemoryTrail() {
+  try {
+    void previousBootCapture.then(() => {
+      try {
+        void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => {
+          try {
+            m.saveRuntimeState("process_memory", "latest", currentBootRecord());
+          } catch {
+          }
+        }).catch(() => {
+        });
+      } catch {
+      }
+    }).catch(() => {
+    });
+  } catch {
+  }
+}
+function sampleMemoryNow() {
+  try {
+    if (!memoryTrailActive) return;
+    const sample = takeMemorySample();
+    if (!sample) return;
+    memorySamples.push(sample);
+    if (memorySamples.length > MEMORY_RING_MAX) memorySamples.shift();
+    if (sample.rssMB > memoryPeakRssMB) memoryPeakRssMB = sample.rssMB;
+    for (const threshold of MEMORY_WARN_THRESHOLDS_MB) {
+      if (sample.rssMB >= threshold && !memoryWarnedThresholds.has(threshold)) {
+        memoryWarnedThresholds.add(threshold);
+        try {
+          console.warn(
+            `[process-guards] RSS crossed ${threshold}MB \u2014 if this process dies next, suspect the instance memory limit`
+          );
+        } catch {
+        }
+      }
+    }
+    persistMemoryTrail();
+  } catch {
+  }
+}
+function startMemoryTrail() {
+  try {
+    if (memoryTrailStarted) return;
+    memoryTrailStarted = true;
+    if (process.env.PROCESS_MEMORY_TRAIL === "off") return;
+    memoryTrailActive = true;
+    previousBootCapture = (async () => {
+      try {
+        const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+        const v = await getRuntimeStateStrict2("process_memory", "latest");
+        if (v && typeof v === "object" && typeof v.bootedAt === "string" && v.bootedAt !== PROCESS_BOOTED_AT && Array.isArray(v.samples)) {
+          previousBootRecord = {
+            bootedAt: v.bootedAt,
+            pid: typeof v.pid === "number" ? v.pid : 0,
+            samples: v.samples,
+            peakRssMB: typeof v.peakRssMB === "number" ? v.peakRssMB : 0,
+            lastSampleAt: typeof v.lastSampleAt === "string" ? v.lastSampleAt : null
+          };
+        }
+      } catch {
+      }
+    })();
+    sampleMemoryNow();
+    const timer = setInterval(sampleMemoryNow, MEMORY_SAMPLE_MS);
+    try {
+      timer.unref();
+    } catch {
+    }
+  } catch {
+  }
+}
+function getProcessMemory() {
+  const latest = memorySamples.length ? memorySamples[memorySamples.length - 1] : null;
+  return {
+    current: latest ? { rssMB: latest.rssMB, heapUsedMB: latest.heapUsedMB, heapTotalMB: latest.heapTotalMB } : null,
+    peakRssMB: memoryPeakRssMB,
+    samples: memorySamples.slice(-MEMORY_PERSIST_SAMPLES),
+    previousBoot: previousBootRecord ? {
+      bootedAt: previousBootRecord.bootedAt,
+      lastSampleAt: previousBootRecord.lastSampleAt,
+      peakRssMB: previousBootRecord.peakRssMB,
+      samples: previousBootRecord.samples
+    } : null
+  };
+}
+async function processMemoryHealth() {
+  try {
+    await previousBootCapture;
+  } catch {
+  }
+  return getProcessMemory();
+}
 function safeInterval(name, ms, fn) {
   return setInterval(() => {
     Promise.resolve().then(fn).catch((e) => recordProcessError("guardedJob", e, name));
@@ -262,7 +387,7 @@ function safeTimeout(name, ms, fn) {
     Promise.resolve().then(fn).catch((e) => recordProcessError("guardedJob", e, name));
   }, ms);
 }
-var MAX_RECENT, MAX_STACK_LINES, PROCESS_BOOTED_AT, recentErrors, totalSinceBoot, installed;
+var MAX_RECENT, MAX_STACK_LINES, PROCESS_BOOTED_AT, recentErrors, totalSinceBoot, installed, MEMORY_SAMPLE_MS, MEMORY_RING_MAX, MEMORY_PERSIST_SAMPLES, MEMORY_WARN_THRESHOLDS_MB, memorySamples, memoryPeakRssMB, previousBootRecord, memoryTrailActive, memoryTrailStarted, memoryWarnedThresholds, previousBootCapture;
 var init_process_guards = __esm({
   "server/process-guards.ts"() {
     "use strict";
@@ -273,6 +398,18 @@ var init_process_guards = __esm({
     totalSinceBoot = 0;
     installed = false;
     installProcessGuards();
+    MEMORY_SAMPLE_MS = 6e4;
+    MEMORY_RING_MAX = 30;
+    MEMORY_PERSIST_SAMPLES = 10;
+    MEMORY_WARN_THRESHOLDS_MB = [400, 700];
+    memorySamples = [];
+    memoryPeakRssMB = 0;
+    previousBootRecord = null;
+    memoryTrailActive = false;
+    memoryTrailStarted = false;
+    memoryWarnedThresholds = /* @__PURE__ */ new Set();
+    previousBootCapture = Promise.resolve();
+    startMemoryTrail();
   }
 });
 
@@ -75015,9 +75152,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "9a398c2e-dirty";
-var BUILD_BRANCH = "feat/openrouter-video-provider";
-var BUILT_AT = "2026-11-11T05:23:58.094Z";
+var BUILD_COMMIT = "c71a48c1-dirty";
+var BUILD_BRANCH = "feat/process-memory-trail";
+var BUILT_AT = "2026-11-11T05:44:37.420Z";
 
 // server/stripe.ts
 init_db();
@@ -79431,6 +79568,25 @@ async function registerRoutes(app2, existingServer) {
         try {
           const { processErrorsHealth: processErrorsHealth2 } = await Promise.resolve().then(() => (init_process_guards(), process_guards_exports));
           return await processErrorsHealth2();
+        } catch {
+          return null;
+        }
+      })(),
+      // Process memory trail (2026-11-10, follow-up to the crash-hardening
+      // above): processErrors came back COMPLETELY EMPTY on the 23:36 CT
+      // death — no catchable JS error fired, which points at the host
+      // killing the process at the instance memory limit (SIGKILL leaves no
+      // trace for a handler to record). So process-guards.ts now samples
+      // memoryUsage every 60s and persists the trail to runtime_state;
+      // previousBoot is the previous process's trail, captured before this
+      // boot could overwrite it — its peakRssMB and the moment its samples
+      // stop (lastSampleAt, vs this process's bootedAt in processErrors)
+      // are how the next death gets read. Same invisible-failure shape as
+      // the fields above.
+      processMemory: await (async () => {
+        try {
+          const { processMemoryHealth: processMemoryHealth2 } = await Promise.resolve().then(() => (init_process_guards(), process_guards_exports));
+          return await processMemoryHealth2();
         } catch {
           return null;
         }
