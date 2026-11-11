@@ -10,7 +10,7 @@ import { Activity, Brain, Loader2, Play, Square, Scan, Save, Store, TrendingUp, 
 // All reads/writes use the existing /api/kalshi/* routes; no server changes.
 
 const COINS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "GOLD"] as const;
-const STRATEGIES = ["auto", "momentum", "volume_profile", "markov", "order_flow", "ensemble"] as const;
+const STRATEGIES = ["auto", "momentum", "volume_profile", "markov", "order_flow", "ensemble", "orb"] as const;
 const fmtUsd = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(Number(n) || 0).toFixed(2)}`;
 
 export default function KalshiHubPage() {

@@ -12,7 +12,7 @@
 import { getCryptoPrediction, getCryptoCandles, type BTC5MinCandle, type CryptoCoin } from './btc-5min-predictor';
 import { computeOrderFlow } from './orderflow-strategy';
 
-export type KalshiStrategy = 'momentum' | 'volume_profile' | 'markov' | 'order_flow' | 'ensemble';
+export type KalshiStrategy = 'momentum' | 'volume_profile' | 'markov' | 'order_flow' | 'ensemble' | 'orb';
 
 export interface TradeSignal {
   direction: 'BUY' | 'SELL' | 'NEUTRAL';
@@ -292,6 +292,31 @@ export function ensembleSignal(candles: BTC5MinCandle[]): TradeSignal {
   return { direction, confidence, currentPrice: price, priceChange1h, reason, strategy: 'ensemble' };
 }
 
+// ── ORB (Opening Range Breakout) — registered, deliberately NON-FIRING here ──
+// ORB needs a session open to anchor its range (9:30 AM ET for equities).
+// This engine's series are 24/7 crypto candles — there is no session open,
+// so an ORB signal computed here would be an invented anchor, and because
+// this engine places REAL orders whenever credentials are saved (paper mode
+// is only the no-credentials fill simulation of the same signal path), ORB
+// must never produce a directional signal in this module. It is registered
+// so the strategy is visible/selectable and the config validates; it always
+// returns NEUTRAL. The real ORB runs where the session anchor exists: the
+// Kalshi stock-perp SHADOW lane (server/services/kalshi-orb.ts +
+// kalshi-stock-shadow.ts, strategy key 'orb', virtual trades only).
+// Deliberately NOT added to getKalshiConsensus below — consensus and the
+// auto-picker behave exactly as before.
+export function orbSignal(candles: BTC5MinCandle[]): TradeSignal {
+  const price = candles.length ? candles[candles.length - 1].close : 0;
+  return {
+    direction: 'NEUTRAL',
+    confidence: 0,
+    currentPrice: price,
+    priceChange1h: pct1h(candles),
+    reason: 'ORB anchors on the 9:30 AM ET equity session open; this engine trades 24/7 crypto series with no session open, so ORB does not fire here. ORB runs on stock perps in the Kalshi shadow lane.',
+    strategy: 'orb',
+  };
+}
+
 // ── Unified signal entry point ──────────────────────────────────────────────────
 
 export async function getKalshiSignal(strategy: KalshiStrategy, coin: CryptoCoin = 'BTC'): Promise<TradeSignal> {
@@ -312,6 +337,7 @@ export async function getKalshiSignal(strategy: KalshiStrategy, coin: CryptoCoin
     return { direction: 'NEUTRAL', confidence: 0, currentPrice: 0, priceChange1h: 0, reason: 'No candle data available', strategy };
   }
   if (strategy === 'volume_profile') return volumeProfileSignal(candles);
+  if (strategy === 'orb')            return orbSignal(candles);
   if (strategy === 'order_flow')    return orderFlowSignal(candles);
   if (strategy === 'ensemble')      return ensembleSignal(candles);
   return markovSignal(candles);

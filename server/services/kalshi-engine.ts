@@ -247,6 +247,7 @@ const STRATEGY_LABELS: Record<KalshiStrategy | 'auto', string> = {
   markov:         'Markov',
   order_flow:     'Order Flow',
   ensemble:       'AI Ensemble',
+  orb:            'ORB (Opening Range Breakout — shadow lane)',
   auto:           'Auto (Best)',
 };
 
