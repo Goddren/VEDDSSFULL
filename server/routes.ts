@@ -1358,6 +1358,23 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
           return await processErrorsHealth();
         } catch { return null; }
       })(),
+      // Process memory trail (2026-11-10, follow-up to the crash-hardening
+      // above): processErrors came back COMPLETELY EMPTY on the 23:36 CT
+      // death — no catchable JS error fired, which points at the host
+      // killing the process at the instance memory limit (SIGKILL leaves no
+      // trace for a handler to record). So process-guards.ts now samples
+      // memoryUsage every 60s and persists the trail to runtime_state;
+      // previousBoot is the previous process's trail, captured before this
+      // boot could overwrite it — its peakRssMB and the moment its samples
+      // stop (lastSampleAt, vs this process's bootedAt in processErrors)
+      // are how the next death gets read. Same invisible-failure shape as
+      // the fields above.
+      processMemory: await (async () => {
+        try {
+          const { processMemoryHealth } = await import('./process-guards');
+          return await processMemoryHealth();
+        } catch { return null; }
+      })(),
     });
   });
 
