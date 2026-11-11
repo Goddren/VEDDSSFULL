@@ -1,9 +1,15 @@
 /**
  * One path for every Content Studio / ambassador video:
- *   user text -> one filmable shot (video-shot.ts) -> Replicate render
- *   -> VEDD branding + social-size crop (video-branding.ts) -> durable store.
+ *   user text -> one filmable shot (video-shot.ts) -> provider render
+ *   (video-generation.ts chain: OpenRouter first since 2026-11-11, then
+ *   Replicate, then fal) -> VEDD branding + social-size crop
+ *   (video-branding.ts) -> durable store.
  * Branding is best-effort: if ffmpeg is unavailable the unbranded clip ships
  * and `branded: false` tells the UI to show its logo overlay instead.
+ * Either way the finished URL is re-persisted into the durable store
+ * (branded via persistBuffer, unbranded via persistRemoteAsset), so a job
+ * result never points at a raw expiring provider URL unless persistence
+ * itself failed.
  */
 import { planVideoShot } from './video-shot';
 import { generateContentVideo, type VideoQuality } from './video-generation';

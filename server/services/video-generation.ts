@@ -1,9 +1,19 @@
 /**
- * AI video clip generation via Replicate (Wan 2.2 Fast) for Ambassador
- * content — a genuinely new capability, not a fix. Every "reel" component
- * in this app (vedd-reel-player.tsx, vedd-edu-reels.tsx, etc.) is a
- * pre-scripted canvas animation with no AI video generation behind it; this
- * service is the first real text-to-video path in the codebase.
+ * AI video clip generation for Ambassador content — a genuinely new
+ * capability, not a fix. Every "reel" component in this app
+ * (vedd-reel-player.tsx, vedd-edu-reels.tsx, etc.) is a pre-scripted canvas
+ * animation with no AI video generation behind it; this service is the
+ * first real text-to-video path in the codebase.
+ *
+ * PROVIDER ORDER (changed 2026-11-11): OpenRouter is the DEFAULT primary —
+ * all of the owner's video credit sits on OpenRouter while Replicate and
+ * fal have none, so leading with either of them was a dead end that ate
+ * the job's time before the chain reached the funded provider. Default
+ * chain: OpenRouter -> Replicate -> fal. VIDEO_PROVIDER=replicate or
+ * =fal still promotes that provider to primary (the others keep their
+ * relative order as fallbacks); VIDEO_PROVIDER=openrouter is now the
+ * same as the default. A provider that isn't configured is skipped
+ * wherever it sits in the chain.
  *
  * Video generation is much slower (30s-2min+) and pricier than image
  * generation, so this is an explicit opt-in action — never auto-triggered
@@ -61,8 +71,9 @@ const MAX_POLLS = 60; // 60 x 5s = 5 minutes max wait
 
 /**
  * Generate a short AI video clip for the given prompt. Returns null (never
- * throws) if REPLICATE_API_TOKEN is missing, generation fails, or it doesn't
- * complete within the poll budget — callers should treat this as non-fatal.
+ * throws) if no provider is configured, every configured provider fails,
+ * or generation doesn't complete within the poll budget — callers should
+ * treat this as non-fatal.
  */
 // Build the model-specific input body. Wan family and Kling family expect
 // different parameter names; anything else gets a best-effort minimal body.
@@ -113,31 +124,42 @@ export async function generateContentVideo(
   const aspect: '9:16' | '16:9' = opts?.aspect === '16:9' ? '16:9' : '9:16';
   const shared = { quality, image, durationSeconds, numFrames, aspect };
 
-  // Provider order: Replicate primary by default, then fal, then
-  // OpenRouter (openrouter-video.ts). VIDEO_PROVIDER=fal or =openrouter
-  // promotes that provider to primary; the others keep their relative
+  // Provider order: OpenRouter primary BY DEFAULT (see the file header —
+  // it's the funded provider), then Replicate, then fal. VIDEO_PROVIDER
+  // promotes the named provider to primary; the others keep their relative
   // order as fallbacks. Either way, a failure falls back to the next
-  // configured provider — a provider outage or a retired model
-  // (Replicate's Veo 404s, 2026-10-31) no longer takes clip/reel
-  // generation down with it.
+  // configured provider — a provider outage, an out-of-credit account, or
+  // a retired model (Replicate's Veo 404s, 2026-10-31) no longer takes
+  // clip/reel generation down with it.
+  //
+  // IMPORTANT (bug fixed here): providers that aren't configured are now
+  // skipped wherever they sit in the chain, INCLUDING position 0. The old
+  // loop always ran position 0 — harmless while Replicate led, but with
+  // an env-promoted unconfigured provider first it burned that provider's
+  // full failure path (e.g. Replicate's 429 retry ladder, ~90 seconds)
+  // before the chain ever reached a working provider.
   const pref = (process.env.VIDEO_PROVIDER || '').toLowerCase();
   const attempts: Array<{ name: string; configured: () => boolean; run: () => Promise<GeneratedVideo | null> }> = [
+    { name: 'openrouter', configured: openrouterConfigured, run: () => generateOpenRouterVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS }) },
     { name: 'replicate', configured: () => !!process.env.REPLICATE_API_TOKEN, run: () => generateViaReplicate(styledPrompt, shared) },
     { name: 'fal', configured: falConfigured, run: () => generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS }) },
-    { name: 'openrouter', configured: openrouterConfigured, run: () => generateOpenRouterVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS }) },
   ];
   const primaryIdx = attempts.findIndex((a) => a.name === pref);
   if (primaryIdx > 0) attempts.unshift(attempts.splice(primaryIdx, 1)[0]);
 
+  let anyConfigured = false;
   for (let i = 0; i < attempts.length; i++) {
     const attempt = attempts[i];
-    // Fallbacks are only attempted when configured; the primary always
-    // runs (and logs its own missing key), same as before.
-    if (i > 0 && !attempt.configured()) continue;
+    if (!attempt.configured()) {
+      console.log(`[video-generation] ${attempt.name} not configured — skipping`);
+      continue;
+    }
+    anyConfigured = true;
     const video = await attempt.run();
     if (video) return video;
     if (i < attempts.length - 1) console.log(`[video-generation] ${attempt.name} failed — falling back to the next provider`);
   }
+  if (!anyConfigured) console.error('[video-generation] NO video provider is configured (OPENROUTER_API_KEY / REPLICATE_API_TOKEN / FAL_AI_API all unset)');
   return null;
 }
 

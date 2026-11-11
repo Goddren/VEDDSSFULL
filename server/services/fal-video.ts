@@ -5,8 +5,9 @@
  * the model behind Replicate's Veo endpoint and generations started 404ing.
  *
  * video-generation.ts uses this two ways:
- *  - as the fallback when a Replicate generation returns null, and
- *  - as the primary when VIDEO_PROVIDER=fal (Replicate becomes the fallback).
+ *  - as the last fallback in the default chain (OpenRouter -> Replicate ->
+ *    fal; OpenRouter became the default primary 2026-11-11), and
+ *  - as the primary when VIDEO_PROVIDER=fal (OpenRouter/Replicate fall back).
  *
  * Auth: FAL_AI_API (the name the key is stored under in the deployment env)
  * or FAL_KEY (fal's own convention). Queue API — submit, poll status_url,

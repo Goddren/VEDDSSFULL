@@ -12,6 +12,13 @@
  * Model is swappable with EXPLAINER_VIDEO_MODEL (default google/veo-3.1-fast;
  * Replicate's google/veo-3-fast began 404ing on 2026-10-31 — Google retired
  * veo-3.0-fast-generate-001 behind it).
+ *
+ * PROVIDERS (changed 2026-11-11): scenes render via OpenRouter FIRST
+ * (generateExplainerSceneViaOpenRouter — the funded provider; same Veo 3.1
+ * Fast model, native narration audio, 8s scenes), with the original
+ * Replicate path kept per-scene as the fallback. Before this, explainers
+ * were Replicate-only, so with no Replicate credit every explainer died on
+ * its first scene while clips (which had the OpenRouter chain) worked.
  */
 import fs from 'fs';
 import os from 'os';
@@ -117,7 +124,7 @@ export async function startExplainerJob(
 
 function friendlyError(e: any): string {
   const m = String(e?.message || e);
-  if (/REPLICATE_API_TOKEN/.test(m)) return 'Video service is not configured.';
+  if (/REPLICATE_API_TOKEN|OPENROUTER_API_KEY/.test(m) && /not set/.test(m)) return 'Video service is not configured.';
   // Check the status code first: Replicate's 429 text also mentions "credit".
   if (/Replicate 402/.test(m)) return 'The video service is out of credit. Ask VEDD to top it up.';
   if (/Replicate 429/.test(m)) return 'The video service is busy right now. Please try again in a few minutes.';
@@ -130,21 +137,27 @@ async function runJob(id: number, userId: number, input: string, aspect: Explain
   const script = await writeScript(input, userId, opts.sceneCount ?? 4, opts.backgroundScene);
   await update(id, { script, step: `Filming ${script.scenes.length} scenes with voiceover`, progress: 10 });
 
-  // One scene at a time by default: under $5 of credit Replicate allows a
-  // burst of only 1 prediction. EXPLAINER_CONCURRENCY raises it.
+  // One scene at a time by default: the original reason was Replicate's
+  // burst-of-1 throttle on low-credit accounts; serial rendering is also
+  // the polite default for OpenRouter. EXPLAINER_CONCURRENCY raises it.
   const urls: string[] = new Array(script.scenes.length);
   let done = 0;
   const predictions: string[] = [];
+  const sceneProviders: string[] = [];
   const queue = script.scenes.map((s, i) => async () => {
     const r = await renderScene(s, script, aspect, opts.presenterImage);
-    urls[i] = r.url; predictions.push(r.predictionId);
+    urls[i] = r.url; predictions.push(r.predictionId); sceneProviders.push(r.predictionId.split(':')[0]);
     done++;
     await update(id, { progress: 10 + Math.round((done / script.scenes.length) * 70), step: `Filmed ${done} of ${script.scenes.length} scenes` });
   });
   const workers = Array.from({ length: Math.min(Math.max(1, Number(process.env.EXPLAINER_CONCURRENCY ?? 1)), queue.length) }, async () => { while (queue.length) await queue.shift()!(); });
   await Promise.all(workers);
+  // Record the provider(s) that ACTUALLY rendered (scene prediction ids are
+  // provider-prefixed) — this used to hardcode the Replicate model slug.
+  const providersUsed = Array.from(new Set(sceneProviders.filter(Boolean)));
+  const modelLabel = providersUsed.length ? providersUsed.join('+') : MODEL();
 
-  await update(id, { step: 'Adding VEDD branding and joining scenes', progress: 85, meta: { predictions, model: MODEL(), presenter: opts.presenterImage ? 'custom' : 'ai', background: opts.backgroundScene ? 'preset' : 'ai' } });
+  await update(id, { step: 'Adding VEDD branding and joining scenes', progress: 85, meta: { predictions, model: modelLabel, presenter: opts.presenterImage ? 'custom' : 'ai', background: opts.backgroundScene ? 'preset' : 'ai' } });
   const video = await assemble(urls, aspect,
     script.scenes.map((s) => (s.screen ? null : (s.chart ?? null))),
     script.scenes.map((s) => (s.screen ? screenImagePath(s.screen) : null)));
@@ -156,7 +169,7 @@ async function runJob(id: number, userId: number, input: string, aspect: Explain
     const { storage } = await import('../storage');
     await storage.createContentStudioGeneration({
       userId, contentType: 'video', prompt: input.slice(0, 2000), title: script.title, caption: script.caption, assetUrl: saved.url,
-      metadata: { kind: 'explainer', aspect, model: MODEL(), script, predictions, presenter: opts.presenterImage ? 'custom' : 'ai' },
+      metadata: { kind: 'explainer', aspect, model: modelLabel, script, predictions, presenter: opts.presenterImage ? 'custom' : 'ai' },
     } as any);
   } catch { /* library record is best-effort */ }
   if (opts.onDone) await opts.onDone(saved.url, script).catch((e) => console.error('[explainer] onDone failed:', e?.message));
@@ -212,17 +225,23 @@ JSON: {"title":"...","caption":"one-line social caption with a question","presen
   return { title: String(out.title || 'VEDD lesson').slice(0, 120), caption: String(out.caption || '').slice(0, 300), presenter, setting, scenes };
 }
 
-// ─── Scenes (Replicate) ──────────────────────────────────────────────────────
+const SCENE_NEGATIVE_PROMPT = 'subtitles, captions, on-screen text, watermark, logo, distorted hands, extra fingers, office, corporate suit, business attire, different person';
+
+// ─── Scenes (OpenRouter primary, Replicate fallback) ─────────────────────────
+/**
+ * Renders one scene: OpenRouter first (the funded provider), Replicate as
+ * the per-scene fallback. Neither configured -> throws the same
+ * "not configured" class of error the job's friendlyError() maps.
+ *
+ * Presenter-image caveat, mirroring the old Replicate behavior: if the
+ * OpenRouter render fails WITH a presenter image, retry OpenRouter once
+ * WITHOUT it (a model/provider refusing the photo shouldn't kill the
+ * video) before falling back to Replicate-with-image.
+ */
 async function renderScene(scene: ExplainerScene, script: ExplainerScript, aspect: ExplainerAspect, presenterImage?: string): Promise<{ url: string; predictionId: string }> {
-  const token = process.env.REPLICATE_API_TOKEN;
-  if (!token) throw new Error('REPLICATE_API_TOKEN not set');
-  // Same presenter + setting text in every scene keeps one person, one place.
   const framing = scene.chart || scene.screen
     ? 'Medium shot with the presenter in the upper half of the frame, pointing down toward the lower half, which is a plain darker area of the scene.'
     : 'Medium close-up, presenter talking straight to camera.';
-  // With a saved presenter photo, every scene starts FROM that photo (Veo
-  // image-to-video): the person on screen is the real user, not the
-  // text-described AI presenter.
   const prompt = presenterImage
     ? `The person in the starting image is the presenter — keep their exact face, hair and appearance in every frame. Setting: ${script.setting}. ${scene.visual} ${framing} `
       + `Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. `
@@ -232,6 +251,28 @@ async function renderScene(scene: ExplainerScene, script: ExplainerScript, aspec
       + `Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. `
       + `The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" `
       + `Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.`;
+  const orAspect: '9:16' | '16:9' = aspect === '16:9' ? '16:9' : '9:16';
+
+  const { generateExplainerSceneViaOpenRouter, openrouterConfigured } = await import('./openrouter-video');
+  if (openrouterConfigured()) {
+    const tryOr = (image?: string) => generateExplainerSceneViaOpenRouter({
+      prompt, aspect: orAspect, durationSeconds: CLIP_SECONDS, image,
+      negativePrompt: SCENE_NEGATIVE_PROMPT, maxWaitMs: MAX_WAIT_MS,
+    });
+    let or = await tryOr(presenterImage);
+    if (!or && presenterImage) {
+      console.warn('[explainer] OpenRouter scene failed with presenter image — retrying without it');
+      or = await tryOr(undefined);
+    }
+    if (or) return or;
+    console.warn('[explainer] OpenRouter scene render failed — falling back to Replicate');
+  }
+  return renderSceneViaReplicate(scene, script, aspect, presenterImage, prompt);
+}
+
+async function renderSceneViaReplicate(scene: ExplainerScene, script: ExplainerScript, aspect: ExplainerAspect, presenterImage: string | undefined, prompt: string): Promise<{ url: string; predictionId: string }> {
+  const token = process.env.REPLICATE_API_TOKEN;
+  if (!token) throw new Error('REPLICATE_API_TOKEN not set');
   const create = (withImage: boolean) => fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Prefer: 'wait=55' },
@@ -242,7 +283,7 @@ async function renderScene(scene: ExplainerScene, script: ExplainerScript, aspec
       duration: CLIP_SECONDS,
       resolution: '720p',
       generate_audio: true,
-      negative_prompt: 'subtitles, captions, on-screen text, watermark, logo, distorted hands, extra fingers, office, corporate suit, business attire, different person',
+      negative_prompt: SCENE_NEGATIVE_PROMPT,
     } }),
     signal: AbortSignal.timeout(70000),
   });

@@ -67695,6 +67695,237 @@ var init_app_screens = __esm({
   }
 });
 
+// server/services/openrouter-video.ts
+var openrouter_video_exports = {};
+__export(openrouter_video_exports, {
+  generateExplainerSceneViaOpenRouter: () => generateExplainerSceneViaOpenRouter,
+  generateOpenRouterVideo: () => generateOpenRouterVideo,
+  openrouterConfigured: () => openrouterConfigured
+});
+function openrouterConfigured() {
+  return !!process.env.OPENROUTER_API_KEY;
+}
+function orKey() {
+  return process.env.OPENROUTER_API_KEY || null;
+}
+function orHeaders(key) {
+  return {
+    Authorization: `Bearer ${key}`,
+    "Content-Type": "application/json",
+    // House convention for OpenRouter calls (news-service.ts, routes.ts).
+    "HTTP-Referer": "https://veddbuild.com",
+    "X-Title": "VEDDBuild"
+  };
+}
+function fetchCatalog() {
+  if (!catalogPromise) {
+    catalogPromise = (async () => {
+      const map = /* @__PURE__ */ new Map();
+      try {
+        const res2 = await fetch(`${API_BASE2}/videos/models`, { signal: AbortSignal.timeout(15e3) });
+        if (!res2.ok) return map;
+        const data = await res2.json();
+        for (const m of Array.isArray(data?.data) ? data.data : []) {
+          if (!m?.id) continue;
+          map.set(m.id, {
+            durations: Array.isArray(m.supported_durations) ? m.supported_durations.map(Number).filter((n) => n > 0) : void 0,
+            resolutions: Array.isArray(m.supported_resolutions) ? m.supported_resolutions : void 0,
+            aspects: Array.isArray(m.supported_aspect_ratios) ? m.supported_aspect_ratios : void 0,
+            frameImages: Array.isArray(m.supported_frame_images) ? m.supported_frame_images : void 0,
+            audio: typeof m.generate_audio === "boolean" ? m.generate_audio : void 0
+          });
+        }
+      } catch (e) {
+        console.error("[openrouter-video] model catalog fetch failed:", e.message);
+      }
+      return map;
+    })();
+  }
+  return catalogPromise;
+}
+async function capsFor(model) {
+  const fromCatalog = (await fetchCatalog()).get(model);
+  if (fromCatalog) return fromCatalog;
+  if (model.includes("veo")) return { durations: [4, 6, 8], resolutions: ["720p", "1080p", "4K"], aspects: ["9:16", "16:9"], frameImages: ["first_frame", "last_frame"], audio: true };
+  return {};
+}
+function resolvePollUrl(pollingUrl, jobId) {
+  if (!pollingUrl) return `${API_BASE2}/videos/${jobId}`;
+  try {
+    return new URL(pollingUrl, "https://openrouter.ai").toString();
+  } catch {
+    return `${API_BASE2}/videos/${jobId}`;
+  }
+}
+function nearestDuration(requested, supported) {
+  if (!supported || supported.length === 0) return requested;
+  let best = supported[0];
+  for (const d of supported) {
+    const dist2 = Math.abs(d - requested);
+    const bestDist = Math.abs(best - requested);
+    if (dist2 < bestDist || dist2 === bestDist && d > best) best = d;
+  }
+  return best;
+}
+function pickResolution(want, supported) {
+  if (!supported || supported.length === 0 || supported.includes(want)) return want;
+  const wantRank = RES_RANK.indexOf(want);
+  const atOrBelow = supported.filter((r) => RES_RANK.indexOf(r) >= 0 && RES_RANK.indexOf(r) <= wantRank);
+  if (atOrBelow.length) return atOrBelow.sort((a, b) => RES_RANK.indexOf(b) - RES_RANK.indexOf(a))[0];
+  return supported[0];
+}
+function appBaseUrl() {
+  return (process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "https://veddbuild.com").replace(/\/$/, "");
+}
+async function runOpenRouterVideoJob(args) {
+  const { key, model } = args;
+  const caps = await capsFor(model);
+  const duration = nearestDuration(args.durationSeconds, caps.durations);
+  const resolution = pickResolution(args.resolution, caps.resolutions);
+  const input = {
+    model,
+    prompt: args.prompt,
+    duration,
+    resolution
+  };
+  if (caps.audio) input.generate_audio = args.withAudio;
+  if (args.negativePrompt && model.includes("veo")) {
+    input.provider = { options: { "google-vertex": { parameters: { negativePrompt: args.negativePrompt } } } };
+  }
+  if (!caps.aspects || caps.aspects.includes(args.aspect)) input.aspect_ratio = args.aspect;
+  if (args.image) {
+    if (!caps.frameImages || caps.frameImages.length === 0 || caps.frameImages.includes("first_frame")) {
+      input.frame_images = [{ type: "image_url", image_url: { url: args.image }, frame_type: "first_frame" }];
+    } else {
+      console.log(`[openrouter-video] model ${model} does not accept a first frame \u2014 generating text-to-video instead`);
+    }
+  }
+  try {
+    console.log(`[openrouter-video] ${args.logTag} model=${model} mode=${input.frame_images ? "image-to-video" : "text-to-video"} duration=${duration}s resolution=${resolution} audio=${args.withAudio && !!caps.audio}`);
+    const submit = await fetch(`${API_BASE2}/videos`, {
+      method: "POST",
+      headers: orHeaders(key),
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(3e4)
+    });
+    if (!submit.ok) {
+      const body = await submit.text().catch(() => "");
+      console.error("[openrouter-video] submit error:", submit.status, body.slice(0, 300));
+      return null;
+    }
+    const queued = await submit.json();
+    const jobId = queued?.id;
+    if (!jobId) {
+      console.error("[openrouter-video] submit returned no job id");
+      return null;
+    }
+    const pollUrl = resolvePollUrl(queued?.polling_url, jobId);
+    const TERMINAL_FAILURES = ["failed", "error", "cancelled", "canceled", "expired"];
+    let status = String(queued?.status || "pending");
+    let lastError = "";
+    for (let i = 0; i < args.maxPolls && status !== "completed" && !TERMINAL_FAILURES.includes(status); i++) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      const poll = await fetch(pollUrl, {
+        headers: orHeaders(key),
+        signal: AbortSignal.timeout(15e3)
+      });
+      if (!poll.ok) {
+        console.warn(`[openrouter-video] poll HTTP ${poll.status} for job ${jobId} \u2014 retrying`);
+        continue;
+      }
+      const pj = await poll.json();
+      status = String(pj?.status || status);
+      if (pj?.error) lastError = String(pj.error);
+    }
+    if (status !== "completed") {
+      console.error(`[openrouter-video] video ended as "${status}"${lastError ? `: ${lastError.slice(0, 300)}` : " (poll budget exhausted or terminal failure)"}`);
+      return null;
+    }
+    const contentUrl = `${API_BASE2}/videos/${jobId}/content?index=0`;
+    const download = await fetch(contentUrl, {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(6e4)
+    });
+    if (!download.ok) {
+      console.error("[openrouter-video] content download error:", download.status);
+      return null;
+    }
+    const mimeType = download.headers.get("content-type") || "video/mp4";
+    const buf = Buffer.from(await download.arrayBuffer());
+    const saved = await persistBuffer(buf, mimeType);
+    if (saved) {
+      return { url: `${appBaseUrl()}${saved.url}`, provider: `openrouter:${model}`, quality: args.quality };
+    }
+    console.error("[openrouter-video] asset persistence failed \u2014 returning raw content URL (requires auth; last resort)");
+    return { url: contentUrl, provider: `openrouter:${model}`, quality: args.quality };
+  } catch (e) {
+    console.error("[openrouter-video] error:", e.message);
+    return null;
+  }
+}
+async function generateOpenRouterVideo(styledPrompt, opts) {
+  const key = orKey();
+  if (!key) {
+    console.error("[openrouter-video] OPENROUTER_API_KEY not set \u2014 cannot generate video");
+    return null;
+  }
+  const model = opts.quality === "high" ? HIGH_MODEL : FAST_MODEL;
+  return runOpenRouterVideoJob({
+    key,
+    model,
+    prompt: styledPrompt,
+    durationSeconds: opts.durationSeconds,
+    resolution: opts.quality === "high" ? "1080p" : "720p",
+    aspect: opts.aspect,
+    image: opts.image,
+    withAudio: opts.withAudio ?? false,
+    negativePrompt: opts.negativePrompt,
+    maxPolls: opts.maxPolls ?? MAX_POLLS,
+    quality: opts.quality,
+    logTag: `clip quality=${opts.quality}`
+  });
+}
+async function generateExplainerSceneViaOpenRouter(args) {
+  const key = orKey();
+  if (!key) throw new Error("OPENROUTER_API_KEY not set");
+  const envModel = (process.env.EXPLAINER_VIDEO_MODEL || "").trim();
+  let model = FAST_MODEL;
+  if (envModel && envModel !== model) {
+    if ((await fetchCatalog()).has(envModel)) model = envModel;
+  }
+  const maxPolls = Math.max(1, Math.floor((args.maxWaitMs ?? 8 * 60 * 1e3) / POLL_INTERVAL_MS));
+  const video = await runOpenRouterVideoJob({
+    key,
+    model,
+    prompt: args.prompt,
+    durationSeconds: args.durationSeconds,
+    resolution: "720p",
+    aspect: args.aspect,
+    image: args.image,
+    withAudio: true,
+    negativePrompt: args.negativePrompt,
+    maxPolls,
+    quality: "high",
+    logTag: "explainer scene"
+  });
+  if (!video) return null;
+  return { url: video.url, predictionId: `openrouter:${model}` };
+}
+var FAST_MODEL, HIGH_MODEL, API_BASE2, POLL_INTERVAL_MS, MAX_POLLS, catalogPromise, RES_RANK;
+var init_openrouter_video = __esm({
+  "server/services/openrouter-video.ts"() {
+    "use strict";
+    init_content_asset_store();
+    FAST_MODEL = process.env.OPENROUTER_VIDEO_MODEL || "google/veo-3.1-fast";
+    HIGH_MODEL = process.env.OPENROUTER_VIDEO_HIGH_MODEL || FAST_MODEL;
+    API_BASE2 = "https://openrouter.ai/api/v1";
+    POLL_INTERVAL_MS = 5e3;
+    MAX_POLLS = 60;
+    catalogPromise = null;
+    RES_RANK = ["360p", "480p", "720p", "1080p", "2K", "4K"];
+  }
+});
+
 // server/services/explainer-video.ts
 var explainer_video_exports = {};
 __export(explainer_video_exports, {
@@ -67777,7 +68008,7 @@ async function startExplainerJob(userId, input, aspect, opts = {}) {
 }
 function friendlyError(e) {
   const m = String(e?.message || e);
-  if (/REPLICATE_API_TOKEN/.test(m)) return "Video service is not configured.";
+  if (/REPLICATE_API_TOKEN|OPENROUTER_API_KEY/.test(m) && /not set/.test(m)) return "Video service is not configured.";
   if (/Replicate 402/.test(m)) return "The video service is out of credit. Ask VEDD to top it up.";
   if (/Replicate 429/.test(m)) return "The video service is busy right now. Please try again in a few minutes.";
   if (/timed out/i.test(m)) return "The video took too long to make. Please try again.";
@@ -67789,10 +68020,12 @@ async function runJob(id, userId, input, aspect, opts) {
   const urls = new Array(script.scenes.length);
   let done = 0;
   const predictions = [];
+  const sceneProviders = [];
   const queue = script.scenes.map((s, i) => async () => {
     const r = await renderScene(s, script, aspect, opts.presenterImage);
     urls[i] = r.url;
     predictions.push(r.predictionId);
+    sceneProviders.push(r.predictionId.split(":")[0]);
     done++;
     await update(id, { progress: 10 + Math.round(done / script.scenes.length * 70), step: `Filmed ${done} of ${script.scenes.length} scenes` });
   });
@@ -67800,7 +68033,9 @@ async function runJob(id, userId, input, aspect, opts) {
     while (queue.length) await queue.shift()();
   });
   await Promise.all(workers);
-  await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: MODEL(), presenter: opts.presenterImage ? "custom" : "ai", background: opts.backgroundScene ? "preset" : "ai" } });
+  const providersUsed = Array.from(new Set(sceneProviders.filter(Boolean)));
+  const modelLabel = providersUsed.length ? providersUsed.join("+") : MODEL();
+  await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: modelLabel, presenter: opts.presenterImage ? "custom" : "ai", background: opts.backgroundScene ? "preset" : "ai" } });
   const video = await assemble(
     urls,
     aspect,
@@ -67819,7 +68054,7 @@ async function runJob(id, userId, input, aspect, opts) {
       title: script.title,
       caption: script.caption,
       assetUrl: saved.url,
-      metadata: { kind: "explainer", aspect, model: MODEL(), script, predictions, presenter: opts.presenterImage ? "custom" : "ai" }
+      metadata: { kind: "explainer", aspect, model: modelLabel, script, predictions, presenter: opts.presenterImage ? "custom" : "ai" }
     });
   } catch {
   }
@@ -67871,10 +68106,32 @@ JSON: {"title":"...","caption":"one-line social caption with a question","presen
   return { title: String(out.title || "VEDD lesson").slice(0, 120), caption: String(out.caption || "").slice(0, 300), presenter, setting, scenes };
 }
 async function renderScene(scene, script, aspect, presenterImage) {
-  const token = process.env.REPLICATE_API_TOKEN;
-  if (!token) throw new Error("REPLICATE_API_TOKEN not set");
   const framing = scene.chart || scene.screen ? "Medium shot with the presenter in the upper half of the frame, pointing down toward the lower half, which is a plain darker area of the scene." : "Medium close-up, presenter talking straight to camera.";
   const prompt = presenterImage ? `The person in the starting image is the presenter \u2014 keep their exact face, hair and appearance in every frame. Setting: ${script.setting}. ${scene.visual} ${framing} Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.` : `Presenter: ${script.presenter}. Setting: ${script.setting}. ${scene.visual} ${framing} Authentic urban street style, cinematic 35mm look, natural skin tones, warm gold light, shallow depth of field, handheld-smooth camera. The presenter speaks directly to the camera and says: "${scene.narration.replace(/"/g, "'")}" Light hip-hop beat under the voice. No subtitles, no on-screen text, no logos.`;
+  const orAspect = aspect === "16:9" ? "16:9" : "9:16";
+  const { generateExplainerSceneViaOpenRouter: generateExplainerSceneViaOpenRouter2, openrouterConfigured: openrouterConfigured2 } = await Promise.resolve().then(() => (init_openrouter_video(), openrouter_video_exports));
+  if (openrouterConfigured2()) {
+    const tryOr = (image) => generateExplainerSceneViaOpenRouter2({
+      prompt,
+      aspect: orAspect,
+      durationSeconds: CLIP_SECONDS,
+      image,
+      negativePrompt: SCENE_NEGATIVE_PROMPT,
+      maxWaitMs: MAX_WAIT_MS
+    });
+    let or = await tryOr(presenterImage);
+    if (!or && presenterImage) {
+      console.warn("[explainer] OpenRouter scene failed with presenter image \u2014 retrying without it");
+      or = await tryOr(void 0);
+    }
+    if (or) return or;
+    console.warn("[explainer] OpenRouter scene render failed \u2014 falling back to Replicate");
+  }
+  return renderSceneViaReplicate(scene, script, aspect, presenterImage, prompt);
+}
+async function renderSceneViaReplicate(scene, script, aspect, presenterImage, prompt) {
+  const token = process.env.REPLICATE_API_TOKEN;
+  if (!token) throw new Error("REPLICATE_API_TOKEN not set");
   const create = (withImage) => fetch(`https://api.replicate.com/v1/models/${MODEL()}/predictions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "wait=55" },
@@ -67885,7 +68142,7 @@ async function renderScene(scene, script, aspect, presenterImage) {
       duration: CLIP_SECONDS,
       resolution: "720p",
       generate_audio: true,
-      negative_prompt: "subtitles, captions, on-screen text, watermark, logo, distorted hands, extra fingers, office, corporate suit, business attire, different person"
+      negative_prompt: SCENE_NEGATIVE_PROMPT
     } }),
     signal: AbortSignal.timeout(7e4)
   });
@@ -68023,7 +68280,7 @@ async function assembleFiles(files, aspect, dir, charts = [], screens = []) {
     return fs14.readFileSync(out);
   }
 }
-var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, DEFAULT_PRESENTER, DEFAULT_SETTING, tableReady4;
+var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, DEFAULT_PRESENTER, DEFAULT_SETTING, tableReady4, SCENE_NEGATIVE_PROMPT;
 var init_explainer_video = __esm({
   "server/services/explainer-video.ts"() {
     "use strict";
@@ -68042,6 +68299,7 @@ var init_explainer_video = __esm({
     DEFAULT_PRESENTER = "a young Black man in his mid-20s with short twists, wearing a black hoodie, a thin gold chain and a fitted cap";
     DEFAULT_SETTING = "a city rooftop at golden hour with brick buildings, fire escapes and the skyline behind him";
     tableReady4 = null;
+    SCENE_NEGATIVE_PROMPT = "subtitles, captions, on-screen text, watermark, logo, distorted hands, extra fingers, office, corporate suit, business attire, different person";
   }
 });
 
@@ -68878,7 +69136,7 @@ async function generateFalVideo(styledPrompt, opts) {
     return null;
   }
   const { quality, image } = opts;
-  const model = image ? quality === "high" ? HIGH_I2V_MODEL : FAST_I2V_MODEL : quality === "high" ? HIGH_MODEL : FAST_MODEL;
+  const model = image ? quality === "high" ? HIGH_I2V_MODEL : FAST_I2V_MODEL : quality === "high" ? HIGH_MODEL2 : FAST_MODEL2;
   const input = {
     prompt: styledPrompt,
     num_frames: opts.numFrames,
@@ -68910,8 +69168,8 @@ async function generateFalVideo(styledPrompt, opts) {
       return null;
     }
     let status = String(queued?.status || "IN_QUEUE");
-    for (let i = 0; i < MAX_POLLS && status !== "COMPLETED"; i++) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    for (let i = 0; i < MAX_POLLS2 && status !== "COMPLETED"; i++) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS2));
       const poll = await fetch(statusUrl, {
         headers: { Authorization: `Key ${key}` },
         signal: AbortSignal.timeout(15e3)
@@ -68948,183 +69206,16 @@ async function generateFalVideo(styledPrompt, opts) {
     return null;
   }
 }
-var FAST_MODEL, HIGH_MODEL, FAST_I2V_MODEL, HIGH_I2V_MODEL, POLL_INTERVAL_MS, MAX_POLLS;
+var FAST_MODEL2, HIGH_MODEL2, FAST_I2V_MODEL, HIGH_I2V_MODEL, POLL_INTERVAL_MS2, MAX_POLLS2;
 var init_fal_video = __esm({
   "server/services/fal-video.ts"() {
     "use strict";
-    FAST_MODEL = process.env.FAL_VIDEO_MODEL || "fal-ai/wan/v2.2-a14b/text-to-video";
-    HIGH_MODEL = process.env.FAL_VIDEO_HIGH_MODEL || FAST_MODEL;
+    FAST_MODEL2 = process.env.FAL_VIDEO_MODEL || "fal-ai/wan/v2.2-a14b/text-to-video";
+    HIGH_MODEL2 = process.env.FAL_VIDEO_HIGH_MODEL || FAST_MODEL2;
     FAST_I2V_MODEL = process.env.FAL_VIDEO_I2V_MODEL || "fal-ai/wan/v2.2-a14b/image-to-video";
     HIGH_I2V_MODEL = process.env.FAL_VIDEO_HIGH_I2V_MODEL || FAST_I2V_MODEL;
-    POLL_INTERVAL_MS = 5e3;
-    MAX_POLLS = 60;
-  }
-});
-
-// server/services/openrouter-video.ts
-function openrouterConfigured() {
-  return !!process.env.OPENROUTER_API_KEY;
-}
-function orKey() {
-  return process.env.OPENROUTER_API_KEY || null;
-}
-function orHeaders(key) {
-  return {
-    Authorization: `Bearer ${key}`,
-    "Content-Type": "application/json",
-    // House convention for OpenRouter calls (news-service.ts, routes.ts).
-    "HTTP-Referer": "https://veddbuild.com",
-    "X-Title": "VEDDBuild"
-  };
-}
-function fetchCatalog() {
-  if (!catalogPromise) {
-    catalogPromise = (async () => {
-      const map = /* @__PURE__ */ new Map();
-      try {
-        const res2 = await fetch(`${API_BASE2}/videos/models`, { signal: AbortSignal.timeout(15e3) });
-        if (!res2.ok) return map;
-        const data = await res2.json();
-        for (const m of Array.isArray(data?.data) ? data.data : []) {
-          if (!m?.id) continue;
-          map.set(m.id, {
-            durations: Array.isArray(m.supported_durations) ? m.supported_durations.map(Number).filter((n) => n > 0) : void 0,
-            resolutions: Array.isArray(m.supported_resolutions) ? m.supported_resolutions : void 0,
-            aspects: Array.isArray(m.supported_aspect_ratios) ? m.supported_aspect_ratios : void 0,
-            frameImages: Array.isArray(m.supported_frame_images) ? m.supported_frame_images : void 0
-          });
-        }
-      } catch (e) {
-        console.error("[openrouter-video] model catalog fetch failed:", e.message);
-      }
-      return map;
-    })();
-  }
-  return catalogPromise;
-}
-async function capsFor(model) {
-  const fromCatalog = (await fetchCatalog()).get(model);
-  if (fromCatalog) return fromCatalog;
-  if (model.includes("veo")) return { durations: [4, 6, 8], resolutions: ["720p", "1080p", "4K"], aspects: ["9:16", "16:9"], frameImages: ["first_frame", "last_frame"] };
-  return {};
-}
-function nearestDuration(requested, supported) {
-  if (!supported || supported.length === 0) return requested;
-  let best = supported[0];
-  for (const d of supported) {
-    const dist2 = Math.abs(d - requested);
-    const bestDist = Math.abs(best - requested);
-    if (dist2 < bestDist || dist2 === bestDist && d > best) best = d;
-  }
-  return best;
-}
-function pickResolution(want, supported) {
-  if (!supported || supported.length === 0 || supported.includes(want)) return want;
-  const wantRank = RES_RANK.indexOf(want);
-  const atOrBelow = supported.filter((r) => RES_RANK.indexOf(r) >= 0 && RES_RANK.indexOf(r) <= wantRank);
-  if (atOrBelow.length) return atOrBelow.sort((a, b) => RES_RANK.indexOf(b) - RES_RANK.indexOf(a))[0];
-  return supported[0];
-}
-function appBaseUrl() {
-  return (process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "https://veddbuild.com").replace(/\/$/, "");
-}
-async function generateOpenRouterVideo(styledPrompt, opts) {
-  const key = orKey();
-  if (!key) {
-    console.error("[openrouter-video] OPENROUTER_API_KEY not set \u2014 cannot generate video");
-    return null;
-  }
-  const { quality, image } = opts;
-  const model = quality === "high" ? HIGH_MODEL2 : FAST_MODEL2;
-  const caps = await capsFor(model);
-  const duration = nearestDuration(opts.durationSeconds, caps.durations);
-  const resolution = pickResolution(quality === "high" ? "1080p" : "720p", caps.resolutions);
-  const input = {
-    model,
-    prompt: styledPrompt,
-    duration,
-    resolution,
-    generate_audio: false
-    // silent clips — VO/captions are post-production in this pipeline
-  };
-  if (!caps.aspects || caps.aspects.includes(opts.aspect)) input.aspect_ratio = opts.aspect;
-  if (image) {
-    if (!caps.frameImages || caps.frameImages.length === 0 || caps.frameImages.includes("first_frame")) {
-      input.frame_images = [{ type: "image_url", image_url: { url: image }, frame_type: "first_frame" }];
-    } else {
-      console.log(`[openrouter-video] model ${model} does not accept a first frame \u2014 generating text-to-video instead`);
-    }
-  }
-  try {
-    console.log(`[openrouter-video] quality=${quality} model=${model} mode=${input.frame_images ? "image-to-video" : "text-to-video"} duration=${duration}s resolution=${resolution}`);
-    const submit = await fetch(`${API_BASE2}/videos`, {
-      method: "POST",
-      headers: orHeaders(key),
-      body: JSON.stringify(input),
-      signal: AbortSignal.timeout(3e4)
-    });
-    if (!submit.ok) {
-      const body = await submit.text().catch(() => "");
-      console.error("[openrouter-video] submit error:", submit.status, body.slice(0, 300));
-      return null;
-    }
-    const queued = await submit.json();
-    const jobId = queued?.id;
-    if (!jobId) {
-      console.error("[openrouter-video] submit returned no job id");
-      return null;
-    }
-    const pollUrl = queued?.polling_url || `${API_BASE2}/videos/${jobId}`;
-    let status = String(queued?.status || "pending");
-    for (let i = 0; i < MAX_POLLS2 && status !== "completed"; i++) {
-      if (status === "failed" || status === "error" || status === "cancelled" || status === "canceled") break;
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS2));
-      const poll = await fetch(pollUrl, {
-        headers: orHeaders(key),
-        signal: AbortSignal.timeout(15e3)
-      });
-      if (!poll.ok) break;
-      const pj = await poll.json();
-      status = String(pj?.status || "");
-    }
-    if (status !== "completed") {
-      console.error("[openrouter-video] video did not complete in time:", status);
-      return null;
-    }
-    const contentUrl = `${API_BASE2}/videos/${jobId}/content?index=0`;
-    const download = await fetch(contentUrl, {
-      headers: { Authorization: `Bearer ${key}` },
-      signal: AbortSignal.timeout(6e4)
-    });
-    if (!download.ok) {
-      console.error("[openrouter-video] content download error:", download.status);
-      return null;
-    }
-    const mimeType = download.headers.get("content-type") || "video/mp4";
-    const buf = Buffer.from(await download.arrayBuffer());
-    const saved = await persistBuffer(buf, mimeType);
-    if (saved) {
-      return { url: `${appBaseUrl()}${saved.url}`, provider: `openrouter:${model}`, quality };
-    }
-    console.error("[openrouter-video] asset persistence failed \u2014 returning raw content URL (requires auth; last resort)");
-    return { url: contentUrl, provider: `openrouter:${model}`, quality };
-  } catch (e) {
-    console.error("[openrouter-video] error:", e.message);
-    return null;
-  }
-}
-var FAST_MODEL2, HIGH_MODEL2, API_BASE2, POLL_INTERVAL_MS2, MAX_POLLS2, catalogPromise, RES_RANK;
-var init_openrouter_video = __esm({
-  "server/services/openrouter-video.ts"() {
-    "use strict";
-    init_content_asset_store();
-    FAST_MODEL2 = process.env.OPENROUTER_VIDEO_MODEL || "google/veo-3.1-fast";
-    HIGH_MODEL2 = process.env.OPENROUTER_VIDEO_HIGH_MODEL || FAST_MODEL2;
-    API_BASE2 = "https://openrouter.ai/api/v1";
     POLL_INTERVAL_MS2 = 5e3;
     MAX_POLLS2 = 60;
-    catalogPromise = null;
-    RES_RANK = ["360p", "480p", "720p", "1080p", "2K", "4K"];
   }
 });
 
@@ -69163,19 +69254,25 @@ async function generateContentVideo(prompt, opts) {
   const shared = { quality, image, durationSeconds, numFrames, aspect };
   const pref = (process.env.VIDEO_PROVIDER || "").toLowerCase();
   const attempts = [
+    { name: "openrouter", configured: openrouterConfigured, run: () => generateOpenRouterVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS }) },
     { name: "replicate", configured: () => !!process.env.REPLICATE_API_TOKEN, run: () => generateViaReplicate(styledPrompt, shared) },
-    { name: "fal", configured: falConfigured, run: () => generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS }) },
-    { name: "openrouter", configured: openrouterConfigured, run: () => generateOpenRouterVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS }) }
+    { name: "fal", configured: falConfigured, run: () => generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS }) }
   ];
   const primaryIdx = attempts.findIndex((a) => a.name === pref);
   if (primaryIdx > 0) attempts.unshift(attempts.splice(primaryIdx, 1)[0]);
+  let anyConfigured = false;
   for (let i = 0; i < attempts.length; i++) {
     const attempt = attempts[i];
-    if (i > 0 && !attempt.configured()) continue;
+    if (!attempt.configured()) {
+      console.log(`[video-generation] ${attempt.name} not configured \u2014 skipping`);
+      continue;
+    }
+    anyConfigured = true;
     const video = await attempt.run();
     if (video) return video;
     if (i < attempts.length - 1) console.log(`[video-generation] ${attempt.name} failed \u2014 falling back to the next provider`);
   }
+  if (!anyConfigured) console.error("[video-generation] NO video provider is configured (OPENROUTER_API_KEY / REPLICATE_API_TOKEN / FAL_AI_API all unset)");
   return null;
 }
 async function generateViaReplicate(styledPrompt, opts) {
@@ -75447,9 +75544,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "99ac48ef-dirty";
+var BUILD_COMMIT = "3fcd8796-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-11T06:23:23.016Z";
+var BUILT_AT = "2026-11-11T06:32:17.044Z";
 
 // server/stripe.ts
 init_db();
