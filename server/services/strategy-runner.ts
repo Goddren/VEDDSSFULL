@@ -25,6 +25,12 @@
  *    touchDeployment); every failure is recorded on the deployment row
  *    and nothing ever throws out of the loop.
  *
+ * SHADOW deployments (platform='shadow') run through the same loop,
+ * bars and evaluator, but branch to runShadowDeployment BEFORE any
+ * broker code: positions are virtual, resolved from bar prices by
+ * services/strategy-shadow.ts, and logged as mode='shadow' rows.
+ * Kill switch: STUDIO_SHADOW=off pauses shadow deployments only.
+ *
  * Cadence honesty: bars are evaluated when they close, checked every
  * 30s — right for M15/H1/H4/D1 strategies. Sub-M5 strategies belong on
  * the generated MT5 EA, which ticks inside the terminal.
@@ -32,9 +38,11 @@
 import { getWizardStrategy } from './wizard-spec-strategies';
 import {
   listRunningDeployments, touchDeployment, openStrategyTrade,
-  getOpenStrategyTrade, closeStrategyTrade, markStrategyTradeBreakeven, type StrategyDeployment,
+  getOpenStrategyTrade, closeStrategyTrade, markStrategyTradeBreakeven, updateStrategyTradeLevels,
+  type StrategyDeployment,
 } from './strategy-deployments';
 import { evaluateSpecSignals, type BacktestBar } from './strategy-backtest';
+import { evaluateShadowBar, type ShadowPositionState } from './strategy-shadow';
 import { specWarmupBars, type StrategySpec } from './strategy-spec';
 import { getPipSize } from '../utils/pipUtils';
 
@@ -59,7 +67,12 @@ async function tick(): Promise<void> {
   ticking = true;
   try {
     const deps = await listRunningDeployments().catch(() => [] as StrategyDeployment[]);
+    // Kill switch: STUDIO_SHADOW=off pauses shadow deployments only —
+    // they are skipped silently (not error-touched); account deployments
+    // are unaffected.
+    const shadowOff = process.env.STUDIO_SHADOW === 'off';
     for (const dep of deps) {
+      if (shadowOff && dep.platform === 'shadow') continue;
       try { await runDeployment(dep); }
       catch (e: any) { await touchDeployment(dep.id, { error: e?.message || 'runner error' }).catch(() => {}); }
     }
@@ -98,6 +111,19 @@ async function runDeployment(dep: StrategyDeployment): Promise<void> {
   if (!sig) return;
   if (sig.barTime <= dep.lastBarTime) return; // no new closed bar since last tick
   await touchDeployment(dep.id, { lastBarTime: sig.barTime });
+
+  // ── SHADOW deployments branch here — before ANY broker code ────────
+  // A shadow deployment has no account: the same signals are traded
+  // virtually and resolved from bar prices (strategy-shadow.ts). This
+  // branch is the structural guarantee that a shadow deployment can
+  // never reach dispatchOpen/dispatchClose/dispatchBreakeven below;
+  // those functions additionally refuse shadow deployments loudly via
+  // assertBrokerDispatchAllowed, so a future refactor that misroutes
+  // one fails visibly instead of sending an order.
+  if (dep.platform === 'shadow') {
+    await runShadowDeployment(dep, spec, sig, bars);
+    return;
+  }
 
   const open = await getOpenStrategyTrade(dep.id);
   if (open) {
@@ -168,6 +194,83 @@ async function runDeployment(dep: StrategyDeployment): Promise<void> {
 }
 
 /**
+ * HARD SAFETY — broker dispatch refuses shadow deployments loudly.
+ * runDeployment branches shadow deployments to runShadowDeployment
+ * before any dispatch call, so this should be unreachable; it exists so
+ * that if a future change ever routes one here, the failure is a loud
+ * recorded error on the deployment — never a silent order on an
+ * account. Exported for scripts/check-studio-shadow.ts.
+ */
+export function assertBrokerDispatchAllowed(dep: StrategyDeployment, fn: string): void {
+  if ((dep.platform as string) === 'shadow') {
+    throw new Error(`[Strategy Runner] ${fn}: shadow deployment ${dep.id} reached broker dispatch — refused (shadow deployments are virtual-only and have no account)`);
+  }
+}
+
+/**
+ * One new closed bar of a SHADOW deployment. The decision logic is the
+ * pure evaluateShadowBar (strategy-shadow.ts): entries fill at the bar
+ * close, SL/TP and exit groups resolve from bar prices the way the
+ * backtester resolves them (there is no broker to reconcile against),
+ * and results land in strategy_trades as mode='shadow' rows — which is
+ * also how they reach the shared shadow ledger (its
+ * strategy_studio_shadow arm is a view over those rows) and the
+ * strategy brain's separate Shadow (virtual) layer.
+ */
+async function runShadowDeployment(dep: StrategyDeployment, spec: StrategySpec, sig: NonNullable<ReturnType<typeof evaluateSpecSignals>>, bars: BacktestBar[]): Promise<void> {
+  const bar = bars[bars.length - 1];
+  const open = await getOpenStrategyTrade(dep.id);
+
+  let position: ShadowPositionState | null = null;
+  if (open) {
+    const entry = Number(open.entry_price) || 0;
+    position = {
+      direction: String(open.direction).toUpperCase() === 'SELL' ? 'SELL' : 'BUY',
+      entryPrice: entry,
+      stopLoss: open.stop_loss != null ? Number(open.stop_loss) : null,
+      takeProfit: open.take_profit != null ? Number(open.take_profit) : null,
+      extremePrice: open.extreme_price != null ? Number(open.extreme_price) : entry,
+      breakevenApplied: !!open.breakeven_applied,
+      riskDist: open.risk_price_dist != null ? Number(open.risk_price_dist) : null,
+      volume: Number(open.volume) || spec.risk.lotSize,
+    };
+  }
+
+  // Daily entry cap — same semantics as the live path, counted on this
+  // deployment's own (shadow) rows only.
+  let entriesAllowed = true;
+  if (!open && spec.risk.maxTradesPerDay && spec.risk.maxTradesPerDay > 0) {
+    const { pool } = await import('../db');
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM strategy_trades WHERE deployment_id=$1 AND mode='shadow' AND opened_at::date = CURRENT_DATE`,
+      [dep.id],
+    );
+    entriesAllowed = (rows[0]?.n ?? 0) < spec.risk.maxTradesPerDay;
+  }
+
+  const decision = evaluateShadowBar({ spec, position, sig, bar, entriesAllowed });
+  if (decision.type === 'open') {
+    await openStrategyTrade(dep, {
+      symbol: spec.symbol, direction: decision.direction, volume: decision.volume,
+      entryPrice: decision.entryPrice, platformRef: null, mode: 'shadow',
+      stopLoss: decision.stopLoss, takeProfit: decision.takeProfit,
+      riskDist: decision.riskDist, extremePrice: decision.extremePrice,
+    });
+    await touchDeployment(dep.id, { error: null, lastSignalAt: true });
+  } else if (decision.type === 'close' && open) {
+    await closeStrategyTrade(open.id, decision.exitPrice, decision.pnl, decision.exitReason, decision.rMultiple);
+    await touchDeployment(dep.id, { error: null, lastSignalAt: true });
+  } else if (decision.type === 'update' && open) {
+    await updateStrategyTradeLevels(open.id, {
+      stopLoss: decision.stopLoss, extremePrice: decision.extremePrice, breakevenApplied: decision.breakevenApplied,
+    });
+    await touchDeployment(dep.id, { error: null });
+  } else {
+    await touchDeployment(dep.id, { error: null });
+  }
+}
+
+/**
  * If the broker already closed this deployment's position (SL/TP fill),
  * reconcile the trade log and return true. Realized P&L is read back
  * from the platform's history when it exposes it; when it can't be
@@ -175,6 +278,7 @@ async function runDeployment(dep: StrategyDeployment): Promise<void> {
  * stats rather than inventing a number.
  */
 async function resolveVanishedPosition(dep: StrategyDeployment, open: any, lastClose: number): Promise<boolean> {
+  assertBrokerDispatchAllowed(dep, 'resolveVanishedPosition');
   try {
     if (dep.platform === 'dxtrade') {
       const { pool } = await import('../db');
@@ -252,6 +356,7 @@ async function dispatchOpen(
   dep: StrategyDeployment, spec: StrategySpec, direction: 'BUY' | 'SELL',
   stopLoss: number | null, takeProfit: number | null, refPrice: number,
 ): Promise<{ volume: number; ref: string | null } | null> {
+  assertBrokerDispatchAllowed(dep, 'dispatchOpen');
   try {
     if (dep.platform === 'mt5') {
       const { broadcastMT5Signal } = await import('./live-trading-engine');
@@ -314,6 +419,7 @@ async function dispatchOpen(
 }
 
 async function dispatchClose(dep: StrategyDeployment, open: any): Promise<boolean> {
+  assertBrokerDispatchAllowed(dep, 'dispatchClose');
   try {
     if (dep.platform === 'mt5') {
       const { broadcastMT5Signal } = await import('./live-trading-engine');
@@ -359,6 +465,7 @@ async function dispatchClose(dep: StrategyDeployment, open: any): Promise<boolea
 
 /** Move an open position's stop (breakeven) on the deployment's account. */
 async function dispatchBreakeven(dep: StrategyDeployment, open: any, newStop: number, newTp: number | null): Promise<boolean> {
+  assertBrokerDispatchAllowed(dep, 'dispatchBreakeven');
   try {
     if (dep.platform === 'mt5') {
       const { broadcastMT5Signal } = await import('./live-trading-engine');

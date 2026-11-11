@@ -1101,7 +1101,13 @@ export default function StrategyStudio() {
     try {
       const res = await apiRequest('POST', `/api/strategy-wizard/deployments/${id}/stop`);
       if (!res.ok) throw new Error('stop failed');
-      toast({ title: 'Deployment stopped', description: 'No new entries will be opened. An open position keeps its broker stop/target and is not force-closed.' });
+      const isShadowDep = deployments.find((d) => d.id === id)?.platform === 'shadow';
+      toast({
+        title: 'Deployment stopped',
+        description: isShadowDep
+          ? 'No new virtual entries will be opened. An open virtual position stays on the shadow book until its rules close it.'
+          : 'No new entries will be opened. An open position keeps its broker stop/target and is not force-closed.',
+      });
       if (savedId) loadDeployData(savedId);
     } catch (error: any) {
       toast({ title: 'Stop failed', description: errText(error), variant: 'destructive' });
@@ -1116,7 +1122,7 @@ export default function StrategyStudio() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Brain build failed');
       setBrainProfile(data.brain);
-      toast({ title: 'Brain updated', description: 'Built from this strategy\'s backtest data points and live track record.' });
+      toast({ title: 'Brain updated', description: 'Built from this strategy\'s backtest data points, shadow (virtual) results and live track record — in separate layers.' });
     } catch (error: any) {
       toast({ title: 'Brain build failed', description: errText(error), variant: 'destructive' });
     } finally {
@@ -1868,7 +1874,7 @@ export default function StrategyStudio() {
                       Deploy & Strategy Brain
                     </CardTitle>
                     <CardDescription>
-                      Run this strategy on one of your live accounts, and grow a brain from everything it does — backtest data points plus its live track record.
+                      Run this strategy on one of your live accounts — or as a Shadow (virtual) deployment with no account and no real orders, to prove it forward first — and grow a brain from everything it does: backtest data points, shadow results, and its live track record, kept in separate layers.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-5">
@@ -1878,10 +1884,10 @@ export default function StrategyStudio() {
                       <>
                         <div className="flex flex-wrap items-end gap-3">
                           <div className="min-w-[240px] flex-1">
-                            <Label>Live account</Label>
+                            <Label>Deployment target</Label>
                             <Select value={deployPick} onValueChange={setDeployPick}>
                               <SelectTrigger>
-                                <SelectValue placeholder={deployAccounts.length ? 'Choose an account…' : 'No live accounts connected'} />
+                                <SelectValue placeholder="Choose a target…" />
                               </SelectTrigger>
                               <SelectContent>
                                 {deployAccounts.map((a) => (
@@ -1894,7 +1900,7 @@ export default function StrategyStudio() {
                           </div>
                           <Button onClick={handleDeploy} disabled={isDeploying || !deployPick}>
                             <Play className="h-4 w-4 mr-2" />
-                            {isDeploying ? 'Deploying…' : 'Deploy to Account'}
+                            {isDeploying ? 'Deploying…' : deployPick.startsWith('shadow:') ? 'Deploy Shadow (Virtual)' : 'Deploy to Account'}
                           </Button>
                         </div>
                         {deployNote && <p className="text-xs text-muted-foreground">{deployNote}</p>}
@@ -1909,7 +1915,7 @@ export default function StrategyStudio() {
                               <div key={d.id} className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm">
                                 <Badge variant={d.status === 'running' ? 'default' : 'secondary'}>{d.status}</Badge>
                                 <span className="font-medium">{d.accountLabel || d.connectionRef}</span>
-                                <span className="text-muted-foreground capitalize">{d.platform}</span>
+                                <span className="text-muted-foreground capitalize">{d.platform === 'shadow' ? 'Shadow (virtual)' : d.platform}</span>
                                 {d.lastError && <span className="text-xs text-red-500 truncate max-w-[280px]" title={d.lastError}>{d.lastError}</span>}
                                 {d.status === 'running' && (
                                   <Button size="sm" variant="outline" className="ml-auto" onClick={() => handleStopDeployment(d.id)}>
@@ -1918,7 +1924,7 @@ export default function StrategyStudio() {
                                 )}
                               </div>
                             ))}
-                            <p className="text-xs text-muted-foreground">Stopping halts new entries — an open position keeps its broker stop/target and is not force-closed.</p>
+                            <p className="text-xs text-muted-foreground">Stopping halts new entries — an open live position keeps its broker stop/target and is not force-closed; an open shadow position stays virtual until its own rules close it.</p>
                           </div>
                         )}
 
@@ -1936,13 +1942,21 @@ export default function StrategyStudio() {
                             </Button>
                           </div>
                           {brainProfile ? (
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 text-sm">
                               <div className="rounded-md border p-3">
                                 <div className="text-muted-foreground text-xs">Backtest trades</div>
                                 <div className="font-semibold">{brainProfile.backtest?.trades ?? 0}</div>
                                 <div className="text-xs text-muted-foreground">
                                   {brainProfile.backtest ? `win ${brainProfile.backtest.winRate != null ? Math.round(brainProfile.backtest.winRate * 100) : '—'}% · net $${Number(brainProfile.backtest.netPnl ?? 0).toFixed(2)}` : 'no backtest saved'}
                                 </div>
+                              </div>
+                              <div className="rounded-md border p-3">
+                                <div className="text-muted-foreground text-xs">Shadow (virtual) trades</div>
+                                <div className="font-semibold">{brainProfile.shadow?.trades ?? 0}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  win {brainProfile.shadow?.winRate != null ? Math.round(brainProfile.shadow.winRate * 100) : '—'}% · net ${Number(brainProfile.shadow?.netPnl ?? 0).toFixed(2)} · {brainProfile.shadow?.netR != null ? `${Number(brainProfile.shadow.netR) > 0 ? '+' : ''}${Number(brainProfile.shadow.netR).toFixed(2)}R` : 'no R yet'}
+                                </div>
+                                <div className="text-xs text-muted-foreground">forward proof — never counts toward Marketplace</div>
                               </div>
                               <div className="rounded-md border p-3">
                                 <div className="text-muted-foreground text-xs">Live trades</div>
@@ -1959,11 +1973,11 @@ export default function StrategyStudio() {
                               <div className="rounded-md border p-3">
                                 <div className="text-muted-foreground text-xs">Marketplace ready</div>
                                 <div className="font-semibold">{brainProfile.listableTrades ?? 0} / 10 live trades</div>
-                                <div className="text-xs text-muted-foreground">only live trades count — backtests are never sold as experience</div>
+                                <div className="text-xs text-muted-foreground">only live trades count — backtests and shadow results are never sold as experience</div>
                               </div>
                             </div>
                           ) : (
-                            <p className="text-sm text-muted-foreground">No brain yet. Build one to fuse this strategy's backtest data points with its live results — 10+ live trades makes it listable on the Brain Marketplace.</p>
+                            <p className="text-sm text-muted-foreground">No brain yet. Build one to fuse this strategy's backtest data points with its shadow (virtual) and live results — 10+ live trades makes it listable on the Brain Marketplace.</p>
                           )}
                         </div>
                       </>

@@ -8,6 +8,8 @@
 //   • crypto_paper   — crypto engine paper trades incl. shorts + ORB (crypto_paper_trades)
 //   • sol_paper      — Sol engine paper trades (sol_engine_positions mode='paper')
 //   • sol_shadow     — Sol engine shadow tests (same table, mode='shadow')
+//   • strategy_studio_shadow — Strategy Studio shadow deployments
+//     (strategy_trades mode='shadow'; engine='studio')
 // A VIEW, not a copy: always current, nothing to sync, no duplicates.
 //
 // Common columns: source, engine, user_id, strategy, symbol, direction
@@ -123,6 +125,27 @@ CREATE OR REPLACE VIEW shadow_ledger AS
     LEFT JOIN kalshi_perp_shadow_context kc ON kc.trade_id = k.id
    WHERE k.status = 'closed' AND k.return_pct IS NOT NULL AND k.exclude_from_stats IS NOT TRUE
      AND NOT (abs(k.return_pct) >= 40 AND extract(epoch from (k.closed_at - k.opened_at)) < 120)
+  UNION ALL
+  -- Strategy Studio shadow deployments (strategy-shadow.ts): the runner
+  -- trading saved spec strategies virtually — fills resolved from bar
+  -- prices into strategy_trades rows with mode='shadow'. R comes from
+  -- the row's own r_multiple (P&L vs the entry-time stop distance), so
+  -- only closes that carried a stop participate. return_pct is not
+  -- tracked for spec trades (no account balance to percentage against)
+  -- and stays NULL. Live rows (mode='live') never appear here, and
+  -- these rows never count toward Brain Marketplace eligibility.
+  SELECT ('strategy_studio_shadow:' || t.id)::text, 'strategy_studio_shadow', 'studio', t.user_id,
+         COALESCE(w.name, 'strategy ' || t.strategy_id), t.symbol,
+         CASE WHEN upper(t.direction) = 'SELL' THEN 'SHORT' ELSE 'LONG' END,
+         t.opened_at, t.closed_at,
+         extract(hour from t.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(t.opened_at AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN t.r_multiple > 0 THEN 'WIN' WHEN t.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         t.r_multiple::float, NULL::float
+    FROM strategy_trades t
+    LEFT JOIN wizard_strategies w ON w.id = t.strategy_id
+   WHERE t.mode = 'shadow' AND t.status = 'closed' AND t.r_multiple IS NOT NULL
 `;
 
 let _ensured: Promise<void> | null = null;
@@ -133,6 +156,8 @@ export function ensureShadowLedger(): Promise<void> {
       try { const { ensurePaperTable } = await import('./crypto-paper'); await ensurePaperTable(); } catch { /* table may already exist */ }
       try { const { ensureCryptoShadowTables } = await import('./crypto-shadow'); await ensureCryptoShadowTables(); } catch { /* table may already exist */ }
       try { const { ensureKalshiPerpShadowTables } = await import('./ensure-kalshi-perp-shadow-tables'); await ensureKalshiPerpShadowTables(); } catch { /* table may already exist */ }
+      try { const { ensureStrategyTables } = await import('./strategy-deployments'); await ensureStrategyTables(); } catch { /* table may already exist */ }
+      try { const { ensureWizardStrategiesTable } = await import('./wizard-spec-strategies'); await ensureWizardStrategiesTable(); } catch { /* table may already exist */ }
       await pool.query(VIEW_SQL);
     })().catch((e) => { _ensured = null; throw e; });
   }

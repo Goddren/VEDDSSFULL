@@ -20656,7 +20656,12 @@ Respond with ONLY valid JSON:
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     try {
-      const accounts: any[] = [];
+      // The virtual target always leads the list: a Shadow deployment
+      // needs no account and can never send an order — it exists so a
+      // strategy can prove itself forward before risking an account.
+      const accounts: any[] = [
+        { platform: 'shadow', ref: 'virtual', label: 'Shadow (virtual)', sub: 'No account — the runner trades it virtually', online: true, virtual: true },
+      ];
       const { getMT5Accounts } = await import('./services/live-trading-engine');
       for (const a of getMT5Accounts(userId)) {
         accounts.push({ platform: 'mt5', ref: a.alias, label: a.label || a.alias, sub: a.accountNumber ? `MT5 ${a.accountNumber}` : 'MT5 terminal', online: (a as any).online });
@@ -20687,27 +20692,38 @@ Respond with ONLY valid JSON:
     return res.json({ deployments: await listDeployments(userId, strategyId > 0 ? strategyId : undefined) });
   });
 
-  // Deploy a saved strategy to one account. Spec strategies are executed
-  // by the deployment runner on exactly this account. Engine-native
-  // strategies execute through the FX engine itself (per user) — the
-  // deployment binds the strategy to this account for tracking + brain,
-  // and the response says so instead of pretending otherwise.
+  // Deploy a saved strategy to one account — or to Shadow (virtual):
+  // platform='shadow' creates an account-less deployment the runner
+  // trades virtually (see services/strategy-shadow.ts). Spec strategies
+  // are executed by the deployment runner on exactly this account.
+  // Engine-native strategies execute through the FX engine itself
+  // (per user) — the deployment binds the strategy to this account for
+  // tracking + brain, and the response says so instead of pretending
+  // otherwise. Engine strategies cannot be shadow-deployed (the shadow
+  // runner evaluates specs; engines have none).
   app.post("/api/strategy-wizard/deployments", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     try {
       const strategyId = Number(req.body?.strategyId ?? 0);
       const platform = String(req.body?.platform ?? '');
-      const connectionRef = String(req.body?.connectionRef ?? '');
-      const accountLabel = req.body?.accountLabel ? String(req.body.accountLabel) : null;
-      if (!strategyId || !['mt5', 'tradelocker', 'dxtrade'].includes(platform) || !connectionRef) {
-        return res.status(400).json({ error: 'strategyId, platform (mt5|tradelocker|dxtrade) and connectionRef are required' });
+      const isShadow = platform === 'shadow';
+      // A shadow deployment has no account: ref/label are fixed markers
+      // so the one-running-per-(strategy, platform, ref) check and the
+      // UI both read plainly, and no account verification applies.
+      const connectionRef = isShadow ? 'virtual' : String(req.body?.connectionRef ?? '');
+      const accountLabel = isShadow ? 'Shadow (virtual)' : (req.body?.accountLabel ? String(req.body.accountLabel) : null);
+      if (!strategyId || !['mt5', 'tradelocker', 'dxtrade', 'shadow'].includes(platform) || !connectionRef) {
+        return res.status(400).json({ error: 'strategyId and platform (mt5|tradelocker|dxtrade|shadow) are required; connectionRef is required for account deployments' });
       }
       const { getWizardStrategy } = await import('./services/wizard-spec-strategies');
       const strat = await getWizardStrategy(userId, strategyId);
       if (!strat) return res.status(404).json({ error: 'strategy not found' });
       const spec: any = strat.spec;
       const isEngine = spec.source === 'engine';
+      if (isEngine && isShadow) {
+        return res.status(400).json({ error: 'Engine strategies execute through the FX engine — there is no per-strategy spec for the shadow runner to evaluate. Shadow deployments are for spec strategies (templates and condition-builder strategies).' });
+      }
       if (!isEngine && !spec.entryLong?.conditions?.length && !spec.entryShort?.conditions?.length) {
         return res.status(400).json({ error: 'This strategy has no mechanical entry rules to run live. Pattern templates need the MT5 EA or a manual run — there is nothing honest to deploy.' });
       }
@@ -20735,14 +20751,18 @@ Respond with ONLY valid JSON:
       const dep = await createDeployment(userId, strategyId, platform, connectionRef, accountLabel);
       return res.status(201).json({
         deployment: dep,
-        execution: isEngine
-          ? 'engine'
-          : 'runner',
-        note: isEngine
-          ? 'Engine strategies run through the FX engine, which trades your auto-enabled accounts as one pool. This deployment binds the strategy to the chosen account for tracking and its brain — it does not re-route the engine.'
-          : platform === 'mt5'
-            ? 'The runner sends this strategy\'s signals to the chosen MT5 terminal only (its receive-signals flag is now exclusive). The EA on that terminal executes them.'
-            : 'The runner evaluates this strategy on closed bars and trades only the chosen account.',
+        execution: isShadow
+          ? 'shadow'
+          : isEngine
+            ? 'engine'
+            : 'runner',
+        note: isShadow
+          ? 'Shadow deployment: the runner evaluates this strategy on closed bars and trades it VIRTUALLY — fills are simulated from bar prices and no broker order is ever sent. Results build the Shadow (virtual) layer of its brain and feed the shared shadow ledger; they never count toward Brain Marketplace eligibility.'
+          : isEngine
+            ? 'Engine strategies run through the FX engine, which trades your auto-enabled accounts as one pool. This deployment binds the strategy to the chosen account for tracking and its brain — it does not re-route the engine.'
+            : platform === 'mt5'
+              ? 'The runner sends this strategy\'s signals to the chosen MT5 terminal only (its receive-signals flag is now exclusive). The EA on that terminal executes them.'
+              : 'The runner evaluates this strategy on closed bars and trades only the chosen account.',
       });
     } catch (err: any) {
       console.error('[strategy-wizard] deploy failed:', err);
@@ -20794,7 +20814,10 @@ Respond with ONLY valid JSON:
       const { listStrategyTrades } = await import('./services/strategy-deployments');
       const trades = await listStrategyTrades(userId, strategyId, 2000);
       const rows = trades
-        .filter((t) => t.status === 'closed' && t.pnl != null)
+        // LIVE rows only — shadow (virtual) fills are a separate brain
+        // layer and must never enter a Marketplace snapshot or its
+        // stats (brain.listableTrades above is likewise live-only).
+        .filter((t) => t.status === 'closed' && t.pnl != null && (t as any).mode !== 'shadow')
         .map((t) => ({
           symbol: String(t.symbol || '').toUpperCase(),
           direction: t.direction,
