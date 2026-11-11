@@ -12,9 +12,10 @@
  * exempt) enforced in the routes via jobsToday().
  *
  * The render itself is unchanged: renderContentVideo (plan → provider
- * render with Replicate→fal fallback → branding → durable store), and
- * the generation-history record is written exactly as the sync routes
- * wrote it, so the Saved library sees the same data.
+ * render via video-generation.ts — OpenRouter primary since 2026-11-11,
+ * then Replicate, then fal → branding → durable store), and the
+ * generation-history record is written exactly as the sync routes wrote
+ * it, so the Saved library sees the same data.
  */
 import { pool } from '../db';
 import { ensureJobTable, updateContentJob } from './explainer-video';

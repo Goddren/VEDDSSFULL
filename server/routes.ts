@@ -31050,9 +31050,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
-  // POST /api/content-studio/generate-video — AI video clip via Replicate
-  // (Wan 2.2 Fast). Slower and pricier than image gen, so gated the same way
-  // and left as an explicit opt-in action, never auto-triggered.
+  // POST /api/content-studio/generate-video — AI video clip (provider chain
+  // in video-generation.ts; OpenRouter primary since 2026-11-11, Replicate
+  // and fal as fallbacks). Slower and pricier than image gen, so gated the
+  // same way and left as an explicit opt-in action, never auto-triggered.
   // ── Explainer videos (explainer-video.ts): script -> Veo 3 scenes with
   // narration -> joined + branded. Background job; the client polls it.
   // Ambassadors: EXPLAINER_DAILY_LIMIT per 24h (default 2); admins unlimited.
