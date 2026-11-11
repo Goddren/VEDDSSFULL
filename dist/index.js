@@ -14782,10 +14782,10 @@ var init_news_service = __esm({
       initialize(finnhubApiKey, openaiApiKey) {
         this.apiKey = finnhubApiKey || process.env.FINNHUB_API_KEY || null;
         const oaiKey = openaiApiKey || process.env.OPENAI_API_KEY;
-        const orKey = process.env.OPENROUTER_API_KEY;
+        const orKey2 = process.env.OPENROUTER_API_KEY;
         try {
-          if (orKey) {
-            this.openai = new OpenAI({ apiKey: orKey, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
+          if (orKey2) {
+            this.openai = new OpenAI({ apiKey: orKey2, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
             this.openai.defaultModel = "openai/gpt-oss-20b";
           } else if (oaiKey) {
             this.openai = new OpenAI({ apiKey: oaiKey });
@@ -28764,11 +28764,11 @@ function messagesHaveImage(messages) {
 }
 function getPlatformOpenAIClient() {
   const oaiKey = process.env.OPENAI_API_KEY;
-  const orKey = process.env.OPENROUTER_API_KEY;
+  const orKey2 = process.env.OPENROUTER_API_KEY;
   const realOpenAI = new OpenAI3({ apiKey: oaiKey || "not-configured", maxRetries: 4, timeout: 9e4 });
-  if (!orKey) return realOpenAI;
+  if (!orKey2) return realOpenAI;
   const orClient = new OpenAI3({
-    apiKey: orKey,
+    apiKey: orKey2,
     baseURL: "https://openrouter.ai/api/v1",
     maxRetries: 4,
     timeout: 9e4,
@@ -52803,11 +52803,11 @@ async function callAI(systemPrompt, userPrompt, maxTokens = 3e3) {
     { role: "system", content: systemPrompt },
     { role: "user", content: userPrompt }
   ];
-  const orKey = process.env.OPENROUTER_API_KEY;
-  if (orKey) {
+  const orKey2 = process.env.OPENROUTER_API_KEY;
+  if (orKey2) {
     try {
       const orClient = new OpenAI5({
-        apiKey: orKey,
+        apiKey: orKey2,
         baseURL: "https://openrouter.ai/api/v1",
         maxRetries: 2,
         timeout: 12e4,
@@ -68712,6 +68712,173 @@ var init_fal_video = __esm({
   }
 });
 
+// server/services/openrouter-video.ts
+function openrouterConfigured() {
+  return !!process.env.OPENROUTER_API_KEY;
+}
+function orKey() {
+  return process.env.OPENROUTER_API_KEY || null;
+}
+function orHeaders(key) {
+  return {
+    Authorization: `Bearer ${key}`,
+    "Content-Type": "application/json",
+    // House convention for OpenRouter calls (news-service.ts, routes.ts).
+    "HTTP-Referer": "https://veddbuild.com",
+    "X-Title": "VEDDBuild"
+  };
+}
+function fetchCatalog() {
+  if (!catalogPromise) {
+    catalogPromise = (async () => {
+      const map = /* @__PURE__ */ new Map();
+      try {
+        const res2 = await fetch(`${API_BASE2}/videos/models`, { signal: AbortSignal.timeout(15e3) });
+        if (!res2.ok) return map;
+        const data = await res2.json();
+        for (const m of Array.isArray(data?.data) ? data.data : []) {
+          if (!m?.id) continue;
+          map.set(m.id, {
+            durations: Array.isArray(m.supported_durations) ? m.supported_durations.map(Number).filter((n) => n > 0) : void 0,
+            resolutions: Array.isArray(m.supported_resolutions) ? m.supported_resolutions : void 0,
+            aspects: Array.isArray(m.supported_aspect_ratios) ? m.supported_aspect_ratios : void 0,
+            frameImages: Array.isArray(m.supported_frame_images) ? m.supported_frame_images : void 0
+          });
+        }
+      } catch (e) {
+        console.error("[openrouter-video] model catalog fetch failed:", e.message);
+      }
+      return map;
+    })();
+  }
+  return catalogPromise;
+}
+async function capsFor(model) {
+  const fromCatalog = (await fetchCatalog()).get(model);
+  if (fromCatalog) return fromCatalog;
+  if (model.includes("veo")) return { durations: [4, 6, 8], resolutions: ["720p", "1080p", "4K"], aspects: ["9:16", "16:9"], frameImages: ["first_frame", "last_frame"] };
+  return {};
+}
+function nearestDuration(requested, supported) {
+  if (!supported || supported.length === 0) return requested;
+  let best = supported[0];
+  for (const d of supported) {
+    const dist2 = Math.abs(d - requested);
+    const bestDist = Math.abs(best - requested);
+    if (dist2 < bestDist || dist2 === bestDist && d > best) best = d;
+  }
+  return best;
+}
+function pickResolution(want, supported) {
+  if (!supported || supported.length === 0 || supported.includes(want)) return want;
+  const wantRank = RES_RANK.indexOf(want);
+  const atOrBelow = supported.filter((r) => RES_RANK.indexOf(r) >= 0 && RES_RANK.indexOf(r) <= wantRank);
+  if (atOrBelow.length) return atOrBelow.sort((a, b) => RES_RANK.indexOf(b) - RES_RANK.indexOf(a))[0];
+  return supported[0];
+}
+function appBaseUrl() {
+  return (process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "https://veddbuild.com").replace(/\/$/, "");
+}
+async function generateOpenRouterVideo(styledPrompt, opts) {
+  const key = orKey();
+  if (!key) {
+    console.error("[openrouter-video] OPENROUTER_API_KEY not set \u2014 cannot generate video");
+    return null;
+  }
+  const { quality, image } = opts;
+  const model = quality === "high" ? HIGH_MODEL2 : FAST_MODEL2;
+  const caps = await capsFor(model);
+  const duration = nearestDuration(opts.durationSeconds, caps.durations);
+  const resolution = pickResolution(quality === "high" ? "1080p" : "720p", caps.resolutions);
+  const input = {
+    model,
+    prompt: styledPrompt,
+    duration,
+    resolution,
+    generate_audio: false
+    // silent clips — VO/captions are post-production in this pipeline
+  };
+  if (!caps.aspects || caps.aspects.includes(opts.aspect)) input.aspect_ratio = opts.aspect;
+  if (image) {
+    if (!caps.frameImages || caps.frameImages.length === 0 || caps.frameImages.includes("first_frame")) {
+      input.frame_images = [{ type: "image_url", image_url: { url: image }, frame_type: "first_frame" }];
+    } else {
+      console.log(`[openrouter-video] model ${model} does not accept a first frame \u2014 generating text-to-video instead`);
+    }
+  }
+  try {
+    console.log(`[openrouter-video] quality=${quality} model=${model} mode=${input.frame_images ? "image-to-video" : "text-to-video"} duration=${duration}s resolution=${resolution}`);
+    const submit = await fetch(`${API_BASE2}/videos`, {
+      method: "POST",
+      headers: orHeaders(key),
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(3e4)
+    });
+    if (!submit.ok) {
+      const body = await submit.text().catch(() => "");
+      console.error("[openrouter-video] submit error:", submit.status, body.slice(0, 300));
+      return null;
+    }
+    const queued = await submit.json();
+    const jobId = queued?.id;
+    if (!jobId) {
+      console.error("[openrouter-video] submit returned no job id");
+      return null;
+    }
+    const pollUrl = queued?.polling_url || `${API_BASE2}/videos/${jobId}`;
+    let status = String(queued?.status || "pending");
+    for (let i = 0; i < MAX_POLLS2 && status !== "completed"; i++) {
+      if (status === "failed" || status === "error" || status === "cancelled" || status === "canceled") break;
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS2));
+      const poll = await fetch(pollUrl, {
+        headers: orHeaders(key),
+        signal: AbortSignal.timeout(15e3)
+      });
+      if (!poll.ok) break;
+      const pj = await poll.json();
+      status = String(pj?.status || "");
+    }
+    if (status !== "completed") {
+      console.error("[openrouter-video] video did not complete in time:", status);
+      return null;
+    }
+    const contentUrl = `${API_BASE2}/videos/${jobId}/content?index=0`;
+    const download = await fetch(contentUrl, {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(6e4)
+    });
+    if (!download.ok) {
+      console.error("[openrouter-video] content download error:", download.status);
+      return null;
+    }
+    const mimeType = download.headers.get("content-type") || "video/mp4";
+    const buf = Buffer.from(await download.arrayBuffer());
+    const saved = await persistBuffer(buf, mimeType);
+    if (saved) {
+      return { url: `${appBaseUrl()}${saved.url}`, provider: `openrouter:${model}`, quality };
+    }
+    console.error("[openrouter-video] asset persistence failed \u2014 returning raw content URL (requires auth; last resort)");
+    return { url: contentUrl, provider: `openrouter:${model}`, quality };
+  } catch (e) {
+    console.error("[openrouter-video] error:", e.message);
+    return null;
+  }
+}
+var FAST_MODEL2, HIGH_MODEL2, API_BASE2, POLL_INTERVAL_MS2, MAX_POLLS2, catalogPromise, RES_RANK;
+var init_openrouter_video = __esm({
+  "server/services/openrouter-video.ts"() {
+    "use strict";
+    init_content_asset_store();
+    FAST_MODEL2 = process.env.OPENROUTER_VIDEO_MODEL || "google/veo-3.1-fast";
+    HIGH_MODEL2 = process.env.OPENROUTER_VIDEO_HIGH_MODEL || FAST_MODEL2;
+    API_BASE2 = "https://openrouter.ai/api/v1";
+    POLL_INTERVAL_MS2 = 5e3;
+    MAX_POLLS2 = 60;
+    catalogPromise = null;
+    RES_RANK = ["360p", "480p", "720p", "1080p", "2K", "4K"];
+  }
+});
+
 // server/services/video-generation.ts
 function buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, aspect = "9:16") {
   if (model.includes("kling")) {
@@ -68745,17 +68912,20 @@ async function generateContentVideo(prompt, opts) {
   const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX2}`;
   const aspect = opts?.aspect === "16:9" ? "16:9" : "9:16";
   const shared = { quality, image, durationSeconds, numFrames, aspect };
-  if ((process.env.VIDEO_PROVIDER || "").toLowerCase() === "fal") {
-    const viaFal = await generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS });
-    if (viaFal) return viaFal;
-    console.log("[video-generation] fal failed \u2014 falling back to Replicate");
-    return generateViaReplicate(styledPrompt, shared);
-  }
-  const viaReplicate = await generateViaReplicate(styledPrompt, shared);
-  if (viaReplicate) return viaReplicate;
-  if (falConfigured()) {
-    console.log("[video-generation] Replicate failed \u2014 falling back to fal.ai");
-    return generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS });
+  const pref = (process.env.VIDEO_PROVIDER || "").toLowerCase();
+  const attempts = [
+    { name: "replicate", configured: () => !!process.env.REPLICATE_API_TOKEN, run: () => generateViaReplicate(styledPrompt, shared) },
+    { name: "fal", configured: falConfigured, run: () => generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS }) },
+    { name: "openrouter", configured: openrouterConfigured, run: () => generateOpenRouterVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS }) }
+  ];
+  const primaryIdx = attempts.findIndex((a) => a.name === pref);
+  if (primaryIdx > 0) attempts.unshift(attempts.splice(primaryIdx, 1)[0]);
+  for (let i = 0; i < attempts.length; i++) {
+    const attempt = attempts[i];
+    if (i > 0 && !attempt.configured()) continue;
+    const video = await attempt.run();
+    if (video) return video;
+    if (i < attempts.length - 1) console.log(`[video-generation] ${attempt.name} failed \u2014 falling back to the next provider`);
   }
   return null;
 }
@@ -68766,7 +68936,7 @@ async function generateViaReplicate(styledPrompt, opts) {
     return null;
   }
   const { quality, image, durationSeconds, numFrames, aspect } = opts;
-  const model = image ? quality === "high" ? HIGH_I2V_MODEL2 : FAST_I2V_MODEL2 : quality === "high" ? HIGH_MODEL2 : FAST_MODEL2;
+  const model = image ? quality === "high" ? HIGH_I2V_MODEL2 : FAST_I2V_MODEL2 : quality === "high" ? HIGH_MODEL3 : FAST_MODEL3;
   const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, aspect);
   try {
     console.log(`[video-generation] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
@@ -68798,8 +68968,8 @@ async function generateViaReplicate(styledPrompt, opts) {
     }
     let data = await res2.json();
     const getUrl = data?.urls?.get;
-    for (let i = 0; i < MAX_POLLS2 && getUrl && (data.status === "starting" || data.status === "processing"); i++) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS2));
+    for (let i = 0; i < MAX_POLLS3 && getUrl && (data.status === "starting" || data.status === "processing"); i++) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS3));
       const poll = await fetch(getUrl, {
         headers: { Authorization: `Bearer ${apiKey}` },
         signal: AbortSignal.timeout(15e3)
@@ -68820,23 +68990,24 @@ async function generateViaReplicate(styledPrompt, opts) {
     return null;
   }
 }
-var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX2, FAST_MODEL2, HIGH_MODEL2, FAST_I2V_MODEL2, HIGH_I2V_MODEL2, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS2, MAX_POLLS2;
+var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX2, FAST_MODEL3, HIGH_MODEL3, FAST_I2V_MODEL2, HIGH_I2V_MODEL2, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS3, MAX_POLLS3;
 var init_video_generation = __esm({
   "server/services/video-generation.ts"() {
     "use strict";
     init_fal_video();
+    init_openrouter_video();
     VEDD_STYLE_LOCK = ". Shot as a grainy 35mm cinematic film still: heavy analog film grain, desaturated moody color grade with one warm gold light source, shallow depth of field, photorealistic. Slow, subtle ambient motion only \u2014 no fast or shaky camera movement.";
     NO_TEXT_SUFFIX = " No on-screen text, captions, subtitles, signage, logos or readable words anywhere in the frame \u2014 pure visual scene only.";
     HUMAN_STYLE_SUFFIX2 = " If people appear: young Black people, natural skin tones, contemporary streetwear, authentic inner-city/urban setting.";
-    FAST_MODEL2 = "wan-video/wan-2.2-t2v-fast";
-    HIGH_MODEL2 = process.env.VIDEO_HIGH_MODEL || "wan-video/wan-2.2-t2v-fast";
+    FAST_MODEL3 = "wan-video/wan-2.2-t2v-fast";
+    HIGH_MODEL3 = process.env.VIDEO_HIGH_MODEL || "wan-video/wan-2.2-t2v-fast";
     FAST_I2V_MODEL2 = process.env.VIDEO_FAST_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
     HIGH_I2V_MODEL2 = process.env.VIDEO_HIGH_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
     DEFAULT_FPS = 16;
     MIN_NUM_FRAMES = 81;
     MAX_DURATION_SECONDS = 6;
-    POLL_INTERVAL_MS2 = 5e3;
-    MAX_POLLS2 = 60;
+    POLL_INTERVAL_MS3 = 5e3;
+    MAX_POLLS3 = 60;
   }
 });
 
@@ -73975,15 +74146,15 @@ async function pollOnce() {
   }
 }
 function startPaperTradeResolverLoop() {
-  console.log(`[paper-trade-resolver] Background paper-trade resolver loop started (${POLL_INTERVAL_MS3 / 6e4}min interval).`);
+  console.log(`[paper-trade-resolver] Background paper-trade resolver loop started (${POLL_INTERVAL_MS4 / 6e4}min interval).`);
   setInterval(() => {
     pollOnce().catch((e) => console.error("[paper-trade-resolver] Poll error:", e.message));
-  }, POLL_INTERVAL_MS3);
+  }, POLL_INTERVAL_MS4);
   setTimeout(() => {
     pollOnce().catch((e) => console.error("[paper-trade-resolver] Initial poll error:", e.message));
   }, 3e4);
 }
-var POLL_INTERVAL_MS3;
+var POLL_INTERVAL_MS4;
 var init_paper_trade_resolver_loop = __esm({
   "server/services/paper-trade-resolver-loop.ts"() {
     "use strict";
@@ -73991,7 +74162,7 @@ var init_paper_trade_resolver_loop = __esm({
     init_schema();
     init_service();
     init_paper_trade_tracker();
-    POLL_INTERVAL_MS3 = 10 * 60 * 1e3;
+    POLL_INTERVAL_MS4 = 10 * 60 * 1e3;
   }
 });
 
@@ -74064,22 +74235,22 @@ async function auditOnce() {
   await auditDxtrade();
 }
 function startPropFirmConsistencyAuditLoop() {
-  console.log(`[Consistency Audit] Background prop-firm consistency audit loop started (${POLL_INTERVAL_MS4 / 6e4}min interval).`);
+  console.log(`[Consistency Audit] Background prop-firm consistency audit loop started (${POLL_INTERVAL_MS5 / 6e4}min interval).`);
   setInterval(() => {
     auditOnce().catch((e) => console.error("[Consistency Audit] Poll error:", e.message));
-  }, POLL_INTERVAL_MS4);
+  }, POLL_INTERVAL_MS5);
   setTimeout(() => {
     auditOnce().catch((e) => console.error("[Consistency Audit] Initial poll error:", e.message));
   }, 2e4);
 }
-var POLL_INTERVAL_MS4;
+var POLL_INTERVAL_MS5;
 var init_prop_firm_consistency_audit_loop = __esm({
   "server/services/prop-firm-consistency-audit-loop.ts"() {
     "use strict";
     init_storage();
     init_db();
     init_prop_firm_consistency();
-    POLL_INTERVAL_MS4 = 3 * 60 * 1e3;
+    POLL_INTERVAL_MS5 = 3 * 60 * 1e3;
   }
 });
 
@@ -74844,9 +75015,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "20b17113-dirty";
-var BUILD_BRANCH = "fix/crash-hardening";
-var BUILT_AT = "2026-11-11T05:01:05.649Z";
+var BUILD_COMMIT = "9a398c2e-dirty";
+var BUILD_BRANCH = "feat/openrouter-video-provider";
+var BUILT_AT = "2026-11-11T05:23:58.094Z";
 
 // server/stripe.ts
 init_db();
@@ -82324,7 +82495,7 @@ IMPORTANT:
         recordAttempt("ElevenLabs", "elevenlabs", null, "no ElevenLabs API key configured");
       }
       const orEnabled = process.env.ABBA_TTS_OPENROUTER !== "off";
-      const orKey = allKeys.find((k2) => k2.provider === "openrouter" && k2.isActive)?.apiKey || process.env.OPENROUTER_API_KEY;
+      const orKey2 = allKeys.find((k2) => k2.provider === "openrouter" && k2.isActive)?.apiKey || process.env.OPENROUTER_API_KEY;
       const OR_ELEVENLABS_VOICE_BY_ID = {
         "pNInz6obpgDQGcFmaJgB": "adam",
         // Adam — exact match in supported_voices
@@ -82336,7 +82507,7 @@ IMPORTANT:
         // Rachel (not listed) → closest young American female
       };
       const tryOpenRouterSpeech = async (name, slug, model, voice) => {
-        if (!orKey) {
+        if (!orKey2) {
           recordAttempt(name, slug, null, "no OpenRouter API key configured");
           return false;
         }
@@ -82348,7 +82519,7 @@ IMPORTANT:
             orRes = await fetch("https://openrouter.ai/api/v1/audio/speech", {
               method: "POST",
               signal: ctrl.signal,
-              headers: { "Authorization": `Bearer ${orKey}`, "Content-Type": "application/json" },
+              headers: { "Authorization": `Bearer ${orKey2}`, "Content-Type": "application/json" },
               // response_format pinned to mp3 — the endpoint defaults to pcm.
               // voice_settings are not part of the OpenAI-compatible speech
               // schema and are not forwarded.
@@ -97396,7 +97567,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     }
   });
   app2.get("/api/ai-status", async (_req, res2) => {
-    const orKey = process.env.OPENROUTER_API_KEY || "";
+    const orKey2 = process.env.OPENROUTER_API_KEY || "";
     let dbInfo = {};
     try {
       const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
@@ -97409,9 +97580,9 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     }
     res2.json({
       buildTag: "db-identity-probe-2026-07-28",
-      openrouterConfigured: !!orKey,
-      openrouterKeyLen: orKey.length,
-      openrouterKeyPrefix: orKey ? orKey.slice(0, 10) : null,
+      openrouterConfigured: !!orKey2,
+      openrouterKeyLen: orKey2.length,
+      openrouterKeyPrefix: orKey2 ? orKey2.slice(0, 10) : null,
       defaultTextModel: "openai/gpt-oss-20b",
       defaultVisionModel: "google/gemma-3-4b-it",
       openaiKeyPresent: !!process.env.OPENAI_API_KEY,
