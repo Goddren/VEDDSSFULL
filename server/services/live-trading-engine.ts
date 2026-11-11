@@ -74,6 +74,12 @@ interface NewsContext {
   headlines: string[];
   economicEvents: string[];
   highImpactSoon: boolean;
+  // Same blackout verdict as highImpactSoon EXCEPT the major-release
+  // post-release component uses the shortened ORB window (see
+  // newsBlackoutVerdicts). Consumed only by GATE 1 for ORB-originated
+  // decisions; every other consumer keeps using highImpactSoon, so the
+  // shared context is never weakened for non-ORB decisions.
+  highImpactSoonOrb: boolean;
   marketSentiment: string;
   tradingWindowWarning: string | null;
 }
@@ -114,11 +120,73 @@ function newsMajorPostMinutes(): number {
   return Math.min(1440, Math.max(0, raw));
 }
 
+// ── ORB exception to the major-release post window ───────────────────────────
+// The 90-min major-release blackout eats ORB's first 30 min on 8:30 AM ET
+// print mornings (gate held until 10:00 AM ET) and its entire afternoon
+// window on FOMC days. ORB-originated entries (the autonomous orb_breakout
+// lane, and sniper / prop_firm_sniper decisions carrying the ORB marker) are
+// time-critical retest trades, so for major releases THEY get a shorter
+// post-release window: NEWS_MAJOR_POST_MINUTES_ORB (default 30). Everything
+// else about the gate is identical — the 2h PRE-release window and the 5-min
+// post window for non-major high-impact events apply to ORB entries too.
+// Kill switch: ORB_NEWS_SHORTEN=off restores the uniform standard window.
+function newsOrbShortenEnabled(): boolean {
+  return process.env.ORB_NEWS_SHORTEN !== 'off';
+}
+
+function newsMajorPostMinutesOrb(): number {
+  if (!newsOrbShortenEnabled()) return newsMajorPostMinutes();
+  const raw = parseInt(process.env.NEWS_MAJOR_POST_MINUTES_ORB || '', 10);
+  if (isNaN(raw)) return 30;
+  return Math.min(1440, Math.max(0, raw));
+}
+
+/**
+ * Blackout verdicts for ONE calendar event, standard vs ORB-originated.
+ * diffMs = eventTime − now (negative once the release has printed).
+ * Pure apart from env reads; opts override for tests.
+ */
+export function newsBlackoutVerdicts(
+  diffMs: number,
+  eventName: string,
+  opts?: { widenEnabled?: boolean; majorPostMin?: number; orbPostMin?: number },
+): { standard: boolean; orb: boolean } {
+  const twoHoursMs = 2 * 60 * 60 * 1000;
+  const widen = opts?.widenEnabled ?? newsWidenEnabled();
+  const major = widen && isMajorNewsRelease(eventName);
+  const stdPostMin = major ? (opts?.majorPostMin ?? newsMajorPostMinutes()) : 5;
+  const orbPostMin = major ? (opts?.orbPostMin ?? newsMajorPostMinutesOrb()) : 5;
+  return {
+    standard: diffMs > -stdPostMin * 60000 && diffMs < twoHoursMs,
+    orb: diffMs > -orbPostMin * 60000 && diffMs < twoHoursMs,
+  };
+}
+
+/** Is this decision ORB-originated (autonomous ORB lane or a marked sniper-ORB entry)? */
+export function isOrbOriginDecision(decision: any): boolean {
+  const s = String(decision?.strategy || '').toLowerCase();
+  if (s === 'orb_breakout') return true;
+  // The ORB marker only counts on the sniper labels the ORB path produces.
+  return decision?.orbSetup === true && (s === 'sniper' || s === 'prop_firm_sniper');
+}
+
+/**
+ * GATE 1 verdict for a decision against a news context. ORB-originated
+ * decisions use the ORB verdict (shortened major-release post window) when
+ * the context carries one; all other decisions use the standard verdict.
+ */
+export function newsGateBlocks(newsCtx: NewsContext | undefined | null, orbOrigin: boolean): boolean {
+  if (!newsCtx) return false;
+  if (orbOrigin && typeof newsCtx.highImpactSoonOrb === 'boolean') return newsCtx.highImpactSoonOrb;
+  return newsCtx.highImpactSoon === true;
+}
+
 async function fetchNewsContext(pairs: string[]): Promise<NewsContext> {
   const context: NewsContext = {
     headlines: [],
     economicEvents: [],
     highImpactSoon: false,
+    highImpactSoonOrb: false,
     marketSentiment: 'neutral',
     tradingWindowWarning: null,
   };
@@ -147,7 +215,6 @@ async function fetchNewsContext(pairs: string[]): Promise<NewsContext> {
 
     if (calendar && calendar.length > 0) {
       const now = Date.now();
-      const twoHoursMs = 2 * 60 * 60 * 1000;
 
       const relevantCurrencies = new Set<string>();
       for (const pair of pairs) {
@@ -174,10 +241,14 @@ async function fetchNewsContext(pairs: string[]): Promise<NewsContext> {
               // Post-release window: 5 min for a standard high-impact event;
               // major releases (CPI/NFP/FOMC/GDP/retail sales) stay blacked
               // out for newsMajorPostMinutes() — post-print chop protection.
-              const major = newsWidenEnabled() && isMajorNewsRelease(event.event || '');
-              const majorPostMin = newsMajorPostMinutes();
-              const postWindowMs = (major ? majorPostMin : 5) * 60000;
-              if (diff > -postWindowMs && diff < twoHoursMs) {
+              // The ORB verdict is computed alongside (same pre-release
+              // window; only the major-release POST window is shorter) and
+              // only GATE 1 reads it, only for ORB-originated decisions.
+              const verdicts = newsBlackoutVerdicts(diff, event.event || '');
+              if (verdicts.orb) context.highImpactSoonOrb = true;
+              if (verdicts.standard) {
+                const major = newsWidenEnabled() && isMajorNewsRelease(event.event || '');
+                const majorPostMin = newsMajorPostMinutes();
                 context.highImpactSoon = true;
                 const minsAway = Math.round(diff / 60000);
                 if (major && minsAway < 0) {
@@ -287,6 +358,11 @@ interface LiveEngineConfig {
   allowMultipleTrades: boolean;
   // ORB Autonomous mode: fire 9:30 AM opening range breakout trades autonomously
   enableORBAutonomous: boolean;
+  // Sniper ORB: feed today's opening-range state into sniper / prop_firm_sniper
+  // decisions (AI prompt context + rules-score confluence) so sniper entries can
+  // fire on ORB breakout+retest setups under the sniper label. Kill switch:
+  // SNIPER_ORB=off. Shares the once-per-pair-per-day marker with the lane above.
+  enableSniperORB: boolean;
   // Composite Autonomous mode: fire trades directly from Markov×Polymarket (crypto only)
   enableCompositeAutonomous: boolean;
   compositeMinEdgeScore: number; // 0-100, default 72 — minimum edge score to fire autonomous trade
@@ -1104,6 +1180,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     singleStrategyMode: false,
     allowMultipleTrades: true,
     enableORBAutonomous: true,
+    enableSniperORB: true,
     enableCompositeAutonomous: true,
     compositeMinEdgeScore: 72,
     aiMode: 'full',
@@ -3596,6 +3673,16 @@ async function buildRulesPicks(userId: number, marketAnalysis: Record<string, an
       const rec = selectStrategyForPair(symbol, data, htfMarketData?.[symbol], state.asiaRangeHigh?.[symbol], state.asiaRangeLow?.[symbol],
         hour, now.getUTCMinutes(), state.lastHighImpactNewsAt, state.config.strategyMode);
 
+      // Sniper-ORB confluence (rules lane): today's opening-range state via
+      // the 60s cache shared with the AI prompt path. Skipped entirely when
+      // sniper-ORB is off or an ORB trade already fired this pair today
+      // (shared orbDailyFired marker). The score term only pays out when the
+      // pick direction matches the breakout direction.
+      const _orbState = sniperOrbEnabled(state.config) && state.orbDailyFired?.[symbol] !== getNYTime(Date.now()).dateStr
+        ? await getSniperOrbState(userId, symbol)
+        : null;
+      const _orbRetest = !!(_orbState && _orbState.phase === 'retest');
+
       // fx-brain: edge of the conditions this pick sits in vs the pair baseline,
       // and whether it sits in a FAILS condition (same predicate as fxBrainGateVerdict).
       const b = brains[sym.split('.')[0].replace(/[^A-Z0-9]/g, '')];
@@ -3634,6 +3721,8 @@ async function buildRulesPicks(userId: number, marketAnalysis: Record<string, an
         model: idea && mstat ? { direction: idea.direction, avgR: mstat.avgR, n: mstat.n } : null,
         newsSoon: !!newsContext?.highImpactSoon,
         relVolume,
+        orbRetest: _orbRetest,
+        orbDirection: _orbState?.breakoutDir ?? null,
       });
 
       let decision: any = null;
@@ -3662,6 +3751,18 @@ async function buildRulesPicks(userId: number, marketAnalysis: Record<string, an
           urgency: 'IMMEDIATE',
           decisionLane: 'rules',
         };
+        // ORB-sniper: when the retest term actually paid out for a
+        // sniper-family pick, mark the decision so processDecision applies
+        // the shared once-per-pair-per-day ORB coordination + brain tag.
+        if ((rs.terms.orb || 0) > 0) {
+          const _st = String(decision.strategy || '').toLowerCase();
+          if (_st === 'sniper' || _st === 'prop_firm_sniper') {
+            decision.orbSetup = true;
+            if (Array.isArray(decision.confluences) && !decision.confluences.includes('ORB breakout+retest')) {
+              decision.confluences = [...decision.confluences, 'ORB breakout+retest'];
+            }
+          }
+        }
       }
       out.push({ rs, decision, session, hour });
     } catch { /* one pair failing never blocks the others */ }
@@ -4547,6 +4648,43 @@ Your job is to protect what's been built and claw back to the peak methodically.
 `;
     }
 
+    // ── Sniper ORB context ─────────────────────────────────────────────
+    // When sniper / prop_firm_sniper is in play during the NY ORB window,
+    // hand the model today's opening-range state per pair so sniper entries
+    // can fire on ORB breakout+retest setups under the sniper label (the
+    // mechanical orb_breakout lane stays separate). Pairs whose ORB slot
+    // already fired today are excluded — processDecision enforces the same
+    // shared marker. Kill switch SNIPER_ORB=off / config enableSniperORB.
+    let orbSniperSection = '';
+    if (sniperOrbEnabled(config)) {
+      const _orbLabel = config.propFirmMode ? 'prop_firm_sniper' : 'sniper';
+      const _orbRelevant = config.propFirmMode || Object.values(pairStrategies).some(r => r.strategy === 'sniper' || r.strategy === 'prop_firm_sniper');
+      if (_orbRelevant) {
+        const _orbTodayKey = getNYTime(Date.now()).dateStr;
+        const _orbLines: string[] = [];
+        for (const sym of Object.keys(marketAnalysis)) {
+          if (state.orbDailyFired?.[sym] === _orbTodayKey) continue; // ORB slot already used today
+          const st = await getSniperOrbState(userId, sym);
+          if (!st || st.phase === 'no_range') continue;
+          const base = `${sym}: ORB range ${st.orbLow.toFixed(5)}–${st.orbHigh.toFixed(5)} (width ${(st.range * 10000).toFixed(0)} pips), price ${st.currentPrice.toFixed(5)}`;
+          if (st.phase === 'retest') {
+            _orbLines.push(`- ${base} — CONFIRMED ${st.breakoutDir} breakout, price is RETESTING the broken level NOW ✓ SNIPER-ORB SETUP LIVE`);
+          } else if (st.phase === 'breakout') {
+            _orbLines.push(`- ${base} — confirmed ${st.breakoutDir} breakout, NO retest yet (do not chase; wait for the retest)`);
+          } else {
+            _orbLines.push(`- ${base} — range set, no confirmed breakout yet`);
+          }
+        }
+        if (_orbLines.length > 0) {
+          orbSniperSection = `
+🎯 ORB SNIPER SETUPS (New York opening range, 9:30–9:45 AM ET — live state for this scan):
+${_orbLines.join('\n')}
+INSTRUCTION: For a pair marked "SNIPER-ORB SETUP LIVE", a confirmed ORB breakout + active retest is a VALID sniper entry: you may fire an OPEN_TRADE under your normal strategy label ("${_orbLabel}") in the breakout direction, with stopLoss beyond the FAR side of the ORB range and takeProfit per your normal sniper rules (minimum 1:2 R:R). ONLY for that setup: include "orbSetup": true in the decision JSON and add "ORB breakout+retest" to its confluences. At most ONE ORB entry per pair per day — the engine code-enforces this and will reject a second one. Do NOT fire ORB entries on pairs without a live retest.
+`;
+        }
+      }
+    }
+
     // ── Trigger Alert Block ─────────────────────────────────────────────
     let triggerSection = '';
     if (triggerAlerts && triggerAlerts.length > 0) {
@@ -4616,7 +4754,7 @@ ${brainInsights}
 
 PAIR-SPECIFIC KNOWLEDGE:
 ${pairKnowledge}
-${weightsSection}${htfBiasSection}${shieldSection}${dualModeSection}${goalSection}${goalPaceSection}
+${weightsSection}${htfBiasSection}${shieldSection}${orbSniperSection}${dualModeSection}${goalSection}${goalPaceSection}
 REAL-TIME NEWS & MARKET SENTIMENT:
 ${newsContext && newsContext.headlines.length > 0 ? `Market Sentiment: ${newsContext.marketSentiment.toUpperCase()}
 Recent Headlines:
@@ -4932,7 +5070,8 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
       "orderType": "market|stop_entry|limit_entry",
       "tradingWindow": "prime|good|marginal|avoid",
       "entryTiming": "PRIME_ENTRY|WAIT_PULLBACK|WAIT_STRUCTURE|AVOID",
-      "pyramidOf": "signal ID if adding to existing winning trade"
+      "pyramidOf": "signal ID if adding to existing winning trade",
+      "orbSetup": "true ONLY for a SNIPER-ORB SETUP LIVE entry (see ORB SNIPER SETUPS section), otherwise omit"
     }
   ],
   "marketOverview": "Current market read across all pairs",
@@ -5148,6 +5287,35 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
   }
 
   if (decision.action === 'OPEN_TRADE') {
+    // ── Sniper-ORB once-per-pair-per-day coordination ─────────────────────
+    // A sniper / prop_firm_sniper decision carrying the ORB marker (set by
+    // the AI prompt path or the rules lane when a confirmed breakout is being
+    // retested) shares state.orbDailyFired with the autonomous orb_breakout
+    // lane: whichever path fires a pair first marks it, and the other path
+    // will not fire the same pair again today. The marker is set HERE —
+    // before the gate stack — mirroring the autonomous lane, which also
+    // marks before its processDecision call.
+    if (decision.orbSetup === true && sniperOrbEnabled(config)) {
+      const _orbStrat = String(decision.strategy || '').toLowerCase();
+      if (_orbStrat === 'sniper' || _orbStrat === 'prop_firm_sniper') {
+        if (!state.orbDailyFired) state.orbDailyFired = {};
+        const _orbTodayKey = getNYTime(Date.now()).dateStr;
+        if (state.orbDailyFired[decision.symbol] === _orbTodayKey) {
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `🎯 ORB-SNIPER: ${decision.symbol} ${decision.direction} blocked — an ORB trade (autonomous lane or sniper-ORB) already fired this pair today. One ORB entry per pair per day across both paths.`,
+          });
+          state.signalsGenerated++;
+          return;
+        }
+        state.orbDailyFired[decision.symbol] = _orbTodayKey;
+        (decision as any).orbContext = { orb: true, phase: 'retest' };
+        if (Array.isArray(decision.confluences) && !decision.confluences.includes('ORB breakout+retest')) {
+          decision.confluences = [...decision.confluences, 'ORB breakout+retest'];
+        }
+      }
+    }
     // ── Daily Trade Cap (maxDailyTrades) ─────────────────────────────────
     // Reset counter at UTC midnight, then enforce the cap if set (0 = unlimited).
     {
@@ -5916,6 +6084,10 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         holdTime: decision.holdTime,
         takeProfit2: decision.takeProfit2,
         pyramidOf: decision.pyramidOf,
+        // ORB tag for the brain: sniper trades that fired on an ORB
+        // breakout+retest carry { orb: true, phase } so ORB-sniper
+        // performance can be learned separately later. Absent otherwise.
+        ...((decision as any).orbContext ? { orbContext: (decision as any).orbContext } : {}),
       },
     });
 
@@ -5988,11 +6160,20 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // post-release blackout extends to NEWS_MAJOR_POST_MINUTES (default 90;
     // NEWS_WIDEN=off disables), because post-print chop is where gated-through
     // trades bled on CPI day Nov 10, 2026.
-    if (newsCtx?.highImpactSoon === true) {
+    // ORB exception: ORB-originated decisions (orb_breakout lane, or a
+    // sniper/prop_firm_sniper decision carrying the ORB marker) are judged by
+    // the ORB verdict instead — identical except the major-release POST
+    // window is NEWS_MAJOR_POST_MINUTES_ORB (default 30;
+    // ORB_NEWS_SHORTEN=off restores the uniform window). The pre-release
+    // window and non-major handling are the same for everyone.
+    const _orbOrigin = isOrbOriginDecision(decision);
+    if (newsGateBlocks(newsCtx, _orbOrigin)) {
       addActivity(userId, {
         type: 'info',
         symbol: decision.symbol,
-        message: `📰 NEWS BLACKOUT: ${decision.symbol} ${signalDirection} BLOCKED — high-impact economic event imminent. No new entries until event clears. Protects open trades from spike stop-outs.`,
+        message: _orbOrigin
+          ? `📰 NEWS BLACKOUT (ORB ${newsMajorPostMinutesOrb()}m post-release window): ${decision.symbol} ${signalDirection} BLOCKED — high-impact economic event inside the shortened ORB window. No new entries until it clears.`
+          : `📰 NEWS BLACKOUT: ${decision.symbol} ${signalDirection} BLOCKED — high-impact economic event imminent. No new entries until event clears. Protects open trades from spike stop-outs.`,
       });
       state.signalsGenerated++;
       return;
@@ -8011,7 +8192,7 @@ const NY_TIME_FMT = new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/New_York', hour12: false,
   year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
 });
-function getNYTime(ts: number): { hour: number; minute: number; dateStr: string } {
+export function getNYTime(ts: number): { hour: number; minute: number; dateStr: string } {
   const parts = NY_TIME_FMT.formatToParts(new Date(ts));
   const get = (t: string) => Number(parts.find(p => p.type === t)?.value ?? 0);
   return {
@@ -8074,6 +8255,156 @@ async function getBrokerIndexCandles(
   return null;
 }
 
+// ── ORB state (shared: autonomous lane + sniper path) ───────────────────────
+// The opening-range computation lives in ONE place so the mechanical
+// orb_breakout lane and the sniper / prop_firm_sniper ORB context can never
+// disagree about today's range, breakout, or retest. runORBAutonomousScan
+// consumes getOrbStateFull below; its firing behavior is unchanged — the
+// extraction is verified by scripts/check-sniper-orb.ts, which diffs
+// computeOrbStateFromCandles against the original inline lane logic over
+// synthetic + randomized candle series.
+
+export interface OrbState {
+  orbHigh: number;            // 0 when no valid range yet
+  orbLow: number;
+  range: number;
+  breakoutDir: 'BUY' | 'SELL' | null;
+  retestActive: boolean;
+  phase: 'no_range' | 'awaiting_breakout' | 'breakout' | 'retest';
+  currentPrice: number;
+}
+
+type OrbCandle = { t: number; o: number; h: number; l: number; c: number; v: number };
+
+/** Pure ORB state from newest-first M5 candles — the exact math the autonomous lane has always run inline. */
+export function computeOrbStateFromCandles(m5BC: OrbCandle[], currentPrice: number, todayKey: string): OrbState {
+  // Today's ORB high/low from the 9:30–9:45 AM real NY candles
+  let orbHigh = 0, orbLow = 0;
+  const orbCandles = m5BC.filter(c => {
+    if (!c.t) return false;
+    const nyC = getNYTime(c.t * 1000);
+    return nyC.dateStr === todayKey && nyC.hour === 9 && nyC.minute >= 30 && nyC.minute < 45;
+  });
+  if (orbCandles.length > 0) {
+    orbHigh = Math.max(...orbCandles.map(c => c.h));
+    orbLow  = Math.min(...orbCandles.map(c => c.l));
+  }
+  if (orbHigh === 0 || orbLow === 0 || orbHigh <= orbLow) {
+    return { orbHigh: 0, orbLow: 0, range: 0, breakoutDir: null, retestActive: false, phase: 'no_range', currentPrice };
+  }
+
+  const orbRange = orbHigh - orbLow;
+  const retestBuffer = orbRange * 0.25; // widened from 0.15 — less strict on how close price must retrace to count as a retest
+
+  // Breakout: any post-9:45 candle (skipping the live one) whose full body
+  // closed beyond the range. Candles are newest-first, so the first match is
+  // the most recent breakout.
+  let breakoutDir: 'BUY' | 'SELL' | null = null;
+  const postORBCandles = m5BC.filter(c => {
+    if (!c.t) return false;
+    const nyC = getNYTime(c.t * 1000);
+    return nyC.dateStr === todayKey && (nyC.hour * 60 + nyC.minute) >= 9 * 60 + 45;
+  });
+  for (const c of postORBCandles.slice(1)) { // skip the most recent (live)
+    const bodyHigh = Math.max(c.o, c.c);
+    const bodyLow  = Math.min(c.o, c.c);
+    if (bodyLow > orbHigh) { breakoutDir = 'BUY'; break; }
+    if (bodyHigh < orbLow) { breakoutDir = 'SELL'; break; }
+  }
+  if (!breakoutDir) {
+    return { orbHigh, orbLow, range: orbRange, breakoutDir: null, retestActive: false, phase: 'awaiting_breakout', currentPrice };
+  }
+
+  // Retest: current price back near the broken ORB level (±25% of range)
+  const isRetestLong = breakoutDir === 'BUY' &&
+    currentPrice >= orbHigh - retestBuffer &&
+    currentPrice <= orbHigh + retestBuffer;
+  const isRetestShort = breakoutDir === 'SELL' &&
+    currentPrice >= orbLow - retestBuffer &&
+    currentPrice <= orbLow + retestBuffer;
+  const retestActive = isRetestLong || isRetestShort;
+
+  return { orbHigh, orbLow, range: orbRange, breakoutDir, retestActive, phase: retestActive ? 'retest' : 'breakout', currentPrice };
+}
+
+export interface OrbStateFull extends OrbState {
+  m5BC: OrbCandle[];
+  h1BC: OrbCandle[];
+}
+
+/**
+ * Full ORB state for today (NY): window gate + candle fetch, exactly as the
+ * autonomous lane has always done it. Null outside the 9:30 AM–3:00 PM ET
+ * window or when the candle feed is too thin (<6 M5 bars).
+ */
+async function getOrbStateFull(userId: number, symbol: string): Promise<OrbStateFull | null> {
+  const nowNY = getNYTime(Date.now());
+  const nowTotalMins = nowNY.hour * 60 + nowNY.minute;
+  if (nowTotalMins < 9 * 60 + 30 || nowTotalMins >= 15 * 60) return null; // outside trading window
+  const todayKey = nowNY.dateStr;
+
+  // Fetch M5 (and H1) candles for ORB detection. Indices (US30/NAS100/US500)
+  // source from the user's own connected MT5/TradeLocker feed instead of
+  // Twelve Data — see getBrokerIndexCandles for why.
+  const assetType = marketDataService.detectAssetType(symbol);
+  let m5BC: OrbCandle[];
+  let h1BC: OrbCandle[];
+  let currentPrice: number;
+
+  if (assetType === 'index') {
+    const brokerM5 = await getBrokerIndexCandles(userId, symbol, 'M5');
+    if (!brokerM5 || brokerM5.length < 6) return null; // no broker candle feed available for this index yet
+    m5BC = brokerM5;
+    h1BC = (await getBrokerIndexCandles(userId, symbol, 'H1')) || [];
+    currentPrice = m5BC[0].c; // newest-first — first element is the most recent bar
+  } else {
+    const m5Result = await marketDataService.fetchMarketData({
+      symbol, assetType, timeframe: '5m', limit: 60,
+    });
+    if (!m5Result.bars || m5Result.bars.length < 6) return null;
+
+    const h1Result = await marketDataService.fetchMarketData({
+      symbol, assetType, timeframe: '1h', limit: 30,
+    });
+
+    const m5Bars = m5Result.bars;
+    const h1Bars = h1Result.bars || [];
+    currentPrice = m5Bars[m5Bars.length - 1].close;
+
+    // Convert bars to BreakoutCandle format (newest-first for breakoutEngine)
+    const toBC = (b: any) => ({ o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume ?? 0, t: Math.floor((b.timestamp ?? Date.now()) / 1000) });
+    m5BC = [...m5Bars].reverse().map(toBC);
+    h1BC = [...h1Bars].reverse().map(toBC);
+  }
+
+  return { ...computeOrbStateFromCandles(m5BC, currentPrice, todayKey), m5BC, h1BC };
+}
+
+/** Public ORB state for the sniper path (AI prompt context + rules score). */
+export async function getOrbState(userId: number, symbol: string): Promise<OrbState | null> {
+  const full = await getOrbStateFull(userId, symbol);
+  if (!full) return null;
+  const { m5BC: _m5, h1BC: _h1, ...state } = full;
+  return state;
+}
+
+// Sniper-ORB master gate: env kill switch + per-engine config toggle.
+function sniperOrbEnabled(config: LiveEngineConfig): boolean {
+  return process.env.SNIPER_ORB !== 'off' && config.enableSniperORB !== false;
+}
+
+// 60s cache so the AI prompt builder and the rules lane share one candle
+// fetch per pair per scan instead of doubling market-data calls.
+const _sniperOrbCache = new Map<string, { at: number; state: OrbState | null }>();
+async function getSniperOrbState(userId: number, symbol: string): Promise<OrbState | null> {
+  const key = `${userId}:${symbol}`;
+  const hit = _sniperOrbCache.get(key);
+  if (hit && Date.now() - hit.at < 60000) return hit.state;
+  const state = await getOrbState(userId, symbol).catch(() => null);
+  _sniperOrbCache.set(key, { at: Date.now(), state });
+  return state;
+}
+
 async function runORBAutonomousScan(userId: number): Promise<void> {
   const state = engineStates[userId];
   if (!state) return;
@@ -8098,85 +8429,21 @@ async function runORBAutonomousScan(userId: number): Promise<void> {
       // Skip if already traded this pair today
       if (state.orbDailyFired[symbol] === todayKey) continue;
 
-      // Fetch M5 (and H1) candles for ORB detection. Indices (US30/NAS100/US500)
-      // source from the user's own connected MT5/TradeLocker feed instead of
-      // Twelve Data — see getBrokerIndexCandles for why.
-      const assetType = marketDataService.detectAssetType(symbol);
-      let m5BC: { t: number; o: number; h: number; l: number; c: number; v: number }[];
-      let h1BC: { t: number; o: number; h: number; l: number; c: number; v: number }[];
-      let currentPrice: number;
-
-      if (assetType === 'index') {
-        const brokerM5 = await getBrokerIndexCandles(userId, symbol, 'M5');
-        if (!brokerM5 || brokerM5.length < 6) continue; // no broker candle feed available for this index yet
-        m5BC = brokerM5;
-        h1BC = (await getBrokerIndexCandles(userId, symbol, 'H1')) || [];
-        currentPrice = m5BC[0].c; // newest-first — first element is the most recent bar
-      } else {
-        const m5Result = await marketDataService.fetchMarketData({
-          symbol, assetType, timeframe: '5m', limit: 60,
-        });
-        if (!m5Result.bars || m5Result.bars.length < 6) continue;
-
-        const h1Result = await marketDataService.fetchMarketData({
-          symbol, assetType, timeframe: '1h', limit: 30,
-        });
-
-        const m5Bars = m5Result.bars;
-        const h1Bars = h1Result.bars || [];
-        currentPrice = m5Bars[m5Bars.length - 1].close;
-
-        // Convert bars to BreakoutCandle format (newest-first for breakoutEngine)
-        const toBC = (b: any) => ({ o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume ?? 0, t: Math.floor((b.timestamp ?? Date.now()) / 1000) });
-        m5BC = [...m5Bars].reverse().map(toBC);
-        h1BC = [...h1Bars].reverse().map(toBC);
-      }
-
-      // ── 3. Find today's ORB high/low from the 9:30 AM real NY candle ────
-      let orbHigh = 0, orbLow = 0;
-      const orbCandles = m5BC.filter(c => {
-        if (!c.t) return false;
-        const nyC = getNYTime(c.t * 1000);
-        return nyC.dateStr === todayKey && nyC.hour === 9 && nyC.minute >= 30 && nyC.minute < 45;
-      });
-      if (orbCandles.length > 0) {
-        orbHigh = Math.max(...orbCandles.map(c => c.h));
-        orbLow  = Math.min(...orbCandles.map(c => c.l));
-      }
-      if (orbHigh === 0 || orbLow === 0 || orbHigh <= orbLow) continue;
-
-      const orbRange = orbHigh - orbLow;
-      const retestBuffer = orbRange * 0.25; // widened from 0.15 — less strict on how close price must retrace to count as a retest
-
-      // ── 4. Detect phase: did a breakout happen and is price retesting? ───
-      // Look at candles after 9:45 AM (real NY time, same calendar day) for
-      // breakout close, then check retest.
-      let breakoutDir: 'BUY' | 'SELL' | null = null;
-
-      const postORBCandles = m5BC.filter(c => {
-        if (!c.t) return false;
-        const nyC = getNYTime(c.t * 1000);
-        return nyC.dateStr === todayKey && (nyC.hour * 60 + nyC.minute) >= 9 * 60 + 45;
-      });
-
-      // Check if any past candle had a full-body close beyond the ORB
-      for (const c of postORBCandles.slice(1)) { // skip the most recent (live)
-        const bodyHigh = Math.max(c.o, c.c);
-        const bodyLow  = Math.min(c.o, c.c);
-        if (bodyLow > orbHigh) { breakoutDir = 'BUY'; break; }
-        if (bodyHigh < orbLow) { breakoutDir = 'SELL'; break; }
-      }
+      // ── 3–5. ORB range / breakout / retest via the shared helper ────────
+      // (getOrbStateFull: same window gate, same candle fetch, same math as
+      // this lane has always run inline — see computeOrbStateFromCandles.)
+      const orbFull = await getOrbStateFull(userId, symbol);
+      if (!orbFull) continue; // candle feed too thin for this pair right now
+      const m5BC = orbFull.m5BC;
+      const h1BC = orbFull.h1BC;
+      const currentPrice = orbFull.currentPrice;
+      const orbHigh = orbFull.orbHigh;
+      const orbLow = orbFull.orbLow;
+      const orbRange = orbFull.range;
+      if (orbFull.phase === 'no_range') continue;
+      const breakoutDir = orbFull.breakoutDir;
       if (!breakoutDir) continue; // no breakout yet — wait
-
-      // ── 5. Check retest: current price near the broken ORB level ─────────
-      const isRetestLong = breakoutDir === 'BUY' &&
-        currentPrice >= orbHigh - retestBuffer &&
-        currentPrice <= orbHigh + retestBuffer;
-      const isRetestShort = breakoutDir === 'SELL' &&
-        currentPrice >= orbLow - retestBuffer &&
-        currentPrice <= orbLow + retestBuffer;
-
-      if (!isRetestLong && !isRetestShort) continue; // not at retest yet
+      if (!orbFull.retestActive) continue; // not at retest yet
 
       // ── 6. SS AI Bot score gate (≥ 60) ───────────────────────────────────
       // Lowered from 70 — the old threshold was filtering out a lot of
