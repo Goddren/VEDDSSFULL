@@ -13,9 +13,10 @@
  *
  * The render itself is unchanged: renderContentVideo (plan → provider
  * render via video-generation.ts — OpenRouter primary since 2026-11-11,
- * then Replicate, then fal → branding → durable store), and the
- * generation-history record is written exactly as the sync routes wrote
- * it, so the Saved library sees the same data.
+ * then Replicate, then fal → branding → sound (video-audio.ts: narration
+ * + music bed; reels pass their script as the narration text) → durable
+ * store), and the generation-history record is written exactly as the
+ * sync routes wrote it, so the Saved library sees the same data.
  */
 import { pool } from '../db';
 import { ensureJobTable, updateContentJob } from './explainer-video';
@@ -98,7 +99,7 @@ export async function startClipJob(userId: number, payload: ClipJobPayload): Pro
     if (video.persisted) {
       await saveGeneration(userId, {
         contentType: 'video', prompt: payload.prompt || payload.shot, title: video.hook || null, assetUrl: video.url,
-        metadata: { provider: video.provider, shot: video.shot, aspect: video.aspect, branded: video.branded },
+        metadata: { provider: video.provider, shot: video.shot, aspect: video.aspect, branded: video.branded, ...(video.audio ? { audio: video.audio } : {}) },
       });
     }
     await updateContentJob(id, {
@@ -115,6 +116,10 @@ export async function startReelJob(userId: number, payload: ReelJobPayload): Pro
     const { generateReelScript } = await import('../openai');
     const script = await generateReelScript(payload.topic, userId, payload.format, payload.syncStyleNote);
     await updateContentJob(id, { step: 'Rendering the clip', progress: 40, script });
+    // The reel script IS a voiceover script (hook + beats, written to be
+    // read over the clip): hand it to the audio stage as the narration
+    // instead of paying for a second, generated one.
+    const narrationText = [script.hook, ...(script.script || [])].join(' ').trim();
     const video = await renderContentVideo(`Topic: ${payload.topic}\nScene idea: ${script.videoPrompt}`, {
       userId,
       aspect: payload.aspect as RenderOptions['aspect'],
@@ -122,16 +127,17 @@ export async function startReelJob(userId: number, payload: ReelJobPayload): Pro
       quality: payload.quality,
       image: payload.image,
       backgroundScene: payload.backgroundScene,
+      narrationText: narrationText || undefined,
     });
     if (!video) throw new Error("The video couldn't be made right now. Please try again in a minute.");
     if (video.persisted) {
       await saveGeneration(userId, {
         contentType: 'reel', prompt: payload.topic, title: script.hook ?? null, caption: script.caption ?? null,
         assetUrl: video.url,
-        metadata: { provider: video.provider, script, shot: video.shot, aspect: video.aspect, branded: video.branded },
+        metadata: { provider: video.provider, script, shot: video.shot, aspect: video.aspect, branded: video.branded, ...(video.audio ? { audio: video.audio } : {}) },
       });
     }
-    const result = { ...script, url: video.url, persisted: video.persisted, branded: video.branded, shot: video.shot, aspect: video.aspect };
+    const result = { ...script, url: video.url, persisted: video.persisted, branded: video.branded, shot: video.shot, aspect: video.aspect, ...(video.audio ? { audio: video.audio } : {}) };
     await updateContentJob(id, {
       status: 'done', step: 'Ready', progress: 100, result_url: video.url,
       meta: { result },

@@ -16641,9 +16641,9 @@ var init_dxtrade = __esm({
       async ensureLoggedIn() {
         if (!this.token) await this.login();
       }
-      async authed(path20, init = {}) {
+      async authed(path21, init = {}) {
         if (!this.token) await this.login();
-        const doFetch = () => fetch(`${this.base}${path20}`, {
+        const doFetch = () => fetch(`${this.base}${path21}`, {
           ...init,
           headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": `DXAPI ${this.token}`, ...init.headers || {} },
           signal: AbortSignal.timeout(2e4)
@@ -16884,8 +16884,8 @@ var init_dxtrade = __esm({
       async getInstruments(query = "") {
         const attempts = query ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`] : ["/instruments/query"];
         let last2 = "";
-        for (const path20 of attempts) {
-          const res2 = await this.authed(path20);
+        for (const path21 of attempts) {
+          const res2 = await this.authed(path21);
           const text3 = await res2.text();
           if (res2.ok) {
             try {
@@ -16981,10 +16981,10 @@ var init_dxtrade = __esm({
           `/accounts/${enc}/reports/trades?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso2)}`,
           `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso2)}`
         ];
-        for (const path20 of candidates) {
+        for (const path21 of candidates) {
           let res2;
           try {
-            res2 = await this.authed(path20);
+            res2 = await this.authed(path21);
           } catch {
             continue;
           }
@@ -16998,7 +16998,7 @@ var init_dxtrade = __esm({
           const list = data?.history ?? data?.trades ?? data?.orders ?? data?.positions ?? data?.items ?? (Array.isArray(data) ? data : []);
           if (!Array.isArray(list) || list.length === 0) {
             if (Array.isArray(list)) {
-              console.log(`[dxtrade] history via ${path20.split("?")[0]} \u2014 0 rows in window`);
+              console.log(`[dxtrade] history via ${path21.split("?")[0]} \u2014 0 rows in window`);
               return [];
             }
             continue;
@@ -17018,7 +17018,7 @@ var init_dxtrade = __esm({
             profit: o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit,
             closeTime: o.closeTime ?? o.closedAt ?? o.closeTimestamp ?? o.timestamp ?? o.updateTime ?? null
           }));
-          console.log(`[dxtrade] history via ${path20.split("?")[0]} \u2014 ${closed.length} closed rows`);
+          console.log(`[dxtrade] history via ${path21.split("?")[0]} \u2014 ${closed.length} closed rows`);
           return closed;
         }
         console.log(`[dxtrade] no working history endpoint found for ${accountCode} (tried ${candidates.length}) \u2014 close-sync will keep opens PENDING`);
@@ -17562,13 +17562,13 @@ async function discoverNewPoolTokens(chainKey, minLiquidityUsd = 25e3, maxAgeHou
   newPoolsCache = { key, at: Date.now(), tokens };
   return tokens;
 }
-async function gt(path20) {
+async function gt(path21) {
   const run = async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
       const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       lastCallAt = Date.now();
-      const res2 = await fetch(`${GT}${path20}`, {
+      const res2 = await fetch(`${GT}${path21}`, {
         headers: cgHeaders(),
         signal: AbortSignal.timeout(2e4)
       });
@@ -17576,13 +17576,13 @@ async function gt(path20) {
       if (res2.status === 429) {
         const retryAfter = Number(res2.headers.get("retry-after")) || 0;
         const backoff = retryAfter > 0 ? retryAfter * 1e3 : 3e3 * (attempt + 1);
-        console.warn(`[defi-market-data] rate limited on ${path20}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
+        console.warn(`[defi-market-data] rate limited on ${path21}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
         await new Promise((r) => setTimeout(r, backoff));
         continue;
       }
-      throw new Error(`GeckoTerminal ${res2.status} on ${path20}`);
+      throw new Error(`GeckoTerminal ${res2.status} on ${path21}`);
     }
-    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path20}`);
+    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path21}`);
   };
   const next = callChain.then(run, run);
   callChain = next.catch(() => void 0);
@@ -38488,9 +38488,9 @@ function buildSignals(id, b, params) {
     }
     case "rsi-overbought-oversold": {
       const r = rsi2(c, p(params, "rsi-period", 14));
-      const ob = p(params, "overbought", 70), os3 = p(params, "oversold", 30);
+      const ob = p(params, "overbought", 70), os4 = p(params, "oversold", 30);
       for (let i = 1; i < b.length; i++) {
-        if (r[i - 1] < os3 && r[i] >= os3) sig[i] = "BUY";
+        if (r[i - 1] < os4 && r[i] >= os4) sig[i] = "BUY";
         else if (r[i - 1] > ob && r[i] <= ob) sig[i] = "SELL";
       }
       break;
@@ -38520,7 +38520,7 @@ function buildSignals(id, b, params) {
     }
     case "stochastic-crossover": {
       const n = p(params, "k-period", 14);
-      const ob = p(params, "overbought", 80), os3 = p(params, "oversold", 20);
+      const ob = p(params, "overbought", 80), os4 = p(params, "oversold", 20);
       const k2 = b.map((_, i) => {
         if (i < n - 1) return NaN;
         const H2 = hi(b, i - n + 1, i), L2 = lo(b, i - n + 1, i);
@@ -38529,7 +38529,7 @@ function buildSignals(id, b, params) {
       const d = sma(k2.map((x) => Number.isFinite(x) ? x : 50), p(params, "d-period", 3));
       for (let i = n + 3; i < b.length; i++) {
         const x = cross(k2, d, i);
-        if (x === "BUY" && k2[i] < os3 + 10) sig[i] = "BUY";
+        if (x === "BUY" && k2[i] < os4 + 10) sig[i] = "BUY";
         else if (x === "SELL" && k2[i] > ob - 10) sig[i] = "SELL";
       }
       break;
@@ -44049,9 +44049,9 @@ var init_tastytrade = __esm({
         }
         await this.login();
       }
-      async request(path20, init = {}, attempt = 0) {
+      async request(path21, init = {}, attempt = 0) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path20}`, {
+        const response = await fetch(`${this.baseUrl}${path21}`, {
           ...init,
           headers: {
             "Authorization": this.sessionToken || "",
@@ -44062,7 +44062,7 @@ var init_tastytrade = __esm({
         });
         if (!response.ok && RETRYABLE_STATUSES3.has(response.status) && attempt < RETRY_DELAYS3.length) {
           await new Promise((r) => setTimeout(r, RETRY_DELAYS3[attempt]));
-          return this.request(path20, init, attempt + 1);
+          return this.request(path21, init, attempt + 1);
         }
         return response;
       }
@@ -48106,20 +48106,20 @@ var init_tradovate = __esm({
         }
         return data;
       }
-      async get(path20) {
+      async get(path21) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path20}`, {
+        const response = await fetch(`${this.baseUrl}${path21}`, {
           headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
         });
         if (!response.ok) {
           const text3 = await response.text();
-          throw new Error(`Tradovate GET ${path20} failed (${response.status}): ${text3}`);
+          throw new Error(`Tradovate GET ${path21} failed (${response.status}): ${text3}`);
         }
         return response.json();
       }
-      async post(path20, body) {
+      async post(path21, body) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path20}`, {
+        const response = await fetch(`${this.baseUrl}${path21}`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${this.accessToken}`,
@@ -48130,7 +48130,7 @@ var init_tradovate = __esm({
         });
         if (!response.ok) {
           const text3 = await response.text();
-          throw new Error(`Tradovate POST ${path20} failed (${response.status}): ${text3}`);
+          throw new Error(`Tradovate POST ${path21} failed (${response.status}): ${text3}`);
         }
         return response.json();
       }
@@ -50841,8 +50841,8 @@ function teamsMatchMarket(homeTeam, awayTeam, question) {
   return (q.includes(h) || q.includes(hFull)) && (q.includes(a) || q.includes(aFull));
 }
 async function fetchScoreboard(sport) {
-  const path20 = SPORT_PATHS[sport];
-  const data = await safeGet(`${ESPN_BASE}/${path20}/scoreboard`);
+  const path21 = SPORT_PATHS[sport];
+  const data = await safeGet(`${ESPN_BASE}/${path21}/scoreboard`);
   return data?.events ?? [];
 }
 function injuryAdjustment(injuries, sport) {
@@ -56242,12 +56242,12 @@ __export(kalshi_perps_exports, {
 function perpHost() {
   return process.env.KALSHI_PERP_HOST === "demo" ? DEMO_HOST : PROD_HOST;
 }
-async function getJson(path20) {
+async function getJson(path21) {
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), 15e3);
   try {
-    const res2 = await fetch(`${perpHost()}${path20}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
-    if (!res2.ok) throw new Error(`kalshi-perps GET ${path20} -> ${res2.status}`);
+    const res2 = await fetch(`${perpHost()}${path21}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
+    if (!res2.ok) throw new Error(`kalshi-perps GET ${path21} -> ${res2.status}`);
     return await res2.json();
   } finally {
     clearTimeout(to);
@@ -56490,8 +56490,8 @@ __export(coinbase_exports, {
 });
 import crypto12 from "crypto";
 import jwt from "jsonwebtoken";
-function buildJwt(keyName, privateKeyPem, method, path20) {
-  const uri = `${method} ${API_HOST}${path20}`;
+function buildJwt(keyName, privateKeyPem, method, path21) {
+  const uri = `${method} ${API_HOST}${path21}`;
   const now = Math.floor(Date.now() / 1e3);
   const payload2 = { sub: keyName, iss: "cdp", nbf: now, exp: now + 120, uri };
   return jwt.sign(payload2, privateKeyPem, {
@@ -56512,9 +56512,9 @@ var init_coinbase = __esm({
         this.keyName = keyName;
         this.privateKey = privateKeyPem.includes("\\n") ? privateKeyPem.replace(/\\n/g, "\n") : privateKeyPem;
       }
-      async get(path20) {
-        const token = buildJwt(this.keyName, this.privateKey, "GET", path20);
-        const res2 = await fetch(`https://${API_HOST}${path20}`, {
+      async get(path21) {
+        const token = buildJwt(this.keyName, this.privateKey, "GET", path21);
+        const res2 = await fetch(`https://${API_HOST}${path21}`, {
           method: "GET",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           signal: AbortSignal.timeout(12e3)
@@ -56525,9 +56525,9 @@ var init_coinbase = __esm({
         }
         return res2.json();
       }
-      async post(path20, body) {
-        const token = buildJwt(this.keyName, this.privateKey, "POST", path20);
-        const res2 = await fetch(`https://${API_HOST}${path20}`, {
+      async post(path21, body) {
+        const token = buildJwt(this.keyName, this.privateKey, "POST", path21);
+        const res2 = await fetch(`https://${API_HOST}${path21}`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -56569,8 +56569,8 @@ var init_coinbase = __esm({
         const accounts = [];
         let cursor = "";
         for (let i = 0; i < 10; i++) {
-          const path20 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
-          const data = await this.get(path20);
+          const path21 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+          const data = await this.get(path21);
           for (const a of data?.accounts ?? []) accounts.push(a);
           if (data?.has_next && data?.cursor) cursor = data.cursor;
           else break;
@@ -56639,22 +56639,22 @@ var init_kraken = __esm({
         this.apiKey = apiKey;
         this.secret = secret;
       }
-      sign(path20, nonce, postData) {
+      sign(path21, nonce, postData) {
         const sha256 = crypto13.createHash("sha256").update(nonce + postData).digest();
-        const message = Buffer.concat([Buffer.from(path20, "utf8"), sha256]);
+        const message = Buffer.concat([Buffer.from(path21, "utf8"), sha256]);
         const key = Buffer.from(this.secret, "base64");
         return crypto13.createHmac("sha512", key).update(message).digest("base64");
       }
       async privatePost(endpoint, params = {}) {
-        const path20 = `/0/private/${endpoint}`;
+        const path21 = `/0/private/${endpoint}`;
         const nonce = String(Date.now() * 1e3);
         const body = new URLSearchParams({ nonce, ...params });
         const postData = body.toString();
-        const res2 = await fetch(`${API_HOST2}${path20}`, {
+        const res2 = await fetch(`${API_HOST2}${path21}`, {
           method: "POST",
           headers: {
             "API-Key": this.apiKey,
-            "API-Sign": this.sign(path20, nonce, postData),
+            "API-Sign": this.sign(path21, nonce, postData),
             "Content-Type": "application/x-www-form-urlencoded",
             "User-Agent": "VEDD/1.0"
           },
@@ -56928,8 +56928,8 @@ function baseUrl(testnet) {
 function tradedAddress(c) {
   return (c.vaultAddress || c.accountAddress).toLowerCase();
 }
-async function post(testnet, path20, body) {
-  const r = await fetch(baseUrl(testnet) + path20, {
+async function post(testnet, path21, body) {
+  const r = await fetch(baseUrl(testnet) + path21, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -56940,9 +56940,9 @@ async function post(testnet, path20, body) {
   try {
     j = JSON.parse(text3);
   } catch {
-    throw new Error(`Hyperliquid ${path20} HTTP ${r.status}: ${text3.slice(0, 200)}`);
+    throw new Error(`Hyperliquid ${path21} HTTP ${r.status}: ${text3.slice(0, 200)}`);
   }
-  if (!r.ok) throw new Error(`Hyperliquid ${path20} HTTP ${r.status}: ${text3.slice(0, 200)}`);
+  if (!r.ok) throw new Error(`Hyperliquid ${path21} HTTP ${r.status}: ${text3.slice(0, 200)}`);
   return j;
 }
 async function getMeta(testnet) {
@@ -64368,8 +64368,8 @@ async function runRuinConeSimulation(userId, params = {}) {
   let hitTargetCount = 0;
   const targetEquity = startingEquity + profitTarget;
   for (let s = 0; s < numSimulations; s++) {
-    const path20 = new Float64Array(numTrades + 1);
-    path20[0] = startingEquity;
+    const path21 = new Float64Array(numTrades + 1);
+    path21[0] = startingEquity;
     let equity = startingEquity;
     let peak = startingEquity;
     let firstFailIndex = -1;
@@ -64382,7 +64382,7 @@ async function runRuinConeSimulation(userId, params = {}) {
     for (let t = 1; t <= numTrades; t++) {
       const pnl = pnls[Math.random() * sourceTradeCount | 0];
       equity += pnl;
-      path20[t] = equity;
+      path21[t] = equity;
       if (equity > peak) peak = equity;
       if (!everRuin && peak - equity >= maxDrawdownLimit) {
         everRuin = true;
@@ -64401,7 +64401,7 @@ async function runRuinConeSimulation(userId, params = {}) {
         tradeInDay = 0;
       }
     }
-    paths[s] = path20;
+    paths[s] = path21;
     finalEquities[s] = equity;
     if (everRuin) ruinCount++;
     if (everDailyBreach) dailyBreachCount++;
@@ -69357,6 +69357,250 @@ var init_video_generation = __esm({
   }
 });
 
+// server/services/video-audio.ts
+import fs15 from "fs";
+import os3 from "os";
+import path15 from "path";
+import { fileURLToPath } from "url";
+function videoAudioEnabled() {
+  return process.env.VIDEO_AUDIO !== "off";
+}
+function audioDir() {
+  return AUDIO_DIR_CANDIDATES.find((d) => fs15.existsSync(d)) ?? null;
+}
+function listMusicBeds() {
+  const dir = audioDir();
+  if (!dir) return [];
+  return fs15.readdirSync(dir).filter((f) => /\.(mp3|ogg|wav|m4a)$/i.test(f)).sort();
+}
+function resolveMusicBed() {
+  const dir = audioDir();
+  if (!dir) return null;
+  const beds = listMusicBeds();
+  if (!beds.length) return null;
+  const wanted = (process.env.VIDEO_MUSIC_BED || "").trim();
+  const name = wanted && beds.includes(wanted) ? wanted : beds.includes(DEFAULT_BED) ? DEFAULT_BED : beds[0];
+  return { name, file: path15.join(dir, name) };
+}
+function capNarrationText(raw) {
+  const clean = String(raw || "").replace(/https?:\/\/\S+/g, "").replace(/[*_~`#>]/g, "").replace(/\s+/g, " ").trim().slice(0, 600);
+  if (!clean) return "";
+  const sentences = clean.match(/[^.!?]+[.!?]+/g) || [clean];
+  const out = [];
+  let words = 0;
+  for (const s of sentences) {
+    const w = s.trim().split(/\s+/).filter(Boolean).length;
+    if (words + w > MAX_NARRATION_WORDS) break;
+    out.push(s.trim());
+    words += w;
+  }
+  if (out.length) return out.join(" ");
+  return clean.split(/\s+/).slice(0, MAX_NARRATION_WORDS).join(" ");
+}
+async function generateNarrationText(sourceText, userId) {
+  const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+  const ai = await getUniversalAIClientForUser2(userId || 0);
+  const completion = await ai.chat.completions.create({
+    model: ai.defaultModel || "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: "You write narrator voiceovers for very short social videos for VEDD Trading AI, a faith-driven financial education platform. Brand voice: confident, empowering, street-urban authentic, no fluff. Answer with the voiceover text ONLY \u2014 no labels, no quotes, no hashtags."
+      },
+      {
+        role: "user",
+        content: `Write a voiceover of 1-2 sentences, at most ${MAX_NARRATION_WORDS} words, to be read aloud over a 6-second vertical video. It must fit this scene/topic: """${sourceText.slice(0, 800)}"""
+
+Rules: spoken language, present tense, one clear idea, ends on the payoff. No profit promises, no win-rate or income claims, no "guaranteed" language.`
+      }
+    ],
+    max_tokens: 120
+  });
+  return capNarrationText(String(completion.choices?.[0]?.message?.content || ""));
+}
+async function tryOpenRouterSpeech(key, model, voice, text3) {
+  try {
+    const res2 = await fetch("https://openrouter.ai/api/v1/audio/speech", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+      // response_format pinned to mp3 — the endpoint defaults to pcm.
+      body: JSON.stringify({ model, input: text3, voice, response_format: "mp3" }),
+      signal: AbortSignal.timeout(TTS_TIMEOUT_MS)
+    });
+    if (!res2.ok) {
+      const errText = await res2.text().catch(() => "");
+      console.warn(`[video-audio] TTS ${model} ${res2.status}:`, errText.slice(0, 200), "\u2014 falling back");
+      return null;
+    }
+    const ct = res2.headers.get("content-type") || "";
+    const buffer = Buffer.from(await res2.arrayBuffer());
+    if (!ct.includes("audio") || buffer.length < 100) {
+      console.warn(`[video-audio] TTS ${model} returned no usable audio (${ct || "unknown content type"}, ${buffer.length} bytes)`);
+      return null;
+    }
+    return { buffer, model };
+  } catch (e) {
+    console.warn(`[video-audio] TTS ${model} error:`, e?.message || e, "\u2014 falling back");
+    return null;
+  }
+}
+async function synthesizeNarration(text3) {
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) {
+    console.warn("[video-audio] OPENROUTER_API_KEY not set \u2014 narration skipped");
+    return null;
+  }
+  const primary = {
+    model: (process.env.VIDEO_TTS_MODEL || "").trim() || DEFAULT_TTS_MODEL,
+    voice: (process.env.VIDEO_TTS_VOICE || "").trim() || DEFAULT_TTS_VOICE
+  };
+  const attempts = [primary];
+  if (primary.model !== FALLBACK_TTS_MODEL) {
+    attempts.push({ model: FALLBACK_TTS_MODEL, voice: FALLBACK_TTS_VOICE });
+  } else if (!process.env.VIDEO_TTS_VOICE) {
+    primary.voice = FALLBACK_TTS_VOICE;
+  }
+  for (const a of attempts) {
+    const hit = await tryOpenRouterSpeech(key, a.model, a.voice, text3);
+    if (hit) return hit;
+  }
+  return null;
+}
+async function applyVideoAudio(video, opts = {}) {
+  const dir = fs15.mkdtempSync(path15.join(os3.tmpdir(), "vedd-audio-"));
+  const src = path15.join(dir, "in.mp4");
+  const dst = path15.join(dir, "out.mp4");
+  try {
+    fs15.writeFileSync(src, video);
+    const info2 = await probe(src).catch(() => null);
+    const dur = info2?.duration || 0;
+    if (!(dur > 0)) {
+      console.warn("[video-audio] could not read clip duration \u2014 skipping audio stage");
+      return null;
+    }
+    const D = Math.round(dur * 100) / 100;
+    let reason;
+    let text3 = capNarrationText(opts.narrationText || "");
+    if (!text3 && opts.sourceText?.trim()) {
+      text3 = await generateNarrationText(opts.sourceText, opts.userId).catch((e) => {
+        console.warn("[video-audio] narration writing failed:", e?.message || e);
+        return "";
+      });
+      if (!text3) reason = "narration text unavailable";
+    }
+    let speech = null;
+    let narrFile = null;
+    if (text3) {
+      speech = await synthesizeNarration(text3);
+      if (speech) {
+        narrFile = path15.join(dir, "narr.mp3");
+        fs15.writeFileSync(narrFile, speech.buffer);
+      } else {
+        reason = reason || "narration synthesis failed";
+      }
+    }
+    const bed = resolveMusicBed();
+    if (!bed) reason = reason || "no music bed available";
+    if (!speech && !bed) {
+      console.warn("[video-audio] no audio components available \u2014 shipping silent clip");
+      return null;
+    }
+    const args = ["-y", "-i", src];
+    let narrIdx = -1;
+    let bedIdx = -1;
+    if (narrFile) {
+      narrIdx = 1;
+      args.push("-i", narrFile);
+    }
+    if (bed) {
+      bedIdx = narrFile ? 2 : 1;
+      args.push("-stream_loop", "-1", "-i", bed.file);
+    }
+    const fadeOutStart = Math.max(0, D - 0.8).toFixed(2);
+    const parts = [];
+    const mixLabels = [];
+    if (info2?.hasAudio) {
+      parts.push(`[0:a]aresample=44100,apad,atrim=0:${D}[orig]`);
+      mixLabels.push("[orig]");
+    }
+    if (narrFile) {
+      if (bed) {
+        parts.push(`[${narrIdx}:a]aresample=44100,asplit=2[narrMix][narrSc]`);
+        parts.push(`[narrMix]apad,atrim=0:${D}[narr]`);
+      } else {
+        parts.push(`[${narrIdx}:a]aresample=44100,apad,atrim=0:${D}[narr]`);
+      }
+      mixLabels.push("[narr]");
+    }
+    if (bed) {
+      const bedVol = narrFile ? "0.16" : "0.25";
+      parts.push(`[${bedIdx}:a]aresample=44100,atrim=0:${D},volume=${bedVol},afade=t=in:st=0:d=0.4,afade=t=out:st=${fadeOutStart}:d=0.8[bedRaw]`);
+      if (narrFile) {
+        parts.push(`[bedRaw][narrSc]sidechaincompress=threshold=0.03:ratio=6:attack=40:release=350[bed]`);
+      } else {
+        parts.push(`[bedRaw]anull[bed]`);
+      }
+      mixLabels.push("[bed]");
+    }
+    if (mixLabels.length === 1) {
+      parts.push(`${mixLabels[0]}alimiter=limit=0.9,aresample=44100[aout]`);
+    } else {
+      parts.push(`${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=first:normalize=0,alimiter=limit=0.9,aresample=44100[aout]`);
+    }
+    args.push(
+      "-filter_complex",
+      parts.join(";"),
+      "-map",
+      "0:v",
+      "-map",
+      "[aout]",
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-movflags",
+      "+faststart",
+      dst
+    );
+    await runFfmpeg(args, 12e4);
+    const buffer = fs15.readFileSync(dst);
+    const audio = {
+      narration: speech ? `openrouter:${speech.model}` : "none",
+      musicBed: bed ? bed.name : "none"
+    };
+    if (!text3 && !reason) reason = "no narration text provided";
+    if (reason && (!speech || !bed)) audio.reason = reason;
+    console.log(`[video-audio] mixed: narration=${audio.narration} bed=${audio.musicBed} (${buffer.length} bytes)`);
+    return { buffer, audio };
+  } catch (e) {
+    console.warn("[video-audio] audio stage failed, shipping silent clip:", e?.message || e);
+    return null;
+  } finally {
+    fs15.rmSync(dir, { recursive: true, force: true });
+  }
+}
+var MAX_NARRATION_WORDS, TTS_TIMEOUT_MS, DEFAULT_TTS_VOICE, DEFAULT_TTS_MODEL, FALLBACK_TTS_MODEL, FALLBACK_TTS_VOICE, DEFAULT_BED, AUDIO_DIR_CANDIDATES;
+var init_video_audio = __esm({
+  "server/services/video-audio.ts"() {
+    "use strict";
+    init_ffmpeg();
+    MAX_NARRATION_WORDS = 35;
+    TTS_TIMEOUT_MS = 3e4;
+    DEFAULT_TTS_VOICE = "nJvj5shg2xu1GKGxqfkE";
+    DEFAULT_TTS_MODEL = "elevenlabs/eleven-turbo-v2.5";
+    FALLBACK_TTS_MODEL = "openai/gpt-4o-mini-tts-2025-12-15";
+    FALLBACK_TTS_VOICE = "onyx";
+    DEFAULT_BED = "bed-groove.mp3";
+    AUDIO_DIR_CANDIDATES = [
+      path15.resolve(process.cwd(), "server/assets/audio"),
+      path15.resolve(path15.dirname(fileURLToPath(import.meta.url)), "../server/assets/audio"),
+      path15.resolve(path15.dirname(fileURLToPath(import.meta.url)), "../../server/assets/audio")
+    ];
+  }
+});
+
 // server/services/content-video.ts
 async function renderContentVideo(prompt, o = {}) {
   const aspect = o.aspect && o.aspect in SOCIAL_SIZES ? o.aspect : "9:16";
@@ -69374,22 +69618,50 @@ async function renderContentVideo(prompt, o = {}) {
     aspect: aspect === "16:9" ? "16:9" : "9:16"
   });
   if (!video) return null;
-  if (o.brand !== false) {
+  const audioOn = videoAudioEnabled();
+  let audio;
+  const audioField = () => {
+    if (!audioOn) return {};
+    return { audio: audio ?? { narration: "none", musicBed: "none", reason: "audio mix unavailable" } };
+  };
+  let buf = null;
+  if (o.brand !== false || audioOn) {
     try {
       const res2 = await fetch(video.url, { signal: AbortSignal.timeout(6e4) });
-      if (res2.ok) {
-        const branded = await brandVideo(Buffer.from(await res2.arrayBuffer()), aspect);
-        if (branded) {
-          const saved2 = await persistBuffer(branded, "video/mp4");
-          if (saved2) return { url: saved2.url, persisted: true, branded: true, shot, hook, aspect, provider: video.provider };
-        }
+      if (res2.ok) buf = Buffer.from(await res2.arrayBuffer());
+    } catch (e) {
+      console.warn("[content-video] clip download failed:", e?.message || e);
+    }
+  }
+  let branded = false;
+  if (buf && o.brand !== false) {
+    try {
+      const brandedBuf = await brandVideo(buf, aspect);
+      if (brandedBuf) {
+        buf = brandedBuf;
+        branded = true;
       }
     } catch (e) {
       console.warn("[content-video] branding step failed:", e?.message || e);
     }
   }
+  if (buf && audioOn) {
+    const mixed = await applyVideoAudio(buf, {
+      narrationText: o.narrationText,
+      sourceText: shot,
+      userId: o.userId
+    }).catch(() => null);
+    if (mixed) {
+      buf = mixed.buffer;
+      audio = mixed.audio;
+    } else audio = { narration: "none", musicBed: "none", reason: "audio mix failed" };
+  }
+  if (buf) {
+    const saved2 = await persistBuffer(buf, "video/mp4");
+    if (saved2) return { url: saved2.url, persisted: true, branded, shot, hook, aspect, provider: video.provider, ...audioField() };
+  }
   const saved = await persistRemoteAsset(video.url);
-  return { url: saved?.url ?? video.url, persisted: !!saved, branded: false, shot, hook, aspect, provider: video.provider };
+  return { url: saved?.url ?? video.url, persisted: !!saved, branded: false, shot, hook, aspect, provider: video.provider, ...audioField() };
 }
 var SOCIAL_SIZES;
 var init_content_video = __esm({
@@ -69398,6 +69670,7 @@ var init_content_video = __esm({
     init_video_shot();
     init_video_generation();
     init_video_branding();
+    init_video_audio();
     init_content_asset_store();
     SOCIAL_SIZES = {
       "9:16": "Reels / TikTok / Shorts / Stories",
@@ -69469,7 +69742,7 @@ async function startClipJob(userId, payload2) {
         prompt: payload2.prompt || payload2.shot,
         title: video.hook || null,
         assetUrl: video.url,
-        metadata: { provider: video.provider, shot: video.shot, aspect: video.aspect, branded: video.branded }
+        metadata: { provider: video.provider, shot: video.shot, aspect: video.aspect, branded: video.branded, ...video.audio ? { audio: video.audio } : {} }
       });
     }
     await updateContentJob(id, {
@@ -69488,6 +69761,7 @@ async function startReelJob(userId, payload2) {
     const { generateReelScript: generateReelScript2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
     const script = await generateReelScript2(payload2.topic, userId, payload2.format, payload2.syncStyleNote);
     await updateContentJob(id, { step: "Rendering the clip", progress: 40, script });
+    const narrationText = [script.hook, ...script.script || []].join(" ").trim();
     const video = await renderContentVideo(`Topic: ${payload2.topic}
 Scene idea: ${script.videoPrompt}`, {
       userId,
@@ -69495,7 +69769,8 @@ Scene idea: ${script.videoPrompt}`, {
       duration: payload2.duration,
       quality: payload2.quality,
       image: payload2.image,
-      backgroundScene: payload2.backgroundScene
+      backgroundScene: payload2.backgroundScene,
+      narrationText: narrationText || void 0
     });
     if (!video) throw new Error("The video couldn't be made right now. Please try again in a minute.");
     if (video.persisted) {
@@ -69505,10 +69780,10 @@ Scene idea: ${script.videoPrompt}`, {
         title: script.hook ?? null,
         caption: script.caption ?? null,
         assetUrl: video.url,
-        metadata: { provider: video.provider, script, shot: video.shot, aspect: video.aspect, branded: video.branded }
+        metadata: { provider: video.provider, script, shot: video.shot, aspect: video.aspect, branded: video.branded, ...video.audio ? { audio: video.audio } : {} }
       });
     }
-    const result = { ...script, url: video.url, persisted: video.persisted, branded: video.branded, shot: video.shot, aspect: video.aspect };
+    const result = { ...script, url: video.url, persisted: video.persisted, branded: video.branded, shot: video.shot, aspect: video.aspect, ...video.audio ? { audio: video.audio } : {} };
     await updateContentJob(id, {
       status: "done",
       step: "Ready",
@@ -69534,8 +69809,8 @@ __export(slide_flattener_exports, {
   flattenSlideImage: () => flattenSlideImage
 });
 import sharp from "sharp";
-import * as path15 from "path";
-import * as fs15 from "fs";
+import * as path16 from "path";
+import * as fs16 from "fs";
 function escapeXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -69600,7 +69875,7 @@ async function flattenSlideImage(opts) {
   const composites = [
     { input: Buffer.from(overlaySvg), top: 0, left: 0 }
   ];
-  if (opts.includeLogo && fs15.existsSync(LOGO_PATH)) {
+  if (opts.includeLogo && fs16.existsSync(LOGO_PATH)) {
     const logoWidth = Math.round(CANVAS_SIZE * 0.22);
     const logoBuffer = await sharp(LOGO_PATH).resize(logoWidth, null, { fit: "inside" }).ensureAlpha().png().toBuffer();
     const logoMeta = await sharp(logoBuffer).metadata();
@@ -69618,7 +69893,7 @@ var init_slide_flattener = __esm({
   "server/services/slide-flattener.ts"() {
     "use strict";
     CANVAS_SIZE = 1080;
-    LOGO_PATH = path15.join(process.cwd(), "attached_assets", "IMG_3645.png");
+    LOGO_PATH = path16.join(process.cwd(), "attached_assets", "IMG_3645.png");
   }
 });
 
@@ -75016,8 +75291,8 @@ import { eq as eq18, and as and11, sql as sql13, desc as desc11 } from "drizzle-
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
-import * as fs16 from "fs";
-import * as path16 from "path";
+import * as fs17 from "fs";
+import * as path17 from "path";
 
 // server/trading-coach.ts
 init_openai();
@@ -75544,9 +75819,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "3fcd8796-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-11T06:32:17.044Z";
+var BUILD_COMMIT = "bb7933bb-dirty";
+var BUILD_BRANCH = "feat/content-video-audio";
+var BUILT_AT = "2026-11-11T06:56:26.976Z";
 
 // server/stripe.ts
 init_db();
@@ -79566,9 +79841,9 @@ var mediaUpload = multer({
     cb(null, true);
   }
 });
-var uploadsDir2 = path16.join(process.cwd(), "uploads");
-if (!fs16.existsSync(uploadsDir2)) {
-  fs16.mkdirSync(uploadsDir2, { recursive: true });
+var uploadsDir2 = path17.join(process.cwd(), "uploads");
+if (!fs17.existsSync(uploadsDir2)) {
+  fs17.mkdirSync(uploadsDir2, { recursive: true });
 }
 function getCurrentTradingSession() {
   const hour = (/* @__PURE__ */ new Date()).getUTCHours();
@@ -80019,11 +80294,11 @@ async function registerRoutes(app2, existingServer) {
         return res2.status(400).json({ message: "No file uploaded" });
       }
       const fileName = `${uuidv42()}.${req.file.mimetype.split("/")[1]}`;
-      const filePath = path16.join(uploadsDir2, fileName);
+      const filePath = path17.join(uploadsDir2, fileName);
       console.log("Generated filename:", fileName);
       console.log("Full file path:", filePath);
       try {
-        await fs16.promises.writeFile(filePath, req.file.buffer);
+        await fs17.promises.writeFile(filePath, req.file.buffer);
         console.log("File saved successfully to disk");
       } catch (writeError) {
         console.error("Error writing file to disk:", writeError);
@@ -80049,14 +80324,14 @@ async function registerRoutes(app2, existingServer) {
       if (!allowedTypes.includes(req.file.mimetype)) {
         return res2.status(400).json({ message: "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed." });
       }
-      const avatarsDir = path16.join(process.cwd(), "uploads", "avatars");
-      if (!fs16.existsSync(avatarsDir)) {
-        fs16.mkdirSync(avatarsDir, { recursive: true });
+      const avatarsDir = path17.join(process.cwd(), "uploads", "avatars");
+      if (!fs17.existsSync(avatarsDir)) {
+        fs17.mkdirSync(avatarsDir, { recursive: true });
       }
       const ext = req.file.mimetype.split("/")[1];
       const fileName = `avatar-${req.user.id}-${Date.now()}.${ext}`;
-      const filePath = path16.join(avatarsDir, fileName);
-      await fs16.promises.writeFile(filePath, req.file.buffer);
+      const filePath = path17.join(avatarsDir, fileName);
+      await fs17.promises.writeFile(filePath, req.file.buffer);
       const avatarUrl = `/uploads/avatars/${fileName}`;
       res2.json({ avatarUrl });
     } catch (error) {
@@ -80151,11 +80426,11 @@ async function registerRoutes(app2, existingServer) {
       }
       const extension = filename?.split(".").pop() || "png";
       const generatedFilename = `${uuidv42()}.${extension}`;
-      const filePath = path16.join(uploadsDir2, generatedFilename);
+      const filePath = path17.join(uploadsDir2, generatedFilename);
       const imageUrl = `/uploads/${generatedFilename}`;
       try {
         const imageBuffer = Buffer.from(cleanBase64, "base64");
-        await fs16.promises.writeFile(filePath, imageBuffer);
+        await fs17.promises.writeFile(filePath, imageBuffer);
         console.log("Saved image to", filePath);
       } catch (writeError) {
         console.error("Error saving image to disk:", writeError);
@@ -80288,9 +80563,9 @@ async function registerRoutes(app2, existingServer) {
           const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : void 0;
           const analysis = await analyzeChartImage(frame.base64, detectedSymbol, req.user?.id);
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
-          const framePath = path16.join(uploadsDir2, frameFileName);
+          const framePath = path17.join(uploadsDir2, frameFileName);
           const frameBuffer = Buffer.from(frame.base64, "base64");
-          await fs16.promises.writeFile(framePath, frameBuffer);
+          await fs17.promises.writeFile(framePath, frameBuffer);
           const imageUrl = `/uploads/${frameFileName}`;
           await storage.createChartAnalysis({
             userId,
@@ -80690,12 +80965,12 @@ Respond ONLY in valid JSON format with these exact keys:
       if (!imageUrl) {
         return res2.status(400).json({ message: "No image URL provided" });
       }
-      const filePath = path16.join(process.cwd(), imageUrl.replace(/^\//, ""));
+      const filePath = path17.join(process.cwd(), imageUrl.replace(/^\//, ""));
       console.log("Attempting to analyze image at path:", filePath);
-      if (!fs16.existsSync(filePath)) {
-        const alternativePath = path16.join(uploadsDir2, path16.basename(imageUrl));
+      if (!fs17.existsSync(filePath)) {
+        const alternativePath = path17.join(uploadsDir2, path17.basename(imageUrl));
         console.log("Image not found, trying alternative path:", alternativePath);
-        if (!fs16.existsSync(alternativePath)) {
+        if (!fs17.existsSync(alternativePath)) {
           return res2.status(404).json({ message: "Image file not found" });
         }
         console.log("Found image at alternative path");
@@ -80704,7 +80979,7 @@ Respond ONLY in valid JSON format with these exact keys:
           error: "Direct file analysis is deprecated"
         });
       }
-      const imageBuffer = await fs16.promises.readFile(filePath);
+      const imageBuffer = await fs17.promises.readFile(filePath);
       const base64Image = imageBuffer.toString("base64");
       const knownSymbol = req.body.symbol || void 0;
       const analysis = await analyzeChartImage(base64Image, knownSymbol, req.user?.id);
@@ -80879,11 +81154,11 @@ Respond ONLY in valid JSON format with these exact keys:
         const originalImageUrl = analysis.imageUrl;
         console.log("Original image URL:", originalImageUrl);
         const imagePath = originalImageUrl.startsWith("/") ? originalImageUrl.substring(1) : originalImageUrl;
-        const basename2 = path16.basename(imagePath);
+        const basename2 = path17.basename(imagePath);
         console.log("Image basename:", basename2);
-        const originalImagePath = path16.join(process.cwd(), "uploads", basename2);
+        const originalImagePath = path17.join(process.cwd(), "uploads", basename2);
         console.log("Full image path:", originalImagePath);
-        if (!fs16.existsSync(originalImagePath)) {
+        if (!fs17.existsSync(originalImagePath)) {
           console.error("Original image not found at path:", originalImagePath);
           throw new Error(`Original image not found: ${originalImagePath}`);
         }
@@ -80980,13 +81255,13 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/shared-image/:filename", (req, res2) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path16.basename(filename);
-      const sharedPath = path16.join(process.cwd(), "uploads", "shared", sanitizedFilename);
-      if (fs16.existsSync(sharedPath)) {
+      const sanitizedFilename = path17.basename(filename);
+      const sharedPath = path17.join(process.cwd(), "uploads", "shared", sanitizedFilename);
+      if (fs17.existsSync(sharedPath)) {
         return res2.sendFile(sharedPath);
       }
-      const regularPath = path16.join(process.cwd(), "uploads", sanitizedFilename);
-      if (fs16.existsSync(regularPath)) {
+      const regularPath = path17.join(process.cwd(), "uploads", sanitizedFilename);
+      if (fs17.existsSync(regularPath)) {
         return res2.sendFile(regularPath);
       }
       return res2.status(404).json({ message: "Image not found" });
@@ -80998,9 +81273,9 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/annotated-image/:filename", (req, res2) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path16.basename(filename);
-      const annotatedPath = path16.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
-      if (fs16.existsSync(annotatedPath)) {
+      const sanitizedFilename = path17.basename(filename);
+      const annotatedPath = path17.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
+      if (fs17.existsSync(annotatedPath)) {
         return res2.sendFile(annotatedPath);
       }
       return res2.status(404).json({ message: "Annotated image not found" });
@@ -83054,7 +83329,7 @@ IMPORTANT:
         "21m00Tcm4TlvDq8ikWAM": "sarah"
         // Rachel (not listed) → closest young American female
       };
-      const tryOpenRouterSpeech = async (name, slug, model, voice) => {
+      const tryOpenRouterSpeech2 = async (name, slug, model, voice) => {
         if (!orKey2) {
           recordAttempt(name, slug, null, "no OpenRouter API key configured");
           return false;
@@ -83099,7 +83374,7 @@ IMPORTANT:
       };
       if (orEnabled) {
         const orElVoice = OR_ELEVENLABS_VOICE_BY_ID[ELEVENLABS_VOICE_ID] || ELEVENLABS_VOICE_ID;
-        if (await tryOpenRouterSpeech("ElevenLabs via OpenRouter", "elevenlabs-openrouter", process.env.ABBA_TTS_OR_EL_MODEL || "elevenlabs/eleven-turbo-v2.5", orElVoice)) return;
+        if (await tryOpenRouterSpeech2("ElevenLabs via OpenRouter", "elevenlabs-openrouter", process.env.ABBA_TTS_OR_EL_MODEL || "elevenlabs/eleven-turbo-v2.5", orElVoice)) return;
       }
       const OpenAILib = (await import("openai")).default;
       const openaiKey = allKeys.find((k2) => k2.provider === "openai" && k2.isActive && k2.isValid !== false)?.apiKey || process.env.OPENAI_API_KEY;
@@ -83119,7 +83394,7 @@ IMPORTANT:
         recordAttempt("OpenAI", "openai", null, "no OpenAI API key configured");
       }
       if (orEnabled) {
-        if (await tryOpenRouterSpeech("OpenAI TTS via OpenRouter", "openai-openrouter", process.env.ABBA_TTS_OR_OAI_MODEL || "openai/gpt-4o-mini-tts-2025-12-15", OPENAI_VOICE)) return;
+        if (await tryOpenRouterSpeech2("OpenAI TTS via OpenRouter", "openai-openrouter", process.env.ABBA_TTS_OR_OAI_MODEL || "openai/gpt-4o-mini-tts-2025-12-15", OPENAI_VOICE)) return;
       }
       try {
         const { MsEdgeTTS, OUTPUT_FORMAT } = await import("msedge-tts");
@@ -84525,12 +84800,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       });
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
       const shareCardFileName = `share-card-${shareId}.png`;
-      const shareCardPath = path16.join(process.cwd(), "uploads", "share-cards");
-      if (!fs16.existsSync(shareCardPath)) {
-        fs16.mkdirSync(shareCardPath, { recursive: true });
+      const shareCardPath = path17.join(process.cwd(), "uploads", "share-cards");
+      if (!fs17.existsSync(shareCardPath)) {
+        fs17.mkdirSync(shareCardPath, { recursive: true });
       }
-      const fullPath = path16.join(shareCardPath, shareCardFileName);
-      fs16.writeFileSync(fullPath, shareCardBuffer);
+      const fullPath = path17.join(shareCardPath, shareCardFileName);
+      fs17.writeFileSync(fullPath, shareCardBuffer);
       const shareCardUrl = `/uploads/share-cards/${shareCardFileName}`;
       const shareUrl = `share-${shareId}`;
       const devotion = getDailyScripture2();
@@ -91608,8 +91883,8 @@ Return this EXACT JSON (no markdown, no commentary):
     if (!strat?.plan) return res2.status(404).json({ error: "No active VEDD SS AI plan" });
     try {
       const { createCanvas, loadImage } = await import("canvas");
-      const path20 = await import("path");
-      const fs18 = await import("fs");
+      const path21 = await import("path");
+      const fs19 = await import("fs");
       const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const engineState = getLiveEngineState3(userId);
       const engineRunning = engineState?.status === "running";
@@ -91695,8 +91970,8 @@ Return this EXACT JSON (no markdown, no commentary):
       ctx.closePath();
       ctx.fill();
       try {
-        const logoPath = path20.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
-        if (fs18.default.existsSync(logoPath)) {
+        const logoPath = path21.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
+        if (fs19.default.existsSync(logoPath)) {
           const logo = await loadImage(logoPath);
           const lh = 64, lw = logo.width / logo.height * lh;
           ctx.drawImage(logo, 44, 26, lw, lh);
@@ -91957,10 +92232,10 @@ Return this EXACT JSON (no markdown, no commentary):
       }
       const buffer = canvas.toBuffer("image/png");
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
-      const outDir = path20.default.join(process.cwd(), "uploads", "share-cards");
-      if (!fs18.default.existsSync(outDir)) fs18.default.mkdirSync(outDir, { recursive: true });
-      const filePath = path20.default.join(outDir, fileName);
-      fs18.default.writeFileSync(filePath, buffer);
+      const outDir = path21.default.join(process.cwd(), "uploads", "share-cards");
+      if (!fs19.default.existsSync(outDir)) fs19.default.mkdirSync(outDir, { recursive: true });
+      const filePath = path21.default.join(outDir, fileName);
+      fs19.default.writeFileSync(filePath, buffer);
       res2.json({
         success: true,
         imageUrl: `/uploads/share-cards/${fileName}`,
@@ -94522,9 +94797,9 @@ Format each recommendation as a clear, concise action item.`;
     }
     global.veddAIBrain[userId] = brain;
     try {
-      const brainDir = path16.join(process.cwd(), "data", "brains");
-      if (!fs16.existsSync(brainDir)) fs16.mkdirSync(brainDir, { recursive: true });
-      fs16.writeFileSync(path16.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+      const brainDir = path17.join(process.cwd(), "data", "brains");
+      if (!fs17.existsSync(brainDir)) fs17.mkdirSync(brainDir, { recursive: true });
+      fs17.writeFileSync(path17.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
     } catch (_brainSaveErr) {
     }
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
@@ -94533,9 +94808,9 @@ Format each recommendation as a clear, concise action item.`;
   global.runBrainLearning = runBrainLearning;
   global.loadPersistedBrain = (userId) => {
     try {
-      const p2 = path16.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-      if (!fs16.existsSync(p2)) return null;
-      const brain = JSON.parse(fs16.readFileSync(p2, "utf-8"));
+      const p2 = path17.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+      if (!fs17.existsSync(p2)) return null;
+      const brain = JSON.parse(fs17.readFileSync(p2, "utf-8"));
       global.veddAIBrain = global.veddAIBrain || {};
       global.veddAIBrain[userId] = brain;
       return brain;
@@ -94753,9 +95028,9 @@ Format each recommendation as a clear, concise action item.`;
     let brain = g.veddAIBrain[userId];
     if (!brain) {
       try {
-        const p2 = path16.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs16.existsSync(p2)) {
-          brain = JSON.parse(fs16.readFileSync(p2, "utf-8"));
+        const p2 = path17.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs17.existsSync(p2)) {
+          brain = JSON.parse(fs17.readFileSync(p2, "utf-8"));
           g.veddAIBrain[userId] = brain;
         }
       } catch (_) {
@@ -95898,9 +96173,9 @@ Respond with ONLY valid JSON:
         global.veddAIBrain[userId].lastWeeklyScan = scan;
         global.veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
         try {
-          const brainDir = path16.join(process.cwd(), "data", "brains");
-          if (!fs16.existsSync(brainDir)) fs16.mkdirSync(brainDir, { recursive: true });
-          fs16.writeFileSync(path16.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
+          const brainDir = path17.join(process.cwd(), "data", "brains");
+          if (!fs17.existsSync(brainDir)) fs17.mkdirSync(brainDir, { recursive: true });
+          fs17.writeFileSync(path17.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
         } catch (_) {
         }
       }
@@ -96852,20 +97127,20 @@ Respond with ONLY valid JSON:
       });
     }
   });
-  const _polyWalletsFile = path16.join(process.cwd(), "data", "polymarket_wallets.json");
+  const _polyWalletsFile = path17.join(process.cwd(), "data", "polymarket_wallets.json");
   const _loadPolyWallets = () => {
     try {
-      if (fs16.existsSync(_polyWalletsFile)) return JSON.parse(fs16.readFileSync(_polyWalletsFile, "utf-8"));
+      if (fs17.existsSync(_polyWalletsFile)) return JSON.parse(fs17.readFileSync(_polyWalletsFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyWallets = (map) => {
     try {
-      const dir = path16.join(process.cwd(), "data");
-      if (!fs16.existsSync(dir)) fs16.mkdirSync(dir, { recursive: true });
+      const dir = path17.join(process.cwd(), "data");
+      if (!fs17.existsSync(dir)) fs17.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
-      fs16.writeFileSync(_polyWalletsFile, content);
+      fs17.writeFileSync(_polyWalletsFile, content);
       backupDurableFile("polymarket_wallets.json", content);
     } catch {
     }
@@ -98330,20 +98605,20 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const closed = await closeAllKalshiTrades2(userId);
     res2.json({ success: true, closed, state: getKalshiEngineState2(userId) });
   });
-  const _polyKeysFile = path16.join(process.cwd(), "data", "polymarket_keys.json");
+  const _polyKeysFile = path17.join(process.cwd(), "data", "polymarket_keys.json");
   const _loadPolyKeys = () => {
     try {
-      if (fs16.existsSync(_polyKeysFile)) return JSON.parse(fs16.readFileSync(_polyKeysFile, "utf-8"));
+      if (fs17.existsSync(_polyKeysFile)) return JSON.parse(fs17.readFileSync(_polyKeysFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyKeys = (map) => {
     try {
-      const dir = path16.join(process.cwd(), "data");
-      if (!fs16.existsSync(dir)) fs16.mkdirSync(dir, { recursive: true });
+      const dir = path17.join(process.cwd(), "data");
+      if (!fs17.existsSync(dir)) fs17.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
-      fs16.writeFileSync(_polyKeysFile, content);
+      fs17.writeFileSync(_polyKeysFile, content);
       backupDurableFile("polymarket_keys.json", content);
     } catch {
     }
@@ -99598,11 +99873,11 @@ Format your response as JSON with exactly these keys:
       let mediaUrl = null;
       let mediaType = null;
       if (req.file && req.file.buffer) {
-        const fs18 = await import("fs/promises");
-        const path20 = await import("path");
-        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path20.extname(req.file.originalname)}`;
-        const uploadPath = path20.join(process.cwd(), "uploads", filename);
-        await fs18.writeFile(uploadPath, req.file.buffer);
+        const fs19 = await import("fs/promises");
+        const path21 = await import("path");
+        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path21.extname(req.file.originalname)}`;
+        const uploadPath = path21.join(process.cwd(), "uploads", filename);
+        await fs19.writeFile(uploadPath, req.file.buffer);
         mediaUrl = `/uploads/${filename}`;
         mediaType = req.file.mimetype.startsWith("video/") ? "video" : "image";
       }
@@ -100415,8 +100690,8 @@ Generate a JSON object with:
       }
       const id = parseInt(streamId);
       const filename = `stream-recording-${streamType}-${id}-${Date.now()}.webm`;
-      const filePath = path16.join(uploadsDir2, filename);
-      fs16.writeFileSync(filePath, file.buffer);
+      const filePath = path17.join(uploadsDir2, filename);
+      fs17.writeFileSync(filePath, file.buffer);
       const recordingUrl = `/uploads/${filename}`;
       if (streamType === "schedule") {
         const schedule = await storage.getSchedule(id);
@@ -106088,10 +106363,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res2.status(403).json({ error: "Admin access required" });
     }
     try {
-      const dataFile = path16.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path17.join(process.cwd(), "data", "curricula.json");
       let curricula = [];
       try {
-        curricula = JSON.parse(fs16.readFileSync(dataFile, "utf-8"));
+        curricula = JSON.parse(fs17.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const entry = {
@@ -106101,8 +106376,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         ...req.body
       };
       curricula.push(entry);
-      fs16.mkdirSync(path16.join(process.cwd(), "data"), { recursive: true });
-      fs16.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
+      fs17.mkdirSync(path17.join(process.cwd(), "data"), { recursive: true });
+      fs17.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
       res2.json({ success: true, id: entry.id, message: "Curriculum saved to Academy" });
     } catch (err) {
       res2.status(500).json({ error: err.message });
@@ -106111,10 +106386,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/workforce/modules", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path16.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path17.join(process.cwd(), "data", "curricula.json");
       let saved = [];
       try {
-        saved = JSON.parse(fs16.readFileSync(dataFile, "utf-8"));
+        saved = JSON.parse(fs17.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       res2.json({ modules: saved, total: saved.length + 12 });
@@ -106203,10 +106478,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   });
   app2.get("/api/verify/:certId", async (req, res2) => {
     try {
-      const dataFile = path16.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path17.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs16.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs17.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = certs.find((c) => c.certId === req.params.certId);
@@ -108038,14 +108313,14 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
 
 // server/vite.ts
 import express from "express";
-import fs17 from "fs";
-import path18 from "path";
+import fs18 from "fs";
+import path19 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path17 from "path";
+import path18 from "path";
 var isReplit = process.env.REPL_ID !== void 0;
 var replitPlugins = isReplit ? [
   (await import("@replit/vite-plugin-shadcn-theme-json")).default(),
@@ -108064,14 +108339,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path17.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path17.resolve(import.meta.dirname, "shared"),
-      "@assets": path17.resolve(import.meta.dirname, "attached_assets")
+      "@": path18.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path18.resolve(import.meta.dirname, "shared"),
+      "@assets": path18.resolve(import.meta.dirname, "attached_assets")
     }
   },
-  root: path17.resolve(import.meta.dirname, "client"),
+  root: path18.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path17.resolve(import.meta.dirname, "dist/public"),
+    outDir: path18.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 4e3,
     rollupOptions: {
@@ -108194,13 +108469,13 @@ async function setupVite(app2, server) {
       return res2.status(404).json({ error: "Not found", path: url });
     }
     try {
-      const clientTemplate = path18.resolve(
+      const clientTemplate = path19.resolve(
         import.meta.dirname,
         "..",
         "client",
         "index.html"
       );
-      let template = await fs17.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs18.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
@@ -108220,9 +108495,9 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path18.resolve(import.meta.dirname, "..", "dist", "public");
-  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs17.existsSync(distPath)}`);
-  if (!fs17.existsSync(distPath)) {
+  const distPath = path19.resolve(import.meta.dirname, "..", "dist", "public");
+  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs18.existsSync(distPath)}`);
+  if (!fs18.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
@@ -108243,7 +108518,7 @@ function serveStatic(app2) {
       }
     }
   }));
-  const indexPath = path18.resolve(distPath, "index.html");
+  const indexPath = path19.resolve(distPath, "index.html");
   const versionScript = `<script>
 (function(){
   try{
@@ -108279,7 +108554,7 @@ function serveStatic(app2) {
         "Expires": "0",
         "Content-Type": "text/html; charset=utf-8"
       });
-      let html = await fs17.promises.readFile(indexPath, "utf-8");
+      let html = await fs18.promises.readFile(indexPath, "utf-8");
       html = await injectBlogSeoMeta(html, req.originalUrl);
       html = html.replace("<head>", "<head>" + versionScript);
       res2.send(html);
@@ -108290,7 +108565,7 @@ function serveStatic(app2) {
 }
 
 // server/index.ts
-import path19 from "path";
+import path20 from "path";
 
 // server/auth.ts
 init_storage();
@@ -109228,19 +109503,19 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   log(`serving on port ${PORT}`);
 });
 setupAuth(app);
-app.use("/uploads", express2.static(path19.join(process.cwd(), "uploads")));
-app.use("/ea-templates", express2.static(path19.join(process.cwd(), "public/ea-templates")));
-app.use("/downloads", express2.static(path19.join(process.cwd(), "public/downloads"), {
+app.use("/uploads", express2.static(path20.join(process.cwd(), "uploads")));
+app.use("/ea-templates", express2.static(path20.join(process.cwd(), "public/ea-templates")));
+app.use("/downloads", express2.static(path20.join(process.cwd(), "public/downloads"), {
   setHeaders: (res2, filePath) => {
     if (filePath.endsWith(".mq5")) {
       res2.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res2.setHeader("Content-Disposition", 'attachment; filename="' + path19.basename(filePath) + '"');
+      res2.setHeader("Content-Disposition", 'attachment; filename="' + path20.basename(filePath) + '"');
     }
   }
 }));
 app.use((req, res2, next) => {
   const start = Date.now();
-  const path20 = req.path;
+  const path21 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res2.json;
   res2.json = function(bodyJson, ...args) {
@@ -109249,8 +109524,8 @@ app.use((req, res2, next) => {
   };
   res2.on("finish", () => {
     const duration = Date.now() - start;
-    if (path20.startsWith("/api")) {
-      let logLine = `${req.method} ${path20} ${res2.statusCode} in ${duration}ms`;
+    if (path21.startsWith("/api")) {
+      let logLine = `${req.method} ${path21} ${res2.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
