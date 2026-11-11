@@ -13901,6 +13901,7 @@ function scoreFxPair(i, w = rulesWeights()) {
   t.adx = i.adx == null ? 0 : i.adx >= 35 ? w.adx35 : i.adx >= 25 ? w.adx25 : i.adx >= 18 ? w.adx18 : w.adxLow;
   t.m15 = i.m15Trend === against ? w.m15Conflict : 0;
   t.sniper = (i.strategyPriority === "high" ? w.sniperHigh : 0) + (i.minConfluences > 0 ? votes >= i.minConfluences ? w.confluenceMet : w.confluenceShort : 0);
+  t.orb = i.orbRetest && i.orbDirection === direction ? w.orbRetest : 0;
   t.brain = i.brainEdge == null ? 0 : Math.max(-w.brainCap, Math.min(w.brainCap, i.brainEdge / 2));
   t.pace = i.pace === "FOCUS" ? w.paceFocus : 0;
   t.model = !i.model || i.model.n < 20 || !(i.model.avgR > 0) ? 0 : String(i.model.direction).toUpperCase() === direction ? w.modelAgree : w.modelOppose;
@@ -13939,6 +13940,8 @@ var init_fx_rules_score = __esm({
       sniperHigh: 4,
       confluenceMet: 4,
       confluenceShort: -8,
+      orbRetest: 6,
+      // confirmed ORB breakout + active retest, pick direction == breakout direction
       brainCap: 10,
       // |pair×session/hour/direction edge| / 2, capped
       paceFocus: 5,
@@ -21819,6 +21822,7 @@ var init_hour_filter = __esm({
 var live_trading_engine_exports = {};
 __export(live_trading_engine_exports, {
   broadcastMT5Signal: () => broadcastMT5Signal,
+  computeOrbStateFromCandles: () => computeOrbStateFromCandles,
   confirmMT5Signal: () => confirmMT5Signal,
   emergencyStopEngine: () => emergencyStopEngine,
   fxMarketClosedFor: () => fxMarketClosedFor,
@@ -21830,12 +21834,17 @@ __export(live_trading_engine_exports, {
   getLiveEngineState: () => getLiveEngineState,
   getMT5Accounts: () => getMT5Accounts,
   getModelLockStatus: () => getModelLockStatus,
+  getNYTime: () => getNYTime,
+  getOrbState: () => getOrbState,
   getPendingMT5Signals: () => getPendingMT5Signals,
   getPersistedEngineConfigOverride: () => getPersistedEngineConfigOverride,
   heartbeatMT5Account: () => heartbeatMT5Account,
   hydratePersistedEngineConfigs: () => hydratePersistedEngineConfigs,
   isEngineHardHalted: () => isEngineHardHalted,
   isFxLeader: () => isFxLeader,
+  isOrbOriginDecision: () => isOrbOriginDecision,
+  newsBlackoutVerdicts: () => newsBlackoutVerdicts,
+  newsGateBlocks: () => newsGateBlocks,
   recordTradeResult: () => recordTradeResult,
   registerMT5Account: () => registerMT5Account,
   restoreFxEngineStateFromDb: () => restoreFxEngineStateFromDb,
@@ -21890,11 +21899,42 @@ function newsMajorPostMinutes() {
   if (isNaN(raw)) return 90;
   return Math.min(1440, Math.max(0, raw));
 }
+function newsOrbShortenEnabled() {
+  return process.env.ORB_NEWS_SHORTEN !== "off";
+}
+function newsMajorPostMinutesOrb() {
+  if (!newsOrbShortenEnabled()) return newsMajorPostMinutes();
+  const raw = parseInt(process.env.NEWS_MAJOR_POST_MINUTES_ORB || "", 10);
+  if (isNaN(raw)) return 30;
+  return Math.min(1440, Math.max(0, raw));
+}
+function newsBlackoutVerdicts(diffMs, eventName, opts) {
+  const twoHoursMs = 2 * 60 * 60 * 1e3;
+  const widen = opts?.widenEnabled ?? newsWidenEnabled();
+  const major = widen && isMajorNewsRelease(eventName);
+  const stdPostMin = major ? opts?.majorPostMin ?? newsMajorPostMinutes() : 5;
+  const orbPostMin = major ? opts?.orbPostMin ?? newsMajorPostMinutesOrb() : 5;
+  return {
+    standard: diffMs > -stdPostMin * 6e4 && diffMs < twoHoursMs,
+    orb: diffMs > -orbPostMin * 6e4 && diffMs < twoHoursMs
+  };
+}
+function isOrbOriginDecision(decision) {
+  const s = String(decision?.strategy || "").toLowerCase();
+  if (s === "orb_breakout") return true;
+  return decision?.orbSetup === true && (s === "sniper" || s === "prop_firm_sniper");
+}
+function newsGateBlocks(newsCtx, orbOrigin) {
+  if (!newsCtx) return false;
+  if (orbOrigin && typeof newsCtx.highImpactSoonOrb === "boolean") return newsCtx.highImpactSoonOrb;
+  return newsCtx.highImpactSoon === true;
+}
 async function fetchNewsContext(pairs) {
   const context = {
     headlines: [],
     economicEvents: [],
     highImpactSoon: false,
+    highImpactSoonOrb: false,
     marketSentiment: "neutral",
     tradingWindowWarning: null
   };
@@ -21918,7 +21958,6 @@ async function fetchNewsContext(pairs) {
     }
     if (calendar && calendar.length > 0) {
       const now = Date.now();
-      const twoHoursMs = 2 * 60 * 60 * 1e3;
       const relevantCurrencies = /* @__PURE__ */ new Set();
       for (const pair of pairs) {
         relevantCurrencies.add(pair.substring(0, 3));
@@ -21938,10 +21977,11 @@ async function fetchNewsContext(pairs) {
               const today = /* @__PURE__ */ new Date();
               const eventDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), h, m || 0, 0, 0));
               const diff = eventDate.getTime() - now;
-              const major = newsWidenEnabled() && isMajorNewsRelease(event.event || "");
-              const majorPostMin = newsMajorPostMinutes();
-              const postWindowMs = (major ? majorPostMin : 5) * 6e4;
-              if (diff > -postWindowMs && diff < twoHoursMs) {
+              const verdicts = newsBlackoutVerdicts(diff, event.event || "");
+              if (verdicts.orb) context.highImpactSoonOrb = true;
+              if (verdicts.standard) {
+                const major = newsWidenEnabled() && isMajorNewsRelease(event.event || "");
+                const majorPostMin = newsMajorPostMinutes();
                 context.highImpactSoon = true;
                 const minsAway = Math.round(diff / 6e4);
                 if (major && minsAway < 0) {
@@ -22434,6 +22474,7 @@ function getDefaultConfig(userId) {
     singleStrategyMode: false,
     allowMultipleTrades: true,
     enableORBAutonomous: true,
+    enableSniperORB: true,
     enableCompositeAutonomous: true,
     compositeMinEdgeScore: 72,
     aiMode: "full",
@@ -24450,6 +24491,8 @@ async function buildRulesPicks(userId, marketAnalysis, htfMarketData, newsContex
         state.lastHighImpactNewsAt,
         state.config.strategyMode
       );
+      const _orbState = sniperOrbEnabled(state.config) && state.orbDailyFired?.[symbol] !== getNYTime(Date.now()).dateStr ? await getSniperOrbState(userId, symbol) : null;
+      const _orbRetest = !!(_orbState && _orbState.phase === "retest");
       const b = brains[sym.split(".")[0].replace(/[^A-Z0-9]/g, "")];
       let brainEdge = null, brainFail = null;
       if (b) {
@@ -24491,7 +24534,9 @@ async function buildRulesPicks(userId, marketAnalysis, htfMarketData, newsContex
         pace: pw ? pw.verdict : null,
         model: idea && mstat ? { direction: idea.direction, avgR: mstat.avgR, n: mstat.n } : null,
         newsSoon: !!newsContext?.highImpactSoon,
-        relVolume
+        relVolume,
+        orbRetest: _orbRetest,
+        orbDirection: _orbState?.breakoutDir ?? null
       });
       let decision = null;
       const price = Number(data.currentPrice) || 0;
@@ -24518,6 +24563,15 @@ async function buildRulesPicks(userId, marketAnalysis, htfMarketData, newsContex
           urgency: "IMMEDIATE",
           decisionLane: "rules"
         };
+        if ((rs.terms.orb || 0) > 0) {
+          const _st = String(decision.strategy || "").toLowerCase();
+          if (_st === "sniper" || _st === "prop_firm_sniper") {
+            decision.orbSetup = true;
+            if (Array.isArray(decision.confluences) && !decision.confluences.includes("ORB breakout+retest")) {
+              decision.confluences = [...decision.confluences, "ORB breakout+retest"];
+            }
+          }
+        }
       }
       out.push({ rs, decision, session: session2, hour });
     } catch {
@@ -25231,6 +25285,35 @@ REQUIRED confidence: 80%+ minimum before ANY entry
 Your job is to protect what's been built and claw back to the peak methodically.
 `;
     }
+    let orbSniperSection = "";
+    if (sniperOrbEnabled(config)) {
+      const _orbLabel = config.propFirmMode ? "prop_firm_sniper" : "sniper";
+      const _orbRelevant = config.propFirmMode || Object.values(pairStrategies).some((r) => r.strategy === "sniper" || r.strategy === "prop_firm_sniper");
+      if (_orbRelevant) {
+        const _orbTodayKey = getNYTime(Date.now()).dateStr;
+        const _orbLines = [];
+        for (const sym of Object.keys(marketAnalysis)) {
+          if (state.orbDailyFired?.[sym] === _orbTodayKey) continue;
+          const st = await getSniperOrbState(userId, sym);
+          if (!st || st.phase === "no_range") continue;
+          const base = `${sym}: ORB range ${st.orbLow.toFixed(5)}\u2013${st.orbHigh.toFixed(5)} (width ${(st.range * 1e4).toFixed(0)} pips), price ${st.currentPrice.toFixed(5)}`;
+          if (st.phase === "retest") {
+            _orbLines.push(`- ${base} \u2014 CONFIRMED ${st.breakoutDir} breakout, price is RETESTING the broken level NOW \u2713 SNIPER-ORB SETUP LIVE`);
+          } else if (st.phase === "breakout") {
+            _orbLines.push(`- ${base} \u2014 confirmed ${st.breakoutDir} breakout, NO retest yet (do not chase; wait for the retest)`);
+          } else {
+            _orbLines.push(`- ${base} \u2014 range set, no confirmed breakout yet`);
+          }
+        }
+        if (_orbLines.length > 0) {
+          orbSniperSection = `
+\u{1F3AF} ORB SNIPER SETUPS (New York opening range, 9:30\u20139:45 AM ET \u2014 live state for this scan):
+${_orbLines.join("\n")}
+INSTRUCTION: For a pair marked "SNIPER-ORB SETUP LIVE", a confirmed ORB breakout + active retest is a VALID sniper entry: you may fire an OPEN_TRADE under your normal strategy label ("${_orbLabel}") in the breakout direction, with stopLoss beyond the FAR side of the ORB range and takeProfit per your normal sniper rules (minimum 1:2 R:R). ONLY for that setup: include "orbSetup": true in the decision JSON and add "ORB breakout+retest" to its confluences. At most ONE ORB entry per pair per day \u2014 the engine code-enforces this and will reject a second one. Do NOT fire ORB entries on pairs without a live retest.
+`;
+        }
+      }
+    }
     let triggerSection = "";
     if (triggerAlerts && triggerAlerts.length > 0) {
       triggerSection = `
@@ -25289,7 +25372,7 @@ ${brainInsights}
 
 PAIR-SPECIFIC KNOWLEDGE:
 ${pairKnowledge}
-${weightsSection}${htfBiasSection}${shieldSection}${dualModeSection}${goalSection}${goalPaceSection}
+${weightsSection}${htfBiasSection}${shieldSection}${orbSniperSection}${dualModeSection}${goalSection}${goalPaceSection}
 REAL-TIME NEWS & MARKET SENTIMENT:
 ${newsContext && newsContext.headlines.length > 0 ? `Market Sentiment: ${newsContext.marketSentiment.toUpperCase()}
 Recent Headlines:
@@ -25606,7 +25689,8 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
       "orderType": "market|stop_entry|limit_entry",
       "tradingWindow": "prime|good|marginal|avoid",
       "entryTiming": "PRIME_ENTRY|WAIT_PULLBACK|WAIT_STRUCTURE|AVOID",
-      "pyramidOf": "signal ID if adding to existing winning trade"
+      "pyramidOf": "signal ID if adding to existing winning trade",
+      "orbSetup": "true ONLY for a SNIPER-ORB SETUP LIVE entry (see ORB SNIPER SETUPS section), otherwise omit"
     }
   ],
   "marketOverview": "Current market read across all pairs",
@@ -25816,6 +25900,27 @@ async function processDecision(userId, decision, newsCtx) {
     return;
   }
   if (decision.action === "OPEN_TRADE") {
+    if (decision.orbSetup === true && sniperOrbEnabled(config)) {
+      const _orbStrat = String(decision.strategy || "").toLowerCase();
+      if (_orbStrat === "sniper" || _orbStrat === "prop_firm_sniper") {
+        if (!state.orbDailyFired) state.orbDailyFired = {};
+        const _orbTodayKey = getNYTime(Date.now()).dateStr;
+        if (state.orbDailyFired[decision.symbol] === _orbTodayKey) {
+          addActivity(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F3AF} ORB-SNIPER: ${decision.symbol} ${decision.direction} blocked \u2014 an ORB trade (autonomous lane or sniper-ORB) already fired this pair today. One ORB entry per pair per day across both paths.`
+          });
+          state.signalsGenerated++;
+          return;
+        }
+        state.orbDailyFired[decision.symbol] = _orbTodayKey;
+        decision.orbContext = { orb: true, phase: "retest" };
+        if (Array.isArray(decision.confluences) && !decision.confluences.includes("ORB breakout+retest")) {
+          decision.confluences = [...decision.confluences, "ORB breakout+retest"];
+        }
+      }
+    }
     {
       const todayUTC = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
       if (state.tradesOpenedTodayDate !== todayUTC) {
@@ -26427,7 +26532,11 @@ async function processDecision(userId, decision, newsCtx) {
         urgency: decision.urgency,
         holdTime: decision.holdTime,
         takeProfit2: decision.takeProfit2,
-        pyramidOf: decision.pyramidOf
+        pyramidOf: decision.pyramidOf,
+        // ORB tag for the brain: sniper trades that fired on an ORB
+        // breakout+retest carry { orb: true, phase } so ORB-sniper
+        // performance can be learned separately later. Absent otherwise.
+        ...decision.orbContext ? { orbContext: decision.orbContext } : {}
       }
     });
     if (decision.urgency === "WAIT_FOR_PULLBACK" || decision.urgency === "MONITORING") {
@@ -26470,11 +26579,12 @@ async function processDecision(userId, decision, newsCtx) {
     }
     const snap = state.marketSnapshot?.[decision.symbol];
     const signalDirection = (decision.direction || "").toUpperCase();
-    if (newsCtx?.highImpactSoon === true) {
+    const _orbOrigin = isOrbOriginDecision(decision);
+    if (newsGateBlocks(newsCtx, _orbOrigin)) {
       addActivity(userId, {
         type: "info",
         symbol: decision.symbol,
-        message: `\u{1F4F0} NEWS BLACKOUT: ${decision.symbol} ${signalDirection} BLOCKED \u2014 high-impact economic event imminent. No new entries until event clears. Protects open trades from spike stop-outs.`
+        message: _orbOrigin ? `\u{1F4F0} NEWS BLACKOUT (ORB ${newsMajorPostMinutesOrb()}m post-release window): ${decision.symbol} ${signalDirection} BLOCKED \u2014 high-impact economic event inside the shortened ORB window. No new entries until it clears.` : `\u{1F4F0} NEWS BLACKOUT: ${decision.symbol} ${signalDirection} BLOCKED \u2014 high-impact economic event imminent. No new entries until event clears. Protects open trades from spike stop-outs.`
       });
       state.signalsGenerated++;
       return;
@@ -28061,6 +28171,103 @@ async function getBrokerIndexCandles(userId, symbol, mt5Tf) {
   }
   return null;
 }
+function computeOrbStateFromCandles(m5BC, currentPrice, todayKey) {
+  let orbHigh = 0, orbLow = 0;
+  const orbCandles = m5BC.filter((c) => {
+    if (!c.t) return false;
+    const nyC = getNYTime(c.t * 1e3);
+    return nyC.dateStr === todayKey && nyC.hour === 9 && nyC.minute >= 30 && nyC.minute < 45;
+  });
+  if (orbCandles.length > 0) {
+    orbHigh = Math.max(...orbCandles.map((c) => c.h));
+    orbLow = Math.min(...orbCandles.map((c) => c.l));
+  }
+  if (orbHigh === 0 || orbLow === 0 || orbHigh <= orbLow) {
+    return { orbHigh: 0, orbLow: 0, range: 0, breakoutDir: null, retestActive: false, phase: "no_range", currentPrice };
+  }
+  const orbRange = orbHigh - orbLow;
+  const retestBuffer = orbRange * 0.25;
+  let breakoutDir = null;
+  const postORBCandles = m5BC.filter((c) => {
+    if (!c.t) return false;
+    const nyC = getNYTime(c.t * 1e3);
+    return nyC.dateStr === todayKey && nyC.hour * 60 + nyC.minute >= 9 * 60 + 45;
+  });
+  for (const c of postORBCandles.slice(1)) {
+    const bodyHigh = Math.max(c.o, c.c);
+    const bodyLow = Math.min(c.o, c.c);
+    if (bodyLow > orbHigh) {
+      breakoutDir = "BUY";
+      break;
+    }
+    if (bodyHigh < orbLow) {
+      breakoutDir = "SELL";
+      break;
+    }
+  }
+  if (!breakoutDir) {
+    return { orbHigh, orbLow, range: orbRange, breakoutDir: null, retestActive: false, phase: "awaiting_breakout", currentPrice };
+  }
+  const isRetestLong = breakoutDir === "BUY" && currentPrice >= orbHigh - retestBuffer && currentPrice <= orbHigh + retestBuffer;
+  const isRetestShort = breakoutDir === "SELL" && currentPrice >= orbLow - retestBuffer && currentPrice <= orbLow + retestBuffer;
+  const retestActive = isRetestLong || isRetestShort;
+  return { orbHigh, orbLow, range: orbRange, breakoutDir, retestActive, phase: retestActive ? "retest" : "breakout", currentPrice };
+}
+async function getOrbStateFull(userId, symbol) {
+  const nowNY = getNYTime(Date.now());
+  const nowTotalMins = nowNY.hour * 60 + nowNY.minute;
+  if (nowTotalMins < 9 * 60 + 30 || nowTotalMins >= 15 * 60) return null;
+  const todayKey = nowNY.dateStr;
+  const assetType = marketDataService.detectAssetType(symbol);
+  let m5BC;
+  let h1BC;
+  let currentPrice;
+  if (assetType === "index") {
+    const brokerM5 = await getBrokerIndexCandles(userId, symbol, "M5");
+    if (!brokerM5 || brokerM5.length < 6) return null;
+    m5BC = brokerM5;
+    h1BC = await getBrokerIndexCandles(userId, symbol, "H1") || [];
+    currentPrice = m5BC[0].c;
+  } else {
+    const m5Result = await marketDataService.fetchMarketData({
+      symbol,
+      assetType,
+      timeframe: "5m",
+      limit: 60
+    });
+    if (!m5Result.bars || m5Result.bars.length < 6) return null;
+    const h1Result = await marketDataService.fetchMarketData({
+      symbol,
+      assetType,
+      timeframe: "1h",
+      limit: 30
+    });
+    const m5Bars = m5Result.bars;
+    const h1Bars = h1Result.bars || [];
+    currentPrice = m5Bars[m5Bars.length - 1].close;
+    const toBC = (b) => ({ o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume ?? 0, t: Math.floor((b.timestamp ?? Date.now()) / 1e3) });
+    m5BC = [...m5Bars].reverse().map(toBC);
+    h1BC = [...h1Bars].reverse().map(toBC);
+  }
+  return { ...computeOrbStateFromCandles(m5BC, currentPrice, todayKey), m5BC, h1BC };
+}
+async function getOrbState(userId, symbol) {
+  const full = await getOrbStateFull(userId, symbol);
+  if (!full) return null;
+  const { m5BC: _m5, h1BC: _h1, ...state } = full;
+  return state;
+}
+function sniperOrbEnabled(config) {
+  return process.env.SNIPER_ORB !== "off" && config.enableSniperORB !== false;
+}
+async function getSniperOrbState(userId, symbol) {
+  const key = `${userId}:${symbol}`;
+  const hit = _sniperOrbCache.get(key);
+  if (hit && Date.now() - hit.at < 6e4) return hit.state;
+  const state = await getOrbState(userId, symbol).catch(() => null);
+  _sniperOrbCache.set(key, { at: Date.now(), state });
+  return state;
+}
 async function runORBAutonomousScan(userId) {
   const state = engineStates[userId];
   if (!state) return;
@@ -28075,72 +28282,18 @@ async function runORBAutonomousScan(userId) {
   for (const symbol of config.pairs) {
     try {
       if (state.orbDailyFired[symbol] === todayKey) continue;
-      const assetType = marketDataService.detectAssetType(symbol);
-      let m5BC;
-      let h1BC;
-      let currentPrice;
-      if (assetType === "index") {
-        const brokerM5 = await getBrokerIndexCandles(userId, symbol, "M5");
-        if (!brokerM5 || brokerM5.length < 6) continue;
-        m5BC = brokerM5;
-        h1BC = await getBrokerIndexCandles(userId, symbol, "H1") || [];
-        currentPrice = m5BC[0].c;
-      } else {
-        const m5Result = await marketDataService.fetchMarketData({
-          symbol,
-          assetType,
-          timeframe: "5m",
-          limit: 60
-        });
-        if (!m5Result.bars || m5Result.bars.length < 6) continue;
-        const h1Result = await marketDataService.fetchMarketData({
-          symbol,
-          assetType,
-          timeframe: "1h",
-          limit: 30
-        });
-        const m5Bars = m5Result.bars;
-        const h1Bars = h1Result.bars || [];
-        currentPrice = m5Bars[m5Bars.length - 1].close;
-        const toBC = (b) => ({ o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume ?? 0, t: Math.floor((b.timestamp ?? Date.now()) / 1e3) });
-        m5BC = [...m5Bars].reverse().map(toBC);
-        h1BC = [...h1Bars].reverse().map(toBC);
-      }
-      let orbHigh = 0, orbLow = 0;
-      const orbCandles = m5BC.filter((c) => {
-        if (!c.t) return false;
-        const nyC = getNYTime(c.t * 1e3);
-        return nyC.dateStr === todayKey && nyC.hour === 9 && nyC.minute >= 30 && nyC.minute < 45;
-      });
-      if (orbCandles.length > 0) {
-        orbHigh = Math.max(...orbCandles.map((c) => c.h));
-        orbLow = Math.min(...orbCandles.map((c) => c.l));
-      }
-      if (orbHigh === 0 || orbLow === 0 || orbHigh <= orbLow) continue;
-      const orbRange = orbHigh - orbLow;
-      const retestBuffer = orbRange * 0.25;
-      let breakoutDir = null;
-      const postORBCandles = m5BC.filter((c) => {
-        if (!c.t) return false;
-        const nyC = getNYTime(c.t * 1e3);
-        return nyC.dateStr === todayKey && nyC.hour * 60 + nyC.minute >= 9 * 60 + 45;
-      });
-      for (const c of postORBCandles.slice(1)) {
-        const bodyHigh = Math.max(c.o, c.c);
-        const bodyLow = Math.min(c.o, c.c);
-        if (bodyLow > orbHigh) {
-          breakoutDir = "BUY";
-          break;
-        }
-        if (bodyHigh < orbLow) {
-          breakoutDir = "SELL";
-          break;
-        }
-      }
+      const orbFull = await getOrbStateFull(userId, symbol);
+      if (!orbFull) continue;
+      const m5BC = orbFull.m5BC;
+      const h1BC = orbFull.h1BC;
+      const currentPrice = orbFull.currentPrice;
+      const orbHigh = orbFull.orbHigh;
+      const orbLow = orbFull.orbLow;
+      const orbRange = orbFull.range;
+      if (orbFull.phase === "no_range") continue;
+      const breakoutDir = orbFull.breakoutDir;
       if (!breakoutDir) continue;
-      const isRetestLong = breakoutDir === "BUY" && currentPrice >= orbHigh - retestBuffer && currentPrice <= orbHigh + retestBuffer;
-      const isRetestShort = breakoutDir === "SELL" && currentPrice >= orbLow - retestBuffer && currentPrice <= orbLow + retestBuffer;
-      if (!isRetestLong && !isRetestShort) continue;
+      if (!orbFull.retestActive) continue;
       const scoreResult = await computeBreakoutScore(currentPrice, [], m5BC, [], h1BC, []);
       const aiScore = scoreResult.percentage;
       if (aiScore < 60) {
@@ -29113,7 +29266,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var MAJOR_RELEASE_KEYWORDS, FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _activityTableReady, _activityLastPrune, _activitySeen, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, tlStopLatest, tlStopInitial, dxLockInitial, _modelIdeaCache, NY_TIME_FMT, INDEX_BROKER_ALIASES, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
+var MAJOR_RELEASE_KEYWORDS, FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _activityTableReady, _activityLastPrune, _activitySeen, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, tlStopLatest, tlStopInitial, dxLockInitial, _modelIdeaCache, NY_TIME_FMT, INDEX_BROKER_ALIASES, _sniperOrbCache, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -29227,6 +29380,7 @@ var init_live_trading_engine = __esm({
       NAS100: ["NAS100CASH", "NAS100C", "NASDAQ100", "USTEC", "NDX100", "US100", "NQ", "NASDAQ", "NASUSD", "NA100", "NDAQ", "QQQ", "TECH100", "USTECH100", "NASD100", "NAS100USD"],
       US500: ["SPXUSD", "US500CASH", "SP500USD", "USINDEX", "SPX500USD", "ES", "SPX", "SPXC", "SP500C", "SPXUSDM", "SPX500", "SP500"]
     };
+    _sniperOrbCache = /* @__PURE__ */ new Map();
     FX_LEADER_LOCK_KEY = 918273646;
     FX_LEADER_STALE_MS = 3 * 60 * 1e3;
     _fxLeaderClient = null;

@@ -39,6 +39,7 @@ export const DEFAULT_RULES_WEIGHTS = {
   adx35: 6, adx25: 0, adx18: -4, adxLow: -10,
   m15Conflict: -10,
   sniperHigh: 4, confluenceMet: 4, confluenceShort: -8,
+  orbRetest: 6,         // confirmed ORB breakout + active retest, pick direction == breakout direction
   brainCap: 10,         // |pair×session/hour/direction edge| / 2, capped
   paceFocus: 5,
   modelAgree: 5, modelOppose: -5,
@@ -76,6 +77,8 @@ export interface RulesInputs {
   model: { direction: string; avgR: number; n: number } | null;  // latest M1/M2 idea this hour
   newsSoon: boolean;
   relVolume: number | null;
+  orbRetest?: boolean;                          // price is retesting the broken ORB level now
+  orbDirection?: 'BUY' | 'SELL' | null;         // confirmed ORB breakout direction
 }
 
 export interface RulesScore {
@@ -109,6 +112,10 @@ export function scoreFxPair(i: RulesInputs, w: RulesWeights = rulesWeights()): R
 
   t.sniper = (i.strategyPriority === 'high' ? w.sniperHigh : 0)
     + (i.minConfluences > 0 ? (votes >= i.minConfluences ? w.confluenceMet : w.confluenceShort) : 0);
+
+  // ORB confluence: an active retest of a confirmed opening-range breakout
+  // only counts when the pick trades WITH the breakout, never against it.
+  t.orb = i.orbRetest && i.orbDirection === direction ? w.orbRetest : 0;
 
   t.brain = i.brainEdge == null ? 0 : Math.max(-w.brainCap, Math.min(w.brainCap, i.brainEdge / 2));
 

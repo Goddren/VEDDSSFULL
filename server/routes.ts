@@ -21169,7 +21169,7 @@ Respond with ONLY valid JSON:
   app.post("/api/vedd-live-engine/start", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, maxDailyTrades, aiMode, breakevenBufferPips, directionFilter, pairDirectionOverrides, trailMethod, trailFixedPips, trailStepPips, trailProfitLockPct, trailActivationPips, trailSarInitialAF, trailSarMaxAF, brainLearningMode, enableCompositeAutonomous, compositeMinEdgeScore, enableORBAutonomous, copyMode, volatileCapMode, pairLotOverrides } = req.body;
+    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, maxDailyTrades, aiMode, breakevenBufferPips, directionFilter, pairDirectionOverrides, trailMethod, trailFixedPips, trailStepPips, trailProfitLockPct, trailActivationPips, trailSarInitialAF, trailSarMaxAF, brainLearningMode, enableCompositeAutonomous, compositeMinEdgeScore, enableORBAutonomous, enableSniperORB, copyMode, volatileCapMode, pairLotOverrides } = req.body;
 
     // Auto-detect reference balance from the first active TL connection when the caller
     // hasn't explicitly set one. This ensures proportional lot-sizing always has a
@@ -21231,6 +21231,7 @@ Respond with ONLY valid JSON:
         trailSarMaxAF: trailSarMaxAF !== undefined ? Number(trailSarMaxAF) : undefined,
         brainLearningMode: brainLearningMode !== undefined ? Boolean(brainLearningMode) : undefined,
         enableORBAutonomous: enableORBAutonomous !== undefined ? Boolean(enableORBAutonomous) : undefined,
+        enableSniperORB: enableSniperORB !== undefined ? Boolean(enableSniperORB) : undefined,
         enableCompositeAutonomous: enableCompositeAutonomous !== undefined ? Boolean(enableCompositeAutonomous) : undefined,
         compositeMinEdgeScore: compositeMinEdgeScore !== undefined ? Math.min(100, Math.max(50, Number(compositeMinEdgeScore))) : undefined,
         copyMode: ['proportional', 'multiplier'].includes(copyMode) ? copyMode : undefined,
