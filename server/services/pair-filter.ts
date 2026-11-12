@@ -65,9 +65,15 @@ function listFromEnv(name: string, fallback: string): string[] {
 // The loss is one-sided (SELL 25.5% WR vs BUY 45.7%); the 10-26→11-03 replay
 // had blocked BUYs ~0R vs SELLs −6.5R, and on 11-03 every rejected GBPJPY BUY
 // reached +2R. Put 'GBPJPY' back here to pause the whole pair again.
-const BLOCKED_PAIRS = listFromEnv('BLOCKED_PAIRS', '');
+// 2026-11-11: user blocked GBPJPY COMPLETELY (both directions) — buys kept
+// losing too (45.7% WR with the pair's inverted win/loss sizes: +$59 avg win
+// vs −$100 avg loss, and even the 64%-win-rate Asian slice loses money at
+// $109 vs $268). Whole pair returns to BLOCKED_PAIRS; the GBPJPY:SELL
+// direction entry is removed as redundant (the pair block covers it).
+// Reverse by removing 'GBPJPY' here (or PAIR_FILTER_ENABLED=false).
+const BLOCKED_PAIRS = listFromEnv('BLOCKED_PAIRS', 'GBPJPY');
 // One side only, as SYMBOL:DIRECTION (e.g. "USDJPY:SELL").
-const BLOCKED_DIRECTIONS = listFromEnv('BLOCKED_PAIR_DIRECTIONS', 'GBPJPY:SELL');
+const BLOCKED_DIRECTIONS = listFromEnv('BLOCKED_PAIR_DIRECTIONS', '');
 
 // Say what is in force at boot. Without this the only way to tell a working
 // filter from an empty one was to notice the absence of block rows.
