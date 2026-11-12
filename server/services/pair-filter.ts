@@ -71,7 +71,12 @@ function listFromEnv(name: string, fallback: string): string[] {
 // $109 vs $268). Whole pair returns to BLOCKED_PAIRS; the GBPJPY:SELL
 // direction entry is removed as redundant (the pair block covers it).
 // Reverse by removing 'GBPJPY' here (or PAIR_FILTER_ENABLED=false).
-const BLOCKED_PAIRS = listFromEnv('BLOCKED_PAIRS', 'GBPJPY');
+// 2026-11-11 (later): user REVERSED the full block the same evening — fully
+// unblocked, BOTH directions, saying the pair "has been producing" and he
+// had overlooked a few things when asking for the block. Defaults return to
+// empty lists (the pre-October state). The stats in the header stand as the
+// historical record; the user owns this call and can re-block any time.
+const BLOCKED_PAIRS = listFromEnv('BLOCKED_PAIRS', '');
 // One side only, as SYMBOL:DIRECTION (e.g. "USDJPY:SELL").
 const BLOCKED_DIRECTIONS = listFromEnv('BLOCKED_PAIR_DIRECTIONS', '');
 
