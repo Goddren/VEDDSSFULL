@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck, Settings2, GraduationCap, Receipt, Route, Ban, Activity } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
@@ -490,6 +490,12 @@ function TrailGuardsSection() {
     mutationFn: (id: string) => apiRequest("POST", "/api/engine/trail-guards/retire", { id }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/engine/trail-guards"] }); },
   });
+  // Downsized (Nov 11, 2026, user request): the candidate list rendered one
+  // card + "Make it a guard" button per proven lesson and could dominate the
+  // panel. Candidates now sit behind a one-line summary toggle (counts only);
+  // active guards — the live rules — stay visible. State is per mount; the
+  // section is small by default every time the panel loads.
+  const [showCandidates, setShowCandidates] = useState(false);
   if (!data) return null;
   const fresh = data.candidates.filter((c) => !c.alreadyGuarded);
   const active = data.guards.filter((g) => g.active);
@@ -497,9 +503,22 @@ function TrailGuardsSection() {
   const eng = (e: string) => (e === "crypto" ? "Crypto" : "Sol");
   return (
     <div className="mt-2.5 border-t border-white/10 pt-2">
-      <div className="text-[10px] font-semibold text-gray-300 mb-1">Proven trail lessons → real trail guards</div>
+      <div className="flex items-baseline gap-2 mb-1">
+        <div className="text-[10px] font-semibold text-gray-300">Proven trail lessons → real trail guards</div>
+        {fresh.length > 0 && (
+          <button
+            className="ml-auto shrink-0 text-[10px] text-sky-300 underline decoration-sky-500/40 underline-offset-2"
+            onClick={() => setShowCandidates((v) => !v)}
+          >{showCandidates ? "Hide" : `Review ${fresh.length} candidate${fresh.length === 1 ? "" : "s"}`}</button>
+        )}
+      </div>
+      {!showCandidates && fresh.length > 0 && (
+        <div className="text-[9px] text-gray-500 mb-1">{fresh.length} proven lesson{fresh.length === 1 ? "" : "s"} can become a guard — tap Review to see them.{active.length > 0 ? ` ${active.length} guard${active.length === 1 ? "" : "s"} active below.` : ""}</div>
+      )}
+      {showCandidates && (
+      <div className="max-h-44 overflow-y-auto overflow-x-hidden pr-1">
       {fresh.map((c) => (
-        <div key={`${c.engine}:${c.dimension}:${c.key}:${c.action}`} className="rounded bg-black/20 px-2 py-1.5 mb-0.5">
+        <div key={`${c.engine}:${c.dimension}:${c.key}:${c.action}`} className="rounded bg-black/20 px-2 py-1 mb-0.5">
           <div className="text-[10px] flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
             <span className="min-w-0 break-words text-gray-200 font-medium">{eng(c.engine)} · {c.dimension} · {c.key}</span>
             <span className={`shrink-0 px-1.5 py-px rounded-full ${c.action === "tighten" ? "bg-amber-500/15 text-amber-300" : "bg-emerald-500/15 text-emerald-300"}`}>{c.action === "tighten" ? "Tighten trail" : "Lock this profile in"}</span>
@@ -517,6 +536,8 @@ function TrailGuardsSection() {
           <div className="text-[9px] text-gray-500 mt-0.5 break-words">{c.reason}</div>
         </div>
       ))}
+      </div>
+      )}
       {active.map((g) => (
         <div key={g.id} className="rounded bg-sky-500/10 border border-sky-500/25 px-2 py-1.5 mb-0.5">
           <div className="text-[10px] flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
