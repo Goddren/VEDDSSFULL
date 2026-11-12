@@ -29,7 +29,16 @@
 //    over Kalshi bars): opt_orb, opt_volume_profile, opt_breakout,
 //    opt_momentum, opt_order_flow. The chain strategies (covered_call,
 //    credit_spread, long_call, long_put) have no runner and no meaning on a
-//    perp — excluded.
+//    perp — excluded. (opt_orb is the options runner's own ORB: immediate
+//    volume-confirmed breakout, no retest.)
+//  • 'orb' (2026-11-11, Chris's ask): the app's canonical Opening Range
+//    Breakout with FX/Studio semantics (kalshi-orb.ts) — 9:30–9:45 AM ET
+//    range from 1-min candles, confirmed full-body breakout close, entry
+//    only on a retest of the broken level (±25% of range), once per ticker
+//    per ET day, 9:30–15:00 ET weekdays. Entries/exits are the lane's own:
+//    touch entry, H1-ATR stop (1.5×, clamped 0.8–4%), 2R target, funding +
+//    placeholder costs, gap-through resolver. Kill switch for this
+//    strategy alone: KALSHI_STOCK_ORB=off (the lane switch still rules).
 //
 // Stock adaptations (recon §2/§3): ATR stop = 1.5 × H1 ATR clamped to
 // 0.8–4% (placeholder the crypto 1.5–12% clamp is far too wide for large
@@ -56,6 +65,9 @@ import {
   getLiquidStockPerps, getPerpCandles, getPerpTouch, getPerpFundingHistory, getPerpFundingEstimate,
   getPerpCorporateActions, getPerpBars, aggregateBars, type PerpBar, type PerpMarket,
 } from './kalshi-perps';
+import { computeKalshiOrbState, orbEntryDirection, orbAlreadyFiredToday } from './kalshi-orb';
+
+export const stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== 'off';
 
 const num = (n: string, d: number) => { const v = Number(process.env[n]); return Number.isFinite(v) && v > 0 ? v : d; };
 export const stockShadowEnabled = () => process.env.KALSHI_STOCK_SHADOW !== 'off';
@@ -571,6 +583,14 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
   const { rows: recent } = await pool.query(
     `SELECT strategy, underlying FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='closed' AND closed_at >= now() - ($2::text || ' milliseconds')::interval`,
     [userId, String(COOLDOWN_MS())]);
+  // ORB once-per-ticker-per-ET-day state (any status — an ORB entry that
+  // already stopped out still counts as today's one shot, mirroring the FX
+  // lane's orbDailyFired). Day boundaries are compared in ET in JS via
+  // kalshi-orb.ts so the rule is unit-testable (scripts/check-kalshi-orb.ts).
+  const { rows: orbPrior } = await pool.query(
+    `SELECT ticker, opened_at FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND strategy='orb' AND opened_at >= now() - interval '30 hours'`,
+    [userId]).catch(() => ({ rows: [] as any[] }));
+  const orbPriorList = orbPrior.map((r: any) => ({ ticker: String(r.ticker), openedAtMs: new Date(r.opened_at).getTime() }));
   const cryptoCfg: any = { defiChain: 'kalshi', directionFilter: 'both', minConfidence: MIN_CONF(), compositeMinEdgeScore: 72 };
   const optCfg: any = { ...OPTIONS_CFG, minConfidence: MIN_CONF() };
   let opened = 0;
@@ -584,6 +604,25 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
     if (bars15.length >= 3 && assessPriceAnomaly(bars15).suspect) continue;
 
     const signals: Signal[] = [];
+    // ORB — canonical opening-range breakout (kalshi-orb.ts): today's
+    // 9:30–9:45 ET range from this ticker's 1-min candles, entry only on a
+    // retest after a confirmed breakout, once per ticker per ET day. The
+    // signal flows into the SAME entry machinery below (touch entry, ATR
+    // stop, 2R target, funding/cost model) as every other lane strategy.
+    if (stockOrbEnabled() && !orbAlreadyFiredToday(orbPriorList, mkt.ticker, Date.now())) {
+      const nowMs = Date.now();
+      const { hour: etH, minute: etM } = etParts(nowMs);
+      const minsSinceOpen = (etH * 60 + etM) - (9 * 60 + 30);
+      if (minsSinceOpen >= 15 && minsSinceOpen <= 8 * 60) { // past the range, same ET day
+        const oneMin = await getPerpCandles(mkt.ticker, 1, Math.min(5000, minsSinceOpen + 10)).catch(() => [] as PerpBar[]);
+        if (oneMin.length >= 15) {
+          const m5 = aggregateBars(oneMin, 5).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c }));
+          const state = computeKalshiOrbState(m5, oneMin[oneMin.length - 1].c, nowMs);
+          const dir = orbEntryDirection(state);
+          if (dir) signals.push({ strategy: 'orb', direction: dir, score: null });
+        }
+      }
+    }
     // Crypto ports — the engine's own runners, unchanged.
     const cryptoResults = await Promise.all(CRYPTO_PORTS.map((k) =>
       STRATEGY_RUNNERS[k](symbol, cryptoCfg).then((r: any) => ({ k, r })).catch(() => null)));

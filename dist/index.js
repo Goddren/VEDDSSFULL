@@ -46512,6 +46512,17 @@ function ensembleSignal(candles) {
   const reason = `Ensemble ${direction}: ${Math.max(bull, bear)}/5 factors agree (${notes.join(", ")}). Trending regime confirmed.`;
   return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "ensemble" };
 }
+function orbSignal(candles) {
+  const price = candles.length ? candles[candles.length - 1].close : 0;
+  return {
+    direction: "NEUTRAL",
+    confidence: 0,
+    currentPrice: price,
+    priceChange1h: pct1h(candles),
+    reason: "ORB anchors on the 9:30 AM ET equity session open; this engine trades 24/7 crypto series with no session open, so ORB does not fire here. ORB runs on stock perps in the Kalshi shadow lane.",
+    strategy: "orb"
+  };
+}
 async function getKalshiSignal(strategy, coin = "BTC") {
   if (strategy === "momentum") {
     const p2 = await getCryptoPrediction(coin);
@@ -46529,6 +46540,7 @@ async function getKalshiSignal(strategy, coin = "BTC") {
     return { direction: "NEUTRAL", confidence: 0, currentPrice: 0, priceChange1h: 0, reason: "No candle data available", strategy };
   }
   if (strategy === "volume_profile") return volumeProfileSignal(candles);
+  if (strategy === "orb") return orbSignal(candles);
   if (strategy === "order_flow") return orderFlowSignal(candles);
   if (strategy === "ensemble") return ensembleSignal(candles);
   return markovSignal(candles);
@@ -48111,6 +48123,7 @@ var init_kalshi_engine = __esm({
       markov: "Markov",
       order_flow: "Order Flow",
       ensemble: "AI Ensemble",
+      orb: "ORB (Opening Range Breakout \u2014 shadow lane)",
       auto: "Auto (Best)"
     };
     _persistedConfigOverrides = /* @__PURE__ */ new Map();
@@ -56626,6 +56639,74 @@ var init_kalshi_perps = __esm({
   }
 });
 
+// server/services/kalshi-orb.ts
+function orbEtDayKey(tsMs) {
+  const parts = etDateFmt.formatToParts(new Date(tsMs));
+  const g = (t) => parts.find((p2) => p2.type === t)?.value || "";
+  return `${g("year")}-${g("month")}-${g("day")}`;
+}
+function etMinutesAndDow(tsMs) {
+  const parts = etPartsFmt.formatToParts(new Date(tsMs));
+  const g = (t) => parts.find((p2) => p2.type === t)?.value || "";
+  const dowMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return { minutes: Number(g("hour")) % 24 * 60 + Number(g("minute")), dow: dowMap[g("weekday")] ?? 0 };
+}
+function computeKalshiOrbState(m5Bars, currentPrice, nowMs) {
+  const todayKey = orbEtDayKey(nowMs);
+  const { minutes: nowMin, dow } = etMinutesAndDow(nowMs);
+  const inWindow = dow >= 1 && dow <= 5 && nowMin >= ORB_OPEN_MIN_ET && nowMin < ORB_CLOSE_MIN_ET;
+  const none = { orbHigh: 0, orbLow: 0, range: 0, breakoutDir: null, retestActive: false, phase: "no_range", inWindow, currentPrice };
+  const todays = m5Bars.filter((b) => b.t > 0 && orbEtDayKey(b.t) === todayKey);
+  const rangeBars = todays.filter((b) => {
+    const m = etMinutesAndDow(b.t).minutes;
+    return m >= ORB_OPEN_MIN_ET && m < ORB_RANGE_END_MIN_ET;
+  });
+  if (!rangeBars.length) return none;
+  const orbHigh = Math.max(...rangeBars.map((b) => b.h));
+  const orbLow = Math.min(...rangeBars.map((b) => b.l));
+  if (!(orbHigh > orbLow) || !(orbLow > 0)) return none;
+  const range = orbHigh - orbLow;
+  const retestBuffer = range * ORB_RETEST_BUFFER;
+  let breakoutDir = null;
+  const postBars = todays.filter((b) => etMinutesAndDow(b.t).minutes >= ORB_RANGE_END_MIN_ET && b.t + 5 * 6e4 <= nowMs);
+  for (let i = postBars.length - 1; i >= 0; i--) {
+    const b = postBars[i];
+    const bodyHigh = Math.max(b.o, b.c), bodyLow = Math.min(b.o, b.c);
+    if (bodyLow > orbHigh) {
+      breakoutDir = "long";
+      break;
+    }
+    if (bodyHigh < orbLow) {
+      breakoutDir = "short";
+      break;
+    }
+  }
+  if (!breakoutDir) return { ...none, orbHigh, orbLow, range, phase: "awaiting_breakout" };
+  const isRetestLong = breakoutDir === "long" && currentPrice >= orbHigh - retestBuffer && currentPrice <= orbHigh + retestBuffer;
+  const isRetestShort = breakoutDir === "short" && currentPrice >= orbLow - retestBuffer && currentPrice <= orbLow + retestBuffer;
+  const retestActive = isRetestLong || isRetestShort;
+  return { orbHigh, orbLow, range, breakoutDir, retestActive, phase: retestActive ? "retest" : "breakout", inWindow, currentPrice };
+}
+function orbEntryDirection(state) {
+  return state.inWindow && state.phase === "retest" ? state.breakoutDir : null;
+}
+function orbAlreadyFiredToday(prior, ticker, nowMs) {
+  const key = orbEtDayKey(nowMs);
+  return prior.some((p2) => p2.ticker === ticker && orbEtDayKey(p2.openedAtMs) === key);
+}
+var etDateFmt, etPartsFmt, ORB_OPEN_MIN_ET, ORB_RANGE_END_MIN_ET, ORB_CLOSE_MIN_ET, ORB_RETEST_BUFFER;
+var init_kalshi_orb = __esm({
+  "server/services/kalshi-orb.ts"() {
+    "use strict";
+    etDateFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+    etPartsFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit", weekday: "short" });
+    ORB_OPEN_MIN_ET = 9 * 60 + 30;
+    ORB_RANGE_END_MIN_ET = 9 * 60 + 45;
+    ORB_CLOSE_MIN_ET = 15 * 60;
+    ORB_RETEST_BUFFER = 0.25;
+  }
+});
+
 // server/services/process-fingerprint.ts
 var PROCESS_BOOT_ID;
 var init_process_fingerprint = __esm({
@@ -62929,6 +63010,7 @@ __export(kalshi_stock_shadow_exports, {
   runKalshiStockShadowCycle: () => runKalshiStockShadowCycle,
   sessionEt: () => sessionEt,
   startKalshiStockShadow: () => startKalshiStockShadow,
+  stockOrbEnabled: () => stockOrbEnabled,
   stockShadowEnabled: () => stockShadowEnabled
 });
 function etParts(ts) {
@@ -63315,6 +63397,11 @@ async function runKalshiStockShadowCycle(userId) {
     `SELECT strategy, underlying FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='closed' AND closed_at >= now() - ($2::text || ' milliseconds')::interval`,
     [userId, String(COOLDOWN_MS2())]
   );
+  const { rows: orbPrior } = await pool.query(
+    `SELECT ticker, opened_at FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND strategy='orb' AND opened_at >= now() - interval '30 hours'`,
+    [userId]
+  ).catch(() => ({ rows: [] }));
+  const orbPriorList = orbPrior.map((r) => ({ ticker: String(r.ticker), openedAtMs: new Date(r.opened_at).getTime() }));
   const cryptoCfg = { defiChain: "kalshi", directionFilter: "both", minConfidence: MIN_CONF(), compositeMinEdgeScore: 72 };
   const optCfg = { ...OPTIONS_CFG, minConfidence: MIN_CONF() };
   let opened = 0;
@@ -63325,6 +63412,20 @@ async function runKalshiStockShadowCycle(userId) {
     const bars15 = await getPerpBars(mkt.ticker, "15m", 40).catch(() => []);
     if (bars15.length >= 3 && assessPriceAnomaly2(bars15).suspect) continue;
     const signals = [];
+    if (stockOrbEnabled() && !orbAlreadyFiredToday(orbPriorList, mkt.ticker, Date.now())) {
+      const nowMs = Date.now();
+      const { hour: etH, minute: etM } = etParts(nowMs);
+      const minsSinceOpen = etH * 60 + etM - (9 * 60 + 30);
+      if (minsSinceOpen >= 15 && minsSinceOpen <= 8 * 60) {
+        const oneMin = await getPerpCandles(mkt.ticker, 1, Math.min(5e3, minsSinceOpen + 10)).catch(() => []);
+        if (oneMin.length >= 15) {
+          const m5 = aggregateBars(oneMin, 5).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c }));
+          const state = computeKalshiOrbState(m5, oneMin[oneMin.length - 1].c, nowMs);
+          const dir = orbEntryDirection(state);
+          if (dir) signals.push({ strategy: "orb", direction: dir, score: null });
+        }
+      }
+    }
     const cryptoResults = await Promise.all(CRYPTO_PORTS.map((k2) => STRATEGY_RUNNERS3[k2](symbol, cryptoCfg).then((r) => ({ k: k2, r })).catch(() => null)));
     for (const cr of cryptoResults) {
       if (cr?.r?.decision === "signal" && cr.r.direction) {
@@ -63484,13 +63585,15 @@ function startKalshiStockShadow() {
   setInterval(tick3, 5 * 6e4).unref?.();
   console.log("[kalshi-stock-shadow] started \u2014 SHADOW lane on public Kalshi perp data (no credentials, no orders).");
 }
-var num7, stockShadowEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started2;
+var stockOrbEnabled, num7, stockShadowEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started2;
 var init_kalshi_stock_shadow = __esm({
   "server/services/kalshi-stock-shadow.ts"() {
     "use strict";
     init_db();
     init_ensure_kalshi_perp_shadow_tables();
     init_kalshi_perps();
+    init_kalshi_orb();
+    stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== "off";
     num7 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
@@ -75973,9 +76076,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "5de5655c-dirty";
-var BUILD_BRANCH = "feat/trail-guards-compact";
-var BUILT_AT = "2026-11-12T02:10:46.815Z";
+var BUILD_COMMIT = "b9fbd437-dirty";
+var BUILD_BRANCH = "main";
+var BUILT_AT = "2026-11-12T19:55:31.796Z";
 
 // server/stripe.ts
 init_db();
