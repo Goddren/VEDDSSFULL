@@ -455,8 +455,8 @@ var init_pair_filter = __esm({
   "server/services/pair-filter.ts"() {
     "use strict";
     norm = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "");
-    BLOCKED_DIRECTIONS = listFromEnv("BLOCKED_PAIR_DIRECTIONS", "GBPJPY:SELL");
+    BLOCKED_PAIRS = listFromEnv("BLOCKED_PAIRS", "GBPJPY");
+    BLOCKED_DIRECTIONS = listFromEnv("BLOCKED_PAIR_DIRECTIONS", "");
     console.log(`[PairFilter] enabled=${process.env.PAIR_FILTER_ENABLED !== "false"} pairs=[${BLOCKED_PAIRS.join(", ") || "none"}] directions=[${BLOCKED_DIRECTIONS.join(", ") || "none"}]`);
   }
 });
@@ -75973,9 +75973,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "f5d47a0d-dirty";
-var BUILD_BRANCH = "feat/sniper-orb";
-var BUILT_AT = "2026-11-11T07:08:00.415Z";
+var BUILD_COMMIT = "90a28db7-dirty";
+var BUILD_BRANCH = "feat/block-gbpjpy";
+var BUILT_AT = "2026-11-12T01:16:40.241Z";
 
 // server/stripe.ts
 init_db();
