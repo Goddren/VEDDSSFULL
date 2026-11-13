@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 import { Activity, Brain, Loader2, Play, Square, Scan, Save, Store, TrendingUp, Wallet, XCircle } from "lucide-react";
+import { KalshiShadowPanel } from "@/components/kalshi-shadow-panel";
 
 // Consolidated Kalshi command center — every setting + feature in one place.
 // All reads/writes use the existing /api/kalshi/* routes; no server changes.
@@ -198,6 +199,9 @@ export default function KalshiHubPage() {
             </div>
           </Section>
         )}
+
+        {/* Kalshi Stock Perps — shadow results (moved from Weekly Strategy) */}
+        <KalshiShadowPanel className="mb-5" />
 
         {/* Value picks */}
         {picks?.picks?.length > 0 && (
