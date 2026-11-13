@@ -26,7 +26,7 @@ import { setupTwilio, sendTradingSignal, sendSmsRaw } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
 import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
 import { tradingCoachHandler, tradingTipsHandler } from "./trading-coach";
-import { abbaStrategistHandler, abbaChatHandler, abbaIdeaLabPrompt, extractIdeaDraft, IDEA_MARKER, extractSetupDraft, SETUP_MARKER, wantsSetupCard, wantsIdeaCard, ABBA_PERSONA_SPEC, abbaContextText } from "./abba-strategist";
+import { abbaStrategistHandler, abbaChatHandler, abbaIdeaLabPrompt, extractIdeaDraft, IDEA_MARKER, extractSetupDraft, SETUP_MARKER, wantsSetupCard, wantsIdeaCard, extractStrategyDraft, STRATEGY_MARKER, wantsStrategyCard, ABBA_PERSONA_SPEC, abbaContextText } from "./abba-strategist";
 import { buildEngineRoom, engineRoomContextText } from "./services/abba-engine-room";
 import { marketInsightsHandler, contextualInsightHandler } from "./market-insights";
 import { createStopOrder, checkBreakoutTriggers, cancelStopOrder, getStopOrdersForUser } from "./services/stopOrderService";
@@ -4297,6 +4297,31 @@ Respond ONLY in valid JSON format with these exact keys:
       res.json(out);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+  // ── ABBA strategy creation: the ONLY write in the talk-to-build flow ──
+  // The chat handlers can only produce a DRAFT (shaped + Studio-validated
+  // by services/abba-strategy-create). Saving happens here, when the
+  // trader taps "Save strategy" on the proposal card — the spec is
+  // re-validated with the Studio's own validator, stamped createdVia:
+  // 'abba' server-side (a client cannot stamp its own provenance), and
+  // written through createWizardStrategy, the exact service + table the
+  // Strategy Studio UI saves through. Scoped to the caller's own account.
+  app.post('/api/abba/strategy-draft/save', async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    try {
+      const { strategyCreateEnabled, stampAbbaProvenance } = await import('./services/abba-strategy-create');
+      if (!strategyCreateEnabled()) return res.status(404).json({ error: 'Strategy creation by chat is off right now. The Strategy Studio builder still works.' });
+      if (req.body?.confirm !== true) return res.status(400).json({ error: 'Confirm required' });
+      const { validateStrategySpec } = await import('./services/strategy-spec');
+      const v = validateStrategySpec(req.body?.spec);
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      if (v.spec.source === 'engine') {
+        return res.status(400).json({ error: 'Engine strategies run on the FX engine\'s AI and can\'t be saved from chat — ABBA builds fixed-rule (builder) strategies.' });
+      }
+      const { createWizardStrategy } = await import('./services/wizard-spec-strategies');
+      const created = await createWizardStrategy((req.user as any).id, stampAbbaProvenance(v.spec));
+      return res.status(201).json({ strategy: created });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
   app.get('/api/abba/engine-updates', async (_req, res) => {
     const { ENGINE_UPDATES } = await import('./services/engine-updates');
     res.json({ updates: ENGINE_UPDATES });
@@ -4448,7 +4473,7 @@ ${await abbaIdeaLabPrompt(userId)}`;
       // The client speaks the COMPLETED reply via /api/abba/tts (ElevenLabs chain);
       // browser speechSynthesis is only its error fallback.
       const processSentence = (sentence: string) => {
-        sentence = sentence.split(IDEA_MARKER).join('').split(SETUP_MARKER).join('');
+        sentence = sentence.split(IDEA_MARKER).join('').split(SETUP_MARKER).join('').split(STRATEGY_MARKER).join('');
         const stripped = sentence.replace(/\[NAV:\/[^\]]*\]/g, '').replace(/\[PLAN_PROPOSAL:\{[\s\S]*?\}\]/g, '').trim();
         if (!stripped || stripped.length < 4) return;
         sendEvent('text', { text: sentence, speak: stripped });
@@ -4497,8 +4522,20 @@ ${await abbaIdeaLabPrompt(userId)}`;
           historyMessages, message, fullText.split(SETUP_MARKER).join('')).catch((e: any) => { console.error('[ABBA stream setup]', e?.message); return null; });
       }
 
+      // Strategy creation: agreed design → shaped, Studio-validated draft
+      // for the proposal card. Draft only — the card's Save button (POST
+      // /api/abba/strategy-draft/save) is the sole write path.
+      let strategyDraft: any = null;
+      {
+        const { strategyCreateEnabled } = await import('./services/abba-strategy-create');
+        if (strategyCreateEnabled() && (fullText.includes(STRATEGY_MARKER) || wantsStrategyCard(message, lastAbba))) {
+          strategyDraft = await extractStrategyDraft({ client: aiClient, model: (aiClient as any).defaultModel || 'gpt-4o' },
+            historyMessages, message, fullText.split(STRATEGY_MARKER).join('')).catch((e: any) => { console.error('[ABBA stream strategy]', e?.message); return null; });
+        }
+      }
+
       sendEvent('done', {
-        navigateTo, planProposal, suggestions, ideaDraft, setupDraft,
+        navigateTo, planProposal, suggestions, ideaDraft, setupDraft, strategyDraft,
         context: { weekPct, weekProfit, weekTarget, todayProfit, dailyTarget, unrealizedPnL, openCount: openPositions.length, targetRemaining, pacingNeededPerDay, weekTrades: strategy?.progressTrades||0, weekWinRate: strategy?.progressWinRate||0, balance, planPairs, todayPairs, hasStrategy: !!strategy && weekTarget > 0 },
       });
       res.end();

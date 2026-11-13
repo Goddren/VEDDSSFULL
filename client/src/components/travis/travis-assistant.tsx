@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { IdeaDraftCard, type IdeaDraft } from "@/components/abba/idea-lab";
 import { SetupDraftCard } from "@/components/abba/setup-review";
+import { StrategyDraftCard } from "@/components/abba/strategy-create";
 import { useVoice, ABBA_VOICE_PRESETS, TTS_PROVIDER_LABELS, buildAbbaTtsRequestBody, hasSpeechRecognition, hasSpeechSynthesis, loadVoices, type AbbaVoicePresetId } from "@/components/abba/voice";
 import { useAbbaChat, type AbbaChatMessage, type PlanProposal } from "@/components/abba/use-abba-chat";
 import { EngineRoomCard } from "@/components/abba/engine-room-card";
@@ -180,6 +181,9 @@ const MsgBubble = ({
         )}
         {isAbba && msg.setupDraft && (
           <div className="w-full mt-1"><SetupDraftCard draft={msg.setupDraft} /></div>
+        )}
+        {isAbba && msg.strategyDraft && (
+          <div className="w-full mt-1"><StrategyDraftCard draft={msg.strategyDraft} /></div>
         )}
         {/* Plan proposal card — rendered below the message bubble */}
         {isAbba && msg.planProposal && (

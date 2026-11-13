@@ -99,6 +99,8 @@ export interface StrategySpec {
   trendFilter?: TrendFilter | null;
   sessionFilter?: SessionFilter | null;
   risk: StrategyRisk;
+  /** Provenance: 'abba' when built by talking to ABBA (server-stamped). */
+  createdVia?: 'abba' | 'studio';
 }
 
 export const INDICATOR_FIELDS: Record<IndicatorKind, ConditionField[]> = {
