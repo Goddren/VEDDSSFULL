@@ -17065,6 +17065,28 @@ Rules:
       res.json({ decisions: rows });
     } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
   });
+  // 14-day enriched-models REPLAY (simulation — see fx-models-replay.ts).
+  // Results land in fx_model_replay_* tables only; never the real record.
+  app.post("/api/fx-models/replay", async (req: Request, res: Response) => {
+    try {
+      const { fxModelsReplayOn, startFxModelReplay } = await import("./services/fx-models-replay");
+      if (!fxModelsReplayOn()) return res.status(404).json({ error: "Replay is off" });
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const days = Math.max(1, Math.min(14, Math.floor(Number(req.body?.days) || 14)));
+      const { run, started } = await startFxModelReplay((req.user as User).id, days);
+      res.json({ success: true, started, run, simulation: true });
+    } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
+  });
+  app.get("/api/fx-models/replay", async (req: Request, res: Response) => {
+    try {
+      const { fxModelsReplayOn, getLatestFxModelReplay } = await import("./services/fx-models-replay");
+      if (!fxModelsReplayOn()) return res.status(404).json({ error: "Replay is off" });
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const run = await getLatestFxModelReplay((req.user as User).id);
+      res.json({ success: true, run, simulation: true });
+    } catch (e: any) { res.status(500).json({ error: e?.message || 'failed' }); }
+  });
+
   app.get("/api/fx-models/day-types", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {

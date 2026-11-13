@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Layers, TrendingUp, Waves, Award, Landmark } from "lucide-react";
+import { Layers, TrendingUp, Waves, Award, Landmark, History } from "lucide-react";
 import { InfoExplainer } from "@/components/info-explainer";
 
 // FX Model 1 (range) / Model 2 (trend) — shadow-phase brain panel.
@@ -243,6 +243,149 @@ export function PropSimCard({ className = "" }: { className?: string }) {
           {(["M1", "M2"] as const).map((m) => (
             <PropSimModelBlock key={m} model={m} sim={mastery.data?.propSim?.[m]} />
           ))}
+        </div>
+      )}
+
+      <ReplayBlock />
+    </div>
+  );
+}
+
+// ── 14-day replay (simulation) ────────────────────────────────────────────
+// Re-decides the last 14 days hour by hour with the CURRENT enriched
+// models (volume profile, Markov, ORB, D1 + lifted pair/session blocks).
+// Honest labels everywhere: a simulation of how the new system would
+// have run — never the models' real record (that's the shadow record).
+interface ReplayModelStats { trades: number; wins: number; winRate: number | null; avgR: number | null; totalR: number }
+interface ReplayRun {
+  id: number; days: number; status: string;
+  progress: { hoursDone: number; hoursTotal: number; decisionsMade: number; aiCalls: number };
+  pairs: string[]; knownDifferences: string[];
+  results: {
+    perModel: Record<"M1" | "M2", ReplayModelStats>;
+    propSim: Record<"M1" | "M2", PropSimSummary>;
+    blockedComparison: { tradesTotal: number; wouldHaveBeenBlocked: number; byModel: Record<"M1" | "M2", number> };
+    openDecisions: number; noTradeDecisions: number;
+  } | null;
+  error: string | null; completedAt: string | null;
+}
+
+function ReplayBlock() {
+  const replay = useQuery<{ run: ReplayRun | null }>({
+    queryKey: ["/api/fx-models/replay"],
+    refetchInterval: (q) => ((q.state.data as any)?.run?.status === "running" ? 15000 : false),
+  });
+  const start = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/fx-models/replay", { days: 14 })).json(),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/fx-models/replay"] }); },
+  });
+  const run = replay.data?.run ?? null;
+  const running = run?.status === "running";
+  const pct = run && run.progress.hoursTotal > 0 ? Math.min(100, Math.round((run.progress.hoursDone / run.progress.hoursTotal) * 100)) : 0;
+
+  return (
+    <div className="mt-4 pt-3" style={{ borderTop: "1px solid rgba(251,191,36,0.18)" }} data-testid="fx-replay-block">
+      <div className="flex items-center gap-2">
+        <History className="w-4 h-4 text-amber-300 shrink-0" />
+        <h4 className="text-sm font-bold text-gray-100">14-day replay — the new models, re-run on the last 14 days</h4>
+      </div>
+      <p className="text-[11px] text-gray-400 mt-1">
+        Simulation: the current enriched models (volume profile, Markov, ORB, D1 — with the old pair/session blocks lifted),
+        re-deciding the last 14 days hour by hour. This is <span className="font-bold text-gray-200">NOT</span> their real record —
+        the real one is the shadow record above.
+      </p>
+
+      {!run && !replay.isLoading && (
+        <div className="mt-2">
+          <button
+            type="button"
+            onClick={() => start.mutate()}
+            disabled={start.isPending}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold disabled:opacity-50"
+            style={{ background: "rgba(251,191,36,0.16)", border: "1px solid rgba(251,191,36,0.45)", color: "#fcd34d" }}
+            data-testid="fx-replay-run"
+          >
+            {start.isPending ? "Starting…" : "Run the 14-day replay"}
+          </button>
+          <p className="text-[10px] text-gray-500 mt-1.5">
+            Uses about 250 AI calls (one decision call per decided hour, all pairs together — like the live models) and runs in the
+            background; progress shows here. Old decisions are replaced by the new run.
+          </p>
+          {start.isError && <p className="text-[11px] text-red-400 mt-1">Couldn't start the replay — try again.</p>}
+        </div>
+      )}
+
+      {running && run && (
+        <div className="mt-2">
+          <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
+            <div className="h-full rounded-full" style={{ width: `${Math.max(2, pct)}%`, background: "#fbbf24" }} />
+          </div>
+          <p className="text-[11px] text-gray-300 mt-1.5">
+            Running… hour {run.progress.hoursDone} of {run.progress.hoursTotal} · {run.progress.decisionsMade} decisions so far · {run.progress.aiCalls} AI calls used
+          </p>
+          <p className="text-[10px] text-gray-500 mt-0.5">You can leave this page — the replay keeps running and picks up where it left off if the server restarts.</p>
+        </div>
+      )}
+
+      {run?.status === "failed" && (
+        <div className="mt-2">
+          <p className="text-[11px] text-red-400">The last replay stopped: {run.error || "unknown error"}</p>
+          <button
+            type="button"
+            onClick={() => start.mutate()}
+            disabled={start.isPending}
+            className="mt-1.5 px-3 py-1.5 rounded-lg text-xs font-bold disabled:opacity-50"
+            style={{ background: "rgba(251,191,36,0.16)", border: "1px solid rgba(251,191,36,0.45)", color: "#fcd34d" }}
+          >
+            Run it again
+          </button>
+        </div>
+      )}
+
+      {run?.status === "complete" && run.results && (
+        <div className="mt-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {(["M1", "M2"] as const).map((m) => {
+              const s = run.results!.perModel[m];
+              const sim = run.results!.propSim[m];
+              const meta = MODEL_META[m];
+              return (
+                <div key={m} className="rounded-xl p-3 min-w-0" style={{ background: meta.bg, border: `1px solid ${meta.border}` }}>
+                  <p className="text-xs font-bold" style={{ color: meta.color }}>{meta.name} — replay</p>
+                  {s.trades === 0 ? (
+                    <p className="text-[11px] text-gray-400 mt-1">No trades in the replay window.</p>
+                  ) : (
+                    <p className="text-[11px] text-gray-300 mt-1">
+                      {s.trades} trades · {s.winRate != null ? `${Math.round(s.winRate * 100)}%` : "—"} win rate · avg {fmtR(s.avgR)} · total{" "}
+                      <span className="font-bold" style={{ color: s.totalR >= 0 ? "#34d399" : "#f87171" }}>{fmtR(s.totalR)}</span>
+                    </p>
+                  )}
+                  {sim && sim.tradesTaken > 0 && (
+                    <p className="text-[11px] text-gray-300 mt-0.5">
+                      Prop sim: {sim.blown ? <span className="font-bold" style={{ color: "#f87171" }}>BLOWN</span> : fmtMoney(sim.endBalance)} ({sim.totalReturnPct >= 0 ? "+" : ""}{sim.totalReturnPct.toFixed(1)}%) · {sim.tradesTaken} trades
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-gray-300 mt-2">
+            {run.results.blockedComparison.wouldHaveBeenBlocked} of {run.results.blockedComparison.tradesTotal} replay trades were ideas the{" "}
+            <span className="font-bold text-gray-100">old pair/session blocks would have stopped</span>
+            {" "}(Model 1: {run.results.blockedComparison.byModel.M1} · Model 2: {run.results.blockedComparison.byModel.M2}) — the lifted blocks are the difference.
+          </p>
+          {run.results.openDecisions > 0 && (
+            <p className="text-[10px] text-gray-500 mt-0.5">{run.results.openDecisions} replay trade(s) were still open at the window's end and aren't counted above.</p>
+          )}
+          <button
+            type="button"
+            onClick={() => start.mutate()}
+            disabled={start.isPending}
+            className="mt-2 px-3 py-1.5 rounded-lg text-xs font-bold disabled:opacity-50"
+            style={{ background: "rgba(251,191,36,0.10)", border: "1px solid rgba(251,191,36,0.35)", color: "#fcd34d" }}
+          >
+            {start.isPending ? "Starting…" : "Run it again"}
+          </button>
         </div>
       )}
     </div>

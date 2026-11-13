@@ -300,6 +300,15 @@ async function withRetry<T>(
     console.error(`[startup] ensureMarketplaceSubscriptionTables import error (non-fatal):`, err?.message ?? err);
   }
 
+  // FX models replay (Nov 12, 2026): resume runs a restart interrupted
+  // (per-hour checkpoints make this continue, never restart).
+  try {
+    const { resumeFxModelReplayRuns } = await import('./services/fx-models-replay');
+    await resumeFxModelReplayRuns();
+  } catch (err: any) {
+    console.error(`[startup] resumeFxModelReplayRuns import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure Options AI Engine brain feature store exists
   try {
     const { ensureOptionsBrainOutcomesTable } = await import('./services/ensure-options-brain-outcomes-table');

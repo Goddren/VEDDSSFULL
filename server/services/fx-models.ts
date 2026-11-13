@@ -156,7 +156,7 @@ const barsProviders: Record<string, BarsFn> = {
 export function registerBarsProvider(engine: ModelEngine, fn: BarsFn): void { barsProviders[engine] = fn; }
 export const barsFor = (engine: string): BarsFn => barsProviders[engine] || barsProviders.fx;
 
-const pipSize = (sym: string) => /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 0.0001;
+export const pipSize = (sym: string) => /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 0.0001;
 
 /**
  * Day type from trend strength, higher-timeframe agreement, volume and
@@ -485,8 +485,8 @@ export function aggregateDailyBars(h1Bars: ModelBar[]): ModelBar[] {
  * CONFIRMED (completed) UTC days only, plus whether the live price sits
  * above the daily EMA20. Null with fewer than 20 confirmed days.
  */
-export function d1Summary(daily: ModelBar[], price: number): { trend: string; priceAbove: boolean | null } | null {
-  const todayKey = Math.floor(Date.now() / 86_400_000);
+export function d1Summary(daily: ModelBar[], price: number, nowMs: number = Date.now()): { trend: string; priceAbove: boolean | null } | null {
+  const todayKey = Math.floor(nowMs / 86_400_000);
   const confirmed = (daily || []).filter((d) => Math.floor(Number(d.timestamp) / 86_400_000) < todayKey);
   if (confirmed.length < 20) return null;
   const closes = confirmed.map((d) => Number(d.close));
@@ -547,6 +547,50 @@ async function orbContext(userId: number, symbol: string): Promise<{
 const lastShadowCandle = new Map<string, number>();
 let lastResolveAt = 0;
 
+/** The enriched-context parts a caller gathered from its own sources
+ *  (live engine reads, or the replay's point-in-time reconstructions). */
+export interface ModelEnrichParts {
+  volumeProfileRaw: any;
+  markov: { state: string; pTrend: number; pChop: number; pBull: number; pBear: number } | null;
+  orb: any;
+  d1: { trend: string; priceAbove: boolean | null } | null;
+}
+
+/**
+ * Assemble one pair's model features + day-type classification from the
+ * engine-shaped inputs (marketAnalysis entry `a`, snapshot entry `snap`,
+ * mtf h1/h4). Extracted verbatim from runFxModelsCycle so the live cycle
+ * and the 14-day replay build byte-identical feature objects: enrich keys
+ * exist only when enrichment is on (FX_MODELS_ENRICH=off keeps the stored
+ * features byte-identical to the pre-enrichment shape), and regimeAlt is
+ * computed here from the supplied D1 part.
+ */
+export function buildModelFeatures(input: {
+  a: any; snap: any; h1: any; h4: any; session: string; enrichParts?: ModelEnrichParts | null;
+}): { features: Record<string, any>; cls: { dayType: DayType; autoModel: ModelId; score: number } } {
+  const { a, snap, h1, h4, session } = input;
+  const cls = classifyDayType({ adx: snap.adx, relVolume: snap.relativeVolume, h1: h1?.trend, h4: h4?.trend, session });
+  const features: Record<string, any> = {
+    price: a?.currentPrice ?? snap.price, m15Trend: snap.trend, rsi: snap.rsi, adx: snap.adx, plusDI: snap.plusDI, minusDI: snap.minusDI,
+    atr: Number(snap.atr) > 0 ? snap.atr : null, // 0 means "not computed", never tell the AI ATR is zero
+    relVolume: snap.relativeVolume, volumeTrend: snap.volumeTrend,
+    h1: h1 ? { trend: h1.trend, bos: h1.bosChoch?.detected ? h1.bosChoch.description : null, pd: h1.premiumDiscount?.zone, wyckoff: h1.wyckoff?.detected ? h1.wyckoff.phase : null } : null,
+    h4: h4 ? { trend: h4.trend, bos: h4.bosChoch?.detected ? h4.bosChoch.description : null, pd: h4.premiumDiscount?.zone, wyckoff: h4.wyckoff?.detected ? h4.wyckoff.phase : null } : null,
+    signals: a?.signals ?? a?.strategySignals ?? undefined,
+  };
+  if (modelsEnrichOn()) {
+    const px = Number(features.price);
+    const parts = input.enrichParts || { volumeProfileRaw: undefined, markov: null, orb: null, d1: null };
+    features.volumeProfile = compactVolumeProfile(parts.volumeProfileRaw, px);
+    features.markov = parts.markov;
+    features.orb = parts.orb;
+    features.d1 = parts.d1;
+    const alt = altClassifyD1H1({ adx: snap.adx, relVolume: snap.relativeVolume, d1: parts.d1?.trend, h1: h1?.trend, session });
+    features.regimeAlt = { basis: 'D1/H1', dayType: alt.dayType, autoModel: alt.autoModel, score: alt.score };
+  }
+  return { features, cls };
+}
+
 /**
  * Called once per engine scan (leader only). Never throws, never trades.
  */
@@ -567,31 +611,23 @@ export async function runFxModelsCycle(userId: number, ctx: {
     for (const [symbol, a] of Object.entries(ctx.marketAnalysis || {})) {
       const snap = ctx.snapshot?.[symbol] || {};
       const { h1, h4 } = ctx.mtf(symbol);
-      const cls = classifyDayType({ adx: snap.adx, relVolume: snap.relativeVolume, h1: h1?.trend, h4: h4?.trend, session });
-      const features: Record<string, any> = {
-        price: a?.currentPrice ?? snap.price, m15Trend: snap.trend, rsi: snap.rsi, adx: snap.adx, plusDI: snap.plusDI, minusDI: snap.minusDI,
-        atr: Number(snap.atr) > 0 ? snap.atr : null, // 0 means "not computed", never tell the AI ATR is zero
-        relVolume: snap.relativeVolume, volumeTrend: snap.volumeTrend,
-        h1: h1 ? { trend: h1.trend, bos: h1.bosChoch?.detected ? h1.bosChoch.description : null, pd: h1.premiumDiscount?.zone, wyckoff: h1.wyckoff?.detected ? h1.wyckoff.phase : null } : null,
-        h4: h4 ? { trend: h4.trend, bos: h4.bosChoch?.detected ? h4.bosChoch.description : null, pd: h4.premiumDiscount?.zone, wyckoff: h4.wyckoff?.detected ? h4.wyckoff.phase : null } : null,
-        signals: a?.signals ?? a?.strategySignals ?? undefined,
-      };
+      // Enriched shadow context (VP / Markov / ORB / D1 + alt regime) is
+      // gathered here (live sources) and assembled by buildModelFeatures —
+      // the same assembly the 14-day replay feeds with as-of parts.
+      let enrichParts: ModelEnrichParts | null = null;
       if (modelsEnrichOn()) {
-        // Enriched shadow context (VP / Markov / ORB / D1 + alt regime).
-        // Keys exist only when enrichment is on, so FX_MODELS_ENRICH=off
-        // keeps the stored features byte-identical to the pre-enrichment shape.
-        const px = Number(features.price);
-        features.volumeProfile = compactVolumeProfile(a?.volumeProfile, px);
-        features.markov = compactMarkov(symbol, a?.lastConfirmedCandle ?? null);
+        const px = Number(a?.currentPrice ?? snap.price);
         const [orb, d1] = await Promise.all([
           orbContext(userId, symbol).catch(() => null),
           d1Features(symbol, 'fx', px).catch(() => null),
         ]);
-        features.orb = orb;
-        features.d1 = d1;
-        const alt = altClassifyD1H1({ adx: snap.adx, relVolume: snap.relativeVolume, d1: d1?.trend, h1: h1?.trend, session });
-        features.regimeAlt = { basis: 'D1/H1', dayType: alt.dayType, autoModel: alt.autoModel, score: alt.score };
+        enrichParts = {
+          volumeProfileRaw: a?.volumeProfile,
+          markov: compactMarkov(symbol, a?.lastConfirmedCandle ?? null),
+          orb, d1,
+        };
       }
+      const { features, cls } = buildModelFeatures({ a, snap, h1, h4, session, enrichParts });
       await pool.query(
         `INSERT INTO fx_day_regimes (user_id, symbol, day, hour_utc, session, day_type, auto_model, trend_score, adx_m15, rel_volume, atr, h1_trend, h4_trend, features)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)
@@ -633,14 +669,15 @@ function num(x: any): number | null { const n = Number(x); return Number.isFinit
 const M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || 'GBPJPY,XAUUSD,BTCUSD,US30,NAS100').split(',').map((x) => x.trim().toUpperCase()).filter(Boolean);
 const rangeCache = new Map<string, { at: number; data: any }>();
 
-export async function rangeFeatures(symbol: string, engine: ModelEngine = 'fx'): Promise<any | null> {
-  const ck = `${engine}|${symbol}`;
-  const hit = rangeCache.get(ck);
-  if (hit && Date.now() - hit.at < 30 * 60_000) return hit.data;
-  let bars: any[] = [];
-  try {
-    bars = (await barsFor(engine)(symbol, '1h', 72)).slice(0, -1); // confirmed bars only
-  } catch { return null; }
+/**
+ * Pure range math over CONFIRMED H1 bars (oldest → newest), extracted from
+ * rangeFeatures so the 14-day replay can run the identical computation
+ * as-of a past hour (nowMs = that hour). Live behavior is unchanged:
+ * rangeFeatures below fetches + caches, then delegates here with
+ * nowMs = Date.now().
+ */
+export function computeRangeFeatures(confirmedBars: ModelBar[], symbol: string, nowMs: number): any | null {
+  const bars: any[] = confirmedBars || [];
   if (bars.length < 30) return null;
   const ts = (b: any) => (Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1000 : Number(b.timestamp));
   const box = bars.slice(-24);
@@ -674,7 +711,7 @@ export async function rangeFeatures(symbol: string, engine: ModelEngine = 'fx'):
   const trs = bars.slice(-15).map((b, i, a) => i === 0 ? b.high - b.low : Math.max(b.high - b.low, Math.abs(b.high - a[i - 1].close), Math.abs(b.low - a[i - 1].close))).slice(1);
   const atrH1 = trs.reduce((s, x) => s + x, 0) / trs.length;
   // Prior UTC day and today's Asian session (00:00–07:00 UTC) highs/lows.
-  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  const today = new Date(nowMs); today.setUTCHours(0, 0, 0, 0);
   const t0 = today.getTime();
   const prevDay = bars.filter((b) => ts(b) >= t0 - 86_400_000 && ts(b) < t0);
   const asian = bars.filter((b) => ts(b) >= t0 && ts(b) < t0 + 7 * 3_600_000);
@@ -688,6 +725,19 @@ export async function rangeFeatures(symbol: string, engine: ModelEngine = 'fx'):
     asianLow: asian.length ? Math.min(...asian.map((b) => b.low)) : null,
     qualifies: touchesHigh >= 2 && touchesLow >= 2 && bbPct <= 65,
   };
+  return data;
+}
+
+export async function rangeFeatures(symbol: string, engine: ModelEngine = 'fx'): Promise<any | null> {
+  const ck = `${engine}|${symbol}`;
+  const hit = rangeCache.get(ck);
+  if (hit && Date.now() - hit.at < 30 * 60_000) return hit.data;
+  let bars: any[] = [];
+  try {
+    bars = (await barsFor(engine)(symbol, '1h', 72)).slice(0, -1); // confirmed bars only
+  } catch { return null; }
+  if (bars.length < 30) return null;
+  const data = computeRangeFeatures(bars as ModelBar[], symbol, Date.now());
   rangeCache.set(ck, { at: Date.now(), data });
   return data;
 }
@@ -852,30 +902,80 @@ Give exactly one M1 and one M2 entry per pair.`;
   return base.replace('Both models use every input', `${enrichmentGuidance(engine)}Both models use every input`);
 }
 
-async function shadowDecide(userId: number, session: string, pairs: Array<{ symbol: string; ctx: any }>, engine: ModelEngine = 'fx'): Promise<void> {
+/** The prompt's "your own track record" block, from mastery slices. */
+export function formatMasteryLines(slices: any[] | null | undefined): string {
+  return (slices || []).filter((m: any) => m.trades >= 5).slice(0, 20)
+    .map((m: any) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join('\n');
+}
+
+/** One AI idea after the full live validation/veto pipeline has run on it. */
+export interface ModelIdeaOutcome {
+  symbol: string; model: ModelId; dayType: DayType; autoModel: ModelId;
+  /** Stored direction: the trade direction when isTrade, else 'NONE'. */
+  direction: string;
+  isTrade: boolean;
+  /** The AI's direction for a trade idea (BUY/SELL); equals direction when isTrade. */
+  tradeDirection: string;
+  /** The pair ctx price the idea is recorded at (live price in the live cycle). */
+  price: number;
+  entry: number | null; stopLoss: number | null; takeProfit: number | null;
+  confidence: number; setup: string;
+  /** Unclamped confidence + unsliced setup, as the live hand-off has always received them. */
+  rawConfidence: number; rawSetup: string;
+  /** The AI's raw one-sentence reason. */
+  reason: string;
+  /** The stored reasoning: rule note prefix (when a rule stopped it) + reason. */
+  reasoning: string;
+  ruleNote: string;
+  storedCtx: any;
+}
+
+export interface DecideModelIdeasResult {
+  outcomes: ModelIdeaOutcome[];
+  /** AI calls actually attempted (the live path batches all pairs into one). */
+  aiCalls: number;
+  /** The AI budget guard paused decision-making (no call was made). */
+  paused: boolean;
+  /** The AI client or the AI call itself failed. */
+  failed: boolean;
+}
+
+/**
+ * THE decision path — shared verbatim by the live shadow cycle and the
+ * 14-day replay: budget guard, per-pair range attach (via deps.rangeFor,
+ * which is rangeFeatures live and the as-of reconstruction in replay),
+ * the live prompt (buildModelsPrompt), one AI call for all pairs, idea
+ * parsing, price-proximity + side/risk validation, the M1/M2 vetoes, and
+ * epoch/provenance stamping. It does NOT persist anything and NEVER goes
+ * live: callers own storage (live → fx_model_decisions + maybeGoLive;
+ * replay → fx_model_replay_decisions only).
+ */
+export async function decideModelIdeas(userId: number, session: string, pairs: Array<{ symbol: string; ctx: any }>, engine: ModelEngine, deps: {
+  masteryLines: string;
+  rangeFor: (symbol: string) => Promise<any | null>;
+}): Promise<DecideModelIdeasResult> {
+  const out: DecideModelIdeasResult = { outcomes: [], aiCalls: 0, paused: false, failed: false };
   try {
     const { fxShouldPauseForCredits } = await import('./ai-budget-guard');
-    if (fxShouldPauseForCredits()) return;
+    if (fxShouldPauseForCredits()) { out.paused = true; return out; }
   } catch { /* guard unavailable: continue */ }
   let ai: any;
   try {
     const { getUniversalAIClientForUser } = await import('../openai');
     ai = await getUniversalAIClientForUser(userId);
-  } catch { return; }
+  } catch { out.failed = true; return out; }
 
   for (const p of pairs) {
-    const range = await rangeFeatures(p.symbol, engine).catch(() => null);
-    // Copy, never mutate: rangeFeatures returns a cached object shared across cycles.
+    const range = await deps.rangeFor(p.symbol).catch(() => null);
+    // Copy, never mutate: range sources may return a cached/shared object.
     p.ctx.range = range ? { ...range } : null;
     if (p.ctx.range) p.ctx.range.m1Candidate = m1Candidate(p.symbol, p.ctx, engine);
   }
-  const mastery = await getModelMastery(userId, { engine }).catch(() => null);
-  const masteryLines = (mastery?.slices || []).filter((m: any) => m.trades >= 5).slice(0, 20)
-    .map((m: any) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join('\n');
 
-  const prompt = buildModelsPrompt(engine, session, pairs, masteryLines);
+  const prompt = buildModelsPrompt(engine, session, pairs, deps.masteryLines);
 
   let content = '';
+  out.aiCalls = 1;
   try {
     const resp = await ai.chat.completions.create({
       model: ai.defaultModel || 'gpt-4o-mini',
@@ -887,10 +987,11 @@ async function shadowDecide(userId: number, session: string, pairs: Array<{ symb
     content = resp?.choices?.[0]?.message?.content || '';
   } catch (e: any) {
     try { const { noteAiBudgetError } = await import('./ai-budget-guard'); noteAiBudgetError(e); } catch { /* ignore */ }
-    return;
+    out.failed = true;
+    return out;
   }
   let ideas: any[] = [];
-  try { ideas = JSON.parse(content.slice(content.indexOf('{'), content.lastIndexOf('}') + 1))?.ideas || []; } catch { return; }
+  try { ideas = JSON.parse(content.slice(content.indexOf('{'), content.lastIndexOf('}') + 1))?.ideas || []; } catch { return out; }
 
   const byPair = new Map(pairs.map((p) => [p.symbol.toUpperCase(), p.ctx]));
   for (const i of ideas) {
@@ -935,22 +1036,91 @@ async function shadowDecide(userId: number, session: string, pairs: Array<{ symb
       ...(prov.wasExcludedPair ? { wasExcludedPair: true } : {}),
       ...(prov.wasBlockedSession ? { wasBlockedSession: true } : {}),
     };
+    out.outcomes.push({
+      symbol: sym, model, dayType: ctx.dayType, autoModel: ctx.autoModel,
+      direction: isTrade ? dir : 'NONE',
+      isTrade,
+      tradeDirection: dir,
+      price,
+      entry: isTrade ? price : null, stopLoss: isTrade ? sl : null, takeProfit: isTrade ? tp : null,
+      confidence: Math.max(0, Math.min(100, Math.round(Number(i?.confidence) || 0))),
+      setup: String(i?.setup || '').slice(0, 80),
+      rawConfidence: Math.round(Number(i?.confidence) || 0),
+      rawSetup: String(i?.setup || ''),
+      reason: String(i?.reason || ''),
+      reasoning: (ruleNote ? `[${ruleNote}] ` : '') + String(i?.reason || '').slice(0, 500),
+      ruleNote,
+      storedCtx,
+    });
+  }
+  return out;
+}
+
+async function shadowDecide(userId: number, session: string, pairs: Array<{ symbol: string; ctx: any }>, engine: ModelEngine = 'fx'): Promise<void> {
+  const mastery = await getModelMastery(userId, { engine }).catch(() => null);
+  const masteryLines = formatMasteryLines(mastery?.slices);
+  const res = await decideModelIdeas(userId, session, pairs, engine, {
+    masteryLines,
+    rangeFor: (s) => rangeFeatures(s, engine).catch(() => null),
+  });
+  for (const o of res.outcomes) {
     const ins = await pool.query(
       `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, result, engine, epoch)
        VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16) RETURNING id`,
-      [userId, sym, model, ctx.dayType, session, isTrade ? dir : 'NONE', isTrade ? price : null, isTrade ? sl : null, isTrade ? tp : null,
-        Math.max(0, Math.min(100, Math.round(Number(i?.confidence) || 0))), String(i?.setup || '').slice(0, 80), (ruleNote ? `[${ruleNote}] ` : '') + String(i?.reason || '').slice(0, 500),
-        JSON.stringify(storedCtx), isTrade ? null : 'NO_TRADE', engine, MODELS_EPOCH],
+      [userId, o.symbol, o.model, o.dayType, session, o.direction, o.entry, o.stopLoss, o.takeProfit,
+        o.confidence, o.setup, o.reasoning,
+        JSON.stringify(o.storedCtx), o.isTrade ? null : 'NO_TRADE', engine, MODELS_EPOCH],
     ).catch(() => null);
     // Crypto models are shadow-only for now; only FX ideas can be handed live.
-    if (engine === 'fx' && isTrade && ins?.rows?.[0]?.id) {
+    if (engine === 'fx' && o.isTrade && ins?.rows?.[0]?.id) {
       await maybeGoLive(userId, {
-        id: ins.rows[0].id, symbol: sym, model, dayType: ctx.dayType, autoModel: ctx.autoModel, session, direction: dir,
-        entry: price, stopLoss: sl, takeProfit: tp, confidence: Math.round(Number(i?.confidence) || 0),
-        setup: String(i?.setup || ''), reason: String(i?.reason || ''),
+        id: ins.rows[0].id, symbol: o.symbol, model: o.model, dayType: o.dayType, autoModel: o.autoModel, session, direction: o.tradeDirection,
+        entry: o.price, stopLoss: o.stopLoss as number, takeProfit: o.takeProfit as number, confidence: o.rawConfidence,
+        setup: o.rawSetup, reason: o.reason,
       }).catch((e: any) => console.error('[fx-models] live hand-off failed (non-fatal):', e?.message || e));
     }
   }
+}
+
+export interface RaceResolution { result: 'WIN' | 'LOSS' | 'EXPIRED'; exitPrice: number; resolvedAtMs: number }
+
+/**
+ * The TP/SL race, pure: walk bars (oldest → newest) from the decision's
+ * entry time; the first bar touching stop or target decides (same-bar
+ * ambiguity → the stop, conservative — as the live resolver has always
+ * done). No hit and the 48h window has elapsed by nowMs → EXPIRED, scored
+ * at the 48h mark. Extracted verbatim from resolveShadowDecisions so the
+ * 14-day replay resolves on the identical semantics; the live resolver
+ * calls this with nowMs = Date.now() and ignores resolvedAtMs (it stamps
+ * resolved_at = now() as always).
+ */
+export function raceResolveOnBars(
+  dec: { direction: string; entry_price: any; stop_loss: any; take_profit: any; created_at: any },
+  bars: ModelBar[],
+  nowMs: number,
+): RaceResolution | null {
+  const t0 = new Date(dec.created_at).getTime();
+  const entry = Number(dec.entry_price), sl = Number(dec.stop_loss), tp = Number(dec.take_profit);
+  const risk = Math.abs(entry - sl);
+  if (!(risk > 0)) return null;
+  const buy = dec.direction === 'BUY';
+  const list = bars || [];
+  for (const b of list) {
+    const ts = Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1000 : Number(b.timestamp);
+    if (ts < t0) continue;
+    const hitSl = buy ? b.low <= sl : b.high >= sl;
+    const hitTp = buy ? b.high >= tp : b.low <= tp;
+    if (hitSl) return { result: 'LOSS', exitPrice: sl, resolvedAtMs: ts }; // same-bar ambiguity → assume the stop (conservative)
+    if (hitTp) return { result: 'WIN', exitPrice: tp, resolvedAtMs: ts };
+  }
+  if (nowMs - t0 > 48 * 3_600_000) {
+    // Score at the 48h mark, not whenever the resolver gets to it.
+    const cutoff = t0 + 48 * 3_600_000;
+    const atCut = list.filter((b) => (Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1000 : Number(b.timestamp)) <= cutoff);
+    const exit = Number(atCut[atCut.length - 1]?.close) || Number(list[list.length - 1]?.close) || entry;
+    return { result: 'EXPIRED', exitPrice: exit, resolvedAtMs: cutoff };
+  }
+  return null;
 }
 
 /** Walk open shadow trades forward on 15m bars: TP or SL first wins; 48h expiry. */
@@ -976,32 +1146,15 @@ export async function resolveShadowDecisions(engine: ModelEngine = 'fx', userId?
     } catch { continue; }
     if (!bars.length) continue;
     for (const r of list) {
-      const t0 = new Date(r.created_at).getTime();
-      const entry = Number(r.entry_price), sl = Number(r.stop_loss), tp = Number(r.take_profit);
+      const out = raceResolveOnBars(r, bars as ModelBar[], Date.now());
+      if (!out) continue;
+      const entry = Number(r.entry_price), sl = Number(r.stop_loss);
       const risk = Math.abs(entry - sl);
-      if (!(risk > 0)) continue;
       const buy = r.direction === 'BUY';
-      let result: string | null = null, exit = 0;
-      for (const b of bars) {
-        const ts = Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1000 : Number(b.timestamp);
-        if (ts < t0) continue;
-        const hitSl = buy ? b.low <= sl : b.high >= sl;
-        const hitTp = buy ? b.high >= tp : b.low <= tp;
-        if (hitSl) { result = 'LOSS'; exit = sl; break; } // same-bar ambiguity → assume the stop (conservative)
-        if (hitTp) { result = 'WIN'; exit = tp; break; }
-      }
-      if (!result && Date.now() - t0 > 48 * 3_600_000) {
-        // Score at the 48h mark, not whenever the resolver gets to it.
-        const cutoff = t0 + 48 * 3_600_000;
-        const atCut = bars.filter((b) => (Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1000 : Number(b.timestamp)) <= cutoff);
-        exit = Number(atCut[atCut.length - 1]?.close) || Number(bars[bars.length - 1]?.close) || entry;
-        result = 'EXPIRED';
-      }
-      if (!result) continue;
-      const move = buy ? exit - entry : entry - exit;
+      const move = buy ? out.exitPrice - entry : entry - out.exitPrice;
       await pool.query(
         `UPDATE fx_model_decisions SET result=$2, exit_price=$3, r_multiple=$4, pips=$5, resolved_at=now() WHERE id=$1 AND result IS NULL`,
-        [r.id, result, exit, move / risk, engine === 'crypto' ? (entry > 0 ? (move / entry) * 100 : 0) : move / pipSize(symbol)],
+        [r.id, out.result, out.exitPrice, move / risk, engine === 'crypto' ? (entry > 0 ? (move / entry) * 100 : 0) : move / pipSize(symbol)],
       ).catch(() => {});
     }
   }

@@ -21643,9 +21643,13 @@ var init_hour_filter = __esm({
 // server/services/live-trading-engine.ts
 var live_trading_engine_exports = {};
 __export(live_trading_engine_exports, {
+  adxOrNull: () => adxOrNull,
   broadcastMT5Signal: () => broadcastMT5Signal,
+  computeHtfBias: () => computeHtfBias,
   computeOrbStateFromCandles: () => computeOrbStateFromCandles,
+  computeVolumeMetrics: () => computeVolumeMetrics,
   confirmMT5Signal: () => confirmMT5Signal,
+  convertToCandles: () => convertToCandles,
   emergencyStopEngine: () => emergencyStopEngine,
   fxMarketClosedFor: () => fxMarketClosedFor,
   generateRuleBasedSignals: () => generateRuleBasedSignals,
@@ -29979,14 +29983,18 @@ __export(fx_models_exports, {
   aggregateDailyBars: () => aggregateDailyBars,
   altClassifyD1H1: () => altClassifyD1H1,
   barsFor: () => barsFor,
+  buildModelFeatures: () => buildModelFeatures,
   buildModelsPrompt: () => buildModelsPrompt,
   classifyDayType: () => classifyDayType,
   compactMarkov: () => compactMarkov,
   compactVolumeProfile: () => compactVolumeProfile,
+  computeRangeFeatures: () => computeRangeFeatures,
   d1Features: () => d1Features,
   d1Summary: () => d1Summary,
+  decideModelIdeas: () => decideModelIdeas,
   decisionProvenance: () => decisionProvenance,
   ensureFxModelTables: () => ensureFxModelTables,
+  formatMasteryLines: () => formatMasteryLines,
   fxModelDailyCap: () => fxModelDailyCap,
   fxModelDailyCapAllows: () => fxModelDailyCapAllows,
   fxModelImportEpoch: () => fxModelImportEpoch,
@@ -30012,8 +30020,10 @@ __export(fx_models_exports, {
   modelsEpochOn: () => modelsEpochOn,
   modelsLiftsOn: () => modelsLiftsOn,
   parseFxModelScope: () => parseFxModelScope,
+  pipSize: () => pipSize,
   promotionStats: () => promotionStats,
   propSimulate: () => propSimulate,
+  raceResolveOnBars: () => raceResolveOnBars,
   rangeFeatures: () => rangeFeatures,
   registerBarsProvider: () => registerBarsProvider,
   resolveShadowDecisions: () => resolveShadowDecisions,
@@ -30241,8 +30251,8 @@ function aggregateDailyBars(h1Bars) {
   }
   return Array.from(byDay.entries()).sort((x, y) => x[0] - y[0]).map(([, v]) => v);
 }
-function d1Summary(daily, price) {
-  const todayKey = Math.floor(Date.now() / 864e5);
+function d1Summary(daily, price, nowMs = Date.now()) {
+  const todayKey = Math.floor(nowMs / 864e5);
   const confirmed = (daily || []).filter((d) => Math.floor(Number(d.timestamp) / 864e5) < todayKey);
   if (confirmed.length < 20) return null;
   const closes = confirmed.map((d) => Number(d.close));
@@ -30282,6 +30292,36 @@ async function orbContext(userId, symbol) {
   orbCtxCache.set(ck, { at: Date.now(), data });
   return data;
 }
+function buildModelFeatures(input) {
+  const { a, snap, h1, h4, session: session2 } = input;
+  const cls = classifyDayType({ adx: snap.adx, relVolume: snap.relativeVolume, h1: h1?.trend, h4: h4?.trend, session: session2 });
+  const features = {
+    price: a?.currentPrice ?? snap.price,
+    m15Trend: snap.trend,
+    rsi: snap.rsi,
+    adx: snap.adx,
+    plusDI: snap.plusDI,
+    minusDI: snap.minusDI,
+    atr: Number(snap.atr) > 0 ? snap.atr : null,
+    // 0 means "not computed", never tell the AI ATR is zero
+    relVolume: snap.relativeVolume,
+    volumeTrend: snap.volumeTrend,
+    h1: h1 ? { trend: h1.trend, bos: h1.bosChoch?.detected ? h1.bosChoch.description : null, pd: h1.premiumDiscount?.zone, wyckoff: h1.wyckoff?.detected ? h1.wyckoff.phase : null } : null,
+    h4: h4 ? { trend: h4.trend, bos: h4.bosChoch?.detected ? h4.bosChoch.description : null, pd: h4.premiumDiscount?.zone, wyckoff: h4.wyckoff?.detected ? h4.wyckoff.phase : null } : null,
+    signals: a?.signals ?? a?.strategySignals ?? void 0
+  };
+  if (modelsEnrichOn()) {
+    const px = Number(features.price);
+    const parts = input.enrichParts || { volumeProfileRaw: void 0, markov: null, orb: null, d1: null };
+    features.volumeProfile = compactVolumeProfile(parts.volumeProfileRaw, px);
+    features.markov = parts.markov;
+    features.orb = parts.orb;
+    features.d1 = parts.d1;
+    const alt = altClassifyD1H1({ adx: snap.adx, relVolume: snap.relativeVolume, d1: parts.d1?.trend, h1: h1?.trend, session: session2 });
+    features.regimeAlt = { basis: "D1/H1", dayType: alt.dayType, autoModel: alt.autoModel, score: alt.score };
+  }
+  return { features, cls };
+}
 async function runFxModelsCycle(userId, ctx) {
   if (process.env.FX_MODELS_SHADOW === "off") return;
   try {
@@ -30294,35 +30334,21 @@ async function runFxModelsCycle(userId, ctx) {
     for (const [symbol, a] of Object.entries(ctx.marketAnalysis || {})) {
       const snap = ctx.snapshot?.[symbol] || {};
       const { h1, h4 } = ctx.mtf(symbol);
-      const cls = classifyDayType({ adx: snap.adx, relVolume: snap.relativeVolume, h1: h1?.trend, h4: h4?.trend, session: session2 });
-      const features = {
-        price: a?.currentPrice ?? snap.price,
-        m15Trend: snap.trend,
-        rsi: snap.rsi,
-        adx: snap.adx,
-        plusDI: snap.plusDI,
-        minusDI: snap.minusDI,
-        atr: Number(snap.atr) > 0 ? snap.atr : null,
-        // 0 means "not computed", never tell the AI ATR is zero
-        relVolume: snap.relativeVolume,
-        volumeTrend: snap.volumeTrend,
-        h1: h1 ? { trend: h1.trend, bos: h1.bosChoch?.detected ? h1.bosChoch.description : null, pd: h1.premiumDiscount?.zone, wyckoff: h1.wyckoff?.detected ? h1.wyckoff.phase : null } : null,
-        h4: h4 ? { trend: h4.trend, bos: h4.bosChoch?.detected ? h4.bosChoch.description : null, pd: h4.premiumDiscount?.zone, wyckoff: h4.wyckoff?.detected ? h4.wyckoff.phase : null } : null,
-        signals: a?.signals ?? a?.strategySignals ?? void 0
-      };
+      let enrichParts = null;
       if (modelsEnrichOn()) {
-        const px = Number(features.price);
-        features.volumeProfile = compactVolumeProfile(a?.volumeProfile, px);
-        features.markov = compactMarkov(symbol, a?.lastConfirmedCandle ?? null);
+        const px = Number(a?.currentPrice ?? snap.price);
         const [orb, d1] = await Promise.all([
           orbContext(userId, symbol).catch(() => null),
           d1Features(symbol, "fx", px).catch(() => null)
         ]);
-        features.orb = orb;
-        features.d1 = d1;
-        const alt = altClassifyD1H1({ adx: snap.adx, relVolume: snap.relativeVolume, d1: d1?.trend, h1: h1?.trend, session: session2 });
-        features.regimeAlt = { basis: "D1/H1", dayType: alt.dayType, autoModel: alt.autoModel, score: alt.score };
+        enrichParts = {
+          volumeProfileRaw: a?.volumeProfile,
+          markov: compactMarkov(symbol, a?.lastConfirmedCandle ?? null),
+          orb,
+          d1
+        };
       }
+      const { features, cls } = buildModelFeatures({ a, snap, h1, h4, session: session2, enrichParts });
       await pool.query(
         `INSERT INTO fx_day_regimes (user_id, symbol, day, hour_utc, session, day_type, auto_model, trend_score, adx_m15, rel_volume, atr, h1_trend, h4_trend, features)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)
@@ -30357,16 +30383,8 @@ function num4(x) {
   const n = Number(x);
   return Number.isFinite(n) ? n : null;
 }
-async function rangeFeatures(symbol, engine = "fx") {
-  const ck = `${engine}|${symbol}`;
-  const hit = rangeCache.get(ck);
-  if (hit && Date.now() - hit.at < 30 * 6e4) return hit.data;
-  let bars = [];
-  try {
-    bars = (await barsFor(engine)(symbol, "1h", 72)).slice(0, -1);
-  } catch {
-    return null;
-  }
+function computeRangeFeatures(confirmedBars, symbol, nowMs) {
+  const bars = confirmedBars || [];
   if (bars.length < 30) return null;
   const ts = (b) => Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp);
   const box = bars.slice(-24);
@@ -30396,7 +30414,7 @@ async function rangeFeatures(symbol, engine = "fx") {
   const bbPct = Math.round(widths.filter((w) => w <= nowW).length / widths.length * 100);
   const trs = bars.slice(-15).map((b, i, a) => i === 0 ? b.high - b.low : Math.max(b.high - b.low, Math.abs(b.high - a[i - 1].close), Math.abs(b.low - a[i - 1].close))).slice(1);
   const atrH1 = trs.reduce((s, x) => s + x, 0) / trs.length;
-  const today = /* @__PURE__ */ new Date();
+  const today = new Date(nowMs);
   today.setUTCHours(0, 0, 0, 0);
   const t0 = today.getTime();
   const prevDay = bars.filter((b) => ts(b) >= t0 - 864e5 && ts(b) < t0);
@@ -30419,6 +30437,20 @@ async function rangeFeatures(symbol, engine = "fx") {
     asianLow: asian.length ? Math.min(...asian.map((b) => b.low)) : null,
     qualifies: touchesHigh >= 2 && touchesLow >= 2 && bbPct <= 65
   };
+  return data;
+}
+async function rangeFeatures(symbol, engine = "fx") {
+  const ck = `${engine}|${symbol}`;
+  const hit = rangeCache.get(ck);
+  if (hit && Date.now() - hit.at < 30 * 6e4) return hit.data;
+  let bars = [];
+  try {
+    bars = (await barsFor(engine)(symbol, "1h", 72)).slice(0, -1);
+  } catch {
+    return null;
+  }
+  if (bars.length < 30) return null;
+  const data = computeRangeFeatures(bars, symbol, Date.now());
   rangeCache.set(ck, { at: Date.now(), data });
   return data;
 }
@@ -30529,10 +30561,17 @@ Give exactly one M1 and one M2 entry per pair.`;
   if (!enriched) return base;
   return base.replace("Both models use every input", `${enrichmentGuidance(engine)}Both models use every input`);
 }
-async function shadowDecide(userId, session2, pairs, engine = "fx") {
+function formatMasteryLines(slices) {
+  return (slices || []).filter((m) => m.trades >= 5).slice(0, 20).map((m) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join("\n");
+}
+async function decideModelIdeas(userId, session2, pairs, engine, deps) {
+  const out = { outcomes: [], aiCalls: 0, paused: false, failed: false };
   try {
     const { fxShouldPauseForCredits: fxShouldPauseForCredits2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
-    if (fxShouldPauseForCredits2()) return;
+    if (fxShouldPauseForCredits2()) {
+      out.paused = true;
+      return out;
+    }
   } catch {
   }
   let ai;
@@ -30540,17 +30579,17 @@ async function shadowDecide(userId, session2, pairs, engine = "fx") {
     const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
     ai = await getUniversalAIClientForUser2(userId);
   } catch {
-    return;
+    out.failed = true;
+    return out;
   }
   for (const p of pairs) {
-    const range = await rangeFeatures(p.symbol, engine).catch(() => null);
+    const range = await deps.rangeFor(p.symbol).catch(() => null);
     p.ctx.range = range ? { ...range } : null;
     if (p.ctx.range) p.ctx.range.m1Candidate = m1Candidate(p.symbol, p.ctx, engine);
   }
-  const mastery = await getModelMastery(userId, { engine }).catch(() => null);
-  const masteryLines = (mastery?.slices || []).filter((m) => m.trades >= 5).slice(0, 20).map((m) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join("\n");
-  const prompt = buildModelsPrompt(engine, session2, pairs, masteryLines);
+  const prompt = buildModelsPrompt(engine, session2, pairs, deps.masteryLines);
   let content = "";
+  out.aiCalls = 1;
   try {
     const resp = await ai.chat.completions.create({
       model: ai.defaultModel || "gpt-4o-mini",
@@ -30566,13 +30605,14 @@ async function shadowDecide(userId, session2, pairs, engine = "fx") {
       noteAiBudgetError2(e);
     } catch {
     }
-    return;
+    out.failed = true;
+    return out;
   }
   let ideas = [];
   try {
     ideas = JSON.parse(content.slice(content.indexOf("{"), content.lastIndexOf("}") + 1))?.ideas || [];
   } catch {
-    return;
+    return out;
   }
   const byPair = new Map(pairs.map((p) => [p.symbol.toUpperCase(), p.ctx]));
   for (const i of ideas) {
@@ -30625,46 +30665,101 @@ async function shadowDecide(userId, session2, pairs, engine = "fx") {
       ...prov.wasExcludedPair ? { wasExcludedPair: true } : {},
       ...prov.wasBlockedSession ? { wasBlockedSession: true } : {}
     };
+    out.outcomes.push({
+      symbol: sym,
+      model,
+      dayType: ctx.dayType,
+      autoModel: ctx.autoModel,
+      direction: isTrade ? dir : "NONE",
+      isTrade,
+      tradeDirection: dir,
+      price,
+      entry: isTrade ? price : null,
+      stopLoss: isTrade ? sl : null,
+      takeProfit: isTrade ? tp : null,
+      confidence: Math.max(0, Math.min(100, Math.round(Number(i?.confidence) || 0))),
+      setup: String(i?.setup || "").slice(0, 80),
+      rawConfidence: Math.round(Number(i?.confidence) || 0),
+      rawSetup: String(i?.setup || ""),
+      reason: String(i?.reason || ""),
+      reasoning: (ruleNote ? `[${ruleNote}] ` : "") + String(i?.reason || "").slice(0, 500),
+      ruleNote,
+      storedCtx
+    });
+  }
+  return out;
+}
+async function shadowDecide(userId, session2, pairs, engine = "fx") {
+  const mastery = await getModelMastery(userId, { engine }).catch(() => null);
+  const masteryLines = formatMasteryLines(mastery?.slices);
+  const res2 = await decideModelIdeas(userId, session2, pairs, engine, {
+    masteryLines,
+    rangeFor: (s) => rangeFeatures(s, engine).catch(() => null)
+  });
+  for (const o of res2.outcomes) {
     const ins = await pool.query(
       `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, result, engine, epoch)
        VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16) RETURNING id`,
       [
         userId,
-        sym,
-        model,
-        ctx.dayType,
+        o.symbol,
+        o.model,
+        o.dayType,
         session2,
-        isTrade ? dir : "NONE",
-        isTrade ? price : null,
-        isTrade ? sl : null,
-        isTrade ? tp : null,
-        Math.max(0, Math.min(100, Math.round(Number(i?.confidence) || 0))),
-        String(i?.setup || "").slice(0, 80),
-        (ruleNote ? `[${ruleNote}] ` : "") + String(i?.reason || "").slice(0, 500),
-        JSON.stringify(storedCtx),
-        isTrade ? null : "NO_TRADE",
+        o.direction,
+        o.entry,
+        o.stopLoss,
+        o.takeProfit,
+        o.confidence,
+        o.setup,
+        o.reasoning,
+        JSON.stringify(o.storedCtx),
+        o.isTrade ? null : "NO_TRADE",
         engine,
         MODELS_EPOCH
       ]
     ).catch(() => null);
-    if (engine === "fx" && isTrade && ins?.rows?.[0]?.id) {
+    if (engine === "fx" && o.isTrade && ins?.rows?.[0]?.id) {
       await maybeGoLive(userId, {
         id: ins.rows[0].id,
-        symbol: sym,
-        model,
-        dayType: ctx.dayType,
-        autoModel: ctx.autoModel,
+        symbol: o.symbol,
+        model: o.model,
+        dayType: o.dayType,
+        autoModel: o.autoModel,
         session: session2,
-        direction: dir,
-        entry: price,
-        stopLoss: sl,
-        takeProfit: tp,
-        confidence: Math.round(Number(i?.confidence) || 0),
-        setup: String(i?.setup || ""),
-        reason: String(i?.reason || "")
+        direction: o.tradeDirection,
+        entry: o.price,
+        stopLoss: o.stopLoss,
+        takeProfit: o.takeProfit,
+        confidence: o.rawConfidence,
+        setup: o.rawSetup,
+        reason: o.reason
       }).catch((e) => console.error("[fx-models] live hand-off failed (non-fatal):", e?.message || e));
     }
   }
+}
+function raceResolveOnBars(dec, bars, nowMs) {
+  const t0 = new Date(dec.created_at).getTime();
+  const entry = Number(dec.entry_price), sl = Number(dec.stop_loss), tp = Number(dec.take_profit);
+  const risk = Math.abs(entry - sl);
+  if (!(risk > 0)) return null;
+  const buy = dec.direction === "BUY";
+  const list = bars || [];
+  for (const b of list) {
+    const ts = Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp);
+    if (ts < t0) continue;
+    const hitSl = buy ? b.low <= sl : b.high >= sl;
+    const hitTp = buy ? b.high >= tp : b.low <= tp;
+    if (hitSl) return { result: "LOSS", exitPrice: sl, resolvedAtMs: ts };
+    if (hitTp) return { result: "WIN", exitPrice: tp, resolvedAtMs: ts };
+  }
+  if (nowMs - t0 > 48 * 36e5) {
+    const cutoff = t0 + 48 * 36e5;
+    const atCut = list.filter((b) => (Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp)) <= cutoff);
+    const exit = Number(atCut[atCut.length - 1]?.close) || Number(list[list.length - 1]?.close) || entry;
+    return { result: "EXPIRED", exitPrice: exit, resolvedAtMs: cutoff };
+  }
+  return null;
 }
 async function resolveShadowDecisions(engine = "fx", userId) {
   await pool.query(
@@ -30693,39 +30788,15 @@ async function resolveShadowDecisions(engine = "fx", userId) {
     }
     if (!bars.length) continue;
     for (const r of list) {
-      const t0 = new Date(r.created_at).getTime();
-      const entry = Number(r.entry_price), sl = Number(r.stop_loss), tp = Number(r.take_profit);
+      const out = raceResolveOnBars(r, bars, Date.now());
+      if (!out) continue;
+      const entry = Number(r.entry_price), sl = Number(r.stop_loss);
       const risk = Math.abs(entry - sl);
-      if (!(risk > 0)) continue;
       const buy = r.direction === "BUY";
-      let result = null, exit = 0;
-      for (const b of bars) {
-        const ts = Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp);
-        if (ts < t0) continue;
-        const hitSl = buy ? b.low <= sl : b.high >= sl;
-        const hitTp = buy ? b.high >= tp : b.low <= tp;
-        if (hitSl) {
-          result = "LOSS";
-          exit = sl;
-          break;
-        }
-        if (hitTp) {
-          result = "WIN";
-          exit = tp;
-          break;
-        }
-      }
-      if (!result && Date.now() - t0 > 48 * 36e5) {
-        const cutoff = t0 + 48 * 36e5;
-        const atCut = bars.filter((b) => (Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp)) <= cutoff);
-        exit = Number(atCut[atCut.length - 1]?.close) || Number(bars[bars.length - 1]?.close) || entry;
-        result = "EXPIRED";
-      }
-      if (!result) continue;
-      const move = buy ? exit - entry : entry - exit;
+      const move = buy ? out.exitPrice - entry : entry - out.exitPrice;
       await pool.query(
         `UPDATE fx_model_decisions SET result=$2, exit_price=$3, r_multiple=$4, pips=$5, resolved_at=now() WHERE id=$1 AND result IS NULL`,
-        [r.id, result, exit, move / risk, engine === "crypto" ? entry > 0 ? move / entry * 100 : 0 : move / pipSize(symbol)]
+        [r.id, out.result, out.exitPrice, move / risk, engine === "crypto" ? entry > 0 ? move / entry * 100 : 0 : move / pipSize(symbol)]
       ).catch(() => {
       });
     }
