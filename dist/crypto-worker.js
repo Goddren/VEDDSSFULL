@@ -13477,6 +13477,70 @@ var init_markov_chain = __esm({
   }
 });
 
+// server/services/shadow-lesson-gate.ts
+function ensureShadowLessonBlocksTable() {
+  if (!_ensured2) {
+    _ensured2 = pool.query(`CREATE TABLE IF NOT EXISTS shadow_lesson_blocks (
+      id serial PRIMARY KEY,
+      lane text NOT NULL,
+      user_id int NOT NULL,
+      strategy_key text NOT NULL,
+      bucket text NOT NULL,
+      n int,
+      win_rate double precision,
+      avg_r double precision,
+      median_pct double precision,
+      reason text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS shadow_lesson_blocks_lane_user_at ON shadow_lesson_blocks (lane, user_id, created_at DESC)`)).then(() => void 0).catch((e) => {
+      _ensured2 = null;
+      throw e;
+    });
+  }
+  return _ensured2;
+}
+async function logShadowLessonBlock(b) {
+  try {
+    await ensureShadowLessonBlocksTable();
+    const throttleMin = Math.max(0, Number(process.env.SHADOW_LESSON_BLOCK_LOG_THROTTLE_MIN ?? 60) || 0);
+    await pool.query(
+      `INSERT INTO shadow_lesson_blocks (lane, user_id, strategy_key, bucket, n, win_rate, avg_r, median_pct, reason)
+       SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9
+        WHERE NOT EXISTS (
+          SELECT 1 FROM shadow_lesson_blocks
+           WHERE lane=$1 AND user_id=$2 AND strategy_key=$3 AND bucket=$4
+             AND created_at > now() - ($10 || ' minutes')::interval)`,
+      [b.lane, b.userId, b.strategyKey, b.bucket, b.n ?? null, b.winRate ?? null, b.avgR ?? null, b.medianPct ?? null, String(b.reason).slice(0, 500), String(throttleMin)]
+    );
+  } catch (e) {
+    console.error("[shadow-lesson-gate] block log failed (non-fatal):", e?.message || e);
+  }
+}
+function promotionBarLoser(s) {
+  if (!s || !(s.trades >= 50)) return false;
+  if (!(s.avgR <= -0.2)) return false;
+  const wr = s.trades > 0 ? s.wins / s.trades : 0;
+  if (!(wr <= 0.4)) return false;
+  if (s.weeklyR && s.weeklyR.length && !s.weeklyR.every((r) => r <= 0)) return false;
+  return true;
+}
+function matchingAvoidBucket(stats, strategy, buckets, opts = {}) {
+  if (opts.includeAll !== false) {
+    const all = stats.find((s) => s.strategy === strategy && s.dim === "all" && s.verdict === "avoid");
+    if (all) return all;
+  }
+  return stats.find((s) => s.strategy === strategy && s.verdict === "avoid" && buckets[s.dim] === s.bucket) ?? null;
+}
+var cryptoShadowLessonsOn, fxModelsLessonGateOn, _ensured2;
+var init_shadow_lesson_gate = __esm({
+  "server/services/shadow-lesson-gate.ts"() {
+    "use strict";
+    init_db();
+    cryptoShadowLessonsOn = () => process.env.CRYPTO_SHADOW_LESSONS !== "off";
+    fxModelsLessonGateOn = () => process.env.FX_MODELS_LESSON_GATE !== "off";
+    _ensured2 = null;
+  }
+});
+
 // server/utils/pair-key.ts
 function basePairKey(symbol) {
   return String(symbol ?? "").split(".")[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -19596,8 +19660,8 @@ __export(crypto_shadow_exports, {
   shadowAllEnabled: () => shadowAllEnabled
 });
 function ensureCryptoShadowTables() {
-  if (!_ensured2) {
-    _ensured2 = pool.query(`CREATE TABLE IF NOT EXISTS crypto_shadow_trades (
+  if (!_ensured3) {
+    _ensured3 = pool.query(`CREATE TABLE IF NOT EXISTS crypto_shadow_trades (
       id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, symbol text NOT NULL, underlying text NOT NULL,
       chain text, token_address text, pool_address text, direction text NOT NULL,
       entry_price double precision NOT NULL, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
@@ -19616,11 +19680,11 @@ function ensureCryptoShadowTables() {
         ADD COLUMN IF NOT EXISTS buyers_h1 int, ADD COLUMN IF NOT EXISTS sellers_h1 int,
         ADD COLUMN IF NOT EXISTS market_cap_usd double precision, ADD COLUMN IF NOT EXISTS token_age_hours double precision,
         ADD COLUMN IF NOT EXISTS new_token boolean`)).then(() => void 0).catch((e) => {
-      _ensured2 = null;
+      _ensured3 = null;
       throw e;
     });
   }
-  return _ensured2;
+  return _ensured3;
 }
 function ema(vals, n) {
   if (vals.length < n) return null;
@@ -19846,6 +19910,22 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
         token_age_hours: Number.isFinite(created) ? (Date.now() - created) / 36e5 : null
       };
       const advice = adviceFor(stats, strat, ctx);
+      if (cryptoShadowLessonsOn()) {
+        const hit = matchingAvoidBucket(stats, strat, bucketsOf(ctx), { includeAll: true });
+        if (hit) {
+          void logShadowLessonBlock({
+            lane: "crypto_shadow",
+            userId,
+            strategyKey: strat,
+            bucket: hit.dim === "all" ? "strategy (all)" : `${hit.dim} ${hit.bucket}`,
+            n: hit.n,
+            winRate: hit.winRate,
+            medianPct: hit.medianNet,
+            reason: `bucket verdict 'avoid': n=${hit.n}, median net ${hit.medianNet.toFixed(2)}% over the rolling 60 days`
+          });
+          continue;
+        }
+      }
       const tags = [];
       if (ch1 != null && Math.abs(ch1) >= 3) tags.push(ch1 > 0 ? "hot_hour" : "dump_hour");
       if (ch24 != null && ch24 >= 20) tags.push("extended_24h");
@@ -19907,11 +19987,12 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
   }
   return { opened, closed };
 }
-var num3, shadowAllEnabled, MAX_OPEN, MAX_PER_STRAT, COOLDOWN_MS, EVERY_MS, NOTIONAL, _ensured2, _statsCache, _lastRun;
+var num3, shadowAllEnabled, MAX_OPEN, MAX_PER_STRAT, COOLDOWN_MS, EVERY_MS, NOTIONAL, _ensured3, _statsCache, _lastRun;
 var init_crypto_shadow = __esm({
   "server/services/crypto-shadow.ts"() {
     "use strict";
     init_db();
+    init_shadow_lesson_gate();
     num3 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
@@ -19922,7 +20003,7 @@ var init_crypto_shadow = __esm({
     COOLDOWN_MS = () => num3("CRYPTO_SHADOW_COOLDOWN_MIN", 60) * 6e4;
     EVERY_MS = () => num3("CRYPTO_SHADOW_EVERY_MIN", 10) * 6e4;
     NOTIONAL = () => num3("CRYPTO_SHADOW_NOTIONAL_USD", 20);
-    _ensured2 = null;
+    _ensured3 = null;
     _statsCache = /* @__PURE__ */ new Map();
     _lastRun = /* @__PURE__ */ new Map();
   }
@@ -19934,8 +20015,8 @@ __export(ensure_kalshi_perp_shadow_tables_exports, {
   ensureKalshiPerpShadowTables: () => ensureKalshiPerpShadowTables
 });
 function ensureKalshiPerpShadowTables() {
-  if (!_ensured3) {
-    _ensured3 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_shadow_trades (
+  if (!_ensured4) {
+    _ensured4 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_shadow_trades (
       id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, ticker text NOT NULL, underlying text NOT NULL,
       direction text NOT NULL,
       entry_price double precision NOT NULL, entry_bid double precision, entry_ask double precision,
@@ -19954,18 +20035,18 @@ function ensureKalshiPerpShadowTables() {
       earnings_within_48h boolean, corporate_action_pending boolean, live_gate_blocked boolean,
       leverage_estimate double precision, tags text[], advice_at_entry text,
       closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision, funding_paid_usd double precision)`)).then(() => void 0).catch((e) => {
-      _ensured3 = null;
+      _ensured4 = null;
       throw e;
     });
   }
-  return _ensured3;
+  return _ensured4;
 }
-var _ensured3;
+var _ensured4;
 var init_ensure_kalshi_perp_shadow_tables = __esm({
   "server/services/ensure-kalshi-perp-shadow-tables.ts"() {
     "use strict";
     init_db();
-    _ensured3 = null;
+    _ensured4 = null;
   }
 });
 
@@ -19982,6 +20063,7 @@ __export(strategy_deployments_exports, {
   listStrategyTrades: () => listStrategyTrades,
   markStrategyTradeBreakeven: () => markStrategyTradeBreakeven,
   openStrategyTrade: () => openStrategyTrade,
+  setDeploymentLessonPause: () => setDeploymentLessonPause,
   stopDeployment: () => stopDeployment,
   touchDeployment: () => touchDeployment,
   updateStrategyTradeLevels: () => updateStrategyTradeLevels
@@ -20034,6 +20116,8 @@ function ensureTables() {
       await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS extreme_price DOUBLE PRECISION`);
       await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS r_multiple DOUBLE PRECISION`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_mode ON strategy_trades (strategy_id, mode, status)`);
+      await pool.query(`ALTER TABLE strategy_deployments ADD COLUMN IF NOT EXISTS lesson_paused_at TIMESTAMPTZ`);
+      await pool.query(`ALTER TABLE strategy_deployments ADD COLUMN IF NOT EXISTS lesson_pause_reason TEXT`);
     })().catch((e) => {
       tableReady = null;
       throw e;
@@ -20057,7 +20141,9 @@ function rowToDeployment(r) {
     lastSignalAt: r.last_signal_at ?? null,
     lastError: r.last_error ?? null,
     createdAt: r.created_at,
-    stoppedAt: r.stopped_at ?? null
+    stoppedAt: r.stopped_at ?? null,
+    lessonPaused: r.lesson_paused_at != null,
+    lessonPauseReason: r.lesson_pause_reason ?? null
   };
 }
 async function createDeployment(userId, strategyId, platform, connectionRef, accountLabel) {
@@ -20083,6 +20169,17 @@ async function getDeployment(userId, id) {
   await ensureTables();
   const { rows } = await pool.query(`SELECT * FROM strategy_deployments WHERE id=$1 AND user_id=$2`, [id, userId]);
   return rows.length ? rowToDeployment(rows[0]) : null;
+}
+async function setDeploymentLessonPause(id, reason) {
+  await ensureTables();
+  if (reason == null) {
+    await pool.query(`UPDATE strategy_deployments SET lesson_paused_at=NULL, lesson_pause_reason=NULL WHERE id=$1 AND lesson_paused_at IS NOT NULL`, [id]);
+  } else {
+    await pool.query(
+      `UPDATE strategy_deployments SET lesson_paused_at=now(), lesson_pause_reason=$2 WHERE id=$1`,
+      [id, reason.slice(0, 500)]
+    );
+  }
 }
 async function stopDeployment(userId, id) {
   await ensureTables();
@@ -20337,8 +20434,8 @@ var init_wizard_spec_strategies = __esm({
 
 // server/services/shadow-ledger.ts
 function ensureShadowLedger() {
-  if (!_ensured4) {
-    _ensured4 = (async () => {
+  if (!_ensured5) {
+    _ensured5 = (async () => {
       try {
         const { ensurePaperTable: ensurePaperTable2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
         await ensurePaperTable2();
@@ -20366,13 +20463,13 @@ function ensureShadowLedger() {
       }
       await pool.query(VIEW_SQL);
     })().catch((e) => {
-      _ensured4 = null;
+      _ensured5 = null;
       throw e;
     });
   }
-  return _ensured4;
+  return _ensured5;
 }
-var SESSION_SQL, VIEW_SQL, _ensured4;
+var SESSION_SQL, VIEW_SQL, _ensured5;
 var init_shadow_ledger = __esm({
   "server/services/shadow-ledger.ts"() {
     "use strict";
@@ -20491,7 +20588,7 @@ CREATE OR REPLACE VIEW shadow_ledger AS
     LEFT JOIN wizard_strategies w ON w.id = t.strategy_id
    WHERE t.mode = 'shadow' AND t.status = 'closed' AND t.r_multiple IS NOT NULL
 `;
-    _ensured4 = null;
+    _ensured5 = null;
   }
 });
 
@@ -30002,6 +30099,7 @@ __export(fx_models_exports, {
   fxModelMarketplaceLiveOn: () => fxModelMarketplaceLiveOn,
   fxModelProvenanceForSlice: () => fxModelProvenanceForSlice,
   fxModelRowsForStats: () => fxModelRowsForStats,
+  getDeadSlices: () => getDeadSlices,
   getFxModelListingRows: () => getFxModelListingRows,
   getFxModelSettings: () => getFxModelSettings,
   getModelMastery: () => getModelMastery,
@@ -30689,6 +30787,29 @@ async function decideModelIdeas(userId, session2, pairs, engine, deps) {
   }
   return out;
 }
+async function getDeadSlices(userId, engine) {
+  const ck = `${userId}|${engine}`;
+  const hit = _deadSliceCache.get(ck);
+  if (hit && Date.now() - hit.at < 15 * 6e4) return hit.dead;
+  const days = Math.max(7, Math.floor(Number(process.env.FX_MODELS_LESSON_WINDOW_DAYS ?? 60) || 60));
+  const { rows } = await pool.query(
+    `SELECT model, day_type, symbol, session, count(*)::int AS trades,
+            count(*) FILTER (WHERE result='WIN')::int AS wins, COALESCE(avg(r_multiple),0)::float AS avg_r
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND engine=$2 AND source='own' AND result IN ('WIN','LOSS','EXPIRED')
+        AND created_at >= now() - ($3 || ' days')::interval
+        ${modelsEpochOn() ? `AND epoch = ${MODELS_EPOCH}` : ""}
+      GROUP BY model, day_type, symbol, session`,
+    [userId, engine, String(days)]
+  );
+  const dead = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const stat = { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgR: Number(r.avg_r) || 0 };
+    if (promotionBarLoser(stat)) dead.set(`${r.model}|${r.day_type}|${r.symbol}|${r.session}`, stat);
+  }
+  _deadSliceCache.set(ck, { at: Date.now(), dead });
+  return dead;
+}
 async function shadowDecide(userId, session2, pairs, engine = "fx") {
   const mastery = await getModelMastery(userId, { engine }).catch(() => null);
   const masteryLines = formatMasteryLines(mastery?.slices);
@@ -30696,7 +30817,49 @@ async function shadowDecide(userId, session2, pairs, engine = "fx") {
     masteryLines,
     rangeFor: (s) => rangeFeatures(s, engine).catch(() => null)
   });
+  const dead = fxModelsLessonGateOn() ? await getDeadSlices(userId, engine).catch(() => null) : null;
   for (const o of res2.outcomes) {
+    const deadStat = o.isTrade && dead ? dead.get(`${o.model}|${o.dayType}|${o.symbol}|${session2}`) : void 0;
+    if (deadStat) {
+      const winRate = deadStat.trades ? deadStat.wins / deadStat.trades : 0;
+      const gateCtx = {
+        ...o.storedCtx,
+        guard: "lesson_gate",
+        lessonGate: { trades: deadStat.trades, wins: deadStat.wins, avgR: deadStat.avgR, winRate, windowDays: Math.max(7, Math.floor(Number(process.env.FX_MODELS_LESSON_WINDOW_DAYS ?? 60) || 60)) }
+      };
+      await pool.query(
+        `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, source, engine, epoch)
+         VALUES ($1,$2,$3,'blocked',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,'lesson_gate',$14,$15)`,
+        [
+          userId,
+          o.symbol,
+          o.model,
+          o.dayType,
+          session2,
+          o.tradeDirection,
+          o.entry,
+          o.stopLoss,
+          o.takeProfit,
+          o.confidence,
+          o.setup,
+          (`[lesson gate: slice proven dead \u2014 ${deadStat.trades} resolved, avg ${deadStat.avgR.toFixed(2)}R, win ${Math.round(winRate * 100)}%] ` + o.reasoning).slice(0, 700),
+          JSON.stringify(gateCtx),
+          engine,
+          MODELS_EPOCH
+        ]
+      ).catch(() => null);
+      void logShadowLessonBlock({
+        lane: "fx_models",
+        userId,
+        strategyKey: o.model,
+        bucket: `${o.model} \xB7 ${o.dayType} \xB7 ${o.symbol} \xB7 ${session2}`,
+        n: deadStat.trades,
+        winRate,
+        avgR: deadStat.avgR,
+        reason: `slice proven dead on the lesson bar: ${deadStat.trades} resolved, avg ${deadStat.avgR.toFixed(2)}R, win ${Math.round(winRate * 100)}% in the rolling window`
+      });
+      continue;
+    }
     const ins = await pool.query(
       `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, result, engine, epoch)
        VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16) RETURNING id`,
@@ -31221,7 +31384,7 @@ async function getModelMastery(userId, opts = {}) {
             COALESCE(AVG(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_avg_r,
             COALESCE(SUM(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_total_r
        FROM fx_model_decisions
-      WHERE user_id=$1 AND engine='${_eng}' AND result IN ('WIN','LOSS','EXPIRED') AND source <> 'guard_block'${opts.ownOnly ? " AND source='own'" : ""}
+      WHERE user_id=$1 AND engine='${_eng}' AND result IN ('WIN','LOSS','EXPIRED') AND source NOT IN ('guard_block','lesson_gate')${opts.ownOnly ? " AND source='own'" : ""}
       GROUP BY ${group} ORDER BY trades DESC`,
     [userId]
   )).rows;
@@ -31314,13 +31477,14 @@ async function getModelMastery(userId, opts = {}) {
     propSim: { M1: propSimulate(byModel.M1), M2: propSimulate(byModel.M2) }
   };
 }
-var DDL4, ensured3, barsProviders, barsFor, pipSize, modelsEnrichOn, MODELS_EPOCH, modelsEpochOn, modelsLiftsOn, fxModelMarketplaceLiveOn, liftsActive, clampNum, round22, d1CtxCache, orbCtxCache, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
+var DDL4, ensured3, barsProviders, barsFor, pipSize, modelsEnrichOn, MODELS_EPOCH, modelsEpochOn, modelsLiftsOn, fxModelMarketplaceLiveOn, liftsActive, clampNum, round22, d1CtxCache, orbCtxCache, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, _deadSliceCache, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
 var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
     init_db();
     init_service();
     init_markov_chain();
+    init_shadow_lesson_gate();
     DDL4 = `
 CREATE TABLE IF NOT EXISTS fx_day_regimes (
   id serial PRIMARY KEY,
@@ -31398,6 +31562,7 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
     M2_SESSIONS = (process.env.FX_M2_SESSIONS || "London,London/NY overlap").split(",").map((x) => x.trim()).filter(Boolean);
     M2_MAX_ADX = Number(process.env.FX_M2_MAX_ADX) || 30;
     M2_MIN_RR = Number(process.env.FX_M2_MIN_RR) || 3;
+    _deadSliceCache = /* @__PURE__ */ new Map();
     FX_MODEL_MIN_TO_LIST = 20;
     DEFAULT_SETTINGS = { live: false, m1DailyCap: 3, m2DailyCap: 2 };
     LIVE_LEVELS = ["Proficient", "Master"];

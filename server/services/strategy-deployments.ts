@@ -82,6 +82,16 @@ function ensureTables(): Promise<void> {
       await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS extreme_price DOUBLE PRECISION`);
       await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS r_multiple DOUBLE PRECISION`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_mode ON strategy_trades (strategy_id, mode, status)`);
+      // ── Lesson pause (shadow deployments, 2026-11-12) ─────────────
+      // A shadow deployment whose OWN shadow record is proven losing
+      // stops opening new shadow trades (its open trade still resolves)
+      // and carries the pause here — status stays 'running' so the
+      // runner keeps re-checking it every tick and the pause lifts on
+      // its own when the rolling record clears. Set/cleared only by
+      // strategy-runner.ts via setDeploymentLessonPause; kill switch
+      // STUDIO_SHADOW_LESSONS=off disables the gate.
+      await pool.query(`ALTER TABLE strategy_deployments ADD COLUMN IF NOT EXISTS lesson_paused_at TIMESTAMPTZ`);
+      await pool.query(`ALTER TABLE strategy_deployments ADD COLUMN IF NOT EXISTS lesson_pause_reason TEXT`);
     })().catch((e) => { tableReady = null; throw e; });
   }
   return tableReady;
@@ -108,6 +118,11 @@ export interface StrategyDeployment {
   lastError: string | null;
   createdAt: string;
   stoppedAt: string | null;
+  /** Shadow deployments only: paused BY ITS OWN LESSONS — the runner
+   *  opens no new shadow trades while this is set, and clears it
+   *  itself when the deployment's rolling shadow record recovers. */
+  lessonPaused: boolean;
+  lessonPauseReason: string | null;
 }
 
 function rowToDeployment(r: any): StrategyDeployment {
@@ -124,6 +139,8 @@ function rowToDeployment(r: any): StrategyDeployment {
     lastError: r.last_error ?? null,
     createdAt: r.created_at,
     stoppedAt: r.stopped_at ?? null,
+    lessonPaused: r.lesson_paused_at != null,
+    lessonPauseReason: r.lesson_pause_reason ?? null,
   };
 }
 
@@ -155,6 +172,22 @@ export async function getDeployment(userId: number, id: number): Promise<Strateg
   await ensureTables();
   const { rows } = await pool.query(`SELECT * FROM strategy_deployments WHERE id=$1 AND user_id=$2`, [id, userId]);
   return rows.length ? rowToDeployment(rows[0]) : null;
+}
+
+/** Set or clear a shadow deployment's lesson pause. Deliberately NOT
+ *  touchDeployment's error path: a lesson pause is the deployment
+ *  working as designed, not an error — it must never feed the
+ *  5-error auto-stop. */
+export async function setDeploymentLessonPause(id: number, reason: string | null): Promise<void> {
+  await ensureTables();
+  if (reason == null) {
+    await pool.query(`UPDATE strategy_deployments SET lesson_paused_at=NULL, lesson_pause_reason=NULL WHERE id=$1 AND lesson_paused_at IS NOT NULL`, [id]);
+  } else {
+    await pool.query(
+      `UPDATE strategy_deployments SET lesson_paused_at=now(), lesson_pause_reason=$2 WHERE id=$1`,
+      [id, reason.slice(0, 500)],
+    );
+  }
 }
 
 export async function stopDeployment(userId: number, id: number): Promise<boolean> {

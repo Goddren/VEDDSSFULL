@@ -19,12 +19,18 @@
 //
 // Each entry writes market context to crypto_shadow_context; closed rows roll
 // up per strategy × bucket and are judged by MEDIAN net % (favor/avoid needs
-// n ≥ CRYPTO_SHADOW_STATS_MIN_N, 15). Advisory only: the crypto AI
-// confirmation prompt reads the strongest buckets, and each entry stores the
-// advice it would have got (advice_at_entry).
-// Kill switch: CRYPTO_SHADOW_ALL=off.
+// n ≥ CRYPTO_SHADOW_STATS_MIN_N, 15). The crypto AI confirmation prompt
+// reads the strongest buckets, and each entry stores the advice it would
+// have got (advice_at_entry).
+// Lesson gate (2026-11-12, shadow-lesson-gate.ts): the lane also ACTS on
+// those verdicts — an entry whose strategy (overall) or exact context
+// bucket carries an 'avoid' verdict is skipped and the block audited in
+// shadow_lesson_blocks. Rolling 60-day stats rehabilitate on their own.
+// Kill switches: CRYPTO_SHADOW_ALL=off (whole lane),
+// CRYPTO_SHADOW_LESSONS=off (lesson gate only).
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
+import { cryptoShadowLessonsOn, logShadowLessonBlock, matchingAvoidBucket } from './shadow-lesson-gate';
 
 type Bar = { t: number; o: number; h: number; l: number; c: number; v: number };
 export interface ShadowRunnerResult { decision: string; reasoning: string; score: number | null; price: number | null; dailyChangePercent: number | null; strategy: string; direction?: 'BUY' | 'SELL' }
@@ -282,6 +288,20 @@ export async function runCryptoShadowAll(userId: number, cfg: any, symbols: stri
         market_cap_usd: fl ? (fl.marketCapUsd ?? fl.fdvUsd) : null,
         token_age_hours: Number.isFinite(created) ? (Date.now() - created) / 3_600_000 : null };
       const advice = adviceFor(stats, strat, ctx);
+      // Lesson gate: skip entries the lane's own lessons have proven
+      // losing. Stats are this lane's closes only (rolling 60 days).
+      if (cryptoShadowLessonsOn()) {
+        const hit = matchingAvoidBucket(stats, strat, bucketsOf(ctx), { includeAll: true });
+        if (hit) {
+          void logShadowLessonBlock({
+            lane: 'crypto_shadow', userId, strategyKey: strat,
+            bucket: hit.dim === 'all' ? 'strategy (all)' : `${hit.dim} ${hit.bucket}`,
+            n: hit.n, winRate: hit.winRate, medianPct: hit.medianNet,
+            reason: `bucket verdict 'avoid': n=${hit.n}, median net ${hit.medianNet.toFixed(2)}% over the rolling 60 days`,
+          });
+          continue;
+        }
+      }
       const tags: string[] = [];
       if (ch1 != null && Math.abs(ch1) >= 3) tags.push(ch1 > 0 ? 'hot_hour' : 'dump_hour');
       if (ch24 != null && ch24 >= 20) tags.push('extended_24h');
