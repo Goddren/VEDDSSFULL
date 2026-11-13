@@ -29,6 +29,9 @@ export interface StrategyMarketplaceProvenance {
   sellerId: number;
   sourceStrategyId: number;
   proofType: StrategyProofType;
+  /** How the buyer received the strategy: one-time 'purchase'
+   *  (permanent, the default) or marketplace 'subscription'. */
+  grantType?: 'purchase' | 'subscription';
 }
 
 export interface StrategyMarketplacePackage extends StrategyMarketplaceProvenance {
@@ -100,6 +103,7 @@ export function cloneStrategySpecForBuyer(spec: StrategySpec, provenance: Strate
     sellerId: provenance.sellerId,
     sourceStrategyId: provenance.sourceStrategyId,
     proofType: provenance.proofType,
+    grantType: provenance.grantType === 'subscription' ? 'subscription' : 'purchase',
   };
   return cloned;
 }
@@ -136,7 +140,7 @@ export function strategyShadowDeployability(spec: StrategySpec | null | undefine
  * backtests, EA download, and deployments — Shadow (virtual) with no
  * account, or the buyer's own MT5 / TradeLocker / DXtrade accounts.
  */
-export async function clonePurchasedStrategy(buyerId: number, listingId: number): Promise<{
+export async function clonePurchasedStrategy(buyerId: number, listingId: number, grantType: 'purchase' | 'subscription' = 'purchase'): Promise<{
   strategy: WizardStrategy;
   provenance: StrategyMarketplaceProvenance;
   shadowDeployable: boolean;
@@ -144,7 +148,7 @@ export async function clonePurchasedStrategy(buyerId: number, listingId: number)
 }> {
   const pkg = await getStrategyMarketplacePackage(listingId);
   if (!pkg) throw new Error('This strategy listing has no deployable strategy package.');
-  const record = purchasedStrategyRecord(buyerId, pkg);
+  const record = purchasedStrategyRecord(buyerId, { ...pkg, grantType });
   const deployability = strategyShadowDeployability(record.spec);
   const strategy = await createWizardStrategy(buyerId, record.spec);
   return {
@@ -154,8 +158,45 @@ export async function clonePurchasedStrategy(buyerId: number, listingId: number)
       sellerId: pkg.sellerId,
       sourceStrategyId: pkg.sourceStrategyId,
       proofType: pkg.proofType,
+      grantType,
     },
     shadowDeployable: deployability.ok,
     shadowDeployabilityReason: deployability.reason,
   };
+}
+
+/** Every strategy in the buyer's Studio that came from this listing,
+ *  with the grant type stamped on its spec. Pure read over the
+ *  wizard_strategies spec provenance — used by the grant helper (never
+ *  clone twice), the deploy-route subscription gate, and the
+ *  subscription lapse revocation sweep. */
+export async function findMarketplaceCloneStrategies(buyerId: number, listingId: number): Promise<Array<{
+  strategyId: number;
+  grantType: 'purchase' | 'subscription';
+}>> {
+  const { rows } = await pool.query(
+    `SELECT id, spec->'marketplace'->>'grantType' AS grant_type
+       FROM wizard_strategies
+      WHERE user_id=$1 AND spec->'marketplace'->>'listingId' = $2`,
+    [buyerId, String(listingId)],
+  ).catch(() => ({ rows: [] as any[] }));
+  return rows.map((r: any) => ({
+    strategyId: Number(r.id),
+    grantType: r.grant_type === 'subscription' ? 'subscription' as const : 'purchase' as const,
+  }));
+}
+
+/** Convert a subscription-granted clone into a permanent purchase
+ *  grant in place (the buyer subscribed first, then bought outright):
+ *  the strategy record stays; only its grant marker changes. */
+export async function upgradeMarketplaceCloneGrant(buyerId: number, listingId: number): Promise<number> {
+  const r = await pool.query(
+    `UPDATE wizard_strategies
+        SET spec = jsonb_set(spec, '{marketplace,grantType}', '"purchase"'), updated_at = now()
+      WHERE user_id=$1
+        AND spec->'marketplace'->>'listingId' = $2
+        AND spec->'marketplace'->>'grantType' = 'subscription'`,
+    [buyerId, String(listingId)],
+  ).catch(() => ({ rowCount: 0 }));
+  return r.rowCount ?? 0;
 }

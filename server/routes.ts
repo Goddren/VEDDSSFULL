@@ -20738,6 +20738,18 @@ Respond with ONLY valid JSON:
       if (!strat) return res.status(404).json({ error: 'strategy not found' });
       const spec: any = strat.spec;
       const isEngine = spec.source === 'engine';
+      // A strategy cloned from a marketplace SUBSCRIPTION can only
+      // start NEW deployments while that subscription is in its access
+      // window. One-time purchases stamped 'purchase' never hit this;
+      // running deployments are not touched here (the subscription
+      // runner pauses lapsed Shadow deployments).
+      const mp: any = spec?.marketplace;
+      if (mp?.purchased && mp?.grantType === 'subscription' && Number(mp?.listingId) > 0) {
+        const subsSvc = await import('./services/marketplace-subscriptions');
+        if (!subsSvc.subscriptionsEnabled() || !(await subsSvc.hasMarketplaceSubscriptionAccess(userId, Number(mp.listingId)))) {
+          return res.status(403).json({ error: 'This strategy came from a marketplace subscription that is no longer active, so it cannot start new deployments. Re-subscribe to the listing in the Brain Marketplace to run it again.' });
+        }
+      }
       if (isEngine && isShadow) {
         return res.status(400).json({ error: 'Engine strategies execute through the FX engine — there is no per-strategy spec for the shadow runner to evaluate. Shadow deployments are for spec strategies (templates and condition-builder strategies).' });
       }
@@ -20869,6 +20881,18 @@ Respond with ONLY valid JSON:
           ? 'Engine-native strategy: buyers receive its outcome record merged into their brain (it has no deployable spec).'
           : 'Buyers receive their own copy of this strategy, ready to deploy to Shadow or to their own accounts.'} Backtest results inform the profile but are never the proof.`);
       const price = clampPrice(Number(req.body?.priceVedd ?? stats.suggestedPriceVedd));
+      // Optional monthly subscription price. On a re-list, when the
+      // seller doesn't send one, the retired listing's monthly price
+      // carries over (read it BEFORE deactivating).
+      const monthlyRaw = (req.body as any)?.priceVeddMonthly;
+      let monthlyPrice: number | null = null;
+      if (monthlyRaw !== undefined) {
+        const n = Number(monthlyRaw);
+        monthlyPrice = Number.isFinite(n) && n > 0 ? clampPrice(n) : null;
+      } else if ((strat as any).brainListingId) {
+        const old = await storage.getBrainListing((strat as any).brainListingId).catch(() => undefined);
+        monthlyPrice = (old as any)?.priceVeddMonthly ?? null;
+      }
       // One active strategy listing per strategy: retire the old one.
       if ((strat as any).brainListingId) {
         await storage.deactivateBrainListing((strat as any).brainListingId).catch(() => {});
@@ -20882,6 +20906,7 @@ Respond with ONLY valid JSON:
         title,
         description,
         priceVedd: price,
+        priceVeddMonthly: monthlyPrice,
         suggestedPriceVedd: stats.suggestedPriceVedd,
         snapshotData: rows,
         tradeCount: stats.tradeCount,
@@ -33933,7 +33958,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = (req.user as User).id;
     try {
-      const { title, description, priceVedd, sourceCategory, symbols, includeManualTrades } = req.body as { title?: string; description?: string; priceVedd?: number; sourceCategory?: string; symbols?: string[]; includeManualTrades?: boolean };
+      const { title, description, priceVedd, priceVeddMonthly, sourceCategory, symbols, includeManualTrades } = req.body as { title?: string; description?: string; priceVedd?: number; priceVeddMonthly?: number | null; sourceCategory?: string; symbols?: string[]; includeManualTrades?: boolean };
       if (!title) return res.status(400).json({ error: "title is required" });
       const category = sourceCategory === 'tradelocker' ? 'tradelocker' : sourceCategory === 'kalshi' ? 'kalshi' : sourceCategory === 'options' ? 'options' : sourceCategory === 'fx_models' ? 'fx_models' : 'forex';
       const symbolFilter = Array.isArray(symbols) && symbols.length
@@ -34015,6 +34040,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const existing = await storage.getUserActiveBrainListingBySymbols(userId, category as any, symbolFilter);
       if (existing) await storage.deactivateBrainListing(existing.id);
 
+      // Optional monthly subscription price (VEDD). When the seller
+      // doesn't send one on a re-list, the previous listing's monthly
+      // price carries over; 0/null means no subscription is offered.
+      // Existing subscribers are never affected — their price is
+      // locked on their own subscription row.
+      const monthlyPrice = priceVeddMonthly !== undefined
+        ? (Number.isFinite(Number(priceVeddMonthly)) && Number(priceVeddMonthly) > 0 ? clampPrice(Number(priceVeddMonthly)) : null)
+        : ((existing as any)?.priceVeddMonthly ?? null);
+
       const listing = await storage.createBrainListing({
         sellerId: userId,
         sourceCategory: category as any,
@@ -34022,6 +34056,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         includesManualTrades: manualOptIn,
         title,
         description: description || null,
+        priceVeddMonthly: monthlyPrice,
         priceVedd: finalPrice,
         suggestedPriceVedd: stats.suggestedPriceVedd,
         snapshotData: rows,
@@ -34117,15 +34152,25 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
       const listings = await storage.getActiveBrainListings(limit);
+      const subsSvc = await import('./services/marketplace-subscriptions');
+      const subsOn = subsSvc.subscriptionsEnabled();
+      const buyerSubs = subsOn ? await subsSvc.listBuyerSubscriptions(userId).catch(() => [] as any[]) : [];
+      const subByListing = new Map<number, any>(buyerSubs.map((s: any) => [s.listingId, s]));
       const enriched = await Promise.all(listings.map(async (l) => {
         const seller = await storage.getUser(l.sellerId);
         const purchase = await storage.getBrainPurchaseByListingAndBuyer(l.id, userId);
         const safe = await enrichBrainListingForClient(l);
+        const sub = subByListing.get(l.id);
         return {
           ...safe,
           sellerUsername: seller?.username || 'Unknown',
           alreadyPurchased: !!purchase,
           isOwnListing: l.sellerId === userId,
+          // Subscription availability follows the kill switch: when off,
+          // listings don't advertise a monthly price at all.
+          ...(subsOn ? {} : { priceVeddMonthly: null }),
+          hasActiveSubscription: !!sub && subsSvc.subscriptionAccessActive(sub, new Date()),
+          subscriptionStatus: sub?.status ?? null,
         };
       }));
       res.json(enriched);
@@ -34162,6 +34207,138 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ── Shared grant logic for buys AND subscriptions ─────────────────────
+  // A subscriber must receive EXACTLY what a one-time buyer receives, so
+  // both routes call these two helpers — there is no second grant path.
+  // grantType is stamped into the grant's provenance: 'purchase' is
+  // permanent; 'subscription' access follows the subscription (see
+  // services/marketplace-subscriptions.ts).
+
+  // Strategy listings promise the buyer a deployable copy of the
+  // strategy — verify that promise BEFORE any VEDD moves. A listing
+  // whose package is missing or no longer deployable is not charged.
+  async function preflightBrainListingGrant(listing: any, buyerId: number): Promise<{ error?: string }> {
+    if (listing.sourceCategory !== 'wizard_strategy') return {};
+    const sm = await import('./services/strategy-marketplace');
+    const strategyPackage = await sm.getStrategyMarketplacePackage(listing.id);
+    if (!strategyPackage) {
+      return { error: "This strategy listing has no deployable strategy package, so it cannot be sold as a strategy. You were not charged." };
+    }
+    const deployability = sm.strategyShadowDeployability(sm.purchasedStrategyRecord(buyerId, strategyPackage).spec);
+    if (!deployability.ok) {
+      return { error: `This strategy can no longer be deployed: ${deployability.reason} You were not charged.` };
+    }
+    return {};
+  }
+
+  // Apply the grant itself. Idempotent per buyer+listing for the two
+  // access-gated categories: FX-model imports and strategy clones are
+  // never duplicated — a repeat grant returns the existing record, and
+  // a 'purchase' grant UPGRADES an earlier 'subscription' grant in
+  // place (subscribe first, buy outright later = permanent, nothing
+  // re-imported). Kalshi/options/forex grants merge outcome rows into
+  // the buyer's brain — data that cannot be un-merged — so their
+  // callers gate repeat grants (the purchase row for buys, the
+  // subscription's granted_at for subscriptions).
+  async function grantBrainListingToBuyer(
+    listing: any, buyerId: number, grantType: 'purchase' | 'subscription',
+  ): Promise<{ tradesImported: number; strategyClone: any; alreadyGranted: boolean }> {
+    if (listing.sourceCategory === 'kalshi') {
+      // Merge into the buyer's Kalshi feature store (tagged purchased_brain so
+      // it can't be resold), then relearn so their brain absorbs the edge.
+      const { db } = await import('./db');
+      const { kalshiBrainOutcomes } = await import('../shared/schema');
+      const snap = (listing.snapshotData as any[]) ?? [];
+      const toInsert = snap.map((r: any) => ({
+        userId: buyerId, coin: r.coin, timeframe: r.timeframe ?? 'hourly', strategy: r.strategy ?? 'unknown',
+        direction: r.direction ?? 'BUY', strikeType: r.strikeType ?? null, entryPriceCents: r.entryPriceCents ?? null,
+        confidence: r.confidence ?? null, edgePct: r.edgePct ?? null, valueScore: r.valueScore ?? null,
+        modelProbPct: r.modelProbPct ?? null, agreement: r.agreement ?? null, hourUtc: r.hourUtc ?? null,
+        holdingMinutes: r.holdingMinutes ?? null, exitReason: r.exitReason ?? null, result: r.result ?? 'BREAKEVEN',
+        profitLoss: Number(r.profitLoss ?? 0), source: 'purchased_brain',
+        closedAt: r.closedAt ? new Date(r.closedAt) : new Date(),
+      }));
+      if (toInsert.length) await db.insert(kalshiBrainOutcomes).values(toInsert);
+      const { learnFromKalshiTrades } = await import('./services/kalshi-brain');
+      await learnFromKalshiTrades(buyerId).catch(() => {});
+      return { tradesImported: toInsert.length, strategyClone: null, alreadyGranted: false };
+    }
+    if (listing.sourceCategory === 'fx_models') {
+      const fm = await import('./services/fx-models');
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(
+        `SELECT COUNT(*)::int AS n FROM fx_model_decisions
+          WHERE user_id=$1 AND source='purchased_brain'
+            AND context->'marketplace'->>'listingId' = $2`,
+        [buyerId, String(listing.id)],
+      ).catch(() => ({ rows: [{ n: 0 }] }));
+      if (Number(rows[0]?.n ?? 0) > 0) {
+        if (grantType === 'purchase') await fm.upgradeFxModelSubscriptionGrants(buyerId, listing.id);
+        return { tradesImported: 0, strategyClone: null, alreadyGranted: true };
+      }
+      const tradesImported = await fm.importFxModelSnapshot(buyerId, (listing.snapshotData as any[]) ?? [],
+        { sellerId: listing.sellerId, listingId: listing.id, grantType });
+      return { tradesImported, strategyClone: null, alreadyGranted: false };
+    }
+    if (listing.sourceCategory === 'wizard_strategy') {
+      // The buyer receives their OWN copy of the strategy (spec
+      // cloned, owned by the buyer, provenance stamped) — ready to
+      // deploy to Shadow immediately or to their own accounts
+      // through the normal deployment flow. The seller's outcome
+      // rows are the listing's proof, not brain training data, so
+      // nothing is merged into the buyer's learning brain here.
+      const sm = await import('./services/strategy-marketplace');
+      const existing = await sm.findMarketplaceCloneStrategies(buyerId, listing.id);
+      if (existing.length) {
+        if (grantType === 'purchase') await sm.upgradeMarketplaceCloneGrant(buyerId, listing.id);
+        const { getWizardStrategy } = await import('./services/wizard-spec-strategies');
+        const strat = await getWizardStrategy(buyerId, existing[0].strategyId);
+        return {
+          tradesImported: 0,
+          strategyClone: strat ? {
+            strategyId: strat.id,
+            name: strat.name,
+            proofType: (strat.spec as any)?.marketplace?.proofType ?? 'shadow',
+            shadowDeployable: sm.strategyShadowDeployability(strat.spec).ok,
+          } : null,
+          alreadyGranted: true,
+        };
+      }
+      const cloned = await sm.clonePurchasedStrategy(buyerId, listing.id, grantType);
+      return {
+        tradesImported: 0,
+        strategyClone: {
+          strategyId: cloned.strategy.id,
+          name: cloned.strategy.name,
+          proofType: cloned.provenance.proofType,
+          shadowDeployable: cloned.shadowDeployable,
+        },
+        alreadyGranted: false,
+      };
+    }
+    if (listing.sourceCategory === 'options') {
+      // Merge into the buyer's options feature store (tagged purchased_brain so
+      // it can't be resold and won't pollute their real optionsEngineTrades),
+      // then relearn so their options brain absorbs the edge.
+      const { db } = await import('./db');
+      const { optionsBrainOutcomes } = await import('../shared/schema');
+      const snap = (listing.snapshotData as any[]) ?? [];
+      const toInsert = snap.map((r: any) => ({
+        userId: buyerId, underlyingSymbol: r.underlyingSymbol ?? 'UNKNOWN', optionType: r.optionType ?? 'call',
+        strategy: r.strategy ?? 'unknown', direction: r.direction ?? null, entryConfidence: r.entryConfidence ?? null,
+        returnPct: r.returnPct ?? null, hourUtc: r.hourUtc ?? null, holdingMinutes: r.holdingMinutes ?? null,
+        exitReason: r.exitReason ?? null, result: r.result ?? 'BREAKEVEN', profitLoss: Number(r.profitLoss ?? 0),
+        contracts: r.contracts ?? null, source: 'purchased_brain', closedAt: r.closedAt ? new Date(r.closedAt) : new Date(),
+      }));
+      if (toInsert.length) await db.insert(optionsBrainOutcomes).values(toInsert);
+      const { runOptionsBrainLearning } = await import('./services/options-brain');
+      await runOptionsBrainLearning(buyerId).catch(() => {});
+      return { tradesImported: toInsert.length, strategyClone: null, alreadyGranted: false };
+    }
+    const tradesImported = await storage.importBrainDataSnapshot(buyerId, listing.snapshotData as any[]);
+    return { tradesImported, strategyClone: null, alreadyGranted: false };
+  }
+
   // POST /api/brain-marketplace/:id/buy — purchase + merge into buyer's own brain
   const brainBuyInFlight = new Set<string>();
   app.post("/api/brain-marketplace/:id/buy", async (req: Request, res: Response) => {
@@ -34179,21 +34356,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const existingPurchase = await storage.getBrainPurchaseByListingAndBuyer(listingId, buyerId);
       if (existingPurchase) return res.status(400).json({ error: "You already purchased this listing" });
 
-      // Strategy listings promise the buyer a deployable copy of the
-      // strategy — verify that promise BEFORE any VEDD moves. A listing
-      // whose package is missing or no longer deployable is not charged.
-      let strategyPackage: any = null;
-      if (listing.sourceCategory === 'wizard_strategy') {
-        const sm = await import('./services/strategy-marketplace');
-        strategyPackage = await sm.getStrategyMarketplacePackage(listingId);
-        if (!strategyPackage) {
-          return res.status(400).json({ error: "This strategy listing has no deployable strategy package, so it cannot be sold as a strategy. You were not charged." });
-        }
-        const deployability = sm.strategyShadowDeployability(sm.purchasedStrategyRecord(buyerId, strategyPackage).spec);
-        if (!deployability.ok) {
-          return res.status(400).json({ error: `This strategy can no longer be deployed: ${deployability.reason} You were not charged.` });
-        }
-      }
+      // A strategy listing's deployable-copy promise is verified BEFORE
+      // any VEDD moves (shared with the subscribe route).
+      const grantPreflight = await preflightBrainListingGrant(listing, buyerId);
+      if (grantPreflight.error) return res.status(400).json({ error: grantPreflight.error });
 
       const buyerWallet = await storage.getInternalWallet(buyerId);
       const buyerBalance = buyerWallet?.veddBalance ?? 0;
@@ -34224,68 +34390,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       }
       await storage.addToWalletBalance(listing.sellerId, listing.priceVedd);
 
-      let tradesImported: number;
-      let strategyClone: any = null;
-      if (listing.sourceCategory === 'kalshi') {
-        // Merge into the buyer's Kalshi feature store (tagged purchased_brain so
-        // it can't be resold), then relearn so their brain absorbs the edge.
-        const { db } = await import('./db');
-        const { kalshiBrainOutcomes } = await import('../shared/schema');
-        const snap = (listing.snapshotData as any[]) ?? [];
-        const toInsert = snap.map((r: any) => ({
-          userId: buyerId, coin: r.coin, timeframe: r.timeframe ?? 'hourly', strategy: r.strategy ?? 'unknown',
-          direction: r.direction ?? 'BUY', strikeType: r.strikeType ?? null, entryPriceCents: r.entryPriceCents ?? null,
-          confidence: r.confidence ?? null, edgePct: r.edgePct ?? null, valueScore: r.valueScore ?? null,
-          modelProbPct: r.modelProbPct ?? null, agreement: r.agreement ?? null, hourUtc: r.hourUtc ?? null,
-          holdingMinutes: r.holdingMinutes ?? null, exitReason: r.exitReason ?? null, result: r.result ?? 'BREAKEVEN',
-          profitLoss: Number(r.profitLoss ?? 0), source: 'purchased_brain',
-          closedAt: r.closedAt ? new Date(r.closedAt) : new Date(),
-        }));
-        if (toInsert.length) await db.insert(kalshiBrainOutcomes).values(toInsert);
-        tradesImported = toInsert.length;
-        const { learnFromKalshiTrades } = await import('./services/kalshi-brain');
-        await learnFromKalshiTrades(buyerId).catch(() => {});
-      } else if (listing.sourceCategory === 'fx_models') {
-        const { importFxModelSnapshot } = await import('./services/fx-models');
-        tradesImported = await importFxModelSnapshot(buyerId, (listing.snapshotData as any[]) ?? [],
-          { sellerId: listing.sellerId, listingId: listing.id });
-      } else if (listing.sourceCategory === 'wizard_strategy') {
-        // The buyer receives their OWN copy of the strategy (spec
-        // cloned, owned by the buyer, provenance stamped) — ready to
-        // deploy to Shadow immediately or to their own accounts
-        // through the normal deployment flow. The seller's outcome
-        // rows are the listing's proof, not brain training data, so
-        // nothing is merged into the buyer's learning brain here.
-        const sm = await import('./services/strategy-marketplace');
-        const cloned = await sm.clonePurchasedStrategy(buyerId, listingId);
-        strategyClone = {
-          strategyId: cloned.strategy.id,
-          name: cloned.strategy.name,
-          proofType: cloned.provenance.proofType,
-          shadowDeployable: cloned.shadowDeployable,
-        };
-        tradesImported = 0;
-      } else if (listing.sourceCategory === 'options') {
-        // Merge into the buyer's options feature store (tagged purchased_brain so
-        // it can't be resold and won't pollute their real optionsEngineTrades),
-        // then relearn so their options brain absorbs the edge.
-        const { db } = await import('./db');
-        const { optionsBrainOutcomes } = await import('../shared/schema');
-        const snap = (listing.snapshotData as any[]) ?? [];
-        const toInsert = snap.map((r: any) => ({
-          userId: buyerId, underlyingSymbol: r.underlyingSymbol ?? 'UNKNOWN', optionType: r.optionType ?? 'call',
-          strategy: r.strategy ?? 'unknown', direction: r.direction ?? null, entryConfidence: r.entryConfidence ?? null,
-          returnPct: r.returnPct ?? null, hourUtc: r.hourUtc ?? null, holdingMinutes: r.holdingMinutes ?? null,
-          exitReason: r.exitReason ?? null, result: r.result ?? 'BREAKEVEN', profitLoss: Number(r.profitLoss ?? 0),
-          contracts: r.contracts ?? null, source: 'purchased_brain', closedAt: r.closedAt ? new Date(r.closedAt) : new Date(),
-        }));
-        if (toInsert.length) await db.insert(optionsBrainOutcomes).values(toInsert);
-        tradesImported = toInsert.length;
-        const { runOptionsBrainLearning } = await import('./services/options-brain');
-        await runOptionsBrainLearning(buyerId).catch(() => {});
-      } else {
-        tradesImported = await storage.importBrainDataSnapshot(buyerId, listing.snapshotData as any[]);
-      }
+      // The grant itself is shared with the subscribe route so a
+      // subscriber receives exactly what a buyer receives.
+      const grant = await grantBrainListingToBuyer(listing, buyerId, 'purchase');
+      const tradesImported = grant.tradesImported;
+      const strategyClone = grant.strategyClone;
       await storage.createBrainPurchase({
         listingId, sellerId: listing.sellerId, buyerId,
         priceVeddPaid: listing.priceVedd, tradesImported,
@@ -34293,6 +34402,145 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       await storage.incrementBrainListingPurchaseCount(listingId);
 
       res.json({ success: true, tradesImported, veddCharged: listing.priceVedd, ...(strategyClone ? { strategyClone } : {}) });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── Marketplace subscriptions ─────────────────────────────────────────
+  // Monthly billing on the same internal VEDD rail as one-time buys:
+  // full amount to the seller, no platform fee. See
+  // services/marketplace-subscriptions.ts for the state machine.
+  const brainSubscribeInFlight = new Set<string>();
+
+  // POST /api/brain-marketplace/:id/subscribe — start (or resume) a
+  // monthly subscription. Month 1 is charged immediately; the buyer
+  // receives exactly what a one-time buy grants.
+  app.post("/api/brain-marketplace/:id/subscribe", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const buyerId = (req.user as User).id;
+    const listingId = parseInt(req.params.id, 10);
+    if (isNaN(listingId)) return res.status(400).json({ error: "Invalid listing id" });
+
+    try {
+      const subsSvc = await import('./services/marketplace-subscriptions');
+      if (!subsSvc.subscriptionsEnabled()) return res.status(404).json({ error: "Subscriptions are not available" });
+
+      const listing = await storage.getBrainListing(listingId);
+      if (!listing) return res.status(404).json({ error: "Listing not found" });
+      if (!listing.isActive) return res.status(400).json({ error: "This listing is no longer active" });
+      if (listing.sellerId === buyerId) return res.status(400).json({ error: "You can't subscribe to your own listing" });
+
+      const monthlyPrice = Number((listing as any).priceVeddMonthly ?? 0);
+      if (!(monthlyPrice > 0)) return res.status(400).json({ error: "This listing doesn't offer a monthly subscription" });
+
+      // Already own it outright: subscribing is allowed but pointless —
+      // grant nothing twice and charge nothing.
+      const existingPurchase = await storage.getBrainPurchaseByListingAndBuyer(listingId, buyerId);
+      if (existingPurchase) return res.json({ success: true, alreadyOwned: true });
+
+      const now = new Date();
+      const existingSub = await subsSvc.getSubscriptionByListingAndBuyer(listingId, buyerId);
+      if (existingSub && subsSvc.subscriptionAccessActive(existingSub, now)) {
+        if (existingSub.status === 'cancelled') {
+          // Still inside the paid window: just turn renewals back on.
+          const resumed = await subsSvc.resumeSubscription(existingSub);
+          return res.json({ success: true, subscription: resumed, resumed: true });
+        }
+        return res.json({ success: true, subscription: existingSub, alreadySubscribed: true });
+      }
+
+      // Same pre-charge promise check as a buy (wizard_strategy package).
+      const grantPreflight = await preflightBrainListingGrant(listing, buyerId);
+      if (grantPreflight.error) return res.status(400).json({ error: grantPreflight.error });
+
+      const buyerWallet = await storage.getInternalWallet(buyerId);
+      const buyerBalance = buyerWallet?.veddBalance ?? 0;
+      if (buyerBalance < monthlyPrice) {
+        return res.status(402).json({
+          error: `Insufficient VEDD balance. Need ${monthlyPrice}, have ${buyerBalance.toFixed(1)}.`,
+          required: monthlyPrice,
+          balance: buyerBalance,
+        });
+      }
+
+      const _subKey = `${buyerId}:${listingId}`;
+      if (brainSubscribeInFlight.has(_subKey)) return res.status(409).json({ error: "This subscription is already being processed" });
+      brainSubscribeInFlight.add(_subKey);
+      res.on('finish', () => brainSubscribeInFlight.delete(_subKey));
+      res.on('close', () => brainSubscribeInFlight.delete(_subKey));
+
+      // Month 1 moves first — insufficient balance means no
+      // subscription is created at all.
+      try {
+        await subsSvc.chargeSubscriptionWallet(buyerId, listing.sellerId, monthlyPrice);
+      } catch (e: any) {
+        if (e?.name === 'InsufficientVeddError') {
+          return res.status(402).json({ error: `Insufficient VEDD balance. Need ${monthlyPrice}.`, required: monthlyPrice });
+        }
+        throw e;
+      }
+
+      // A lapsed row is reactivated in place (locking the listing's
+      // CURRENT monthly price); otherwise a fresh row is created.
+      const sub = existingSub
+        ? await subsSvc.reactivateSubscription(existingSub, monthlyPrice, now)
+        : await subsSvc.createSubscriptionRecord({ listingId, sellerId: listing.sellerId, buyerId, priceVeddMonthly: monthlyPrice, now });
+
+      // Grant exactly what a buy grants — once per subscription
+      // (granted_at). Reactivation after a lapse restores access to
+      // the SAME grant; nothing is imported or cloned twice.
+      let grant: { tradesImported: number; strategyClone: any } | null = null;
+      if (!sub.grantedAt) {
+        grant = await grantBrainListingToBuyer(listing, buyerId, 'subscription');
+        await subsSvc.markSubscriptionGranted(sub, now);
+      }
+
+      res.status(201).json({
+        success: true, subscription: sub, veddCharged: monthlyPrice,
+        tradesImported: grant?.tradesImported ?? 0,
+        ...(grant?.strategyClone ? { strategyClone: grant.strategyClone } : {}),
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /api/brain-marketplace/subscriptions/:id/cancel — stop future
+  // charges; access runs to the end of the paid period.
+  app.post("/api/brain-marketplace/subscriptions/:id/cancel", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const buyerId = (req.user as User).id;
+    const subId = parseInt(req.params.id, 10);
+    if (isNaN(subId)) return res.status(400).json({ error: "Invalid subscription id" });
+    try {
+      const subsSvc = await import('./services/marketplace-subscriptions');
+      const sub = await subsSvc.cancelSubscription(subId, buyerId);
+      if (!sub) return res.status(404).json({ error: "Subscription not found" });
+      res.json({ success: true, subscription: sub });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/brain-marketplace/my-subscriptions — the buyer's
+  // subscriptions (with computed access state) + the seller's
+  // per-listing subscriber counts and VEDD/month.
+  app.get("/api/brain-marketplace/my-subscriptions", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    try {
+      const subsSvc = await import('./services/marketplace-subscriptions');
+      const now = new Date();
+      const [asBuyer, asSeller] = await Promise.all([
+        subsSvc.listBuyerSubscriptions(userId),
+        subsSvc.listSellerSubscriptionSummary(userId, now),
+      ]);
+      res.json({
+        subscriptionsEnabled: subsSvc.subscriptionsEnabled(),
+        asBuyer: asBuyer.map((s) => ({ ...s, accessActive: subsSvc.subscriptionAccessActive(s, now) })),
+        asSeller,
+      });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

@@ -38,6 +38,39 @@ CREATE TABLE IF NOT EXISTS "brain_data_purchases" (
 );
 
 ALTER TABLE "brain_data_listings" ADD COLUMN IF NOT EXISTS "source_category" text NOT NULL DEFAULT 'forex';
+
+-- Marketplace subscriptions (server/services/marketplace-subscriptions.ts):
+-- optional monthly price on listings + the subscription/charge tables.
+ALTER TABLE "brain_data_listings" ADD COLUMN IF NOT EXISTS "price_vedd_monthly" integer;
+
+CREATE TABLE IF NOT EXISTS "brain_marketplace_subscriptions" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "listing_id" integer NOT NULL REFERENCES "brain_data_listings"("id"),
+  "seller_id" integer NOT NULL REFERENCES "users"("id"),
+  "buyer_id" integer NOT NULL REFERENCES "users"("id"),
+  "price_vedd_monthly" integer NOT NULL,
+  "status" text NOT NULL DEFAULT 'active',
+  "started_at" timestamp NOT NULL DEFAULT now(),
+  "last_charged_at" timestamp,
+  "next_charge_at" timestamp NOT NULL,
+  "paid_through_at" timestamp NOT NULL,
+  "failed_attempts" integer NOT NULL DEFAULT 0,
+  "granted_at" timestamp,
+  "access_revoked_at" timestamp,
+  "cancelled_at" timestamp,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  UNIQUE("listing_id", "buyer_id")
+);
+
+CREATE TABLE IF NOT EXISTS "brain_marketplace_subscription_charges" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "subscription_id" integer NOT NULL REFERENCES "brain_marketplace_subscriptions"("id"),
+  "period_key" text NOT NULL UNIQUE,
+  "amount_vedd" integer NOT NULL,
+  "status" text NOT NULL DEFAULT 'charged',
+  "charged_at" timestamp NOT NULL DEFAULT now()
+);
 `;
 
 export async function ensureBrainMarketplaceTables(): Promise<void> {

@@ -105,8 +105,12 @@ const buySeg = routesSrc.slice(buyStart, routesSrc.indexOf('// ── Daily Trad
   const stampedLegacy = stampFxModelImportContext(null, { epoch: 1 }, { sellerId: 7, listingId: 42 });
   check('A10 a legacy snapshot imports stamped with epoch 1 (never live-eligible)',
     stampedLegacy?.marketplace?.epoch === 1);
-  check('A11 the buy route passes seller + listing provenance into the model import',
-    buySeg.includes('{ sellerId: listing.sellerId, listingId: listing.id }'));
+  // The grant logic was extracted into grantBrainListingToBuyer (shared
+  // by the buy AND subscribe routes — marketplace subscriptions PR), so
+  // the provenance pin now targets that helper in routes.ts.
+  check('A11 the shared buy/subscribe grant passes seller + listing provenance into the model import',
+    routesSrc.includes('{ sellerId: listing.sellerId, listingId: listing.id, grantType }')
+    && buySeg.includes("grantBrainListingToBuyer(listing, buyerId, 'purchase')"));
 }
 
 // ── B. Buyer trades a purchased model ─────────────────────────────────
@@ -279,11 +283,15 @@ const buySeg = routesSrc.slice(buyStart, routesSrc.indexOf('// ── Daily Trad
   const direct = cloneStrategySpecForBuyer(spec, { listingId: 5, sellerId: 6, sourceStrategyId: 7, proofType: 'live' });
   check('D8 a live-proven clone carries the live proof label', direct.marketplace?.proofType === 'live');
 
-  check('D9 the buy route loads the strategy package BEFORE the wallet debit (no charge without a package)',
-    buySeg.indexOf('getStrategyMarketplacePackage') > 0
-    && buySeg.indexOf('getStrategyMarketplacePackage') < buySeg.indexOf('updateInternalWalletBalance'));
-  check('D10 the buy route clones the strategy for the buyer on purchase',
-    buySeg.includes('clonePurchasedStrategy(buyerId, listingId)') && buySeg.includes("sourceCategory === 'wizard_strategy'"));
+  // Package preflight now lives in preflightBrainListingGrant, called by
+  // BOTH money-moving routes before any wallet debit (subscriptions PR).
+  check('D9 the strategy package is verified BEFORE any wallet debit (no charge without a package)',
+    routesSrc.includes('getStrategyMarketplacePackage')
+    && buySeg.indexOf('preflightBrainListingGrant') > 0
+    && buySeg.indexOf('preflightBrainListingGrant') < buySeg.indexOf('updateInternalWalletBalance'));
+  check('D10 the shared grant clones the strategy for the buyer on purchase/subscribe',
+    routesSrc.includes('clonePurchasedStrategy(buyerId, listing.id, grantType)')
+    && routesSrc.includes("listing.sourceCategory === 'wizard_strategy'"));
   const listSeg = routesSrc.slice(routesSrc.indexOf('app.post("/api/strategy-wizard/spec-strategies/:id/list-brain"'), routesSrc.indexOf('app.get("/api/strategy-wizard/spec-strategies"'));
   check('D11 the Studio list route records the deployable package for spec strategies',
     listSeg.includes('recordStrategyMarketplacePackage') && listSeg.includes("'wizard_strategy'"));

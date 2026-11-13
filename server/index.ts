@@ -292,6 +292,14 @@ async function withRetry<T>(
     console.error(`[startup] ensureBrainMarketplaceTables import error (non-fatal):`, err?.message ?? err);
   }
 
+  // Ensure marketplace subscription tables exist (monthly VEDD billing)
+  try {
+    const { ensureMarketplaceSubscriptionTables } = await import('./services/marketplace-subscriptions');
+    await ensureMarketplaceSubscriptionTables();
+  } catch (err: any) {
+    console.error(`[startup] ensureMarketplaceSubscriptionTables import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure Options AI Engine brain feature store exists
   try {
     const { ensureOptionsBrainOutcomesTable } = await import('./services/ensure-options-brain-outcomes-table');
@@ -1559,6 +1567,10 @@ async function withRetry<T>(
     // Start daily lead hunter (runs at 08:00 UTC)
     const { startLeadHunterScheduler } = await import('./services/lead-hunter');
     startLeadHunterScheduler();
+
+    // Start marketplace subscription renewals (30-day periods, hourly tick)
+    const { startMarketplaceSubscriptionRunner } = await import('./services/marketplace-subscriptions');
+    startMarketplaceSubscriptionRunner();
 
     // Start Ambassador Prime daily content engine (runs at 09:00 UTC)
     const { startAmbassadorPrimeScheduler } = await import('./services/ambassador-prime');

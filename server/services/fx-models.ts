@@ -1101,6 +1101,10 @@ export function fxModelRowsForStats(rows: any[]) {
 export interface FxModelImportProvenance {
   sellerId?: number | null;
   listingId?: number | null;
+  /** How the buyer received this record: a one-time 'purchase'
+   *  (permanent) or a marketplace 'subscription' (access follows the
+   *  subscription — see importedSliceLiveReady). Defaults to purchase. */
+  grantType?: 'purchase' | 'subscription';
 }
 
 /** The epoch an imported row keeps: current-system rows stay epoch 2;
@@ -1128,6 +1132,7 @@ export function stampFxModelImportContext(context: any, row: any, provenance?: F
       sellerId: Number.isFinite(sellerId) && sellerId > 0 ? sellerId : null,
       listingId,
       epoch: fxModelImportEpoch(row),
+      grantType: provenance?.grantType === 'subscription' ? 'subscription' : 'purchase',
     };
   }
   return Object.keys(base).length ? base : null;
@@ -1253,6 +1258,15 @@ export function importedSliceMeetsBar(s: any): boolean {
  *  listing only (mirrors sliceLiveReady's window for own slices). */
 export async function importedSliceLiveReady(userId: number, s: any): Promise<boolean> {
   if (!importedSliceMeetsBar(s)) return false;
+  // Subscription-granted records are rented, not owned: the slice only
+  // qualifies while the buyer's subscription to that listing is in its
+  // access window (active, retry grace, or cancelled-but-paid-through).
+  // One-time purchases carry grantType 'purchase' and never hit this.
+  if (s?.grantType === 'subscription') {
+    const subs = await import('./marketplace-subscriptions');
+    if (!subs.subscriptionsEnabled()) return false;
+    if (!(await subs.hasMarketplaceSubscriptionAccess(userId, Number(s.listingId)))) return false;
+  }
   const { rows } = await pool.query(
     `SELECT date_trunc('week', created_at) AS wk, SUM(r_multiple)::float AS r
        FROM fx_model_decisions
@@ -1265,6 +1279,26 @@ export async function importedSliceLiveReady(userId: number, s: any): Promise<bo
     [userId, s.model, s.dayType, s.symbol, s.session, String(s.listingId)],
   );
   return rows.every((r: any) => Number(r.r) >= 0);
+}
+
+/**
+ * Convert a subscription-granted import into a permanent purchase
+ * grant, in place: called by the buy route when a buyer who previously
+ * SUBSCRIBED to a listing now buys it outright. Rows keep their record
+ * (nothing is re-imported); only the grant marker changes, so
+ * importedSliceLiveReady stops consulting subscription state.
+ */
+export async function upgradeFxModelSubscriptionGrants(buyerId: number, listingId: number): Promise<number> {
+  await ensureFxModelTables();
+  const r = await pool.query(
+    `UPDATE fx_model_decisions
+        SET context = jsonb_set(context, '{marketplace,grantType}', '"purchase"')
+      WHERE user_id=$1 AND engine='fx' AND source='purchased_brain'
+        AND context->'marketplace'->>'listingId' = $2
+        AND context->'marketplace'->>'grantType' = 'subscription'`,
+    [buyerId, String(listingId)],
+  ).catch(() => ({ rowCount: 0 }));
+  return r.rowCount ?? 0;
 }
 
 /** Provenance recorded on a live trade that a purchased slice unlocked. */
@@ -1526,6 +1560,7 @@ export async function getModelMastery(userId: number, opts: { ownOnly?: boolean;
     `SELECT model, day_type, symbol, session,
             context->'marketplace'->>'listingId' AS listing_id,
             context->'marketplace'->>'sellerId' AS seller_id,
+            MAX(context->'marketplace'->>'grantType') AS grant_type,
             MIN(epoch)::int AS min_epoch, MAX(epoch)::int AS max_epoch,
             COUNT(*)::int AS trades,
             COUNT(*) FILTER (WHERE result='WIN')::int AS wins,
@@ -1547,6 +1582,11 @@ export async function getModelMastery(userId: number, opts: { ownOnly?: boolean;
       sellerId: Number(r.seller_id) > 0 ? Number(r.seller_id) : null,
       listingId,
       recordEpoch,
+      // 'subscription' when ANY row of this listing's record is still
+      // rented (a later one-time purchase upgrades rows to 'purchase';
+      // MAX() picks 'subscription' over 'purchase' alphabetically, so a
+      // partially-upgraded record stays gated until fully converted).
+      grantType: r.grant_type === 'subscription' ? 'subscription' : 'purchase',
       legacy: !(recordEpoch === MODELS_EPOCH && listingId != null),
     };
   });
