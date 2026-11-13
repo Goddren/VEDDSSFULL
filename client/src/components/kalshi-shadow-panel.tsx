@@ -26,6 +26,18 @@ interface KalshiShadowStrategyStat {
   avgNetPct: number;
   estNetPnlUsd: number;
   fundingUsd: number;
+  accountEnd?: number | null;
+  accountReturnPct?: number | null;
+}
+
+interface KalshiAccountSim {
+  startBalance: number;
+  endBalance: number;
+  totalReturnPct: number;
+  trades: number;
+  maxDrawdownPct: number;
+  worstTradePct: number | null;
+  bestTradePct: number | null;
 }
 
 interface KalshiShadowOpenPosition {
@@ -69,6 +81,7 @@ interface KalshiShadowReport {
   byStrategy: KalshiShadowStrategyStat[];
   openPositions: KalshiShadowOpenPosition[];
   recentCloses: KalshiShadowRecentClose[];
+  accountSim?: KalshiAccountSim;
 }
 
 const DAY_OPTIONS = [7, 30, 90] as const;
@@ -242,6 +255,7 @@ export function KalshiShadowPanel({ className = "" }: { className?: string }) {
           <p><b>What "net" means.</b> Every number here already has funding and modeled trading costs taken out, so what you see is the result after the charges a real trade would have paid.</p>
           <p><b>Funding</b> is a daily charge that keeps the perp's price tied to the stock. It lands once a day at <b>4:00 PM ET</b>: when the funding rate is positive, longs pay and shorts receive; when it is negative, that flips. Funding totals are shown signed — positive means the position collected funding overall, negative means it paid.</p>
           <p><b>Why real prices?</b> Kalshi also offers demo prices, but those are simulated and can drift from the real market — proof built on them would prove nothing. This lane reads the live production feed only.</p>
+          <p><b>The $100 account.</b> Percentages are hard to feel, so the panel also replays the closed trades on a pretend $100 account: it starts at $100 and applies each trade's real net result, in the order the trades closed. Each strategy gets its own $100 replay in the by-strategy list. The live lane can hold several trades at once, so read it as a clear illustration of what these results add up to — not an exact account history.</p>
           <p><b>What happens if a strategy proves out?</b> Nothing automatic. A strategy first has to clear a promotion bar on this shadow record, and any live step after that is a separate, explicit decision — shadow results never turn into real orders on their own.</p>
           <p>Open positions show the price the position could close at right now when Kalshi is reachable — the bid for a long and the ask for a short — and what the net result would be at that price, with funding and costs included.</p>
         </InfoExplainer>
@@ -282,6 +296,38 @@ export function KalshiShadowPanel({ className = "" }: { className?: string }) {
             <StatCard label="Avg R" value={fmtR(summary.avgR)} detail="average result per closed trade, in R" />
           </div>
 
+          {data.accountSim ? (
+            <div className="mt-2 rounded-lg border border-cyan-400/25 bg-cyan-500/[0.06] px-3 py-2.5">
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <h3 className="text-[11px] font-bold text-gray-100">If this was a $100 account</h3>
+                <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">last {data.days} days · closed trades only</span>
+              </div>
+              {data.accountSim.trades > 0 ? (
+                <>
+                  <div className="mt-1 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+                    <span className="text-xl font-black tabular-nums text-gray-100">
+                      {fmtMoney(data.accountSim.startBalance)} → <span className={pnlClass(data.accountSim.totalReturnPct)}>{fmtMoney(data.accountSim.endBalance)}</span>
+                    </span>
+                    <span className={`text-sm font-bold tabular-nums ${pnlClass(data.accountSim.totalReturnPct)}`}>{fmtPctPoints(data.accountSim.totalReturnPct)} overall</span>
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap gap-x-2.5 gap-y-0.5 text-[10px] tabular-nums text-gray-400">
+                    <span>{data.accountSim.trades} closed trades counted</span>
+                    <span>Worst dip {data.accountSim.maxDrawdownPct > 0 ? `−${data.accountSim.maxDrawdownPct.toFixed(1)}%` : "0%"} from the account's peak</span>
+                    <span className={data.accountSim.bestTradePct != null ? pnlClass(data.accountSim.bestTradePct) : undefined}>Best trade {fmtPctPoints(data.accountSim.bestTradePct)}</span>
+                    <span className={data.accountSim.worstTradePct != null ? pnlClass(data.accountSim.worstTradePct) : undefined}>Worst trade {fmtPctPoints(data.accountSim.worstTradePct)}</span>
+                  </div>
+                  <p className="mt-1 text-[10px] leading-snug text-gray-500">
+                    Starts at $100. Each closed trade adds its real net result — after funding and costs — to the balance, one trade at a time in the order trades closed. The live shadow lane can hold several trades at once, so treat this as a clear illustration, not an exact account history.
+                  </p>
+                </>
+              ) : (
+                <p className="mt-1 text-[10px] leading-snug text-gray-400">
+                  No closed trades yet in this window — the $100 result starts counting with the first close.
+                </p>
+              )}
+            </div>
+          ) : null}
+
           {!hasAnyTrades ? (
             <div className="mt-3 rounded-lg bg-black/20 px-3 py-3 text-[11px] leading-relaxed text-gray-400">
               No Kalshi shadow trades recorded yet — the lane scans automatically and results will appear here as positions open and close.
@@ -308,6 +354,13 @@ export function KalshiShadowPanel({ className = "" }: { className?: string }) {
                         <span className={pnlClass(s.avgNetPct)}>Avg net {fmtPctPoints(s.avgNetPct)}</span>
                         <span className={pnlClass(s.estNetPnlUsd)}>Net total {fmtMoney(s.estNetPnlUsd, { signed: true })}</span>
                         <span className={pnlClass(s.fundingUsd)}>Funding {fmtMoney(s.fundingUsd, { signed: true })}</span>
+                        {data.accountSim ? (
+                          s.accountEnd != null ? (
+                            <span className={pnlClass(s.accountReturnPct ?? 0)}>$100 account → {fmtMoney(s.accountEnd)} ({fmtPctPoints(s.accountReturnPct)})</span>
+                          ) : (
+                            <span className="text-gray-500">$100 account —</span>
+                          )
+                        ) : null}
                       </div>
                     </div>
                   ))}
