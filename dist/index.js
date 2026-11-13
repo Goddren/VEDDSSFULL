@@ -76746,9 +76746,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "c9b7e4f0-dirty";
-var BUILD_BRANCH = "feat/kalshi-panel-refresh";
-var BUILT_AT = "2026-11-13T03:10:52.445Z";
+var BUILD_COMMIT = "7d9bf873-dirty";
+var BUILD_BRANCH = "feat/kalshi-panel-move";
+var BUILT_AT = "2026-11-13T03:28:41.648Z";
 
 // server/stripe.ts
 init_db();
