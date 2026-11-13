@@ -95,6 +95,7 @@ import InnovationLabPage from "@/pages/innovation-lab";
 import CompliancePage from "@/pages/compliance";
 import LiveMonitorPage from "@/pages/live-monitor";
 import WeeklyStrategyPage from "@/pages/weekly-strategy";
+import GuardsTrailsPage from "@/pages/guards-trails";
 import OptionsEnginePage from "@/pages/options-engine";
 import CryptoEnginePage from "@/pages/crypto-engine";
 import DxtradePage from "@/pages/dxtrade";
@@ -302,6 +303,7 @@ function AppLayout() {
             <ProtectedRoute path="/webhooks" component={WebhooksPage} />
             <ProtectedRoute path="/mt5-chart-data" component={MT5ChartDataPage} />
             <ProtectedRoute path="/weekly-strategy" component={WeeklyStrategyPage} />
+            <ProtectedRoute path="/guards-trails" component={GuardsTrailsPage} />
             <ProtectedRoute path="/options-engine" component={OptionsEnginePage} />
             <ProtectedRoute path="/crypto-engine" component={CryptoEnginePage} />
             <ProtectedRoute path="/dxtrade" component={DxtradePage} />
