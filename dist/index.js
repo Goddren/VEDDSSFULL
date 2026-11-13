@@ -10489,6 +10489,2169 @@ var init_markov_chain = __esm({
   }
 });
 
+// server/services/paper-costs.ts
+var paper_costs_exports = {};
+__export(paper_costs_exports, {
+  estimateCryptoRoundTripBps: () => estimateCryptoRoundTripBps,
+  estimateSolRoundTripCost: () => estimateSolRoundTripCost,
+  priceImpactPct: () => priceImpactPct,
+  solDexFeePct: () => solDexFeePct
+});
+function priceImpactPct(notionalUsd, liquidityUsd) {
+  if (!(liquidityUsd && liquidityUsd > 0) || !(notionalUsd > 0)) return null;
+  return Math.min(50, 2 * notionalUsd / liquidityUsd * 100);
+}
+function solDexFeePct(dex) {
+  const d = (dex || "").toLowerCase();
+  if (d.startsWith("pumpswap")) return num("SOL_PAPER_FEE_PUMPSWAP_PCT", 0.25);
+  if (d.startsWith("pump")) return num("SOL_PAPER_FEE_PUMPFUN_PCT", 1);
+  if (d.startsWith("raydium")) return num("SOL_PAPER_FEE_RAYDIUM_PCT", 0.25);
+  if (d.startsWith("orca")) return num("SOL_PAPER_FEE_ORCA_PCT", 0.3);
+  if (d.startsWith("meteora")) return num("SOL_PAPER_FEE_METEORA_PCT", 0.3);
+  return num("SOL_PAPER_FEE_DEFAULT_PCT", 0.3);
+}
+function estimateSolRoundTripCost(i) {
+  const feePct = solDexFeePct(i.dex);
+  const slippagePct = num("SOL_PAPER_SLIPPAGE_PCT", 0.5);
+  const notionalUsd = i.solUsd && i.solUsd > 0 ? i.sizeSol * i.solUsd : 0;
+  const impactPct = priceImpactPct(notionalUsd, i.liquidityUsd) ?? num("SOL_PAPER_IMPACT_FALLBACK_PCT", 1);
+  const txSol = num("SOL_PAPER_TX_FEE_SOL", 1e-4);
+  const networkPct = i.sizeSol > 0 ? Math.min(5, txSol / i.sizeSol * 100) : 0;
+  const side = feePct + slippagePct + impactPct + networkPct;
+  return { roundTripPct: 2 * side, perSide: { feePct, slippagePct, impactPct, networkPct } };
+}
+function estimateCryptoRoundTripBps(i) {
+  const cap = Math.max(0, i.slippageCapBps || 0);
+  const liq = i.liquidityUsd && i.liquidityUsd > 0 ? i.liquidityUsd : null;
+  if (!liq) {
+    const perSide2 = num("CRYPTO_PAPER_FEE_BPS", 30) + cap / 2;
+    return { roundTripBps: 2 * perSide2, perSideBps: perSide2, liquidityKnown: false };
+  }
+  const deep = liq >= num("CRYPTO_PAPER_DEEP_LIQ_USD", 5e6);
+  const feeBps = deep ? num("CRYPTO_PAPER_FEE_DEEP_BPS", 5) : num("CRYPTO_PAPER_FEE_BPS", 30);
+  const slipBps = num("CRYPTO_PAPER_SLIPPAGE_BPS", 5);
+  const impactBps = Math.min(cap || Infinity, (priceImpactPct(i.notionalUsd, liq) ?? 0) * 100);
+  const gasBps = i.notionalUsd > 0 ? Math.min(100, num("CRYPTO_PAPER_GAS_USD", 0.02) / i.notionalUsd * 1e4) : 0;
+  const perSide = feeBps + slipBps + impactBps + gasBps;
+  return { roundTripBps: 2 * perSide, perSideBps: perSide, liquidityKnown: true };
+}
+var num;
+var init_paper_costs = __esm({
+  "server/services/paper-costs.ts"() {
+    "use strict";
+    num = (name, dflt) => {
+      const v = Number(process.env[name]);
+      return Number.isFinite(v) && v >= 0 ? v : dflt;
+    };
+  }
+});
+
+// server/services/defi-market-data.ts
+var defi_market_data_exports = {};
+__export(defi_market_data_exports, {
+  callBudget: () => callBudget,
+  discoverDefiTokens: () => discoverDefiTokens,
+  discoverNewPoolTokens: () => discoverNewPoolTokens,
+  getDefiCandles: () => getDefiCandles,
+  getDefiPrice: () => getDefiPrice,
+  parsePoolFlow: () => parsePoolFlow
+});
+function cgHeaders() {
+  const h = { accept: "application/json" };
+  const key = (process.env.COINGECKO_API_KEY ?? "").trim();
+  if (key) h["x-cg-demo-api-key"] = key;
+  return h;
+}
+function callBudget() {
+  const hasKey = !!(process.env.COINGECKO_API_KEY ?? "").trim();
+  return {
+    hasKey,
+    // With a key we can space calls at the documented rate; without one, crawl.
+    minIntervalMs: Number(process.env.COINGECKO_MIN_INTERVAL_MS ?? (hasKey ? 2100 : 15e3)),
+    // Discovery is the same answer for everyone, so cache it hard: at 3 pages a
+    // refresh, a 5-minute TTL alone would spend 864 calls/day of a ~330 budget.
+    discoveryTtlMs: Number(process.env.COINGECKO_DISCOVERY_TTL_MS ?? (hasKey ? 60 * 60 * 1e3 : 6 * 60 * 60 * 1e3)),
+    candleTtlMs: Number(process.env.COINGECKO_CANDLE_TTL_MS ?? (hasKey ? 10 * 60 * 1e3 : 30 * 60 * 1e3))
+  };
+}
+function parsePoolFlow(a) {
+  const n = (x) => {
+    const v = Number(x);
+    return Number.isFinite(v) ? v : null;
+  };
+  const tx = (w) => ({ buys: Number(w?.buys) || 0, sells: Number(w?.sells) || 0, buyers: n(w?.buyers), sellers: n(w?.sellers) });
+  return {
+    h1: tx(a?.transactions?.h1),
+    h24: tx(a?.transactions?.h24),
+    volume1hUsd: n(a?.volume_usd?.h1),
+    change1hPct: n(a?.price_change_percentage?.h1),
+    change24hPct: n(a?.price_change_percentage?.h24),
+    fdvUsd: n(a?.fdv_usd),
+    marketCapUsd: n(a?.market_cap_usd),
+    poolCreatedAt: a?.pool_created_at ?? null,
+    at: Date.now()
+  };
+}
+async function discoverNewPoolTokens(chainKey, minLiquidityUsd = 25e3, maxAgeHours = 72, maxTokens = 5) {
+  const net = GT_NETWORK[chainKey];
+  if (!net) return [];
+  const key = `${chainKey}:${minLiquidityUsd}:${maxAgeHours}:${maxTokens}`;
+  if (newPoolsCache && newPoolsCache.key === key && Date.now() - newPoolsCache.at < callBudget().discoveryTtlMs) return newPoolsCache.tokens;
+  const out = /* @__PURE__ */ new Map();
+  try {
+    const d = await gt(`/networks/${net}/new_pools?page=1`);
+    for (const p2 of d?.data ?? []) {
+      const a = p2?.attributes ?? {};
+      const liq = Number(a.reserve_in_usd ?? 0), price = Number(a.base_token_price_usd ?? 0);
+      const created = a.pool_created_at ? new Date(a.pool_created_at).getTime() : NaN;
+      if (!a.address || !price || liq < minLiquidityUsd) continue;
+      if (!Number.isFinite(created) || Date.now() - created > maxAgeHours * 36e5) continue;
+      const symbol = String(a.name ?? "").split("/")[0].trim().toUpperCase();
+      if (!symbol || SETTLEMENT.has(symbol)) continue;
+      const address = String(p2?.relationships?.base_token?.data?.id ?? "").split("_").pop() ?? "";
+      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
+      const prev = out.get(address);
+      if (!prev || liq > prev.liquidityUsd) out.set(address, { symbol, address, poolAddress: a.address, priceUsd: price, liquidityUsd: liq, volume24Usd: Number(a.volume_usd?.h24 ?? 0), flow: parsePoolFlow(a) });
+    }
+  } catch (e) {
+    console.warn(`[defi-market-data] new_pools failed for ${chainKey}: ${e?.message ?? e}`);
+  }
+  const tokens = Array.from(out.values()).sort((x, y) => y.liquidityUsd - x.liquidityUsd).slice(0, maxTokens);
+  newPoolsCache = { key, at: Date.now(), tokens };
+  return tokens;
+}
+async function gt(path21) {
+  const run = async () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      lastCallAt = Date.now();
+      const res2 = await fetch(`${GT}${path21}`, {
+        headers: cgHeaders(),
+        signal: AbortSignal.timeout(2e4)
+      });
+      if (res2.ok) return res2.json();
+      if (res2.status === 429) {
+        const retryAfter = Number(res2.headers.get("retry-after")) || 0;
+        const backoff = retryAfter > 0 ? retryAfter * 1e3 : 3e3 * (attempt + 1);
+        console.warn(`[defi-market-data] rate limited on ${path21}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
+        await new Promise((r) => setTimeout(r, backoff));
+        continue;
+      }
+      throw new Error(`GeckoTerminal ${res2.status} on ${path21}`);
+    }
+    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path21}`);
+  };
+  const next = callChain.then(run, run);
+  callChain = next.catch(() => void 0);
+  return next;
+}
+async function discoverDefiTokens(chainKey, opts = {}) {
+  const net = GT_NETWORK[chainKey];
+  if (!net) throw new Error(`no GeckoTerminal network mapping for chain "${chainKey}"`);
+  const minLiq = opts.minLiquidityUsd ?? 25e4;
+  const minVol = opts.minVolume24Usd ?? 1e5;
+  const maxTokens = opts.maxTokens ?? 40;
+  const pages = opts.pages ?? 3;
+  const key = `${chainKey}:${minLiq}:${minVol}:${maxTokens}:${pages}`;
+  if (discoveryCache && discoveryCache.key === key && Date.now() - discoveryCache.at < callBudget().discoveryTtlMs) {
+    return discoveryCache.tokens;
+  }
+  const best = /* @__PURE__ */ new Map();
+  let pagesRead = 0;
+  const errors = [];
+  for (let page = 1; page <= pages; page++) {
+    try {
+      const d = await gt(`/networks/${net}/pools?page=${page}&sort=h24_volume_usd_desc`);
+      pagesRead++;
+      for (const p2 of d?.data ?? []) {
+        const a = p2?.attributes ?? {};
+        const liq = Number(a.reserve_in_usd ?? 0);
+        const vol = Number(a.volume_usd?.h24 ?? 0);
+        const price = Number(a.base_token_price_usd ?? 0);
+        const poolAddress = a.address;
+        if (!poolAddress || !price || liq < minLiq || vol < minVol) continue;
+        const symbol = String(a.name ?? "").split("/")[0].trim().toUpperCase();
+        if (!symbol || SETTLEMENT.has(symbol)) continue;
+        const rel = p2?.relationships?.base_token?.data?.id ?? "";
+        const address = String(rel).split("_").pop() ?? "";
+        if (!/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
+        const prev = best.get(address);
+        if (!prev || liq > prev.liquidityUsd) {
+          best.set(address, { symbol, address, poolAddress, priceUsd: price, liquidityUsd: liq, volume24Usd: vol, flow: parsePoolFlow(a) });
+        }
+      }
+    } catch (e) {
+      errors.push(e?.message);
+    }
+  }
+  if (pagesRead === 0) {
+    throw new Error(`could not read any pool page for ${chainKey}: ${errors.join(" | ")}`);
+  }
+  if (errors.length) console.warn(`[defi-market-data] ${errors.length}/${pages} pool pages failed for ${chainKey}: ${errors.join(" | ")}`);
+  const tokens = Array.from(best.values()).sort((x, y) => y.volume24Usd - x.volume24Usd).slice(0, maxTokens);
+  discoveryCache = { key, at: Date.now(), tokens };
+  return tokens;
+}
+async function getDefiCandles(chainKey, poolAddress, timeframe, count) {
+  const net = GT_NETWORK[chainKey];
+  if (!net) throw new Error(`no GeckoTerminal network mapping for chain "${chainKey}"`);
+  const [endpoint, aggregate3] = TF[timeframe] ?? TF["5m"];
+  const FETCH_DEPTH = 300;
+  const key = `${net}:${poolAddress}:${endpoint}:${aggregate3}`;
+  const hit = candleCache.get(key);
+  if (hit && Date.now() - hit.at < callBudget().candleTtlMs) return hit.bars.slice(-count);
+  let pending = candleInFlight.get(key);
+  if (!pending) {
+    pending = (async () => {
+      const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate3}&limit=${FETCH_DEPTH}`);
+      const list = d?.data?.attributes?.ohlcv_list ?? [];
+      const bars2 = list.map((r) => ({ t: Number(r[0]) * 1e3, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) })).filter((b) => Number.isFinite(b.c) && b.c > 0).reverse();
+      candleCache.set(key, { at: Date.now(), bars: bars2 });
+      return bars2;
+    })().finally(() => candleInFlight.delete(key));
+    candleInFlight.set(key, pending);
+  }
+  const bars = await pending;
+  return bars.slice(-count);
+}
+async function getDefiPrice(chainKey, poolAddress) {
+  const bars = await getDefiCandles(chainKey, poolAddress, "5m", 2).catch(() => []);
+  const last2 = bars[bars.length - 1];
+  return last2?.c && last2.c > 0 ? last2.c : null;
+}
+var GT, GT_NETWORK, newPoolsCache, SETTLEMENT, callChain, lastCallAt, discoveryCache, TF, candleCache, candleInFlight;
+var init_defi_market_data = __esm({
+  "server/services/defi-market-data.ts"() {
+    "use strict";
+    GT = "https://api.geckoterminal.com/api/v2";
+    GT_NETWORK = {
+      ethereum: "eth",
+      base: "base",
+      arbitrum: "arbitrum",
+      optimism: "optimism",
+      polygon: "polygon_pos"
+    };
+    newPoolsCache = null;
+    SETTLEMENT = /* @__PURE__ */ new Set(["USDC", "USDBC", "USDC.E"]);
+    callChain = Promise.resolve();
+    lastCallAt = 0;
+    discoveryCache = null;
+    TF = {
+      "1m": ["minute", 1],
+      "5m": ["minute", 5],
+      "15m": ["minute", 15],
+      "1h": ["hour", 1],
+      "4h": ["hour", 4],
+      "1d": ["day", 1]
+    };
+    candleCache = /* @__PURE__ */ new Map();
+    candleInFlight = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/crypto-brain.ts
+var crypto_brain_exports = {};
+__export(crypto_brain_exports, {
+  cryptoBrainGate: () => cryptoBrainGate,
+  cryptoBrainReady: () => cryptoBrainReady,
+  cryptoBrainSizeMultiplier: () => cryptoBrainSizeMultiplier,
+  getOrRefreshCryptoBrain: () => getOrRefreshCryptoBrain,
+  learnFromCryptoTrades: () => learnFromCryptoTrades,
+  recordCryptoBrainOutcome: () => recordCryptoBrainOutcome
+});
+function cryptoBrainReady(userId) {
+  return _cache.has(userId);
+}
+function bump(map, key, win) {
+  const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
+  s.trades++;
+  if (win) s.wins++;
+  s.winRate = Math.round(s.wins / s.trades * 100);
+}
+function sizeMult(winRate2, rr, trades) {
+  if (trades < MIN_TRADES2) return 1;
+  const w = winRate2 / 100, r = rr > 0 ? rr : 1;
+  const kelly = w - (1 - w) / r;
+  return Math.max(0.25, Math.min(1.5, 1 + kelly));
+}
+async function backfillIfEmpty(userId) {
+  const { rows } = await pool.query(`SELECT count(*)::int n FROM crypto_brain_outcomes WHERE user_id=$1`, [userId]);
+  if (rows[0].n > 0) return;
+  const { rows: trades } = await pool.query(
+    `SELECT symbol, strategy, direction, realized_pnl, closed_at FROM cryptocom_engine_trades
+     WHERE user_id=$1 AND status='closed' AND realized_pnl IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`,
+    [userId]
+  );
+  if (!trades.length) return;
+  for (const t of trades) {
+    const pnl = Number(t.realized_pnl) || 0;
+    const d = t.closed_at ? new Date(t.closed_at) : /* @__PURE__ */ new Date();
+    await pool.query(
+      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, hour_utc, source, closed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'backfill',$8)`,
+      [userId, t.symbol, t.strategy || "unknown", t.direction || "long", pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN", pnl, d.getUTCHours(), d]
+    ).catch(() => {
+    });
+  }
+}
+async function learnFromCryptoTrades(userId) {
+  await backfillIfEmpty(userId).catch(() => {
+  });
+  const { rows } = await pool.query(
+    `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM crypto_brain_outcomes
+     WHERE user_id=$1 ORDER BY closed_at DESC LIMIT 2000`,
+    [userId]
+  );
+  const symbols = {};
+  const winSum = {}, winN = {}, lossSum = {}, lossN = {};
+  let totalWins = 0, totalDecided = 0, totalPnl = 0;
+  for (const r of rows) {
+    const sym2 = r.symbol || "UNKNOWN";
+    const k2 = symbols[sym2] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
+    const pnl = Number(r.profit_loss) || 0;
+    const win = r.result === "WIN", loss = r.result === "LOSS";
+    k2.totalTrades++;
+    k2.totalPnl += pnl;
+    totalPnl += pnl;
+    if (win) {
+      k2.wins++;
+      totalWins++;
+      winSum[sym2] = (winSum[sym2] ?? 0) + pnl;
+      winN[sym2] = (winN[sym2] ?? 0) + 1;
+    }
+    if (loss) {
+      k2.losses++;
+      lossSum[sym2] = (lossSum[sym2] ?? 0) + Math.abs(pnl);
+      lossN[sym2] = (lossN[sym2] ?? 0) + 1;
+    }
+    if (win || loss) totalDecided++;
+    if (r.strategy) bump(k2.byStrategy, r.strategy, win);
+    if (r.hour_utc != null) bump(k2.byHour, String(r.hour_utc), win);
+  }
+  for (const [sym2, k2] of Object.entries(symbols)) {
+    const decided = k2.wins + k2.losses;
+    k2.winRate = decided ? Math.round(k2.wins / decided * 100) : 0;
+    k2.avgWin = winN[sym2] ? winSum[sym2] / winN[sym2] : 0;
+    k2.avgLoss = lossN[sym2] ? lossSum[sym2] / lossN[sym2] : 0;
+    k2.riskReward = k2.avgLoss > 0 ? k2.avgWin / k2.avgLoss : k2.avgWin > 0 ? 2 : 1;
+    k2.recommendedSizeMultiplier = sizeMult(k2.winRate, k2.riskReward, decided);
+    let best = null, bestWr = -1;
+    for (const [s, b] of Object.entries(k2.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
+      best = s;
+      bestWr = b.winRate;
+    }
+    k2.bestStrategy = best;
+  }
+  const insights = [];
+  for (const [sym2, k2] of Object.entries(symbols)) {
+    if (k2.wins + k2.losses >= MIN_TRADES2) insights.push(`${sym2}: ${k2.winRate}% WR over ${k2.wins + k2.losses} \u2192 sizing \xD7${k2.recommendedSizeMultiplier}${k2.bestStrategy ? `, best on ${k2.bestStrategy}` : ""}.`);
+    else insights.push(`${sym2}: still learning (${k2.wins + k2.losses}/${MIN_TRADES2}).`);
+  }
+  const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
+  _cache.set(userId, { brain, at: Date.now() });
+  return brain;
+}
+async function getOrRefreshCryptoBrain(userId, force = false) {
+  const hit = _cache.get(userId);
+  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS) return hit.brain;
+  return learnFromCryptoTrades(userId);
+}
+function cryptoBrainSizeMultiplier(userId, symbol) {
+  const k2 = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
+  return k2 ? k2.recommendedSizeMultiplier : 1;
+}
+function cryptoBrainGate(userId, symbol, strategy, hourUtc) {
+  const k2 = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
+  if (!k2) return { blocked: false, reason: "" };
+  const decided = k2.wins + k2.losses;
+  if (decided >= 15 && k2.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} ${k2.winRate}% WR over ${decided} \u2014 skipping symbol` };
+  if (strategy) {
+    const st = k2.byStrategy[strategy];
+    if (st && st.trades >= 8 && st.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol}/${strategy} ${st.winRate}% WR over ${st.trades} \u2014 skipping` };
+  }
+  if (hourUtc != null) {
+    const h = k2.byHour[String(hourUtc)];
+    if (h && h.trades >= 8 && h.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} @ ${hourUtc}:00 UTC ${h.winRate}% WR over ${h.trades} \u2014 skipping this hour` };
+  }
+  return { blocked: false, reason: "" };
+}
+async function recordCryptoBrainOutcome(o) {
+  try {
+    await pool.query(
+      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [
+        o.userId,
+        o.symbol,
+        o.strategy || "unknown",
+        o.direction,
+        o.entryConfidence ?? null,
+        o.returnPct ?? null,
+        (/* @__PURE__ */ new Date()).getUTCHours(),
+        o.holdingMinutes ?? null,
+        o.exitReason ?? null,
+        o.profitLoss > 0 ? "WIN" : o.profitLoss < 0 ? "LOSS" : "BREAKEVEN",
+        o.profitLoss,
+        o.source === "paper" ? "paper" : "live"
+      ]
+    );
+    await learnFromCryptoTrades(o.userId);
+  } catch (err) {
+    console.error("[crypto-brain] recordCryptoBrainOutcome failed (non-fatal):", err?.message ?? err);
+  }
+}
+var MIN_TRADES2, REFRESH_TTL_MS, _cache;
+var init_crypto_brain = __esm({
+  "server/services/crypto-brain.ts"() {
+    "use strict";
+    init_db();
+    MIN_TRADES2 = 10;
+    REFRESH_TTL_MS = 60 * 1e3;
+    _cache = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/crypto-paper.ts
+var crypto_paper_exports = {};
+__export(crypto_paper_exports, {
+  PAPER_MAX_OPEN: () => PAPER_MAX_OPEN,
+  ensurePaperTable: () => ensurePaperTable,
+  getPaperSettings: () => getPaperSettings,
+  isTokenizedAsset: () => isTokenizedAsset,
+  openPaperTrade: () => openPaperTrade,
+  paperMaxHoursFor: () => paperMaxHoursFor,
+  paperShortsAllowed: () => paperShortsAllowed,
+  paperSummary: () => paperSummary,
+  resolvePaperTrades: () => resolvePaperTrades,
+  runCryptoOrbShadow: () => runCryptoOrbShadow,
+  savePaperSettings: () => savePaperSettings,
+  underlyingOf: () => underlyingOf
+});
+function paperMaxHoursFor(strategy) {
+  const cap = PAPER_MAX_HOURS();
+  const s = (strategy || "").toLowerCase();
+  const slow = ["trend_following", "structure", "composite_autonomous", "composite"];
+  const h = slow.includes(s) ? Number(process.env.CRYPTO_PAPER_SLOW_HOURS ?? 72) : Number(process.env.CRYPTO_PAPER_FAST_HOURS ?? 24);
+  return Math.max(1, Math.min(cap, h > 0 ? h : cap));
+}
+function isTokenizedAsset(symbol) {
+  if (process.env.CRYPTO_EXCLUDE_RWA === "off") return false;
+  const s = (symbol || "").toUpperCase();
+  const extra = (process.env.CRYPTO_RWA_EXTRA || "").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
+  return RWA_RE.test(s) || RWA_NAMED.has(s) || extra.includes(s);
+}
+function underlyingOf(symbol) {
+  const s = (symbol || "").toUpperCase();
+  return UNDERLYING[s] ?? s;
+}
+function ensurePaperTable() {
+  if (!_ensured) {
+    _ensured = pool.query(`CREATE TABLE IF NOT EXISTS crypto_paper_trades (
+      id serial PRIMARY KEY, user_id int NOT NULL, symbol text NOT NULL, chain text, token_address text, pool_address text,
+      strategy text, score real, direction text NOT NULL DEFAULT 'long',
+      entry_price double precision NOT NULL, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
+      notional_usd double precision NOT NULL, cost_bps int NOT NULL DEFAULT 0, reasoning text,
+      status text NOT NULL DEFAULT 'open', exit_price double precision, exit_reason text,
+      return_pct double precision, r_multiple double precision, pnl_usd double precision,
+      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS crypto_paper_trades_user_status ON crypto_paper_trades (user_id, status)`)).then(() => pool.query(`ALTER TABLE crypto_paper_trades ADD COLUMN IF NOT EXISTS gross_return_pct double precision,
+                                ADD COLUMN IF NOT EXISTS cost_usd double precision, ADD COLUMN IF NOT EXISTS liquidity_usd double precision`)).then(() => void 0).catch((e) => {
+      _ensured = null;
+      throw e;
+    });
+  }
+  return _ensured;
+}
+async function getPaperSettings(userId) {
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const v = await getRuntimeStateStrict2("crypto_paper", String(userId));
+    return { ...DEFAULTS, ...v || {} };
+  } catch {
+    return { ...DEFAULTS };
+  }
+}
+async function savePaperSettings(userId, patch) {
+  const cur = await getPaperSettings(userId);
+  const next = {
+    enabled: typeof patch.enabled === "boolean" ? patch.enabled : cur.enabled,
+    startBalance: Number(patch.startBalance) > 0 ? Math.min(1e6, Number(patch.startBalance)) : cur.startBalance,
+    walletAddress: patch.walletAddress !== void 0 ? patch.walletAddress : cur.walletAddress ?? null,
+    startedAt: cur.startedAt ?? (patch.enabled ? Date.now() : void 0)
+  };
+  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+  await ensureRuntimeStateTable2();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('crypto_paper', $1, $2::jsonb, now())
+     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [String(userId), JSON.stringify(next)]
+  );
+  return next;
+}
+async function openPaperTrade(t) {
+  await ensurePaperTable();
+  const dir = t.direction === "short" ? "short" : "long";
+  if (dir === "short" && !paperShortsAllowed()) return { ok: false, reason: "short signal not recorded \u2014 Base spot is long-only (CRYPTO_PAPER_SHORTS=on to record)" };
+  if (isTokenizedAsset(t.symbol)) return { ok: false, reason: "tokenized stock / RWA excluded (CRYPTO_EXCLUDE_RWA)" };
+  const { rows: openRows } = await pool.query(`SELECT id, symbol FROM crypto_paper_trades WHERE user_id=$1 AND status='open'`, [t.userId]);
+  const und = underlyingOf(t.symbol);
+  const same = openRows.find((r) => underlyingOf(r.symbol) === und);
+  if (same) return { ok: false, reason: same.symbol.toUpperCase() === t.symbol.toUpperCase() ? "already holding a paper position in this token" : `already holding ${same.symbol} (same underlying ${und})` };
+  const stop = dir === "short" ? t.entry * (1 + t.slPct / 100) : t.entry * (1 - t.slPct / 100);
+  const target = dir === "short" ? t.entry * (1 - t.tpPct / 100) : t.entry * (1 + t.tpPct / 100);
+  const { estimateCryptoRoundTripBps: estimateCryptoRoundTripBps2 } = await Promise.resolve().then(() => (init_paper_costs(), paper_costs_exports));
+  const costBps = estimateCryptoRoundTripBps2({ notionalUsd: t.notionalUsd, liquidityUsd: t.liquidityUsd, slippageCapBps: Number(t.slippageBps) || 0 }).roundTripBps;
+  const costFloorMult = Number(process.env.CRYPTO_PAPER_COST_FLOOR_MULT ?? 3);
+  if (process.env.CRYPTO_ATR_LEVELS !== "off" && costFloorMult > 0 && t.slPct < costFloorMult * costBps / 100) {
+    return { ok: false, reason: `stop ${t.slPct.toFixed(2)}% is under ${costFloorMult}x the ${(costBps / 100).toFixed(2)}% round-trip cost` };
+  }
+  if (openRows.length >= PAPER_MAX_OPEN()) {
+    const freed = await evictOldestFlat(t.userId);
+    if (!freed) return { ok: false, reason: `paper slots full (${PAPER_MAX_OPEN()}) and no flat trade to evict` };
+  }
+  const { rows } = await pool.query(
+    `INSERT INTO crypto_paper_trades (user_id, symbol, chain, token_address, pool_address, strategy, score, entry_price, stop_loss, take_profit, notional_usd, cost_bps, reasoning, direction, liquidity_usd)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+    [
+      t.userId,
+      t.symbol,
+      t.chain,
+      t.tokenAddress ?? null,
+      t.poolAddress ?? null,
+      t.strategy ?? null,
+      t.score ?? null,
+      t.entry,
+      stop,
+      target,
+      t.notionalUsd,
+      Math.max(1, Math.round(costBps)),
+      (t.reasoning || "").slice(0, 2e3),
+      dir,
+      t.liquidityUsd && t.liquidityUsd > 0 ? t.liquidityUsd : null
+    ]
+  );
+  return { ok: true, id: rows[0]?.id };
+}
+async function resolvePaperTrades(userId) {
+  await ensurePaperTable();
+  const { rows } = await pool.query(`SELECT * FROM crypto_paper_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  if (!rows.length) return 0;
+  const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+  let closed = 0;
+  for (const t of rows) {
+    const px = t.pool_address ? await getDefiPrice2(t.chain || "base", t.pool_address).catch(() => null) : null;
+    const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
+    let exit = null, why = "";
+    const short = t.direction === "short";
+    if (px != null && px > 0) {
+      if (short ? px >= t.stop_loss : px <= t.stop_loss) {
+        exit = t.stop_loss;
+        why = "stop";
+      } else if (short ? px <= t.take_profit : px >= t.take_profit) {
+        exit = t.take_profit;
+        why = "target";
+      } else if (ageH >= paperMaxHoursFor(t.strategy)) {
+        exit = px;
+        why = "time limit";
+      }
+    } else if (ageH >= paperMaxHoursFor(t.strategy) + 24) {
+      exit = t.entry_price;
+      why = "no price (closed flat)";
+    }
+    if (exit == null) continue;
+    const gross = (short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price * 100;
+    const net = gross - Number(t.cost_bps || 0) / 100;
+    const riskPct = Math.abs(t.entry_price - t.stop_loss) / t.entry_price * 100;
+    const r = riskPct > 0 ? net / riskPct : 0;
+    const pnl = Number(t.notional_usd) * net / 100;
+    const upd = await pool.query(
+      `UPDATE crypto_paper_trades SET status='closed', exit_price=$2, exit_reason=$3, return_pct=$4, r_multiple=$5, pnl_usd=$6, closed_at=now(),
+              gross_return_pct=$7, cost_usd=$8
+        WHERE id=$1 AND status='open'`,
+      [t.id, exit, why, net, r, pnl, gross, Number(t.notional_usd) * Number(t.cost_bps || 0) / 1e4]
+    );
+    if (!upd.rowCount) continue;
+    closed++;
+    try {
+      const { recordCryptoBrainOutcome: recordCryptoBrainOutcome2 } = await Promise.resolve().then(() => (init_crypto_brain(), crypto_brain_exports));
+      await recordCryptoBrainOutcome2({
+        userId,
+        symbol: t.symbol,
+        strategy: t.strategy || "unknown",
+        direction: short ? "short" : "long",
+        entryConfidence: t.score ?? null,
+        returnPct: net,
+        holdingMinutes: Math.round(ageH * 60),
+        exitReason: `paper ${why}`,
+        profitLoss: pnl,
+        source: "paper"
+      });
+    } catch {
+    }
+  }
+  return closed;
+}
+async function evictOldestFlat(userId) {
+  const { rows } = await pool.query(`SELECT * FROM crypto_paper_trades WHERE user_id=$1 AND status='open' ORDER BY opened_at ASC`, [userId]);
+  const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+  for (const t of rows) {
+    const px = t.pool_address ? await getDefiPrice2(t.chain || "base", t.pool_address).catch(() => null) : null;
+    if (!(px && px > 0)) continue;
+    const stopDist = Math.abs(t.entry_price - t.stop_loss);
+    if (!(stopDist > 0) || Math.abs(px - t.entry_price) > stopDist * 0.5) continue;
+    const short = t.direction === "short";
+    const gross = (short ? t.entry_price - px : px - t.entry_price) / t.entry_price * 100;
+    const net = gross - Number(t.cost_bps || 0) / 100;
+    const riskPct = stopDist / t.entry_price * 100;
+    const pnl = Number(t.notional_usd) * net / 100;
+    const upd = await pool.query(
+      `UPDATE crypto_paper_trades SET status='closed', exit_price=$2, exit_reason='evicted', return_pct=$3, r_multiple=$4, pnl_usd=$5, closed_at=now(),
+              gross_return_pct=$6, cost_usd=$7 WHERE id=$1 AND status='open'`,
+      [t.id, px, net, riskPct > 0 ? net / riskPct : 0, pnl, gross, Number(t.notional_usd) * Number(t.cost_bps || 0) / 1e4]
+    );
+    if (!upd.rowCount) continue;
+    try {
+      const { recordCryptoBrainOutcome: recordCryptoBrainOutcome2 } = await Promise.resolve().then(() => (init_crypto_brain(), crypto_brain_exports));
+      await recordCryptoBrainOutcome2({
+        userId,
+        symbol: t.symbol,
+        strategy: t.strategy || "unknown",
+        direction: short ? "short" : "long",
+        entryConfidence: t.score ?? null,
+        returnPct: net,
+        holdingMinutes: Math.round((Date.now() - new Date(t.opened_at).getTime()) / 6e4),
+        exitReason: "paper evicted",
+        profitLoss: pnl,
+        source: "paper"
+      });
+    } catch {
+    }
+    return true;
+  }
+  return false;
+}
+async function paperSummary(userId) {
+  await ensurePaperTable();
+  const settings = await getPaperSettings(userId);
+  const [{ rows: agg }, { rows: open }, { rows: recent }, { rows: byToken }, { rows: weeks }] = await Promise.all([
+    pool.query(`SELECT count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(pnl_usd),0)::float pnl,
+                       COALESCE(avg(r_multiple),0)::float avg_r FROM crypto_paper_trades WHERE user_id=$1 AND status='closed'`, [userId]),
+    pool.query(`SELECT id, symbol, direction, strategy, entry_price, stop_loss, take_profit, notional_usd, opened_at FROM crypto_paper_trades WHERE user_id=$1 AND status='open' ORDER BY opened_at DESC`, [userId]),
+    pool.query(`SELECT id, symbol, direction, strategy, entry_price, exit_price, exit_reason, return_pct, r_multiple, pnl_usd, opened_at, closed_at FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' ORDER BY closed_at DESC LIMIT 25`, [userId]),
+    pool.query(`SELECT symbol, count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(r_multiple),0)::float r
+                  FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' GROUP BY 1 ORDER BY 4 DESC`, [userId]),
+    pool.query(`SELECT date_trunc('week', closed_at) wk, COALESCE(sum(r_multiple),0)::float r FROM crypto_paper_trades
+                 WHERE user_id=$1 AND status='closed' AND closed_at >= date_trunc('week', now()) - interval '7 days' GROUP BY 1`, [userId])
+  ]);
+  const a = agg[0] || { n: 0, w: 0, pnl: 0, avg_r: 0 };
+  const winRate2 = a.n ? a.w / a.n : 0;
+  const noLosingWeek = weeks.every((x) => Number(x.r) >= 0);
+  const bar = { trades: 50, avgR: 0.2, winRate: 0.4 };
+  const ready2 = a.n >= bar.trades && a.avg_r >= bar.avgR && winRate2 >= bar.winRate && noLosingWeek;
+  return {
+    settings,
+    balance: settings.startBalance + Number(a.pnl || 0),
+    stats: { trades: a.n, wins: a.w, winRate: winRate2, avgR: a.avg_r, pnlUsd: a.pnl },
+    readiness: { ready: ready2, bar, progressTrades: Math.min(1, a.n / bar.trades), noLosingWeek },
+    open,
+    recent,
+    best: byToken.slice(0, 5),
+    worst: byToken.slice(-5).reverse()
+  };
+}
+async function runCryptoOrbShadow(userId, candidates, chain, notionalUsd, slippageBps) {
+  if (process.env.CRYPTO_ORB_SHADOW === "off") return 0;
+  const now = /* @__PURE__ */ new Date();
+  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
+  if (mins < 13 * 60 + 50 || mins > 20 * 60) return 0;
+  if (Date.now() - (_orbLastRun.get(userId) || 0) < 5 * 6e4) return 0;
+  _orbLastRun.set(userId, Date.now());
+  await ensurePaperTable();
+  const day0 = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const rStart = day0 + (13 * 60 + 30) * 6e4, rEnd = day0 + (13 * 60 + 45) * 6e4;
+  const { getDefiCandles: getDefiCandles2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+  let opened = 0;
+  for (const c of candidates.slice(0, Number(process.env.CRYPTO_ORB_MAX_TOKENS ?? 6))) {
+    if (!c.poolAddress) continue;
+    try {
+      const done = await pool.query(
+        `SELECT 1 FROM crypto_paper_trades WHERE user_id=$1 AND symbol=$2 AND strategy='orb_breakout' AND opened_at >= to_timestamp($3/1000.0) LIMIT 1`,
+        [userId, c.symbol, day0]
+      );
+      if (done.rows.length) continue;
+      const bars = await getDefiCandles2(chain, c.poolAddress, "5m", 100);
+      const range = bars.filter((b) => b.t >= rStart && b.t < rEnd);
+      if (range.length < 2) continue;
+      const hi2 = Math.max(...range.map((b) => b.h)), lo2 = Math.min(...range.map((b) => b.l)), size = hi2 - lo2;
+      if (!(size > 0)) continue;
+      const after = bars.filter((b) => b.t >= rEnd).slice(0, -1);
+      let dir = null;
+      for (const b of after) {
+        if (Math.min(b.o, b.c) > hi2) {
+          dir = "long";
+          break;
+        }
+        if (Math.max(b.o, b.c) < lo2) {
+          dir = "short";
+          break;
+        }
+      }
+      if (!dir) continue;
+      const px = bars[bars.length - 1].c;
+      const level = dir === "long" ? hi2 : lo2;
+      if (Math.abs(px - level) > size * 0.25) continue;
+      if (dir === "long" ? px < lo2 : px > hi2) continue;
+      const stop = dir === "long" ? lo2 - size * 0.1 : hi2 + size * 0.1;
+      const slPct = Math.abs(px - stop) / px * 100;
+      if (!(slPct > 0.05) || slPct > 15) continue;
+      const r = await openPaperTrade({
+        userId,
+        symbol: c.symbol,
+        chain,
+        tokenAddress: c.address ?? null,
+        poolAddress: c.poolAddress,
+        strategy: "orb_breakout",
+        score: null,
+        entry: px,
+        slPct,
+        tpPct: slPct * 2,
+        notionalUsd,
+        slippageBps,
+        liquidityUsd: c.liquidityUsd ?? null,
+        reasoning: `ORB shadow: NY-open range ${lo2}\u2013${hi2} (13:30\u201313:45 UTC), ${dir === "long" ? "breakout above" : "breakdown below"} then retest of ${level}; stop beyond the range, 2R target.`,
+        direction: dir
+      });
+      if (r.ok) opened++;
+    } catch {
+    }
+  }
+  return opened;
+}
+var DEFAULTS, PAPER_MAX_HOURS, PAPER_MAX_OPEN, paperShortsAllowed, EQUITY_TICKERS, RWA_RE, RWA_NAMED, UNDERLYING, _ensured, _orbLastRun;
+var init_crypto_paper = __esm({
+  "server/services/crypto-paper.ts"() {
+    "use strict";
+    init_db();
+    DEFAULTS = { enabled: false, startBalance: 1e3 };
+    PAPER_MAX_HOURS = () => Math.max(1, Number(process.env.CRYPTO_PAPER_MAX_HOURS ?? 72));
+    PAPER_MAX_OPEN = () => Math.max(1, Math.floor(Number(process.env.CRYPTO_PAPER_MAX_OPEN ?? 12)));
+    paperShortsAllowed = () => process.env.CRYPTO_PAPER_SHORTS === "on";
+    EQUITY_TICKERS = "TSLA|AAPL|GOOGL|GOOG|MSFT|AMZN|META|NVDA|NFLX|AMD|INTC|MU|SNDK|SPCX|COIN|MSTR|HOOD|CRCL|PLTR|ORCL|AVGO|TSM|BABA|SPY|QQQ|IVV|VOO|GLD|SLV|IBIT|DIS|UBER|SHOP|PYPL|V|MA|JPM|BAC|GS|WMT|COST|KO|PEP|NKE|BRKB|LLY|UNH|XOM|CVX|ABNB|RDDT|ARM|SMCI";
+    RWA_RE = new RegExp(`^(${EQUITY_TICKERS})(C|X|ON|B)$`, "i");
+    RWA_NAMED = /* @__PURE__ */ new Set(["XAUG", "XAUT", "PAXG", "ANTHROPIC", "OPENAI", "SPACEX", "STRIPE", "XAI", "TBILL", "USTB", "OUSG", "BUIDL"]);
+    UNDERLYING = {
+      ETH: "ETH",
+      WETH: "ETH",
+      CBETH: "ETH",
+      WSTETH: "ETH",
+      STETH: "ETH",
+      RETH: "ETH",
+      WEETH: "ETH",
+      EZETH: "ETH",
+      SUPEROETHB: "ETH",
+      BTC: "BTC",
+      WBTC: "BTC",
+      CBBTC: "BTC",
+      TBTC: "BTC",
+      LBTC: "BTC",
+      SOL: "SOL",
+      CBSOL: "SOL",
+      WSOL: "SOL",
+      XRP: "XRP",
+      CBXRP: "XRP",
+      DOGE: "DOGE",
+      CBDOGE: "DOGE",
+      LTC: "LTC",
+      CBLTC: "LTC",
+      ADA: "ADA",
+      CBADA: "ADA"
+    };
+    _ensured = null;
+    _orbLastRun = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/crypto-ports.ts
+var crypto_ports_exports = {};
+__export(crypto_ports_exports, {
+  FLOW_RUNNERS: () => FLOW_RUNNERS,
+  NEW_TOKEN_RUNNERS: () => NEW_TOKEN_RUNNERS,
+  SHADOW_ONLY_TESTS: () => SHADOW_ONLY_TESTS,
+  buyShare: () => buyShare,
+  makePortRunners: () => makePortRunners,
+  portsEnabled: () => portsEnabled,
+  runnerEnabled: () => runnerEnabled
+});
+function buyShare(w) {
+  const t = (w?.buys ?? 0) + (w?.sells ?? 0);
+  return t > 0 ? w.buys / t : null;
+}
+function runnerEnabled(id) {
+  return process.env[`CRYPTO_RUNNER_${id.toUpperCase()}`] !== "off";
+}
+function emaSeries(v, n) {
+  const out = [];
+  if (v.length < n) return out;
+  const k2 = 2 / (n + 1);
+  let e = v.slice(0, n).reduce((a, b) => a + b, 0) / n;
+  out[n - 1] = e;
+  for (let i = n; i < v.length; i++) {
+    e = v[i] * k2 + e * (1 - k2);
+    out[i] = e;
+  }
+  return out;
+}
+function rsi(c, n = 14) {
+  if (c.length <= n) return null;
+  let g = 0, l = 0;
+  for (let i = 1; i <= n; i++) {
+    const d = c[i] - c[i - 1];
+    if (d >= 0) g += d;
+    else l -= d;
+  }
+  g /= n;
+  l /= n;
+  for (let i = n + 1; i < c.length; i++) {
+    const d = c[i] - c[i - 1];
+    g = (g * (n - 1) + Math.max(0, d)) / n;
+    l = (l * (n - 1) + Math.max(0, -d)) / n;
+  }
+  return l === 0 ? 100 : 100 - 100 / (1 + g / l);
+}
+function macdHist(c) {
+  const f = emaSeries(c, 12), s = emaSeries(c, 26);
+  if (s.length < c.length || c.length < 35) return null;
+  const macd2 = c.map((_, i) => (f[i] ?? NaN) - (s[i] ?? NaN)).slice(25);
+  const sig = emaSeries(macd2, 9);
+  return sig.length ? last(macd2) - last(sig) : null;
+}
+function to4h(h1) {
+  const out = [];
+  for (const b of h1) {
+    const t4 = Math.floor(b.t / 144e5) * 144e5;
+    const cur = out[out.length - 1];
+    if (cur && cur.t === t4) {
+      cur.h = Math.max(cur.h, b.h);
+      cur.l = Math.min(cur.l, b.l);
+      cur.c = b.c;
+      cur.v += b.v;
+    } else out.push({ t: t4, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v });
+  }
+  return out;
+}
+function bias(closes, f, s) {
+  const a = last(emaSeries(closes, f)), b = last(emaSeries(closes, s));
+  if (a == null || b == null) return null;
+  return a > b ? "BUY" : a < b ? "SELL" : null;
+}
+function makePortRunners(fetchBars2, entryOf = () => void 0) {
+  const sniper = async (symbol, cfg) => {
+    const S = "sniper";
+    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
+    const h1 = await fetchBars2(symbol, "1h", 200, chainOf(cfg));
+    if (m15.length < 60 || h1.length < 60) return res(S, "error", `${symbol}: not enough history for sniper`, null);
+    const c = m15.map((b) => b.c), price = last(c);
+    const dir = bias(c, 9, 21);
+    if (!dir) return res(S, "watching", `${symbol}: no 15m trend`, price, 30);
+    const { detectBOSCHOCH: detectBOSCHOCH2 } = await Promise.resolve().then(() => (init_smcUtils(), smcUtils_exports));
+    const nf = m15.slice().reverse();
+    const r = rsi(c), mh = macdHist(c);
+    const bos = detectBOSCHOCH2(nf, dir);
+    const vRecent = m15.slice(-3).reduce((a, b) => a + b.v, 0) / 3, vBase = m15.slice(-23, -3).reduce((a, b) => a + b.v, 0) / 20;
+    const checks = {
+      ema: true,
+      rsi: r != null && (dir === "BUY" ? r >= 45 && r <= 68 : r >= 32 && r <= 55),
+      macd: mh != null && (dir === "BUY" ? mh > 0 : mh < 0),
+      structure: !!bos.detected && bos.direction === (dir === "BUY" ? "BULLISH" : "BEARISH"),
+      volume: vBase > 0 && vRecent > vBase * 1.2
+    };
+    const n = Object.values(checks).filter(Boolean).length;
+    const h4 = bias(to4h(h1).map((b) => b.c), 5, 10);
+    const why = `${n}/5 (${Object.entries(checks).filter(([, v]) => v).map(([k2]) => k2).join(", ")}), 4h bias ${h4 ?? "n/a"}`;
+    if (n >= 4 && h4 === dir) return res(S, "signal", `${symbol}: sniper ${dir} \u2014 ${why}`, price, 60 + n * 7, dir);
+    return res(S, "watching", `${symbol}: sniper ${dir} \u2014 ${why}`, price, 40 + n * 5);
+  };
+  const smcOte = async (symbol, cfg) => {
+    const S = "smc_ote";
+    const h1 = await fetchBars2(symbol, "1h", 120, chainOf(cfg));
+    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
+    if (h1.length < 40 || m15.length < 40) return res(S, "error", `${symbol}: not enough history for smc_ote`, null);
+    const { detectBOSCHOCH: detectBOSCHOCH2, detectOrderBlock: detectOrderBlock2, detectFairValueGap: detectFairValueGap2 } = await Promise.resolve().then(() => (init_smcUtils(), smcUtils_exports));
+    const nf = (bars) => bars.slice().reverse();
+    const h1nf = nf(h1), m15nf = nf(m15), price = last(m15).c;
+    for (const dir of ["BUY", "SELL"]) {
+      const bos = detectBOSCHOCH2(h1nf, dir);
+      if (!bos.detected || bos.direction !== (dir === "BUY" ? "BULLISH" : "BEARISH")) continue;
+      const leg = h1.slice(-24);
+      let lo2 = Infinity, hi2 = -Infinity, loI = 0, hiI = 0;
+      leg.forEach((b, i) => {
+        if (b.l < lo2) {
+          lo2 = b.l;
+          loI = i;
+        }
+        if (b.h > hi2) {
+          hi2 = b.h;
+          hiI = i;
+        }
+      });
+      const range = hi2 - lo2;
+      if (!(range > 0)) continue;
+      if (dir === "BUY" && loI >= hiI) continue;
+      if (dir === "SELL" && hiI >= loI) continue;
+      const zTop = dir === "BUY" ? hi2 - 0.62 * range : lo2 + 0.79 * range;
+      const zBot = dir === "BUY" ? hi2 - 0.79 * range : lo2 + 0.62 * range;
+      if (price < zBot || price > zTop) return res(S, "watching", `${symbol}: ${dir} ${bos.type}, price outside OTE ${zBot.toPrecision(5)}\u2013${zTop.toPrecision(5)}`, price, 45);
+      const ob = detectOrderBlock2(m15nf, dir), fvg = detectFairValueGap2(m15nf, dir);
+      const poi = ob.detected && ob.aligns || fvg.detected && fvg.direction === (dir === "BUY" ? "BULLISH" : "BEARISH");
+      if (!poi) return res(S, "watching", `${symbol}: ${dir} in OTE but no aligned 15m order block/FVG`, price, 55);
+      return res(S, "signal", `${symbol}: ${dir} ${bos.type} on 1h, price in the 62\u201379% OTE with an aligned 15m ${ob.detected && ob.aligns ? "order block" : "FVG"}`, price, 75, dir);
+    }
+    return res(S, "watching", `${symbol}: no 1h structure break`, price, 30);
+  };
+  const vwapReversion = async (symbol, cfg) => {
+    const S = "vwap_reversion";
+    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
+    if (m15.length < 40) return res(S, "error", `${symbol}: not enough history for vwap_reversion`, null);
+    const day0 = Math.floor(Date.now() / 864e5) * 864e5;
+    let win = m15.filter((b) => b.t >= day0);
+    if (win.length < 8) win = m15.slice(-32);
+    let pv = 0, vv = 0;
+    for (const b of win) {
+      const tp = (b.h + b.l + b.c) / 3;
+      pv += tp * b.v;
+      vv += b.v;
+    }
+    if (!(vv > 0)) return res(S, "watching", `${symbol}: no volume for VWAP`, last(m15).c, 20);
+    const vwap = pv / vv;
+    let varSum = 0;
+    for (const b of win) {
+      const tp = (b.h + b.l + b.c) / 3;
+      varSum += b.v * (tp - vwap) ** 2;
+    }
+    const sd = Math.sqrt(varSum / vv), price = last(m15).c, r = rsi(m15.map((b) => b.c));
+    const z3 = sd > 0 ? (price - vwap) / sd : 0;
+    if (z3 <= -2 && r != null && r <= 35) return res(S, "signal", `${symbol}: ${z3.toFixed(1)}\u03C3 below VWAP ${vwap.toPrecision(5)}, RSI ${r.toFixed(0)} \u2014 mean-reversion long`, price, 70, "BUY");
+    return res(S, "watching", `${symbol}: ${z3.toFixed(1)}\u03C3 from VWAP, RSI ${r?.toFixed(0) ?? "n/a"}`, price, 35);
+  };
+  const liquiditySweep = async (symbol, cfg) => {
+    const S = "liquidity_sweep";
+    const m15 = await fetchBars2(symbol, "15m", 60, chainOf(cfg));
+    if (m15.length < 35) return res(S, "error", `${symbol}: not enough history for liquidity_sweep`, null);
+    const prior = m15.slice(-33, -3), recent = m15.slice(-3), price = last(m15).c;
+    const swingLo = Math.min(...prior.map((b) => b.l)), swingHi = Math.max(...prior.map((b) => b.h));
+    const bull = recent.some((b) => b.l < swingLo && b.c > swingLo) && price > swingLo;
+    const bear = recent.some((b) => b.h > swingHi && b.c < swingHi) && price < swingHi;
+    if (bull && !bear) return res(S, "signal", `${symbol}: swept the 15m swing low ${swingLo.toPrecision(5)} and closed back above`, price, 68, "BUY");
+    if (bear && !bull) return res(S, "signal", `${symbol}: swept the 15m swing high ${swingHi.toPrecision(5)} and closed back below`, price, 68, "SELL");
+    return res(S, "watching", `${symbol}: no sweep`, price, 30);
+  };
+  const sessionBreakout = async (symbol, cfg) => {
+    const S = "session_breakout";
+    const now = /* @__PURE__ */ new Date(), h = now.getUTCHours();
+    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
+    const price = m15.length ? last(m15).c : null;
+    if (h < 7 || h >= 12) return res(S, "watching", `${symbol}: outside the 07\u201312 UTC window`, price, 0);
+    const day0 = Math.floor(now.getTime() / 864e5) * 864e5;
+    const range = m15.filter((b) => b.t >= day0 && b.t < day0 + 7 * 36e5);
+    if (range.length < 20 || price == null) return res(S, "watching", `${symbol}: no complete 00\u201307 UTC range`, price, 0);
+    const hi2 = Math.max(...range.map((b) => b.h)), lo2 = Math.min(...range.map((b) => b.l)), size = hi2 - lo2;
+    const after = m15.filter((b) => b.t >= day0 + 7 * 36e5).slice(0, -1);
+    const brk = after.find((b) => b.c > hi2 || b.c < lo2);
+    if (!brk || !(size > 0)) return res(S, "watching", `${symbol}: 00\u201307 UTC range intact`, price, 30);
+    const dir = brk.c > hi2 ? "BUY" : "SELL";
+    const level = dir === "BUY" ? hi2 : lo2;
+    if (Math.abs(price - level) > size * 0.5) return res(S, "watching", `${symbol}: broke ${dir === "BUY" ? "up" : "down"} but price is extended from the level`, price, 45);
+    return res(S, "signal", `${symbol}: 00\u201307 UTC range ${lo2.toPrecision(5)}\u2013${hi2.toPrecision(5)} broken ${dir === "BUY" ? "up" : "down"}, near the level`, price, 65, dir);
+  };
+  const btcWeekendRange = async (symbol, cfg) => {
+    const S = "btc_weekend_range";
+    if (symbol.toUpperCase() !== "CBBTC") return res(S, "watching", `${symbol}: BTC only`, null, 0);
+    const now = /* @__PURE__ */ new Date(), dow = now.getUTCDay();
+    const h1 = await fetchBars2(symbol, "1h", 72, chainOf(cfg));
+    const price = h1.length ? last(h1).c : null;
+    if (!(dow === 6 || dow === 0) || price == null) return res(S, "watching", `${symbol}: weekday`, price, 0);
+    const sat0 = Math.floor(now.getTime() / 864e5) * 864e5 - (dow === 0 ? 864e5 : 0);
+    const range = h1.filter((b) => b.t >= sat0 && b.t < sat0 + 12 * 36e5);
+    if (range.length < 10) return res(S, "watching", `${symbol}: Saturday range not complete`, price, 0);
+    const hi2 = Math.max(...range.map((b) => b.h)), lo2 = Math.min(...range.map((b) => b.l));
+    const after = h1.filter((b) => b.t >= sat0 + 12 * 36e5).slice(0, -1);
+    const brk = after.find((b) => b.c > hi2 || b.c < lo2);
+    if (!brk) return res(S, "watching", `${symbol}: weekend range intact`, price, 30);
+    const dir = brk.c > hi2 ? "BUY" : "SELL";
+    return res(S, "signal", `${symbol}: Saturday 00\u201312 UTC range ${lo2.toFixed(0)}\u2013${hi2.toFixed(0)} broken ${dir === "BUY" ? "up" : "down"} on a 1h close`, price, 62, dir);
+  };
+  const minTx = () => Number(process.env.CRYPTO_FLOW_MIN_TXNS_H1 ?? 20);
+  const flowOf = (symbol, S) => {
+    const e = entryOf(symbol);
+    if (!e?.flow) return res(S, "watching", `${symbol}: no pool flow data`, e?.priceUsd ?? null, 0);
+    return { f: e.flow, e };
+  };
+  const isRes = (x) => !!x && typeof x.decision === "string";
+  const dipSniper = async (symbol) => {
+    const S = "dip_sniper";
+    const x = flowOf(symbol, S);
+    if (isRes(x)) return x;
+    const ch = x.f.change24hPct, bs2 = buyShare(x.f.h1), n = x.f.h1.buys + x.f.h1.sells;
+    if (ch != null && ch <= -4 && ch >= -40 && bs2 != null && bs2 > 0.62 && n >= minTx())
+      return res(S, "signal", `${symbol}: ${ch.toFixed(1)}% on 24h but ${(bs2 * 100).toFixed(0)}% of ${n} trades in the last hour are buys \u2014 accumulation into the dip`, x.e.priceUsd, 66, "BUY");
+    return res(S, "watching", `${symbol}: 24h ${ch?.toFixed(1) ?? "n/a"}%, 1h buys ${bs2 != null ? (bs2 * 100).toFixed(0) : "n/a"}%`, x.e.priceUsd, 30);
+  };
+  const volumeExplosion = async (symbol) => {
+    const S = "volume_explosion";
+    const x = flowOf(symbol, S);
+    if (isRes(x)) return x;
+    const v1 = x.f.volume1hUsd ?? 0, avg = (x.e.volume24Usd ?? 0) / 24, bs2 = buyShare(x.f.h1);
+    const mult = avg > 0 ? v1 / avg : 0;
+    if (mult >= Number(process.env.CRYPTO_VOLX_MULT ?? 4) && bs2 != null && bs2 > 0.52)
+      return res(S, "signal", `${symbol}: last-hour volume ${mult.toFixed(1)}x the 24h hourly average, ${(bs2 * 100).toFixed(0)}% buys`, x.e.priceUsd, 64, "BUY");
+    return res(S, "watching", `${symbol}: 1h volume ${mult.toFixed(1)}x average`, x.e.priceUsd, 30);
+  };
+  const flowFollower = async (symbol) => {
+    const S = "flow_follower";
+    const x = flowOf(symbol, S);
+    if (isRes(x)) return x;
+    const n1 = x.f.h1.buys + x.f.h1.sells, n24 = x.f.h24.buys + x.f.h24.sells;
+    const avg1 = n1 > 0 && x.f.volume1hUsd ? x.f.volume1hUsd / n1 : 0, avg24 = n24 > 0 ? (x.e.volume24Usd ?? 0) / n24 : 0;
+    const sizeX = avg24 > 0 ? avg1 / avg24 : 0, bs2 = buyShare(x.f.h1), ch = x.f.change1hPct;
+    if (sizeX >= 1.5 && bs2 != null && bs2 > 0.58 && n1 >= minTx() && ch != null && ch >= -5 && ch <= 20)
+      return res(S, "signal", `${symbol}: average trade ${sizeX.toFixed(1)}x the 24h norm, ${(bs2 * 100).toFixed(0)}% buys, 1h ${ch.toFixed(1)}% \u2014 large buyers before the move`, x.e.priceUsd, 64, "BUY");
+    return res(S, "watching", `${symbol}: trade size ${sizeX.toFixed(1)}x norm`, x.e.priceUsd, 30);
+  };
+  const memeVelocity = async (symbol) => {
+    const S = "meme_velocity";
+    const x = flowOf(symbol, S);
+    if (isRes(x)) return x;
+    if (!x.e.newToken) return res(S, "watching", `${symbol}: not a new pool`, x.e.priceUsd, 0);
+    const ch = x.f.change1hPct, bs2 = buyShare(x.f.h1), n = x.f.h1.buys + x.f.h1.sells;
+    if (ch != null && ch >= Number(process.env.CRYPTO_MEME_MIN_1H_PCT ?? 20) && bs2 != null && bs2 > 0.55 && n >= minTx())
+      return res(S, "signal", `${symbol}: new pool up ${ch.toFixed(0)}% in the last hour, ${(bs2 * 100).toFixed(0)}% buys over ${n} trades`, x.e.priceUsd, 60, "BUY");
+    return res(S, "watching", `${symbol}: new pool, 1h ${ch?.toFixed(0) ?? "n/a"}%`, x.e.priceUsd, 25);
+  };
+  const all = {
+    sniper,
+    smc_ote: smcOte,
+    vwap_reversion: vwapReversion,
+    liquidity_sweep: liquiditySweep,
+    session_breakout: sessionBreakout,
+    btc_weekend_range: btcWeekendRange,
+    dip_sniper: dipSniper,
+    volume_explosion: volumeExplosion,
+    flow_follower: flowFollower,
+    meme_velocity: memeVelocity
+  };
+  if (!portsEnabled()) return {};
+  return Object.fromEntries(Object.entries(all).filter(([id]) => runnerEnabled(id)));
+}
+var FLOW_RUNNERS, NEW_TOKEN_RUNNERS, SHADOW_ONLY_TESTS, portsEnabled, last, res, chainOf;
+var init_crypto_ports = __esm({
+  "server/services/crypto-ports.ts"() {
+    "use strict";
+    FLOW_RUNNERS = /* @__PURE__ */ new Set(["dip_sniper", "volume_explosion", "flow_follower", "meme_velocity"]);
+    NEW_TOKEN_RUNNERS = /* @__PURE__ */ new Set(["meme_velocity"]);
+    SHADOW_ONLY_TESTS = /* @__PURE__ */ new Set(["session_breakout", "btc_weekend_range"]);
+    portsEnabled = () => process.env.CRYPTO_PORTS !== "off";
+    last = (a) => a[a.length - 1];
+    res = (strategy, decision, reasoning, price, score = null, direction) => ({ decision, reasoning, score, price, dailyChangePercent: null, strategy, ...direction ? { direction } : {} });
+    chainOf = (cfg) => cfg?.defiChain || "base";
+  }
+});
+
+// server/services/crypto-shadow.ts
+var crypto_shadow_exports = {};
+__export(crypto_shadow_exports, {
+  adviceFor: () => adviceFor,
+  aggregate: () => aggregate,
+  bucketsOf: () => bucketsOf,
+  computeCryptoShadowStats: () => computeCryptoShadowStats,
+  ensureCryptoShadowTables: () => ensureCryptoShadowTables,
+  getCryptoShadowStatsText: () => getCryptoShadowStatsText,
+  resolveCryptoShadowTrades: () => resolveCryptoShadowTrades,
+  runCryptoShadowAll: () => runCryptoShadowAll,
+  shadowAllEnabled: () => shadowAllEnabled
+});
+function ensureCryptoShadowTables() {
+  if (!_ensured2) {
+    _ensured2 = pool.query(`CREATE TABLE IF NOT EXISTS crypto_shadow_trades (
+      id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, symbol text NOT NULL, underlying text NOT NULL,
+      chain text, token_address text, pool_address text, direction text NOT NULL,
+      entry_price double precision NOT NULL, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
+      sl_pct double precision NOT NULL, notional_usd double precision NOT NULL, cost_bps double precision NOT NULL,
+      score real, max_hours double precision NOT NULL, status text NOT NULL DEFAULT 'open',
+      exit_price double precision, exit_reason text, gross_return_pct double precision, return_pct double precision,
+      r_multiple double precision, peak_gain_pct double precision,
+      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS crypto_shadow_trades_user_status ON crypto_shadow_trades (user_id, status)`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS crypto_shadow_context (
+      trade_id int PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, symbol text NOT NULL, direction text NOT NULL,
+      liquidity_usd double precision, change_1h double precision, change_24h double precision, volume_24h_usd double precision,
+      atr_pct double precision, h1_trend text, h4_trend text, htf_aligned boolean, live_gate_blocked boolean,
+      btc_change_24h double precision, hour_utc int, day_of_week int, score real, tags text[], advice_at_entry text,
+      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision)`)).then(() => pool.query(`ALTER TABLE crypto_shadow_context
+        ADD COLUMN IF NOT EXISTS buy_share_h1 double precision, ADD COLUMN IF NOT EXISTS buy_share_h24 double precision,
+        ADD COLUMN IF NOT EXISTS txns_h1 int, ADD COLUMN IF NOT EXISTS txns_h24 int,
+        ADD COLUMN IF NOT EXISTS buyers_h1 int, ADD COLUMN IF NOT EXISTS sellers_h1 int,
+        ADD COLUMN IF NOT EXISTS market_cap_usd double precision, ADD COLUMN IF NOT EXISTS token_age_hours double precision,
+        ADD COLUMN IF NOT EXISTS new_token boolean`)).then(() => void 0).catch((e) => {
+      _ensured2 = null;
+      throw e;
+    });
+  }
+  return _ensured2;
+}
+function ema(vals, n) {
+  if (vals.length < n) return null;
+  const k2 = 2 / (n + 1);
+  let e = vals.slice(0, n).reduce((a, b) => a + b, 0) / n;
+  for (let i = n; i < vals.length; i++) e = vals[i] * k2 + e * (1 - k2);
+  return e;
+}
+function oldestFirst(bars) {
+  return bars.length > 1 && bars[0].t > bars[bars.length - 1].t ? bars.slice().reverse() : bars;
+}
+function trendOf(closes, fast, slow) {
+  const f = ema(closes, fast), s = ema(closes, slow);
+  if (f == null || s == null) return null;
+  return f > s * 1.002 ? "BULLISH" : f < s * 0.998 ? "BEARISH" : "NEUTRAL";
+}
+function pctChange(bars, hoursBack) {
+  if (bars.length <= hoursBack) return null;
+  const now = bars[bars.length - 1].c, then = bars[bars.length - 1 - hoursBack].c;
+  return then > 0 ? (now - then) / then * 100 : null;
+}
+function bucketsOf(c) {
+  const b = {};
+  if (c.buy_share_h1 != null) b.buyShare = c.buy_share_h1 < 0.45 ? "sellers<45%" : c.buy_share_h1 < 0.55 ? "balanced" : c.buy_share_h1 < 0.65 ? "buyers55-65%" : "buyers65%+";
+  if (c.txns_h1 != null) b.activity = c.txns_h1 < 20 ? "quiet<20tx/h" : c.txns_h1 < 100 ? "20-100tx/h" : c.txns_h1 < 500 ? "100-500tx/h" : "500+tx/h";
+  if (c.market_cap_usd != null && c.market_cap_usd > 0) b.mcap = c.market_cap_usd < 1e7 ? "<10M" : c.market_cap_usd < 1e8 ? "10-100M" : c.market_cap_usd < 1e9 ? "100M-1B" : "1B+";
+  if (c.token_age_hours != null) b.age = c.token_age_hours < 72 ? "<3d" : c.token_age_hours < 720 ? "3-30d" : "30d+";
+  if (c.direction) b.side = c.direction;
+  if (c.hour_utc != null) {
+    const s = Math.floor(c.hour_utc / 4) * 4;
+    b.hour = `${String(s).padStart(2, "0")}-${String(s + 4).padStart(2, "0")}UTC`;
+  }
+  const liq = c.liquidity_usd ?? 0;
+  if (liq > 0) b.liquidity = liq < 25e4 ? "<250k" : liq < 1e6 ? "250k-1M" : liq < 5e6 ? "1-5M" : "5M+";
+  if (c.change_24h != null) b.change24h = c.change_24h < -10 ? "<-10%" : c.change_24h < -2 ? "-10--2%" : c.change_24h < 2 ? "flat" : c.change_24h < 10 ? "2-10%" : "10%+";
+  if (c.atr_pct != null) b.volatility = c.atr_pct < 1 ? "atr<1%" : c.atr_pct < 3 ? "atr1-3%" : "atr3%+";
+  if (c.htf_aligned != null) b.htf = c.htf_aligned ? "aligned" : "against";
+  if (c.btc_change_24h != null) b.btc = c.btc_change_24h < -2 ? "btc_down" : c.btc_change_24h > 2 ? "btc_up" : "btc_flat";
+  return b;
+}
+function quantile(s, q) {
+  if (!s.length) return 0;
+  const p2 = (s.length - 1) * q, lo2 = Math.floor(p2), hi2 = Math.ceil(p2);
+  return s[lo2] + (s[hi2] - s[lo2]) * (p2 - lo2);
+}
+function aggregate(rows) {
+  const g = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const v = Number(r.net_pct);
+    if (!Number.isFinite(v)) continue;
+    for (const [dim, bucket] of Object.entries({ ...bucketsOf(r), all: "all" })) {
+      const k2 = `${r.strategy}|${dim}|${bucket}`;
+      (g.get(k2) ?? g.set(k2, []).get(k2)).push(v);
+    }
+  }
+  const minN = num2("CRYPTO_SHADOW_STATS_MIN_N", 15), fav = num2("CRYPTO_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num2("CRYPTO_SHADOW_AVOID_MEDIAN_PCT", 1);
+  return Array.from(g.entries()).map(([k2, v]) => {
+    const [strategy, dim, bucket] = k2.split("|");
+    const s = v.slice().sort((a, b) => a - b);
+    const med = quantile(s, 0.5);
+    const verdict = s.length >= minN ? med > fav ? "favor" : med < -avd ? "avoid" : "learning" : "learning";
+    return { strategy, dim, bucket, n: s.length, medianNet: med, winRate: s.filter((x) => x > 0).length / s.length, verdict };
+  });
+}
+async function computeCryptoShadowStats(userId, force = false) {
+  const hit = _statsCache.get(userId);
+  if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.stats;
+  await ensureCryptoShadowTables();
+  const { rows } = await pool.query(
+    `SELECT strategy, direction, hour_utc, liquidity_usd, change_24h, atr_pct, htf_aligned, btc_change_24h, buy_share_h1, txns_h1, market_cap_usd, token_age_hours, net_pct FROM crypto_shadow_context
+      WHERE user_id=$1 AND closed_at IS NOT NULL AND net_pct IS NOT NULL AND closed_at >= now() - interval '60 days'`,
+    [userId]
+  );
+  const stats = aggregate(rows);
+  _statsCache.set(userId, { at: Date.now(), stats });
+  return stats;
+}
+function adviceFor(stats, strategy, ctx) {
+  const bs2 = bucketsOf(ctx);
+  const hits = stats.filter((s) => s.strategy === strategy && s.verdict !== "learning" && bs2[s.dim] === s.bucket);
+  if (!hits.length) return "learning";
+  const avoid = hits.filter((s) => s.verdict === "avoid");
+  const f = (s) => `${s.verdict}: ${s.dim} ${s.bucket} (n=${s.n}, median ${s.medianNet.toFixed(1)}%)`;
+  return `${avoid.length ? "avoid" : "favor"} \u2014 ${[...avoid, ...hits.filter((s) => s.verdict === "favor")].map(f).join("; ")}`.slice(0, 500);
+}
+async function getCryptoShadowStatsText(userId, max = 12) {
+  try {
+    const { SHADOW_ONLY_TESTS: SHADOW_ONLY_TESTS2 } = await Promise.resolve().then(() => (init_crypto_ports(), crypto_ports_exports));
+    const st = (await computeCryptoShadowStats(userId)).filter((s) => s.verdict !== "learning" && s.dim !== "all" && s.dim !== "hour" && !SHADOW_ONLY_TESTS2.has(s.strategy));
+    if (!st.length) return "";
+    const top = st.sort((a, b) => Math.abs(b.medianNet) * Math.sqrt(b.n) - Math.abs(a.medianNet) * Math.sqrt(a.n)).slice(0, max);
+    return `CRYPTO SHADOW EVIDENCE (virtual trades of every strategy, net of costs, judged by MEDIAN; advice only; 'short' rows are hypothetical \u2014 Base spot can't short):
+` + top.map((s) => `- ${s.strategy} ${s.verdict.toUpperCase()} when ${s.dim}=${s.bucket}: n=${s.n}, median ${s.medianNet >= 0 ? "+" : ""}${s.medianNet.toFixed(2)}%, win ${(s.winRate * 100).toFixed(0)}%`).join("\n");
+  } catch {
+    return "";
+  }
+}
+async function resolveCryptoShadowTrades(userId) {
+  await ensureCryptoShadowTables();
+  const { rows } = await pool.query(`SELECT * FROM crypto_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  if (!rows.length) return 0;
+  const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
+  let closed = 0;
+  for (const t of rows) {
+    const px = t.pool_address ? await getDefiPrice2(t.chain || "base", t.pool_address).catch(() => null) : null;
+    const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
+    const short = t.direction !== "long";
+    let exit = null, why = "";
+    if (px != null && px > 0) {
+      const move = (short ? t.entry_price - px : px - t.entry_price) / t.entry_price * 100;
+      if (t.peak_gain_pct == null || move > t.peak_gain_pct) await pool.query(`UPDATE crypto_shadow_trades SET peak_gain_pct=$2 WHERE id=$1`, [t.id, move]);
+      if (short ? px >= t.stop_loss : px <= t.stop_loss) {
+        exit = short ? Math.max(px, t.stop_loss) : Math.min(px, t.stop_loss);
+        why = "stop";
+      } else if (short ? px <= t.take_profit : px >= t.take_profit) {
+        exit = t.take_profit;
+        why = "target";
+      } else if (ageH >= t.max_hours) {
+        exit = px;
+        why = "time limit";
+      }
+    } else if (ageH >= t.max_hours + 24) {
+      exit = null;
+      why = "no price";
+    }
+    if (!why) continue;
+    const gross = exit != null ? (short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price * 100 : null;
+    const net = gross != null ? gross - Number(t.cost_bps) / 100 : null;
+    const r = net != null && t.sl_pct > 0 ? net / t.sl_pct : null;
+    const upd = await pool.query(
+      `UPDATE crypto_shadow_trades SET status='closed', exit_price=$2, exit_reason=$3, gross_return_pct=$4, return_pct=$5, r_multiple=$6, closed_at=now()
+        WHERE id=$1 AND status='open'`,
+      [t.id, exit, why, gross, net, r]
+    );
+    if (!upd.rowCount) continue;
+    closed++;
+    await pool.query(
+      `UPDATE crypto_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, net_pct=$4 WHERE trade_id=$1`,
+      [t.id, why, ageH * 60, net]
+    ).catch(() => {
+    });
+  }
+  return closed;
+}
+async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, deps) {
+  if (!shadowAllEnabled()) return { opened: 0, closed: 0 };
+  await ensureCryptoShadowTables();
+  const closed = await resolveCryptoShadowTrades(userId).catch(() => 0);
+  if (Date.now() - (_lastRun.get(userId) || 0) < EVERY_MS()) return { opened: 0, closed };
+  _lastRun.set(userId, Date.now());
+  const { isTokenizedAsset: isTokenizedAsset2, underlyingOf: underlyingOf2, paperMaxHoursFor: paperMaxHoursFor2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
+  const { estimateCryptoRoundTripBps: estimateCryptoRoundTripBps2 } = await Promise.resolve().then(() => (init_paper_costs(), paper_costs_exports));
+  const stats = await computeCryptoShadowStats(userId).catch(() => []);
+  const { rows: open } = await pool.query(`SELECT strategy, underlying FROM crypto_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  const { rows: recent } = await pool.query(
+    `SELECT strategy, underlying FROM crypto_shadow_trades WHERE user_id=$1 AND status='closed' AND closed_at >= now() - ($2::text || ' milliseconds')::interval`,
+    [userId, String(COOLDOWN_MS())]
+  );
+  const btc = deps.universe("CBBTC") ? await deps.h1("CBBTC").catch(() => null) : null;
+  const btcChange = btc ? pctChange(oldestFirst(btc.bars), 24) : null;
+  const lo2 = num2("CRYPTO_PAPER_SL_MIN", 1.5), hi2 = num2("CRYPTO_PAPER_SL_MAX", 12), atrMult = num2("CRYPTO_SL_ATR_MULT", 1.5), rr = num2("CRYPTO_MIN_RR", 2);
+  const floorMult = Number(process.env.CRYPTO_PAPER_COST_FLOOR_MULT ?? 3);
+  let opened = 0;
+  const shadowCfg = { ...cfg, directionFilter: "both" };
+  for (const symbol of symbols) {
+    if (open.length >= MAX_OPEN()) break;
+    if (isTokenizedAsset2(symbol)) continue;
+    const uni = deps.universe(symbol);
+    if (!uni?.poolAddress) continue;
+    const und = underlyingOf2(symbol);
+    const { NEW_TOKEN_RUNNERS: NEW_TOKEN_RUNNERS2, buyShare: buyShare2 } = await Promise.resolve().then(() => (init_crypto_ports(), crypto_ports_exports));
+    const runnersFor = Object.entries(deps.runners).filter(([k2]) => uni.newToken ? NEW_TOKEN_RUNNERS2.has(k2) : !NEW_TOKEN_RUNNERS2.has(k2));
+    const results = (await Promise.all(runnersFor.map(([k2, fn]) => fn(symbol, shadowCfg).then((r) => ({ ...r, strategy: r.strategy || k2 })).catch(() => null)))).filter((r) => !!r);
+    const ORIGINAL = /* @__PURE__ */ new Set(["trend_following", "momentum", "order_flow", "volume_profile", "breakout", "structure", "divergence"]);
+    const dirs = results.filter((r) => r.direction && ORIGINAL.has(r.strategy));
+    const buys = dirs.filter((r) => r.direction === "BUY"), sells = dirs.filter((r) => r.direction === "SELL");
+    const side = buys.length > sells.length ? buys : sells.length > buys.length ? sells : [];
+    const signals = results.filter((r) => r.decision === "signal" && r.direction && r.price);
+    if (side.length >= 2) {
+      const comp = Math.round(side.reduce((s, r) => s + (r.score ?? 0), 0) / side.length);
+      if (comp >= (cfg.compositeMinEdgeScore ?? 72)) signals.push({ ...side[0], decision: "signal", score: comp, strategy: "composite_autonomous", reasoning: `${side.length} runners agree` });
+    }
+    if (!signals.length) continue;
+    const h1 = await deps.h1(symbol).catch(() => null);
+    if (!h1 || !(h1.atr > 0)) continue;
+    const bars = oldestFirst(h1.bars), closes = bars.map((b) => b.c);
+    const h1Trend = trendOf(closes, 9, 21);
+    const h4Closes = closes.filter((_, i) => (closes.length - 1 - i) % 4 === 0);
+    const h4Trend = trendOf(h4Closes, 5, 10);
+    const ch1 = pctChange(bars, 1), ch24 = pctChange(bars, 24);
+    const vol24 = bars.slice(-24).reduce((a, b) => a + (b.v || 0) * (b.c || 0), 0);
+    for (const sig of signals) {
+      if (open.length >= MAX_OPEN()) break;
+      const strat = sig.strategy;
+      if (open.filter((o) => o.strategy === strat).length >= MAX_PER_STRAT()) continue;
+      if (open.some((o) => o.strategy === strat && o.underlying === und)) continue;
+      if (recent.some((o) => o.strategy === strat && o.underlying === und)) continue;
+      const price = Number(sig.price) || Number(uni.priceUsd);
+      if (!(price > 0)) continue;
+      const direction = sig.direction === "SELL" ? "hypothetical_short" : "long";
+      const short = direction !== "long";
+      const slPct = Math.min(hi2, Math.max(lo2, h1.atr * atrMult / price * 100));
+      const costBps = estimateCryptoRoundTripBps2({ notionalUsd: NOTIONAL(), liquidityUsd: uni.liquidityUsd, slippageCapBps }).roundTripBps + (uni.newToken ? Number(process.env.CRYPTO_MEME_EXTRA_COST_BPS ?? 200) : 0);
+      if (floorMult > 0 && slPct < floorMult * costBps / 100) continue;
+      const stop = short ? price * (1 + slPct / 100) : price * (1 - slPct / 100);
+      const target = short ? price * (1 - slPct * rr / 100) : price * (1 + slPct * rr / 100);
+      const aligned = h4Trend == null ? null : short ? h4Trend === "BEARISH" : h4Trend === "BULLISH";
+      const gated = await deps.gate(symbol, sig, cfg).then((g) => g.decision !== "signal").catch(() => null);
+      const hourUtc = (/* @__PURE__ */ new Date()).getUTCHours();
+      const fl = uni.flow;
+      const created = fl?.poolCreatedAt ? new Date(fl.poolCreatedAt).getTime() : NaN;
+      const ctx = {
+        hour_utc: hourUtc,
+        liquidity_usd: uni.liquidityUsd,
+        change_24h: ch24,
+        atr_pct: h1.atr / price * 100,
+        htf_aligned: aligned,
+        btc_change_24h: btcChange,
+        direction: short ? "short" : "long",
+        buy_share_h1: fl ? buyShare2(fl.h1) : null,
+        txns_h1: fl ? fl.h1.buys + fl.h1.sells : null,
+        market_cap_usd: fl ? fl.marketCapUsd ?? fl.fdvUsd : null,
+        token_age_hours: Number.isFinite(created) ? (Date.now() - created) / 36e5 : null
+      };
+      const advice = adviceFor(stats, strat, ctx);
+      if (cryptoShadowLessonsOn()) {
+        const hit = matchingAvoidBucket(stats, strat, bucketsOf(ctx), { includeAll: true });
+        if (hit) {
+          void logShadowLessonBlock({
+            lane: "crypto_shadow",
+            userId,
+            strategyKey: strat,
+            bucket: hit.dim === "all" ? "strategy (all)" : `${hit.dim} ${hit.bucket}`,
+            n: hit.n,
+            winRate: hit.winRate,
+            medianPct: hit.medianNet,
+            reason: `bucket verdict 'avoid': n=${hit.n}, median net ${hit.medianNet.toFixed(2)}% over the rolling 60 days`
+          });
+          continue;
+        }
+      }
+      const tags = [];
+      if (ch1 != null && Math.abs(ch1) >= 3) tags.push(ch1 > 0 ? "hot_hour" : "dump_hour");
+      if (ch24 != null && ch24 >= 20) tags.push("extended_24h");
+      if (aligned === false) tags.push("against_htf");
+      if (aligned === true) tags.push("htf_aligned");
+      if (gated) tags.push("live_gate_would_block");
+      if (uni.liquidityUsd < 25e4) tags.push("thin_pool");
+      if (uni.newToken) tags.push("new_token");
+      if (ctx.buy_share_h1 != null && ctx.buy_share_h1 > 0.65) tags.push("buyers_dominant");
+      if (ctx.buy_share_h1 != null && ctx.buy_share_h1 < 0.45) tags.push("sellers_dominant");
+      const ins = await pool.query(
+        `INSERT INTO crypto_shadow_trades (user_id, strategy, symbol, underlying, chain, token_address, pool_address, direction, entry_price, stop_loss, take_profit,
+           sl_pct, notional_usd, cost_bps, score, max_hours) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
+        [userId, strat, symbol, und, chain, uni.address ?? null, uni.poolAddress, direction, price, stop, target, slPct, NOTIONAL(), costBps, sig.score ?? null, paperMaxHoursFor2(strat)]
+      );
+      const id = ins.rows[0]?.id;
+      if (!id) continue;
+      await pool.query(
+        `INSERT INTO crypto_shadow_context (trade_id, user_id, strategy, symbol, direction, liquidity_usd, change_1h, change_24h, volume_24h_usd, atr_pct,
+           h1_trend, h4_trend, htf_aligned, live_gate_blocked, btc_change_24h, hour_utc, day_of_week, score, tags, advice_at_entry,
+           buy_share_h1, buy_share_h24, txns_h1, txns_h24, buyers_h1, sellers_h1, market_cap_usd, token_age_hours, new_token)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29) ON CONFLICT (trade_id) DO NOTHING`,
+        [
+          id,
+          userId,
+          strat,
+          symbol,
+          ctx.direction,
+          uni.liquidityUsd,
+          ch1,
+          ch24,
+          vol24 || null,
+          ctx.atr_pct,
+          h1Trend,
+          h4Trend,
+          aligned,
+          gated,
+          btcChange,
+          hourUtc,
+          (/* @__PURE__ */ new Date()).getUTCDay(),
+          sig.score ?? null,
+          tags,
+          advice,
+          ctx.buy_share_h1,
+          fl ? buyShare2(fl.h24) : null,
+          ctx.txns_h1,
+          fl ? fl.h24.buys + fl.h24.sells : null,
+          fl?.h1.buyers ?? null,
+          fl?.h1.sellers ?? null,
+          ctx.market_cap_usd,
+          ctx.token_age_hours,
+          !!uni.newToken
+        ]
+      ).catch(() => {
+      });
+      open.push({ strategy: strat, underlying: und });
+      opened++;
+    }
+  }
+  return { opened, closed };
+}
+var num2, shadowAllEnabled, MAX_OPEN, MAX_PER_STRAT, COOLDOWN_MS, EVERY_MS, NOTIONAL, _ensured2, _statsCache, _lastRun;
+var init_crypto_shadow = __esm({
+  "server/services/crypto-shadow.ts"() {
+    "use strict";
+    init_db();
+    init_shadow_lesson_gate();
+    num2 = (n, d) => {
+      const v = Number(process.env[n]);
+      return Number.isFinite(v) && v > 0 ? v : d;
+    };
+    shadowAllEnabled = () => process.env.CRYPTO_SHADOW_ALL !== "off";
+    MAX_OPEN = () => Math.floor(num2("CRYPTO_SHADOW_MAX_OPEN", 30));
+    MAX_PER_STRAT = () => Math.floor(num2("CRYPTO_SHADOW_MAX_PER_STRATEGY", 3));
+    COOLDOWN_MS = () => num2("CRYPTO_SHADOW_COOLDOWN_MIN", 60) * 6e4;
+    EVERY_MS = () => num2("CRYPTO_SHADOW_EVERY_MIN", 10) * 6e4;
+    NOTIONAL = () => num2("CRYPTO_SHADOW_NOTIONAL_USD", 20);
+    _ensured2 = null;
+    _statsCache = /* @__PURE__ */ new Map();
+    _lastRun = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/ensure-kalshi-perp-shadow-tables.ts
+var ensure_kalshi_perp_shadow_tables_exports = {};
+__export(ensure_kalshi_perp_shadow_tables_exports, {
+  ensureKalshiPerpShadowTables: () => ensureKalshiPerpShadowTables
+});
+function ensureKalshiPerpShadowTables() {
+  if (!_ensured3) {
+    _ensured3 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_shadow_trades (
+      id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, ticker text NOT NULL, underlying text NOT NULL,
+      direction text NOT NULL,
+      entry_price double precision NOT NULL, entry_bid double precision, entry_ask double precision,
+      stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
+      sl_pct double precision NOT NULL, contracts double precision NOT NULL, notional_usd double precision NOT NULL,
+      cost_bps double precision NOT NULL, cost_model text NOT NULL DEFAULT 'placeholder',
+      funding_accrued_usd double precision NOT NULL DEFAULT 0, funding_through_ms bigint NOT NULL DEFAULT 0,
+      score real, max_hours double precision NOT NULL, status text NOT NULL DEFAULT 'open',
+      exit_price double precision, exit_reason text, gross_return_pct double precision, return_pct double precision,
+      r_multiple double precision, peak_gain_pct double precision, exclude_from_stats boolean NOT NULL DEFAULT false,
+      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_shadow_trades_user_status ON kalshi_perp_shadow_trades (user_id, status)`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_shadow_context (
+      trade_id int PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, ticker text NOT NULL, direction text NOT NULL,
+      spread_bps double precision, volume_24h_usd double precision, open_interest double precision,
+      atr_pct double precision, h1_trend text, h4_trend text, htf_aligned boolean,
+      funding_rate_at_entry double precision, session_et text, hour_utc int, hour_et int, day_of_week int,
+      earnings_within_48h boolean, corporate_action_pending boolean, live_gate_blocked boolean,
+      leverage_estimate double precision, tags text[], advice_at_entry text,
+      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision, funding_paid_usd double precision)`)).then(() => void 0).catch((e) => {
+      _ensured3 = null;
+      throw e;
+    });
+  }
+  return _ensured3;
+}
+var _ensured3;
+var init_ensure_kalshi_perp_shadow_tables = __esm({
+  "server/services/ensure-kalshi-perp-shadow-tables.ts"() {
+    "use strict";
+    init_db();
+    _ensured3 = null;
+  }
+});
+
+// server/services/strategy-deployments.ts
+var strategy_deployments_exports = {};
+__export(strategy_deployments_exports, {
+  closeStrategyTrade: () => closeStrategyTrade,
+  createDeployment: () => createDeployment,
+  ensureStrategyTables: () => ensureStrategyTables,
+  getDeployment: () => getDeployment,
+  getOpenStrategyTrade: () => getOpenStrategyTrade,
+  listDeployments: () => listDeployments,
+  listRunningDeployments: () => listRunningDeployments,
+  listStrategyTrades: () => listStrategyTrades,
+  markStrategyTradeBreakeven: () => markStrategyTradeBreakeven,
+  openStrategyTrade: () => openStrategyTrade,
+  setDeploymentLessonPause: () => setDeploymentLessonPause,
+  stopDeployment: () => stopDeployment,
+  touchDeployment: () => touchDeployment,
+  updateStrategyTradeLevels: () => updateStrategyTradeLevels
+});
+function ensureTables() {
+  if (!tableReady) {
+    tableReady = (async () => {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS strategy_deployments (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL,
+          strategy_id INTEGER NOT NULL,
+          platform TEXT NOT NULL,
+          connection_ref TEXT NOT NULL,
+          account_label TEXT,
+          status TEXT NOT NULL DEFAULT 'running',
+          last_bar_time BIGINT DEFAULT 0,
+          last_signal_at TIMESTAMPTZ,
+          last_error TEXT,
+          error_streak INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          stopped_at TIMESTAMPTZ
+        )`);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS strategy_trades (
+          id SERIAL PRIMARY KEY,
+          deployment_id INTEGER NOT NULL,
+          strategy_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          platform TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          direction TEXT NOT NULL,
+          volume DOUBLE PRECISION NOT NULL DEFAULT 0,
+          entry_price DOUBLE PRECISION NOT NULL DEFAULT 0,
+          exit_price DOUBLE PRECISION,
+          pnl DOUBLE PRECISION,
+          platform_ref TEXT,
+          status TEXT NOT NULL DEFAULT 'open',
+          opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          closed_at TIMESTAMPTZ,
+          exit_reason TEXT
+        )`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_deployments_user ON strategy_deployments (user_id, status)`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS breakeven_applied BOOLEAN NOT NULL DEFAULT false`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_strategy ON strategy_trades (strategy_id, status)`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'live'`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS stop_loss DOUBLE PRECISION`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS take_profit DOUBLE PRECISION`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS risk_price_dist DOUBLE PRECISION`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS extreme_price DOUBLE PRECISION`);
+      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS r_multiple DOUBLE PRECISION`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_mode ON strategy_trades (strategy_id, mode, status)`);
+      await pool.query(`ALTER TABLE strategy_deployments ADD COLUMN IF NOT EXISTS lesson_paused_at TIMESTAMPTZ`);
+      await pool.query(`ALTER TABLE strategy_deployments ADD COLUMN IF NOT EXISTS lesson_pause_reason TEXT`);
+    })().catch((e) => {
+      tableReady = null;
+      throw e;
+    });
+  }
+  return tableReady;
+}
+async function ensureStrategyTables() {
+  return ensureTables();
+}
+function rowToDeployment(r) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    strategyId: r.strategy_id,
+    platform: r.platform,
+    connectionRef: r.connection_ref,
+    accountLabel: r.account_label ?? null,
+    status: r.status,
+    lastBarTime: Number(r.last_bar_time) || 0,
+    lastSignalAt: r.last_signal_at ?? null,
+    lastError: r.last_error ?? null,
+    createdAt: r.created_at,
+    stoppedAt: r.stopped_at ?? null,
+    lessonPaused: r.lesson_paused_at != null,
+    lessonPauseReason: r.lesson_pause_reason ?? null
+  };
+}
+async function createDeployment(userId, strategyId, platform, connectionRef, accountLabel) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `INSERT INTO strategy_deployments (user_id, strategy_id, platform, connection_ref, account_label)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [userId, strategyId, platform, connectionRef, accountLabel]
+  );
+  return rowToDeployment(rows[0]);
+}
+async function listDeployments(userId, strategyId) {
+  await ensureTables();
+  const { rows } = strategyId ? await pool.query(`SELECT * FROM strategy_deployments WHERE user_id=$1 AND strategy_id=$2 ORDER BY created_at DESC`, [userId, strategyId]) : await pool.query(`SELECT * FROM strategy_deployments WHERE user_id=$1 ORDER BY created_at DESC`, [userId]);
+  return rows.map(rowToDeployment);
+}
+async function listRunningDeployments() {
+  await ensureTables();
+  const { rows } = await pool.query(`SELECT * FROM strategy_deployments WHERE status='running' ORDER BY id ASC`);
+  return rows.map(rowToDeployment);
+}
+async function getDeployment(userId, id) {
+  await ensureTables();
+  const { rows } = await pool.query(`SELECT * FROM strategy_deployments WHERE id=$1 AND user_id=$2`, [id, userId]);
+  return rows.length ? rowToDeployment(rows[0]) : null;
+}
+async function setDeploymentLessonPause(id, reason) {
+  await ensureTables();
+  if (reason == null) {
+    await pool.query(`UPDATE strategy_deployments SET lesson_paused_at=NULL, lesson_pause_reason=NULL WHERE id=$1 AND lesson_paused_at IS NOT NULL`, [id]);
+  } else {
+    await pool.query(
+      `UPDATE strategy_deployments SET lesson_paused_at=now(), lesson_pause_reason=$2 WHERE id=$1`,
+      [id, reason.slice(0, 500)]
+    );
+  }
+}
+async function stopDeployment(userId, id) {
+  await ensureTables();
+  const r = await pool.query(
+    `UPDATE strategy_deployments SET status='stopped', stopped_at=now() WHERE id=$1 AND user_id=$2 AND status='running'`,
+    [id, userId]
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+async function touchDeployment(id, patch) {
+  await ensureTables();
+  if (patch.error === null) {
+    await pool.query(
+      `UPDATE strategy_deployments SET last_error=NULL, error_streak=0,
+         last_bar_time=COALESCE($2, last_bar_time),
+         last_signal_at=CASE WHEN $3 THEN now() ELSE last_signal_at END
+       WHERE id=$1`,
+      [id, patch.lastBarTime ?? null, !!patch.lastSignalAt]
+    );
+  } else if (typeof patch.error === "string") {
+    await pool.query(
+      `UPDATE strategy_deployments SET last_error=$2, error_streak=error_streak+1,
+         status=CASE WHEN error_streak+1 >= 5 THEN 'stopped' ELSE status END,
+         stopped_at=CASE WHEN error_streak+1 >= 5 THEN now() ELSE stopped_at END
+       WHERE id=$1`,
+      [id, patch.error.slice(0, 500)]
+    );
+  } else if (patch.lastBarTime != null || patch.lastSignalAt) {
+    await pool.query(
+      `UPDATE strategy_deployments SET last_bar_time=COALESCE($2, last_bar_time),
+         last_signal_at=CASE WHEN $3 THEN now() ELSE last_signal_at END WHERE id=$1`,
+      [id, patch.lastBarTime ?? null, !!patch.lastSignalAt]
+    );
+  }
+}
+async function openStrategyTrade(dep, t) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `INSERT INTO strategy_trades (deployment_id, strategy_id, user_id, platform, symbol, direction, volume, entry_price, platform_ref, mode, stop_loss, take_profit, risk_price_dist, extreme_price)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+    [
+      dep.id,
+      dep.strategyId,
+      dep.userId,
+      dep.platform,
+      t.symbol,
+      t.direction,
+      t.volume,
+      t.entryPrice,
+      t.platformRef,
+      t.mode ?? "live",
+      t.stopLoss ?? null,
+      t.takeProfit ?? null,
+      t.riskDist ?? null,
+      t.extremePrice ?? null
+    ]
+  );
+  return rows[0].id;
+}
+async function getOpenStrategyTrade(deploymentId) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `SELECT * FROM strategy_trades WHERE deployment_id=$1 AND status='open' ORDER BY opened_at DESC LIMIT 1`,
+    [deploymentId]
+  );
+  return rows[0] ?? null;
+}
+async function markStrategyTradeBreakeven(id) {
+  await ensureTables();
+  await pool.query(`UPDATE strategy_trades SET breakeven_applied=true WHERE id=$1`, [id]);
+}
+async function closeStrategyTrade(id, exitPrice, pnl, exitReason, rMultiple2) {
+  await ensureTables();
+  await pool.query(
+    `UPDATE strategy_trades SET status='closed', exit_price=$2, pnl=$3, exit_reason=$4, closed_at=now(),
+       r_multiple=COALESCE($5, r_multiple) WHERE id=$1`,
+    [id, exitPrice, pnl, exitReason, rMultiple2 ?? null]
+  );
+}
+async function updateStrategyTradeLevels(id, patch) {
+  await ensureTables();
+  await pool.query(
+    `UPDATE strategy_trades SET
+       stop_loss=COALESCE($2, stop_loss),
+       extreme_price=COALESCE($3, extreme_price),
+       breakeven_applied=CASE WHEN $4 THEN true ELSE breakeven_applied END
+     WHERE id=$1`,
+    [id, patch.stopLoss ?? null, patch.extremePrice ?? null, !!patch.breakevenApplied]
+  );
+}
+async function listStrategyTrades(userId, strategyId, limit = 500) {
+  await ensureTables();
+  const { rows } = await pool.query(
+    `SELECT * FROM strategy_trades WHERE user_id=$1 AND strategy_id=$2 ORDER BY opened_at DESC LIMIT $3`,
+    [userId, strategyId, limit]
+  );
+  return rows;
+}
+var tableReady;
+var init_strategy_deployments = __esm({
+  "server/services/strategy-deployments.ts"() {
+    "use strict";
+    init_db();
+    tableReady = null;
+  }
+});
+
+// server/services/wizard-spec-strategies.ts
+var wizard_spec_strategies_exports = {};
+__export(wizard_spec_strategies_exports, {
+  createWizardStrategy: () => createWizardStrategy,
+  deleteWizardStrategy: () => deleteWizardStrategy,
+  ensureWizardStrategiesTable: () => ensureWizardStrategiesTable,
+  getWizardStrategy: () => getWizardStrategy,
+  listWizardStrategies: () => listWizardStrategies,
+  recordWizardBacktest: () => recordWizardBacktest,
+  recordWizardBrain: () => recordWizardBrain,
+  recordWizardEa: () => recordWizardEa,
+  updateWizardStrategySpec: () => updateWizardStrategySpec
+});
+function ensureTable() {
+  return tableReady2 ??= (async () => {
+    await pool.query(`CREATE TABLE IF NOT EXISTS wizard_strategies (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'builder',
+      template_id TEXT,
+      spec JSONB NOT NULL,
+      last_backtest JSONB,
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS wizard_strategies_user_idx ON wizard_strategies (user_id, id DESC)`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS ea_code TEXT`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS brain_profile JSONB`);
+    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS brain_listing_id INTEGER`);
+  })().catch((e) => {
+    tableReady2 = null;
+    throw e;
+  });
+}
+function rowToStrategy(r) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    name: r.name,
+    source: r.source,
+    templateId: r.template_id ?? null,
+    spec: r.spec,
+    lastBacktest: r.last_backtest ?? null,
+    hasEa: !!r.has_ea,
+    brainProfile: r.brain_profile ?? null,
+    brainListingId: r.brain_listing_id ?? null,
+    status: r.status,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at)
+  };
+}
+async function ensureWizardStrategiesTable() {
+  return ensureTable();
+}
+async function createWizardStrategy(userId, spec) {
+  await ensureTable();
+  const { rows } = await pool.query(
+    `INSERT INTO wizard_strategies (user_id, name, source, template_id, spec)
+     VALUES ($1,$2,$3,$4,$5) RETURNING ${COLS}`,
+    [userId, spec.name, spec.source, spec.templateId ?? null, JSON.stringify(spec)]
+  );
+  return rowToStrategy(rows[0]);
+}
+async function listWizardStrategies(userId) {
+  await ensureTable();
+  const { rows } = await pool.query(
+    `SELECT ${COLS} FROM wizard_strategies WHERE user_id=$1 ORDER BY id DESC LIMIT 100`,
+    [userId]
+  );
+  return rows.map(rowToStrategy);
+}
+async function getWizardStrategy(userId, id) {
+  await ensureTable();
+  const { rows } = await pool.query(
+    `SELECT ${COLS} FROM wizard_strategies WHERE id=$1 AND user_id=$2`,
+    [id, userId]
+  );
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+async function updateWizardStrategySpec(userId, id, spec) {
+  await ensureTable();
+  const { rows } = await pool.query(
+    `UPDATE wizard_strategies SET name=$3, source=$4, template_id=$5, spec=$6, updated_at=now()
+     WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
+    [id, userId, spec.name, spec.source, spec.templateId ?? null, JSON.stringify(spec)]
+  );
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+async function deleteWizardStrategy(userId, id) {
+  await ensureTable();
+  const { rowCount } = await pool.query(
+    `DELETE FROM wizard_strategies WHERE id=$1 AND user_id=$2`,
+    [id, userId]
+  );
+  return (rowCount ?? 0) > 0;
+}
+async function recordWizardBrain(userId, id, patch) {
+  await ensureTable();
+  const sets = [];
+  const params = [id, userId];
+  if (patch.profile !== void 0) {
+    params.push(JSON.stringify(patch.profile));
+    sets.push(`brain_profile = $${params.length}`);
+  }
+  if (patch.listingId !== void 0) {
+    params.push(patch.listingId);
+    sets.push(`brain_listing_id = $${params.length}`);
+  }
+  if (!sets.length) return false;
+  sets.push("updated_at = now()");
+  const r = await pool.query(
+    `UPDATE wizard_strategies SET ${sets.join(", ")} WHERE id = $1 AND user_id = $2`,
+    params
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+async function recordWizardEa(userId, id, code) {
+  await ensureTable();
+  const { rowCount } = await pool.query(
+    `UPDATE wizard_strategies SET ea_code=$3, updated_at=now() WHERE id=$1 AND user_id=$2`,
+    [id, userId, code]
+  );
+  return (rowCount ?? 0) > 0;
+}
+async function recordWizardBacktest(userId, id, summary) {
+  await ensureTable();
+  const { rows } = await pool.query(
+    `UPDATE wizard_strategies SET last_backtest=$3, status='backtested', updated_at=now()
+     WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
+    [id, userId, JSON.stringify(summary)]
+  );
+  return rows.length ? rowToStrategy(rows[0]) : null;
+}
+var tableReady2, COLS;
+var init_wizard_spec_strategies = __esm({
+  "server/services/wizard-spec-strategies.ts"() {
+    "use strict";
+    init_db();
+    tableReady2 = null;
+    COLS = `id, user_id, name, source, template_id, spec, last_backtest, (ea_code IS NOT NULL) AS has_ea, status, created_at, updated_at, brain_profile, brain_listing_id`;
+  }
+});
+
+// server/services/shadow-ledger.ts
+var shadow_ledger_exports = {};
+__export(shadow_ledger_exports, {
+  ensureShadowLedger: () => ensureShadowLedger,
+  shadowLedgerSummary: () => shadowLedgerSummary
+});
+function ensureShadowLedger() {
+  if (!_ensured4) {
+    _ensured4 = (async () => {
+      try {
+        const { ensurePaperTable: ensurePaperTable2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
+        await ensurePaperTable2();
+      } catch {
+      }
+      try {
+        const { ensureCryptoShadowTables: ensureCryptoShadowTables2 } = await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports));
+        await ensureCryptoShadowTables2();
+      } catch {
+      }
+      try {
+        const { ensureKalshiPerpShadowTables: ensureKalshiPerpShadowTables2 } = await Promise.resolve().then(() => (init_ensure_kalshi_perp_shadow_tables(), ensure_kalshi_perp_shadow_tables_exports));
+        await ensureKalshiPerpShadowTables2();
+      } catch {
+      }
+      try {
+        const { ensureStrategyTables: ensureStrategyTables2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
+        await ensureStrategyTables2();
+      } catch {
+      }
+      try {
+        const { ensureWizardStrategiesTable: ensureWizardStrategiesTable2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
+        await ensureWizardStrategiesTable2();
+      } catch {
+      }
+      await pool.query(VIEW_SQL);
+    })().catch((e) => {
+      _ensured4 = null;
+      throw e;
+    });
+  }
+  return _ensured4;
+}
+async function shadowLedgerSummary(userId, days = 30) {
+  await ensureShadowLedger();
+  const since = `now() - ($2 || ' days')::interval`;
+  const q = (sql18) => pool.query(sql18, [userId, String(Math.max(1, Math.min(365, days)))]).then((r) => r.rows);
+  const agg = `count(*)::int AS trades, count(*) FILTER (WHERE result='WIN')::int AS wins,
+               round(avg(r_multiple)::numeric, 2)::float AS avg_r, round(sum(r_multiple)::numeric, 1)::float AS total_r`;
+  const [bySource, bySession, byDirection, slices, alignment] = await Promise.all([
+    q(`SELECT source, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} GROUP BY 1 ORDER BY 1`),
+    q(`SELECT source, session, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} GROUP BY 1,2 ORDER BY 1,2`),
+    q(`SELECT source, direction, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} GROUP BY 1,2 ORDER BY 1,2`),
+    q(`SELECT source, strategy, symbol, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since}
+        GROUP BY 1,2,3 HAVING count(*) >= 3 ORDER BY avg(r_multiple) DESC NULLS LAST`),
+    q(`SELECT source, h4_aligned, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} AND context_reliable AND h4_aligned IS NOT NULL
+        GROUP BY 1,2 ORDER BY 1,2`)
+  ]);
+  return { days, bySource, bySession, byDirection, best: slices.slice(0, 10), worst: slices.slice(-10).reverse(), h4Alignment: alignment };
+}
+var SESSION_SQL, VIEW_SQL, _ensured4;
+var init_shadow_ledger = __esm({
+  "server/services/shadow-ledger.ts"() {
+    "use strict";
+    init_db();
+    SESSION_SQL = (ts) => `CASE
+  WHEN extract(hour from ${ts}) < 7  THEN 'Asian'
+  WHEN extract(hour from ${ts}) < 12 THEN 'London'
+  WHEN extract(hour from ${ts}) < 16 THEN 'Overlap'
+  WHEN extract(hour from ${ts}) < 21 THEN 'NewYork'
+  ELSE 'Late' END`;
+    VIEW_SQL = `
+CREATE OR REPLACE VIEW shadow_ledger AS
+  SELECT ('fx_model:' || d.id)::text AS ledger_id,
+         CASE WHEN d.engine = 'crypto' THEN 'crypto_shadow' ELSE 'fx_shadow' END AS source,
+         COALESCE(d.engine, 'fx') AS engine, d.user_id,
+         d.model AS strategy, d.symbol,
+         CASE WHEN upper(d.direction) = 'SELL' THEN 'SHORT' ELSE 'LONG' END AS direction,
+         (d.created_at AT TIME ZONE 'UTC') AS opened_at, (d.resolved_at AT TIME ZONE 'UTC') AS closed_at,
+         extract(hour from d.created_at)::int AS hour_utc,
+         ${SESSION_SQL("d.created_at")} AS session,
+         d.day_type,
+         d.context->'h1'->>'trend' AS h1_trend, d.context->'h4'->>'trend' AS h4_trend,
+         CASE WHEN d.context->'h4'->>'trend' IS NULL THEN NULL
+              WHEN upper(d.direction) = 'BUY'  THEN (d.context->'h4'->>'trend') = 'BULLISH'
+              WHEN upper(d.direction) = 'SELL' THEN (d.context->'h4'->>'trend') = 'BEARISH' END AS h4_aligned,
+         (d.created_at >= TIMESTAMP '2026-10-23 04:00:00') AS context_reliable,
+         CASE WHEN d.result = 'EXPIRED' THEN 'EXPIRED' WHEN d.r_multiple > 0 THEN 'WIN' WHEN d.r_multiple < 0 THEN 'LOSS' ELSE d.result END AS result,
+         d.r_multiple::float AS r_multiple, NULL::float AS return_pct
+    FROM fx_model_decisions d
+   WHERE d.result IN ('WIN','LOSS','EXPIRED') AND d.direction IN ('BUY','SELL') AND d.source = 'own'
+  UNION ALL
+  SELECT ('crypto_paper:' || c.id)::text, 'crypto_paper', 'crypto', c.user_id,
+         c.strategy, c.symbol,
+         CASE WHEN c.direction = 'short' THEN 'SHORT' ELSE 'LONG' END,
+         c.opened_at, c.closed_at,
+         extract(hour from c.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(c.opened_at AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN c.exit_reason = 'time limit' THEN 'EXPIRED' WHEN c.r_multiple > 0 THEN 'WIN' WHEN c.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         c.r_multiple::float, c.return_pct::float
+    FROM crypto_paper_trades c
+   WHERE c.status = 'closed'
+  UNION ALL
+  SELECT ('sol_' || s.mode || ':' || s.id)::text,
+         CASE WHEN s.mode = 'shadow' THEN 'sol_shadow' ELSE 'sol_paper' END, 'sol', s.user_id,
+         s.strategy_id, s.symbol, 'LONG',
+         s.opened_at::timestamptz, NULLIF(s.closed_at, '')::timestamptz,
+         extract(hour from s.opened_at::timestamptz AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(s.opened_at::timestamptz AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN s.close_pnl_pct > 0 THEN 'WIN' WHEN s.close_pnl_pct < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         CASE WHEN s.sl_pct > 0 THEN (s.close_pnl_pct / s.sl_pct)::float END,
+         s.close_pnl_pct::float
+    FROM sol_engine_positions s
+   WHERE s.mode IN ('paper', 'shadow') AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
+     AND NOT (
+       NULLIF(s.closed_at, '')::timestamptz < TIMESTAMPTZ '2026-11-06 19:15:00+00'
+       AND abs(s.close_pnl_pct) >= 40
+       AND (extract(epoch from (NULLIF(s.closed_at, '')::timestamptz - s.opened_at::timestamptz)) < 120
+            -- known junk-priced symbols (sol-brain.ts BAD_PRICE_SYMBOLS), any hold
+            OR s.symbol IN ('RAY', 'mSOL'))
+     )
+  UNION ALL
+  -- Crypto all-strategy shadow lane (crypto-shadow.ts). Shorts are hypothetical
+  -- (Base spot can't short) and get their own source so they are reported apart.
+  SELECT ('crypto_shadow_all:' || x.id)::text,
+         CASE WHEN x.direction = 'long' THEN 'crypto_shadow_all' ELSE 'crypto_shadow_short' END, 'crypto', x.user_id,
+         x.strategy, x.symbol, CASE WHEN x.direction = 'long' THEN 'LONG' ELSE 'SHORT' END,
+         x.opened_at, x.closed_at,
+         extract(hour from x.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(x.opened_at AT TIME ZONE 'UTC')")},
+         NULL, xc.h1_trend, xc.h4_trend, xc.htf_aligned, true,
+         CASE WHEN x.exit_reason = 'time limit' THEN 'EXPIRED' WHEN x.r_multiple > 0 THEN 'WIN' WHEN x.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         x.r_multiple::float, x.return_pct::float
+    FROM crypto_shadow_trades x
+    LEFT JOIN crypto_shadow_context xc ON xc.trade_id = x.id
+   WHERE x.status = 'closed' AND x.return_pct IS NOT NULL
+  UNION ALL
+  -- Kalshi stock-perp shadow lane (kalshi-stock-shadow.ts). Perps short
+  -- natively, so shorts are real reads, not hypothetical. Corporate-action
+  -- closes are excluded (the price series adjusts across the action \u2014 any
+  -- return spanning it is fiction), as are sub-2-minute \u226540% prints (the
+  -- Sol quarantine discipline: a large-cap perp does not legitimately move
+  -- 40% in 2 minutes outside a split print, and splits are handled above).
+  SELECT ('kalshi_stock_shadow:' || k.id)::text, 'kalshi_stock_shadow', 'kalshi_perp', k.user_id,
+         k.strategy, k.ticker, CASE WHEN k.direction = 'short' THEN 'SHORT' ELSE 'LONG' END,
+         k.opened_at, k.closed_at,
+         extract(hour from k.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(k.opened_at AT TIME ZONE 'UTC')")},
+         NULL, kc.h1_trend, kc.h4_trend, kc.htf_aligned, true,
+         CASE WHEN k.exit_reason = 'time limit' THEN 'EXPIRED' WHEN k.r_multiple > 0 THEN 'WIN' WHEN k.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         k.r_multiple::float, k.return_pct::float
+    FROM kalshi_perp_shadow_trades k
+    LEFT JOIN kalshi_perp_shadow_context kc ON kc.trade_id = k.id
+   WHERE k.status = 'closed' AND k.return_pct IS NOT NULL AND k.exclude_from_stats IS NOT TRUE
+     AND NOT (abs(k.return_pct) >= 40 AND extract(epoch from (k.closed_at - k.opened_at)) < 120)
+  UNION ALL
+  -- Strategy Studio shadow deployments (strategy-shadow.ts): the runner
+  -- trading saved spec strategies virtually \u2014 fills resolved from bar
+  -- prices into strategy_trades rows with mode='shadow'. R comes from
+  -- the row's own r_multiple (P&L vs the entry-time stop distance), so
+  -- only closes that carried a stop participate. return_pct is not
+  -- tracked for spec trades (no account balance to percentage against)
+  -- and stays NULL. Live rows (mode='live') never appear here, and
+  -- these rows never count toward Brain Marketplace eligibility.
+  SELECT ('strategy_studio_shadow:' || t.id)::text, 'strategy_studio_shadow', 'studio', t.user_id,
+         COALESCE(w.name, 'strategy ' || t.strategy_id), t.symbol,
+         CASE WHEN upper(t.direction) = 'SELL' THEN 'SHORT' ELSE 'LONG' END,
+         t.opened_at, t.closed_at,
+         extract(hour from t.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(t.opened_at AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN t.r_multiple > 0 THEN 'WIN' WHEN t.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         t.r_multiple::float, NULL::float
+    FROM strategy_trades t
+    LEFT JOIN wizard_strategies w ON w.id = t.strategy_id
+   WHERE t.mode = 'shadow' AND t.status = 'closed' AND t.r_multiple IS NOT NULL
+`;
+    _ensured4 = null;
+  }
+});
+
+// server/services/shadow-lesson-gate.ts
+var shadow_lesson_gate_exports = {};
+__export(shadow_lesson_gate_exports, {
+  cryptoShadowLessonsOn: () => cryptoShadowLessonsOn,
+  ensureShadowLessonBlocksTable: () => ensureShadowLessonBlocksTable,
+  fxModelsLessonGateOn: () => fxModelsLessonGateOn,
+  getSolShadowLessonVerdicts: () => getSolShadowLessonVerdicts,
+  logShadowLessonBlock: () => logShadowLessonBlock,
+  matchingAvoidBucket: () => matchingAvoidBucket,
+  promotionBarLoser: () => promotionBarLoser,
+  solShadowLessonsOn: () => solShadowLessonsOn,
+  studioDeploymentProvenLosing: () => studioDeploymentProvenLosing,
+  studioShadowLessonsOn: () => studioShadowLessonsOn
+});
+function ensureShadowLessonBlocksTable() {
+  if (!_ensured5) {
+    _ensured5 = pool.query(`CREATE TABLE IF NOT EXISTS shadow_lesson_blocks (
+      id serial PRIMARY KEY,
+      lane text NOT NULL,
+      user_id int NOT NULL,
+      strategy_key text NOT NULL,
+      bucket text NOT NULL,
+      n int,
+      win_rate double precision,
+      avg_r double precision,
+      median_pct double precision,
+      reason text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS shadow_lesson_blocks_lane_user_at ON shadow_lesson_blocks (lane, user_id, created_at DESC)`)).then(() => void 0).catch((e) => {
+      _ensured5 = null;
+      throw e;
+    });
+  }
+  return _ensured5;
+}
+async function logShadowLessonBlock(b) {
+  try {
+    await ensureShadowLessonBlocksTable();
+    const throttleMin = Math.max(0, Number(process.env.SHADOW_LESSON_BLOCK_LOG_THROTTLE_MIN ?? 60) || 0);
+    await pool.query(
+      `INSERT INTO shadow_lesson_blocks (lane, user_id, strategy_key, bucket, n, win_rate, avg_r, median_pct, reason)
+       SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9
+        WHERE NOT EXISTS (
+          SELECT 1 FROM shadow_lesson_blocks
+           WHERE lane=$1 AND user_id=$2 AND strategy_key=$3 AND bucket=$4
+             AND created_at > now() - ($10 || ' minutes')::interval)`,
+      [b.lane, b.userId, b.strategyKey, b.bucket, b.n ?? null, b.winRate ?? null, b.avgR ?? null, b.medianPct ?? null, String(b.reason).slice(0, 500), String(throttleMin)]
+    );
+  } catch (e) {
+    console.error("[shadow-lesson-gate] block log failed (non-fatal):", e?.message || e);
+  }
+}
+function promotionBarLoser(s) {
+  if (!s || !(s.trades >= 50)) return false;
+  if (!(s.avgR <= -0.2)) return false;
+  const wr = s.trades > 0 ? s.wins / s.trades : 0;
+  if (!(wr <= 0.4)) return false;
+  if (s.weeklyR && s.weeklyR.length && !s.weeklyR.every((r) => r <= 0)) return false;
+  return true;
+}
+function matchingAvoidBucket(stats, strategy, buckets, opts = {}) {
+  if (opts.includeAll !== false) {
+    const all = stats.find((s) => s.strategy === strategy && s.dim === "all" && s.verdict === "avoid");
+    if (all) return all;
+  }
+  return stats.find((s) => s.strategy === strategy && s.verdict === "avoid" && buckets[s.dim] === s.bucket) ?? null;
+}
+function studioDeploymentProvenLosing(s) {
+  if (!s || !(s.rTrades >= 30)) return false;
+  if (s.avgR == null || !(s.avgR <= -0.2)) return false;
+  const wr = s.rTrades > 0 ? s.wins / s.rTrades : 0;
+  return wr <= 0.4;
+}
+async function getSolShadowLessonVerdicts(userId, force = false) {
+  const hit = _solCache.get(userId);
+  if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.verdicts;
+  const verdicts = /* @__PURE__ */ new Map();
+  const days = Math.max(7, Math.floor(Number(process.env.SOL_SHADOW_LESSON_WINDOW_DAYS ?? 60) || 60));
+  const { ensureShadowLedger: ensureShadowLedger2 } = await Promise.resolve().then(() => (init_shadow_ledger(), shadow_ledger_exports));
+  await ensureShadowLedger2();
+  const { rows } = await pool.query(
+    `SELECT strategy, count(*)::int AS trades, count(*) FILTER (WHERE result='WIN')::int AS wins,
+            COALESCE(avg(r_multiple),0)::float AS avg_r
+       FROM shadow_ledger
+      WHERE user_id=$1 AND source='sol_shadow' AND r_multiple IS NOT NULL
+        AND closed_at >= now() - ($2 || ' days')::interval
+      GROUP BY strategy`,
+    [userId, String(days)]
+  );
+  const { rows: weekly } = await pool.query(
+    `SELECT strategy, date_trunc('week', closed_at) AS wk, COALESCE(sum(r_multiple),0)::float AS r
+       FROM shadow_ledger
+      WHERE user_id=$1 AND source='sol_shadow' AND r_multiple IS NOT NULL
+        AND closed_at >= now() - ($2 || ' days')::interval
+      GROUP BY strategy, wk ORDER BY wk`,
+    [userId, String(days)]
+  );
+  const weeksByStrategy = /* @__PURE__ */ new Map();
+  for (const w of weekly) {
+    const a = weeksByStrategy.get(w.strategy) ?? [];
+    a.push(Number(w.r) || 0);
+    weeksByStrategy.set(w.strategy, a);
+  }
+  for (const r of rows) {
+    const stat = {
+      trades: Number(r.trades) || 0,
+      wins: Number(r.wins) || 0,
+      avgR: Number(r.avg_r) || 0,
+      weeklyR: weeksByStrategy.get(r.strategy) ?? []
+    };
+    verdicts.set(r.strategy, { strategy: r.strategy, ...stat, blocked: promotionBarLoser(stat) });
+  }
+  _solCache.set(userId, { at: Date.now(), verdicts });
+  return verdicts;
+}
+var solShadowLessonsOn, cryptoShadowLessonsOn, studioShadowLessonsOn, fxModelsLessonGateOn, _ensured5, _solCache;
+var init_shadow_lesson_gate = __esm({
+  "server/services/shadow-lesson-gate.ts"() {
+    "use strict";
+    init_db();
+    solShadowLessonsOn = () => process.env.SOL_SHADOW_LESSONS !== "off";
+    cryptoShadowLessonsOn = () => process.env.CRYPTO_SHADOW_LESSONS !== "off";
+    studioShadowLessonsOn = () => process.env.STUDIO_SHADOW_LESSONS !== "off";
+    fxModelsLessonGateOn = () => process.env.FX_MODELS_LESSON_GATE !== "off";
+    _ensured5 = null;
+    _solCache = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/utils/pair-key.ts
 var pair_key_exports = {};
 __export(pair_key_exports, {
@@ -10516,7 +12679,7 @@ var init_pair_key = __esm({
 });
 
 // server/services/brain-shadow.ts
-async function ensureTable() {
+async function ensureTable2() {
   const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
   if (!_tableReady) {
     await pool2.query(`CREATE TABLE IF NOT EXISTS brain_shadow_trades (
@@ -10539,7 +12702,7 @@ function recordShadow(userId, p2, onSkip, onOpen) {
     try {
       const sym2 = norm3(p2.symbol);
       const key = `${userId}|${sym2}|${p2.direction}`;
-      const pool2 = await ensureTable();
+      const pool2 = await ensureTable2();
       if (_openKeys.has(key)) return;
       if (!(p2.entry > 0)) {
         onSkip?.(`no entry price`);
@@ -10578,14 +12741,14 @@ function recordShadow(userId, p2, onSkip, onOpen) {
 function resolveShadows(userId, symbol, bars) {
   const sym2 = norm3(symbol);
   if (!_openKeysLoaded) {
-    void ensureTable().catch(() => {
+    void ensureTable2().catch(() => {
     });
     return;
   }
   if (!_openKeys.has(`${userId}|${sym2}|BUY`) && !_openKeys.has(`${userId}|${sym2}|SELL`)) return;
   void (async () => {
     try {
-      const pool2 = await ensureTable();
+      const pool2 = await ensureTable2();
       const r = await pool2.query(
         `SELECT id, direction, entry, stop_loss, take_profit, created_at FROM brain_shadow_trades
          WHERE user_id=$1 AND symbol=$2 AND status='open'`,
@@ -10632,7 +12795,7 @@ function refreshStats() {
   _statsLoading = true;
   void (async () => {
     try {
-      const pool2 = await ensureTable();
+      const pool2 = await ensureTable2();
       const r = await pool2.query(
         `SELECT user_id, symbol, session, count(*) FILTER (WHERE status='win')::int w, count(*) FILTER (WHERE status='loss')::int l
          FROM brain_shadow_trades WHERE status IN ('win','loss') AND created_at > now() - interval '${LOOKBACK_DAYS2} days'
@@ -17474,2008 +19637,6 @@ function computeOrderFlow(candles, lookback = 20) {
 var init_orderflow_strategy = __esm({
   "server/services/orderflow-strategy.ts"() {
     "use strict";
-  }
-});
-
-// server/services/paper-costs.ts
-var paper_costs_exports = {};
-__export(paper_costs_exports, {
-  estimateCryptoRoundTripBps: () => estimateCryptoRoundTripBps,
-  estimateSolRoundTripCost: () => estimateSolRoundTripCost,
-  priceImpactPct: () => priceImpactPct,
-  solDexFeePct: () => solDexFeePct
-});
-function priceImpactPct(notionalUsd, liquidityUsd) {
-  if (!(liquidityUsd && liquidityUsd > 0) || !(notionalUsd > 0)) return null;
-  return Math.min(50, 2 * notionalUsd / liquidityUsd * 100);
-}
-function solDexFeePct(dex) {
-  const d = (dex || "").toLowerCase();
-  if (d.startsWith("pumpswap")) return num("SOL_PAPER_FEE_PUMPSWAP_PCT", 0.25);
-  if (d.startsWith("pump")) return num("SOL_PAPER_FEE_PUMPFUN_PCT", 1);
-  if (d.startsWith("raydium")) return num("SOL_PAPER_FEE_RAYDIUM_PCT", 0.25);
-  if (d.startsWith("orca")) return num("SOL_PAPER_FEE_ORCA_PCT", 0.3);
-  if (d.startsWith("meteora")) return num("SOL_PAPER_FEE_METEORA_PCT", 0.3);
-  return num("SOL_PAPER_FEE_DEFAULT_PCT", 0.3);
-}
-function estimateSolRoundTripCost(i) {
-  const feePct = solDexFeePct(i.dex);
-  const slippagePct = num("SOL_PAPER_SLIPPAGE_PCT", 0.5);
-  const notionalUsd = i.solUsd && i.solUsd > 0 ? i.sizeSol * i.solUsd : 0;
-  const impactPct = priceImpactPct(notionalUsd, i.liquidityUsd) ?? num("SOL_PAPER_IMPACT_FALLBACK_PCT", 1);
-  const txSol = num("SOL_PAPER_TX_FEE_SOL", 1e-4);
-  const networkPct = i.sizeSol > 0 ? Math.min(5, txSol / i.sizeSol * 100) : 0;
-  const side = feePct + slippagePct + impactPct + networkPct;
-  return { roundTripPct: 2 * side, perSide: { feePct, slippagePct, impactPct, networkPct } };
-}
-function estimateCryptoRoundTripBps(i) {
-  const cap = Math.max(0, i.slippageCapBps || 0);
-  const liq = i.liquidityUsd && i.liquidityUsd > 0 ? i.liquidityUsd : null;
-  if (!liq) {
-    const perSide2 = num("CRYPTO_PAPER_FEE_BPS", 30) + cap / 2;
-    return { roundTripBps: 2 * perSide2, perSideBps: perSide2, liquidityKnown: false };
-  }
-  const deep = liq >= num("CRYPTO_PAPER_DEEP_LIQ_USD", 5e6);
-  const feeBps = deep ? num("CRYPTO_PAPER_FEE_DEEP_BPS", 5) : num("CRYPTO_PAPER_FEE_BPS", 30);
-  const slipBps = num("CRYPTO_PAPER_SLIPPAGE_BPS", 5);
-  const impactBps = Math.min(cap || Infinity, (priceImpactPct(i.notionalUsd, liq) ?? 0) * 100);
-  const gasBps = i.notionalUsd > 0 ? Math.min(100, num("CRYPTO_PAPER_GAS_USD", 0.02) / i.notionalUsd * 1e4) : 0;
-  const perSide = feeBps + slipBps + impactBps + gasBps;
-  return { roundTripBps: 2 * perSide, perSideBps: perSide, liquidityKnown: true };
-}
-var num;
-var init_paper_costs = __esm({
-  "server/services/paper-costs.ts"() {
-    "use strict";
-    num = (name, dflt) => {
-      const v = Number(process.env[name]);
-      return Number.isFinite(v) && v >= 0 ? v : dflt;
-    };
-  }
-});
-
-// server/services/defi-market-data.ts
-var defi_market_data_exports = {};
-__export(defi_market_data_exports, {
-  callBudget: () => callBudget,
-  discoverDefiTokens: () => discoverDefiTokens,
-  discoverNewPoolTokens: () => discoverNewPoolTokens,
-  getDefiCandles: () => getDefiCandles,
-  getDefiPrice: () => getDefiPrice,
-  parsePoolFlow: () => parsePoolFlow
-});
-function cgHeaders() {
-  const h = { accept: "application/json" };
-  const key = (process.env.COINGECKO_API_KEY ?? "").trim();
-  if (key) h["x-cg-demo-api-key"] = key;
-  return h;
-}
-function callBudget() {
-  const hasKey = !!(process.env.COINGECKO_API_KEY ?? "").trim();
-  return {
-    hasKey,
-    // With a key we can space calls at the documented rate; without one, crawl.
-    minIntervalMs: Number(process.env.COINGECKO_MIN_INTERVAL_MS ?? (hasKey ? 2100 : 15e3)),
-    // Discovery is the same answer for everyone, so cache it hard: at 3 pages a
-    // refresh, a 5-minute TTL alone would spend 864 calls/day of a ~330 budget.
-    discoveryTtlMs: Number(process.env.COINGECKO_DISCOVERY_TTL_MS ?? (hasKey ? 60 * 60 * 1e3 : 6 * 60 * 60 * 1e3)),
-    candleTtlMs: Number(process.env.COINGECKO_CANDLE_TTL_MS ?? (hasKey ? 10 * 60 * 1e3 : 30 * 60 * 1e3))
-  };
-}
-function parsePoolFlow(a) {
-  const n = (x) => {
-    const v = Number(x);
-    return Number.isFinite(v) ? v : null;
-  };
-  const tx = (w) => ({ buys: Number(w?.buys) || 0, sells: Number(w?.sells) || 0, buyers: n(w?.buyers), sellers: n(w?.sellers) });
-  return {
-    h1: tx(a?.transactions?.h1),
-    h24: tx(a?.transactions?.h24),
-    volume1hUsd: n(a?.volume_usd?.h1),
-    change1hPct: n(a?.price_change_percentage?.h1),
-    change24hPct: n(a?.price_change_percentage?.h24),
-    fdvUsd: n(a?.fdv_usd),
-    marketCapUsd: n(a?.market_cap_usd),
-    poolCreatedAt: a?.pool_created_at ?? null,
-    at: Date.now()
-  };
-}
-async function discoverNewPoolTokens(chainKey, minLiquidityUsd = 25e3, maxAgeHours = 72, maxTokens = 5) {
-  const net = GT_NETWORK[chainKey];
-  if (!net) return [];
-  const key = `${chainKey}:${minLiquidityUsd}:${maxAgeHours}:${maxTokens}`;
-  if (newPoolsCache && newPoolsCache.key === key && Date.now() - newPoolsCache.at < callBudget().discoveryTtlMs) return newPoolsCache.tokens;
-  const out = /* @__PURE__ */ new Map();
-  try {
-    const d = await gt(`/networks/${net}/new_pools?page=1`);
-    for (const p2 of d?.data ?? []) {
-      const a = p2?.attributes ?? {};
-      const liq = Number(a.reserve_in_usd ?? 0), price = Number(a.base_token_price_usd ?? 0);
-      const created = a.pool_created_at ? new Date(a.pool_created_at).getTime() : NaN;
-      if (!a.address || !price || liq < minLiquidityUsd) continue;
-      if (!Number.isFinite(created) || Date.now() - created > maxAgeHours * 36e5) continue;
-      const symbol = String(a.name ?? "").split("/")[0].trim().toUpperCase();
-      if (!symbol || SETTLEMENT.has(symbol)) continue;
-      const address = String(p2?.relationships?.base_token?.data?.id ?? "").split("_").pop() ?? "";
-      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
-      const prev = out.get(address);
-      if (!prev || liq > prev.liquidityUsd) out.set(address, { symbol, address, poolAddress: a.address, priceUsd: price, liquidityUsd: liq, volume24Usd: Number(a.volume_usd?.h24 ?? 0), flow: parsePoolFlow(a) });
-    }
-  } catch (e) {
-    console.warn(`[defi-market-data] new_pools failed for ${chainKey}: ${e?.message ?? e}`);
-  }
-  const tokens = Array.from(out.values()).sort((x, y) => y.liquidityUsd - x.liquidityUsd).slice(0, maxTokens);
-  newPoolsCache = { key, at: Date.now(), tokens };
-  return tokens;
-}
-async function gt(path21) {
-  const run = async () => {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
-      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-      lastCallAt = Date.now();
-      const res2 = await fetch(`${GT}${path21}`, {
-        headers: cgHeaders(),
-        signal: AbortSignal.timeout(2e4)
-      });
-      if (res2.ok) return res2.json();
-      if (res2.status === 429) {
-        const retryAfter = Number(res2.headers.get("retry-after")) || 0;
-        const backoff = retryAfter > 0 ? retryAfter * 1e3 : 3e3 * (attempt + 1);
-        console.warn(`[defi-market-data] rate limited on ${path21}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
-        await new Promise((r) => setTimeout(r, backoff));
-        continue;
-      }
-      throw new Error(`GeckoTerminal ${res2.status} on ${path21}`);
-    }
-    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path21}`);
-  };
-  const next = callChain.then(run, run);
-  callChain = next.catch(() => void 0);
-  return next;
-}
-async function discoverDefiTokens(chainKey, opts = {}) {
-  const net = GT_NETWORK[chainKey];
-  if (!net) throw new Error(`no GeckoTerminal network mapping for chain "${chainKey}"`);
-  const minLiq = opts.minLiquidityUsd ?? 25e4;
-  const minVol = opts.minVolume24Usd ?? 1e5;
-  const maxTokens = opts.maxTokens ?? 40;
-  const pages = opts.pages ?? 3;
-  const key = `${chainKey}:${minLiq}:${minVol}:${maxTokens}:${pages}`;
-  if (discoveryCache && discoveryCache.key === key && Date.now() - discoveryCache.at < callBudget().discoveryTtlMs) {
-    return discoveryCache.tokens;
-  }
-  const best = /* @__PURE__ */ new Map();
-  let pagesRead = 0;
-  const errors = [];
-  for (let page = 1; page <= pages; page++) {
-    try {
-      const d = await gt(`/networks/${net}/pools?page=${page}&sort=h24_volume_usd_desc`);
-      pagesRead++;
-      for (const p2 of d?.data ?? []) {
-        const a = p2?.attributes ?? {};
-        const liq = Number(a.reserve_in_usd ?? 0);
-        const vol = Number(a.volume_usd?.h24 ?? 0);
-        const price = Number(a.base_token_price_usd ?? 0);
-        const poolAddress = a.address;
-        if (!poolAddress || !price || liq < minLiq || vol < minVol) continue;
-        const symbol = String(a.name ?? "").split("/")[0].trim().toUpperCase();
-        if (!symbol || SETTLEMENT.has(symbol)) continue;
-        const rel = p2?.relationships?.base_token?.data?.id ?? "";
-        const address = String(rel).split("_").pop() ?? "";
-        if (!/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
-        const prev = best.get(address);
-        if (!prev || liq > prev.liquidityUsd) {
-          best.set(address, { symbol, address, poolAddress, priceUsd: price, liquidityUsd: liq, volume24Usd: vol, flow: parsePoolFlow(a) });
-        }
-      }
-    } catch (e) {
-      errors.push(e?.message);
-    }
-  }
-  if (pagesRead === 0) {
-    throw new Error(`could not read any pool page for ${chainKey}: ${errors.join(" | ")}`);
-  }
-  if (errors.length) console.warn(`[defi-market-data] ${errors.length}/${pages} pool pages failed for ${chainKey}: ${errors.join(" | ")}`);
-  const tokens = Array.from(best.values()).sort((x, y) => y.volume24Usd - x.volume24Usd).slice(0, maxTokens);
-  discoveryCache = { key, at: Date.now(), tokens };
-  return tokens;
-}
-async function getDefiCandles(chainKey, poolAddress, timeframe, count) {
-  const net = GT_NETWORK[chainKey];
-  if (!net) throw new Error(`no GeckoTerminal network mapping for chain "${chainKey}"`);
-  const [endpoint, aggregate3] = TF[timeframe] ?? TF["5m"];
-  const FETCH_DEPTH = 300;
-  const key = `${net}:${poolAddress}:${endpoint}:${aggregate3}`;
-  const hit = candleCache.get(key);
-  if (hit && Date.now() - hit.at < callBudget().candleTtlMs) return hit.bars.slice(-count);
-  let pending = candleInFlight.get(key);
-  if (!pending) {
-    pending = (async () => {
-      const d = await gt(`/networks/${net}/pools/${poolAddress}/ohlcv/${endpoint}?aggregate=${aggregate3}&limit=${FETCH_DEPTH}`);
-      const list = d?.data?.attributes?.ohlcv_list ?? [];
-      const bars2 = list.map((r) => ({ t: Number(r[0]) * 1e3, o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) })).filter((b) => Number.isFinite(b.c) && b.c > 0).reverse();
-      candleCache.set(key, { at: Date.now(), bars: bars2 });
-      return bars2;
-    })().finally(() => candleInFlight.delete(key));
-    candleInFlight.set(key, pending);
-  }
-  const bars = await pending;
-  return bars.slice(-count);
-}
-async function getDefiPrice(chainKey, poolAddress) {
-  const bars = await getDefiCandles(chainKey, poolAddress, "5m", 2).catch(() => []);
-  const last2 = bars[bars.length - 1];
-  return last2?.c && last2.c > 0 ? last2.c : null;
-}
-var GT, GT_NETWORK, newPoolsCache, SETTLEMENT, callChain, lastCallAt, discoveryCache, TF, candleCache, candleInFlight;
-var init_defi_market_data = __esm({
-  "server/services/defi-market-data.ts"() {
-    "use strict";
-    GT = "https://api.geckoterminal.com/api/v2";
-    GT_NETWORK = {
-      ethereum: "eth",
-      base: "base",
-      arbitrum: "arbitrum",
-      optimism: "optimism",
-      polygon: "polygon_pos"
-    };
-    newPoolsCache = null;
-    SETTLEMENT = /* @__PURE__ */ new Set(["USDC", "USDBC", "USDC.E"]);
-    callChain = Promise.resolve();
-    lastCallAt = 0;
-    discoveryCache = null;
-    TF = {
-      "1m": ["minute", 1],
-      "5m": ["minute", 5],
-      "15m": ["minute", 15],
-      "1h": ["hour", 1],
-      "4h": ["hour", 4],
-      "1d": ["day", 1]
-    };
-    candleCache = /* @__PURE__ */ new Map();
-    candleInFlight = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/crypto-brain.ts
-var crypto_brain_exports = {};
-__export(crypto_brain_exports, {
-  cryptoBrainGate: () => cryptoBrainGate,
-  cryptoBrainReady: () => cryptoBrainReady,
-  cryptoBrainSizeMultiplier: () => cryptoBrainSizeMultiplier,
-  getOrRefreshCryptoBrain: () => getOrRefreshCryptoBrain,
-  learnFromCryptoTrades: () => learnFromCryptoTrades,
-  recordCryptoBrainOutcome: () => recordCryptoBrainOutcome
-});
-function cryptoBrainReady(userId) {
-  return _cache.has(userId);
-}
-function bump(map, key, win) {
-  const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
-  s.trades++;
-  if (win) s.wins++;
-  s.winRate = Math.round(s.wins / s.trades * 100);
-}
-function sizeMult(winRate2, rr, trades) {
-  if (trades < MIN_TRADES2) return 1;
-  const w = winRate2 / 100, r = rr > 0 ? rr : 1;
-  const kelly = w - (1 - w) / r;
-  return Math.max(0.25, Math.min(1.5, 1 + kelly));
-}
-async function backfillIfEmpty(userId) {
-  const { rows } = await pool.query(`SELECT count(*)::int n FROM crypto_brain_outcomes WHERE user_id=$1`, [userId]);
-  if (rows[0].n > 0) return;
-  const { rows: trades } = await pool.query(
-    `SELECT symbol, strategy, direction, realized_pnl, closed_at FROM cryptocom_engine_trades
-     WHERE user_id=$1 AND status='closed' AND realized_pnl IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`,
-    [userId]
-  );
-  if (!trades.length) return;
-  for (const t of trades) {
-    const pnl = Number(t.realized_pnl) || 0;
-    const d = t.closed_at ? new Date(t.closed_at) : /* @__PURE__ */ new Date();
-    await pool.query(
-      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, hour_utc, source, closed_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'backfill',$8)`,
-      [userId, t.symbol, t.strategy || "unknown", t.direction || "long", pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN", pnl, d.getUTCHours(), d]
-    ).catch(() => {
-    });
-  }
-}
-async function learnFromCryptoTrades(userId) {
-  await backfillIfEmpty(userId).catch(() => {
-  });
-  const { rows } = await pool.query(
-    `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM crypto_brain_outcomes
-     WHERE user_id=$1 ORDER BY closed_at DESC LIMIT 2000`,
-    [userId]
-  );
-  const symbols = {};
-  const winSum = {}, winN = {}, lossSum = {}, lossN = {};
-  let totalWins = 0, totalDecided = 0, totalPnl = 0;
-  for (const r of rows) {
-    const sym2 = r.symbol || "UNKNOWN";
-    const k2 = symbols[sym2] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
-    const pnl = Number(r.profit_loss) || 0;
-    const win = r.result === "WIN", loss = r.result === "LOSS";
-    k2.totalTrades++;
-    k2.totalPnl += pnl;
-    totalPnl += pnl;
-    if (win) {
-      k2.wins++;
-      totalWins++;
-      winSum[sym2] = (winSum[sym2] ?? 0) + pnl;
-      winN[sym2] = (winN[sym2] ?? 0) + 1;
-    }
-    if (loss) {
-      k2.losses++;
-      lossSum[sym2] = (lossSum[sym2] ?? 0) + Math.abs(pnl);
-      lossN[sym2] = (lossN[sym2] ?? 0) + 1;
-    }
-    if (win || loss) totalDecided++;
-    if (r.strategy) bump(k2.byStrategy, r.strategy, win);
-    if (r.hour_utc != null) bump(k2.byHour, String(r.hour_utc), win);
-  }
-  for (const [sym2, k2] of Object.entries(symbols)) {
-    const decided = k2.wins + k2.losses;
-    k2.winRate = decided ? Math.round(k2.wins / decided * 100) : 0;
-    k2.avgWin = winN[sym2] ? winSum[sym2] / winN[sym2] : 0;
-    k2.avgLoss = lossN[sym2] ? lossSum[sym2] / lossN[sym2] : 0;
-    k2.riskReward = k2.avgLoss > 0 ? k2.avgWin / k2.avgLoss : k2.avgWin > 0 ? 2 : 1;
-    k2.recommendedSizeMultiplier = sizeMult(k2.winRate, k2.riskReward, decided);
-    let best = null, bestWr = -1;
-    for (const [s, b] of Object.entries(k2.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
-      best = s;
-      bestWr = b.winRate;
-    }
-    k2.bestStrategy = best;
-  }
-  const insights = [];
-  for (const [sym2, k2] of Object.entries(symbols)) {
-    if (k2.wins + k2.losses >= MIN_TRADES2) insights.push(`${sym2}: ${k2.winRate}% WR over ${k2.wins + k2.losses} \u2192 sizing \xD7${k2.recommendedSizeMultiplier}${k2.bestStrategy ? `, best on ${k2.bestStrategy}` : ""}.`);
-    else insights.push(`${sym2}: still learning (${k2.wins + k2.losses}/${MIN_TRADES2}).`);
-  }
-  const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
-  _cache.set(userId, { brain, at: Date.now() });
-  return brain;
-}
-async function getOrRefreshCryptoBrain(userId, force = false) {
-  const hit = _cache.get(userId);
-  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS) return hit.brain;
-  return learnFromCryptoTrades(userId);
-}
-function cryptoBrainSizeMultiplier(userId, symbol) {
-  const k2 = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
-  return k2 ? k2.recommendedSizeMultiplier : 1;
-}
-function cryptoBrainGate(userId, symbol, strategy, hourUtc) {
-  const k2 = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
-  if (!k2) return { blocked: false, reason: "" };
-  const decided = k2.wins + k2.losses;
-  if (decided >= 15 && k2.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} ${k2.winRate}% WR over ${decided} \u2014 skipping symbol` };
-  if (strategy) {
-    const st = k2.byStrategy[strategy];
-    if (st && st.trades >= 8 && st.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol}/${strategy} ${st.winRate}% WR over ${st.trades} \u2014 skipping` };
-  }
-  if (hourUtc != null) {
-    const h = k2.byHour[String(hourUtc)];
-    if (h && h.trades >= 8 && h.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} @ ${hourUtc}:00 UTC ${h.winRate}% WR over ${h.trades} \u2014 skipping this hour` };
-  }
-  return { blocked: false, reason: "" };
-}
-async function recordCryptoBrainOutcome(o) {
-  try {
-    await pool.query(
-      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [
-        o.userId,
-        o.symbol,
-        o.strategy || "unknown",
-        o.direction,
-        o.entryConfidence ?? null,
-        o.returnPct ?? null,
-        (/* @__PURE__ */ new Date()).getUTCHours(),
-        o.holdingMinutes ?? null,
-        o.exitReason ?? null,
-        o.profitLoss > 0 ? "WIN" : o.profitLoss < 0 ? "LOSS" : "BREAKEVEN",
-        o.profitLoss,
-        o.source === "paper" ? "paper" : "live"
-      ]
-    );
-    await learnFromCryptoTrades(o.userId);
-  } catch (err) {
-    console.error("[crypto-brain] recordCryptoBrainOutcome failed (non-fatal):", err?.message ?? err);
-  }
-}
-var MIN_TRADES2, REFRESH_TTL_MS, _cache;
-var init_crypto_brain = __esm({
-  "server/services/crypto-brain.ts"() {
-    "use strict";
-    init_db();
-    MIN_TRADES2 = 10;
-    REFRESH_TTL_MS = 60 * 1e3;
-    _cache = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/crypto-paper.ts
-var crypto_paper_exports = {};
-__export(crypto_paper_exports, {
-  PAPER_MAX_OPEN: () => PAPER_MAX_OPEN,
-  ensurePaperTable: () => ensurePaperTable,
-  getPaperSettings: () => getPaperSettings,
-  isTokenizedAsset: () => isTokenizedAsset,
-  openPaperTrade: () => openPaperTrade,
-  paperMaxHoursFor: () => paperMaxHoursFor,
-  paperShortsAllowed: () => paperShortsAllowed,
-  paperSummary: () => paperSummary,
-  resolvePaperTrades: () => resolvePaperTrades,
-  runCryptoOrbShadow: () => runCryptoOrbShadow,
-  savePaperSettings: () => savePaperSettings,
-  underlyingOf: () => underlyingOf
-});
-function paperMaxHoursFor(strategy) {
-  const cap = PAPER_MAX_HOURS();
-  const s = (strategy || "").toLowerCase();
-  const slow = ["trend_following", "structure", "composite_autonomous", "composite"];
-  const h = slow.includes(s) ? Number(process.env.CRYPTO_PAPER_SLOW_HOURS ?? 72) : Number(process.env.CRYPTO_PAPER_FAST_HOURS ?? 24);
-  return Math.max(1, Math.min(cap, h > 0 ? h : cap));
-}
-function isTokenizedAsset(symbol) {
-  if (process.env.CRYPTO_EXCLUDE_RWA === "off") return false;
-  const s = (symbol || "").toUpperCase();
-  const extra = (process.env.CRYPTO_RWA_EXTRA || "").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
-  return RWA_RE.test(s) || RWA_NAMED.has(s) || extra.includes(s);
-}
-function underlyingOf(symbol) {
-  const s = (symbol || "").toUpperCase();
-  return UNDERLYING[s] ?? s;
-}
-function ensurePaperTable() {
-  if (!_ensured) {
-    _ensured = pool.query(`CREATE TABLE IF NOT EXISTS crypto_paper_trades (
-      id serial PRIMARY KEY, user_id int NOT NULL, symbol text NOT NULL, chain text, token_address text, pool_address text,
-      strategy text, score real, direction text NOT NULL DEFAULT 'long',
-      entry_price double precision NOT NULL, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
-      notional_usd double precision NOT NULL, cost_bps int NOT NULL DEFAULT 0, reasoning text,
-      status text NOT NULL DEFAULT 'open', exit_price double precision, exit_reason text,
-      return_pct double precision, r_multiple double precision, pnl_usd double precision,
-      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS crypto_paper_trades_user_status ON crypto_paper_trades (user_id, status)`)).then(() => pool.query(`ALTER TABLE crypto_paper_trades ADD COLUMN IF NOT EXISTS gross_return_pct double precision,
-                                ADD COLUMN IF NOT EXISTS cost_usd double precision, ADD COLUMN IF NOT EXISTS liquidity_usd double precision`)).then(() => void 0).catch((e) => {
-      _ensured = null;
-      throw e;
-    });
-  }
-  return _ensured;
-}
-async function getPaperSettings(userId) {
-  try {
-    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-    const v = await getRuntimeStateStrict2("crypto_paper", String(userId));
-    return { ...DEFAULTS, ...v || {} };
-  } catch {
-    return { ...DEFAULTS };
-  }
-}
-async function savePaperSettings(userId, patch) {
-  const cur = await getPaperSettings(userId);
-  const next = {
-    enabled: typeof patch.enabled === "boolean" ? patch.enabled : cur.enabled,
-    startBalance: Number(patch.startBalance) > 0 ? Math.min(1e6, Number(patch.startBalance)) : cur.startBalance,
-    walletAddress: patch.walletAddress !== void 0 ? patch.walletAddress : cur.walletAddress ?? null,
-    startedAt: cur.startedAt ?? (patch.enabled ? Date.now() : void 0)
-  };
-  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-  await ensureRuntimeStateTable2();
-  await pool.query(
-    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('crypto_paper', $1, $2::jsonb, now())
-     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-    [String(userId), JSON.stringify(next)]
-  );
-  return next;
-}
-async function openPaperTrade(t) {
-  await ensurePaperTable();
-  const dir = t.direction === "short" ? "short" : "long";
-  if (dir === "short" && !paperShortsAllowed()) return { ok: false, reason: "short signal not recorded \u2014 Base spot is long-only (CRYPTO_PAPER_SHORTS=on to record)" };
-  if (isTokenizedAsset(t.symbol)) return { ok: false, reason: "tokenized stock / RWA excluded (CRYPTO_EXCLUDE_RWA)" };
-  const { rows: openRows } = await pool.query(`SELECT id, symbol FROM crypto_paper_trades WHERE user_id=$1 AND status='open'`, [t.userId]);
-  const und = underlyingOf(t.symbol);
-  const same = openRows.find((r) => underlyingOf(r.symbol) === und);
-  if (same) return { ok: false, reason: same.symbol.toUpperCase() === t.symbol.toUpperCase() ? "already holding a paper position in this token" : `already holding ${same.symbol} (same underlying ${und})` };
-  const stop = dir === "short" ? t.entry * (1 + t.slPct / 100) : t.entry * (1 - t.slPct / 100);
-  const target = dir === "short" ? t.entry * (1 - t.tpPct / 100) : t.entry * (1 + t.tpPct / 100);
-  const { estimateCryptoRoundTripBps: estimateCryptoRoundTripBps2 } = await Promise.resolve().then(() => (init_paper_costs(), paper_costs_exports));
-  const costBps = estimateCryptoRoundTripBps2({ notionalUsd: t.notionalUsd, liquidityUsd: t.liquidityUsd, slippageCapBps: Number(t.slippageBps) || 0 }).roundTripBps;
-  const costFloorMult = Number(process.env.CRYPTO_PAPER_COST_FLOOR_MULT ?? 3);
-  if (process.env.CRYPTO_ATR_LEVELS !== "off" && costFloorMult > 0 && t.slPct < costFloorMult * costBps / 100) {
-    return { ok: false, reason: `stop ${t.slPct.toFixed(2)}% is under ${costFloorMult}x the ${(costBps / 100).toFixed(2)}% round-trip cost` };
-  }
-  if (openRows.length >= PAPER_MAX_OPEN()) {
-    const freed = await evictOldestFlat(t.userId);
-    if (!freed) return { ok: false, reason: `paper slots full (${PAPER_MAX_OPEN()}) and no flat trade to evict` };
-  }
-  const { rows } = await pool.query(
-    `INSERT INTO crypto_paper_trades (user_id, symbol, chain, token_address, pool_address, strategy, score, entry_price, stop_loss, take_profit, notional_usd, cost_bps, reasoning, direction, liquidity_usd)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
-    [
-      t.userId,
-      t.symbol,
-      t.chain,
-      t.tokenAddress ?? null,
-      t.poolAddress ?? null,
-      t.strategy ?? null,
-      t.score ?? null,
-      t.entry,
-      stop,
-      target,
-      t.notionalUsd,
-      Math.max(1, Math.round(costBps)),
-      (t.reasoning || "").slice(0, 2e3),
-      dir,
-      t.liquidityUsd && t.liquidityUsd > 0 ? t.liquidityUsd : null
-    ]
-  );
-  return { ok: true, id: rows[0]?.id };
-}
-async function resolvePaperTrades(userId) {
-  await ensurePaperTable();
-  const { rows } = await pool.query(`SELECT * FROM crypto_paper_trades WHERE user_id=$1 AND status='open'`, [userId]);
-  if (!rows.length) return 0;
-  const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
-  let closed = 0;
-  for (const t of rows) {
-    const px = t.pool_address ? await getDefiPrice2(t.chain || "base", t.pool_address).catch(() => null) : null;
-    const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
-    let exit = null, why = "";
-    const short = t.direction === "short";
-    if (px != null && px > 0) {
-      if (short ? px >= t.stop_loss : px <= t.stop_loss) {
-        exit = t.stop_loss;
-        why = "stop";
-      } else if (short ? px <= t.take_profit : px >= t.take_profit) {
-        exit = t.take_profit;
-        why = "target";
-      } else if (ageH >= paperMaxHoursFor(t.strategy)) {
-        exit = px;
-        why = "time limit";
-      }
-    } else if (ageH >= paperMaxHoursFor(t.strategy) + 24) {
-      exit = t.entry_price;
-      why = "no price (closed flat)";
-    }
-    if (exit == null) continue;
-    const gross = (short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price * 100;
-    const net = gross - Number(t.cost_bps || 0) / 100;
-    const riskPct = Math.abs(t.entry_price - t.stop_loss) / t.entry_price * 100;
-    const r = riskPct > 0 ? net / riskPct : 0;
-    const pnl = Number(t.notional_usd) * net / 100;
-    const upd = await pool.query(
-      `UPDATE crypto_paper_trades SET status='closed', exit_price=$2, exit_reason=$3, return_pct=$4, r_multiple=$5, pnl_usd=$6, closed_at=now(),
-              gross_return_pct=$7, cost_usd=$8
-        WHERE id=$1 AND status='open'`,
-      [t.id, exit, why, net, r, pnl, gross, Number(t.notional_usd) * Number(t.cost_bps || 0) / 1e4]
-    );
-    if (!upd.rowCount) continue;
-    closed++;
-    try {
-      const { recordCryptoBrainOutcome: recordCryptoBrainOutcome2 } = await Promise.resolve().then(() => (init_crypto_brain(), crypto_brain_exports));
-      await recordCryptoBrainOutcome2({
-        userId,
-        symbol: t.symbol,
-        strategy: t.strategy || "unknown",
-        direction: short ? "short" : "long",
-        entryConfidence: t.score ?? null,
-        returnPct: net,
-        holdingMinutes: Math.round(ageH * 60),
-        exitReason: `paper ${why}`,
-        profitLoss: pnl,
-        source: "paper"
-      });
-    } catch {
-    }
-  }
-  return closed;
-}
-async function evictOldestFlat(userId) {
-  const { rows } = await pool.query(`SELECT * FROM crypto_paper_trades WHERE user_id=$1 AND status='open' ORDER BY opened_at ASC`, [userId]);
-  const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
-  for (const t of rows) {
-    const px = t.pool_address ? await getDefiPrice2(t.chain || "base", t.pool_address).catch(() => null) : null;
-    if (!(px && px > 0)) continue;
-    const stopDist = Math.abs(t.entry_price - t.stop_loss);
-    if (!(stopDist > 0) || Math.abs(px - t.entry_price) > stopDist * 0.5) continue;
-    const short = t.direction === "short";
-    const gross = (short ? t.entry_price - px : px - t.entry_price) / t.entry_price * 100;
-    const net = gross - Number(t.cost_bps || 0) / 100;
-    const riskPct = stopDist / t.entry_price * 100;
-    const pnl = Number(t.notional_usd) * net / 100;
-    const upd = await pool.query(
-      `UPDATE crypto_paper_trades SET status='closed', exit_price=$2, exit_reason='evicted', return_pct=$3, r_multiple=$4, pnl_usd=$5, closed_at=now(),
-              gross_return_pct=$6, cost_usd=$7 WHERE id=$1 AND status='open'`,
-      [t.id, px, net, riskPct > 0 ? net / riskPct : 0, pnl, gross, Number(t.notional_usd) * Number(t.cost_bps || 0) / 1e4]
-    );
-    if (!upd.rowCount) continue;
-    try {
-      const { recordCryptoBrainOutcome: recordCryptoBrainOutcome2 } = await Promise.resolve().then(() => (init_crypto_brain(), crypto_brain_exports));
-      await recordCryptoBrainOutcome2({
-        userId,
-        symbol: t.symbol,
-        strategy: t.strategy || "unknown",
-        direction: short ? "short" : "long",
-        entryConfidence: t.score ?? null,
-        returnPct: net,
-        holdingMinutes: Math.round((Date.now() - new Date(t.opened_at).getTime()) / 6e4),
-        exitReason: "paper evicted",
-        profitLoss: pnl,
-        source: "paper"
-      });
-    } catch {
-    }
-    return true;
-  }
-  return false;
-}
-async function paperSummary(userId) {
-  await ensurePaperTable();
-  const settings = await getPaperSettings(userId);
-  const [{ rows: agg }, { rows: open }, { rows: recent }, { rows: byToken }, { rows: weeks }] = await Promise.all([
-    pool.query(`SELECT count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(pnl_usd),0)::float pnl,
-                       COALESCE(avg(r_multiple),0)::float avg_r FROM crypto_paper_trades WHERE user_id=$1 AND status='closed'`, [userId]),
-    pool.query(`SELECT id, symbol, direction, strategy, entry_price, stop_loss, take_profit, notional_usd, opened_at FROM crypto_paper_trades WHERE user_id=$1 AND status='open' ORDER BY opened_at DESC`, [userId]),
-    pool.query(`SELECT id, symbol, direction, strategy, entry_price, exit_price, exit_reason, return_pct, r_multiple, pnl_usd, opened_at, closed_at FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' ORDER BY closed_at DESC LIMIT 25`, [userId]),
-    pool.query(`SELECT symbol, count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(r_multiple),0)::float r
-                  FROM crypto_paper_trades WHERE user_id=$1 AND status='closed' GROUP BY 1 ORDER BY 4 DESC`, [userId]),
-    pool.query(`SELECT date_trunc('week', closed_at) wk, COALESCE(sum(r_multiple),0)::float r FROM crypto_paper_trades
-                 WHERE user_id=$1 AND status='closed' AND closed_at >= date_trunc('week', now()) - interval '7 days' GROUP BY 1`, [userId])
-  ]);
-  const a = agg[0] || { n: 0, w: 0, pnl: 0, avg_r: 0 };
-  const winRate2 = a.n ? a.w / a.n : 0;
-  const noLosingWeek = weeks.every((x) => Number(x.r) >= 0);
-  const bar = { trades: 50, avgR: 0.2, winRate: 0.4 };
-  const ready2 = a.n >= bar.trades && a.avg_r >= bar.avgR && winRate2 >= bar.winRate && noLosingWeek;
-  return {
-    settings,
-    balance: settings.startBalance + Number(a.pnl || 0),
-    stats: { trades: a.n, wins: a.w, winRate: winRate2, avgR: a.avg_r, pnlUsd: a.pnl },
-    readiness: { ready: ready2, bar, progressTrades: Math.min(1, a.n / bar.trades), noLosingWeek },
-    open,
-    recent,
-    best: byToken.slice(0, 5),
-    worst: byToken.slice(-5).reverse()
-  };
-}
-async function runCryptoOrbShadow(userId, candidates, chain, notionalUsd, slippageBps) {
-  if (process.env.CRYPTO_ORB_SHADOW === "off") return 0;
-  const now = /* @__PURE__ */ new Date();
-  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
-  if (mins < 13 * 60 + 50 || mins > 20 * 60) return 0;
-  if (Date.now() - (_orbLastRun.get(userId) || 0) < 5 * 6e4) return 0;
-  _orbLastRun.set(userId, Date.now());
-  await ensurePaperTable();
-  const day0 = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  const rStart = day0 + (13 * 60 + 30) * 6e4, rEnd = day0 + (13 * 60 + 45) * 6e4;
-  const { getDefiCandles: getDefiCandles2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
-  let opened = 0;
-  for (const c of candidates.slice(0, Number(process.env.CRYPTO_ORB_MAX_TOKENS ?? 6))) {
-    if (!c.poolAddress) continue;
-    try {
-      const done = await pool.query(
-        `SELECT 1 FROM crypto_paper_trades WHERE user_id=$1 AND symbol=$2 AND strategy='orb_breakout' AND opened_at >= to_timestamp($3/1000.0) LIMIT 1`,
-        [userId, c.symbol, day0]
-      );
-      if (done.rows.length) continue;
-      const bars = await getDefiCandles2(chain, c.poolAddress, "5m", 100);
-      const range = bars.filter((b) => b.t >= rStart && b.t < rEnd);
-      if (range.length < 2) continue;
-      const hi2 = Math.max(...range.map((b) => b.h)), lo2 = Math.min(...range.map((b) => b.l)), size = hi2 - lo2;
-      if (!(size > 0)) continue;
-      const after = bars.filter((b) => b.t >= rEnd).slice(0, -1);
-      let dir = null;
-      for (const b of after) {
-        if (Math.min(b.o, b.c) > hi2) {
-          dir = "long";
-          break;
-        }
-        if (Math.max(b.o, b.c) < lo2) {
-          dir = "short";
-          break;
-        }
-      }
-      if (!dir) continue;
-      const px = bars[bars.length - 1].c;
-      const level = dir === "long" ? hi2 : lo2;
-      if (Math.abs(px - level) > size * 0.25) continue;
-      if (dir === "long" ? px < lo2 : px > hi2) continue;
-      const stop = dir === "long" ? lo2 - size * 0.1 : hi2 + size * 0.1;
-      const slPct = Math.abs(px - stop) / px * 100;
-      if (!(slPct > 0.05) || slPct > 15) continue;
-      const r = await openPaperTrade({
-        userId,
-        symbol: c.symbol,
-        chain,
-        tokenAddress: c.address ?? null,
-        poolAddress: c.poolAddress,
-        strategy: "orb_breakout",
-        score: null,
-        entry: px,
-        slPct,
-        tpPct: slPct * 2,
-        notionalUsd,
-        slippageBps,
-        liquidityUsd: c.liquidityUsd ?? null,
-        reasoning: `ORB shadow: NY-open range ${lo2}\u2013${hi2} (13:30\u201313:45 UTC), ${dir === "long" ? "breakout above" : "breakdown below"} then retest of ${level}; stop beyond the range, 2R target.`,
-        direction: dir
-      });
-      if (r.ok) opened++;
-    } catch {
-    }
-  }
-  return opened;
-}
-var DEFAULTS, PAPER_MAX_HOURS, PAPER_MAX_OPEN, paperShortsAllowed, EQUITY_TICKERS, RWA_RE, RWA_NAMED, UNDERLYING, _ensured, _orbLastRun;
-var init_crypto_paper = __esm({
-  "server/services/crypto-paper.ts"() {
-    "use strict";
-    init_db();
-    DEFAULTS = { enabled: false, startBalance: 1e3 };
-    PAPER_MAX_HOURS = () => Math.max(1, Number(process.env.CRYPTO_PAPER_MAX_HOURS ?? 72));
-    PAPER_MAX_OPEN = () => Math.max(1, Math.floor(Number(process.env.CRYPTO_PAPER_MAX_OPEN ?? 12)));
-    paperShortsAllowed = () => process.env.CRYPTO_PAPER_SHORTS === "on";
-    EQUITY_TICKERS = "TSLA|AAPL|GOOGL|GOOG|MSFT|AMZN|META|NVDA|NFLX|AMD|INTC|MU|SNDK|SPCX|COIN|MSTR|HOOD|CRCL|PLTR|ORCL|AVGO|TSM|BABA|SPY|QQQ|IVV|VOO|GLD|SLV|IBIT|DIS|UBER|SHOP|PYPL|V|MA|JPM|BAC|GS|WMT|COST|KO|PEP|NKE|BRKB|LLY|UNH|XOM|CVX|ABNB|RDDT|ARM|SMCI";
-    RWA_RE = new RegExp(`^(${EQUITY_TICKERS})(C|X|ON|B)$`, "i");
-    RWA_NAMED = /* @__PURE__ */ new Set(["XAUG", "XAUT", "PAXG", "ANTHROPIC", "OPENAI", "SPACEX", "STRIPE", "XAI", "TBILL", "USTB", "OUSG", "BUIDL"]);
-    UNDERLYING = {
-      ETH: "ETH",
-      WETH: "ETH",
-      CBETH: "ETH",
-      WSTETH: "ETH",
-      STETH: "ETH",
-      RETH: "ETH",
-      WEETH: "ETH",
-      EZETH: "ETH",
-      SUPEROETHB: "ETH",
-      BTC: "BTC",
-      WBTC: "BTC",
-      CBBTC: "BTC",
-      TBTC: "BTC",
-      LBTC: "BTC",
-      SOL: "SOL",
-      CBSOL: "SOL",
-      WSOL: "SOL",
-      XRP: "XRP",
-      CBXRP: "XRP",
-      DOGE: "DOGE",
-      CBDOGE: "DOGE",
-      LTC: "LTC",
-      CBLTC: "LTC",
-      ADA: "ADA",
-      CBADA: "ADA"
-    };
-    _ensured = null;
-    _orbLastRun = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/crypto-ports.ts
-var crypto_ports_exports = {};
-__export(crypto_ports_exports, {
-  FLOW_RUNNERS: () => FLOW_RUNNERS,
-  NEW_TOKEN_RUNNERS: () => NEW_TOKEN_RUNNERS,
-  SHADOW_ONLY_TESTS: () => SHADOW_ONLY_TESTS,
-  buyShare: () => buyShare,
-  makePortRunners: () => makePortRunners,
-  portsEnabled: () => portsEnabled,
-  runnerEnabled: () => runnerEnabled
-});
-function buyShare(w) {
-  const t = (w?.buys ?? 0) + (w?.sells ?? 0);
-  return t > 0 ? w.buys / t : null;
-}
-function runnerEnabled(id) {
-  return process.env[`CRYPTO_RUNNER_${id.toUpperCase()}`] !== "off";
-}
-function emaSeries(v, n) {
-  const out = [];
-  if (v.length < n) return out;
-  const k2 = 2 / (n + 1);
-  let e = v.slice(0, n).reduce((a, b) => a + b, 0) / n;
-  out[n - 1] = e;
-  for (let i = n; i < v.length; i++) {
-    e = v[i] * k2 + e * (1 - k2);
-    out[i] = e;
-  }
-  return out;
-}
-function rsi(c, n = 14) {
-  if (c.length <= n) return null;
-  let g = 0, l = 0;
-  for (let i = 1; i <= n; i++) {
-    const d = c[i] - c[i - 1];
-    if (d >= 0) g += d;
-    else l -= d;
-  }
-  g /= n;
-  l /= n;
-  for (let i = n + 1; i < c.length; i++) {
-    const d = c[i] - c[i - 1];
-    g = (g * (n - 1) + Math.max(0, d)) / n;
-    l = (l * (n - 1) + Math.max(0, -d)) / n;
-  }
-  return l === 0 ? 100 : 100 - 100 / (1 + g / l);
-}
-function macdHist(c) {
-  const f = emaSeries(c, 12), s = emaSeries(c, 26);
-  if (s.length < c.length || c.length < 35) return null;
-  const macd2 = c.map((_, i) => (f[i] ?? NaN) - (s[i] ?? NaN)).slice(25);
-  const sig = emaSeries(macd2, 9);
-  return sig.length ? last(macd2) - last(sig) : null;
-}
-function to4h(h1) {
-  const out = [];
-  for (const b of h1) {
-    const t4 = Math.floor(b.t / 144e5) * 144e5;
-    const cur = out[out.length - 1];
-    if (cur && cur.t === t4) {
-      cur.h = Math.max(cur.h, b.h);
-      cur.l = Math.min(cur.l, b.l);
-      cur.c = b.c;
-      cur.v += b.v;
-    } else out.push({ t: t4, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v });
-  }
-  return out;
-}
-function bias(closes, f, s) {
-  const a = last(emaSeries(closes, f)), b = last(emaSeries(closes, s));
-  if (a == null || b == null) return null;
-  return a > b ? "BUY" : a < b ? "SELL" : null;
-}
-function makePortRunners(fetchBars2, entryOf = () => void 0) {
-  const sniper = async (symbol, cfg) => {
-    const S = "sniper";
-    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
-    const h1 = await fetchBars2(symbol, "1h", 200, chainOf(cfg));
-    if (m15.length < 60 || h1.length < 60) return res(S, "error", `${symbol}: not enough history for sniper`, null);
-    const c = m15.map((b) => b.c), price = last(c);
-    const dir = bias(c, 9, 21);
-    if (!dir) return res(S, "watching", `${symbol}: no 15m trend`, price, 30);
-    const { detectBOSCHOCH: detectBOSCHOCH2 } = await Promise.resolve().then(() => (init_smcUtils(), smcUtils_exports));
-    const nf = m15.slice().reverse();
-    const r = rsi(c), mh = macdHist(c);
-    const bos = detectBOSCHOCH2(nf, dir);
-    const vRecent = m15.slice(-3).reduce((a, b) => a + b.v, 0) / 3, vBase = m15.slice(-23, -3).reduce((a, b) => a + b.v, 0) / 20;
-    const checks = {
-      ema: true,
-      rsi: r != null && (dir === "BUY" ? r >= 45 && r <= 68 : r >= 32 && r <= 55),
-      macd: mh != null && (dir === "BUY" ? mh > 0 : mh < 0),
-      structure: !!bos.detected && bos.direction === (dir === "BUY" ? "BULLISH" : "BEARISH"),
-      volume: vBase > 0 && vRecent > vBase * 1.2
-    };
-    const n = Object.values(checks).filter(Boolean).length;
-    const h4 = bias(to4h(h1).map((b) => b.c), 5, 10);
-    const why = `${n}/5 (${Object.entries(checks).filter(([, v]) => v).map(([k2]) => k2).join(", ")}), 4h bias ${h4 ?? "n/a"}`;
-    if (n >= 4 && h4 === dir) return res(S, "signal", `${symbol}: sniper ${dir} \u2014 ${why}`, price, 60 + n * 7, dir);
-    return res(S, "watching", `${symbol}: sniper ${dir} \u2014 ${why}`, price, 40 + n * 5);
-  };
-  const smcOte = async (symbol, cfg) => {
-    const S = "smc_ote";
-    const h1 = await fetchBars2(symbol, "1h", 120, chainOf(cfg));
-    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
-    if (h1.length < 40 || m15.length < 40) return res(S, "error", `${symbol}: not enough history for smc_ote`, null);
-    const { detectBOSCHOCH: detectBOSCHOCH2, detectOrderBlock: detectOrderBlock2, detectFairValueGap: detectFairValueGap2 } = await Promise.resolve().then(() => (init_smcUtils(), smcUtils_exports));
-    const nf = (bars) => bars.slice().reverse();
-    const h1nf = nf(h1), m15nf = nf(m15), price = last(m15).c;
-    for (const dir of ["BUY", "SELL"]) {
-      const bos = detectBOSCHOCH2(h1nf, dir);
-      if (!bos.detected || bos.direction !== (dir === "BUY" ? "BULLISH" : "BEARISH")) continue;
-      const leg = h1.slice(-24);
-      let lo2 = Infinity, hi2 = -Infinity, loI = 0, hiI = 0;
-      leg.forEach((b, i) => {
-        if (b.l < lo2) {
-          lo2 = b.l;
-          loI = i;
-        }
-        if (b.h > hi2) {
-          hi2 = b.h;
-          hiI = i;
-        }
-      });
-      const range = hi2 - lo2;
-      if (!(range > 0)) continue;
-      if (dir === "BUY" && loI >= hiI) continue;
-      if (dir === "SELL" && hiI >= loI) continue;
-      const zTop = dir === "BUY" ? hi2 - 0.62 * range : lo2 + 0.79 * range;
-      const zBot = dir === "BUY" ? hi2 - 0.79 * range : lo2 + 0.62 * range;
-      if (price < zBot || price > zTop) return res(S, "watching", `${symbol}: ${dir} ${bos.type}, price outside OTE ${zBot.toPrecision(5)}\u2013${zTop.toPrecision(5)}`, price, 45);
-      const ob = detectOrderBlock2(m15nf, dir), fvg = detectFairValueGap2(m15nf, dir);
-      const poi = ob.detected && ob.aligns || fvg.detected && fvg.direction === (dir === "BUY" ? "BULLISH" : "BEARISH");
-      if (!poi) return res(S, "watching", `${symbol}: ${dir} in OTE but no aligned 15m order block/FVG`, price, 55);
-      return res(S, "signal", `${symbol}: ${dir} ${bos.type} on 1h, price in the 62\u201379% OTE with an aligned 15m ${ob.detected && ob.aligns ? "order block" : "FVG"}`, price, 75, dir);
-    }
-    return res(S, "watching", `${symbol}: no 1h structure break`, price, 30);
-  };
-  const vwapReversion = async (symbol, cfg) => {
-    const S = "vwap_reversion";
-    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
-    if (m15.length < 40) return res(S, "error", `${symbol}: not enough history for vwap_reversion`, null);
-    const day0 = Math.floor(Date.now() / 864e5) * 864e5;
-    let win = m15.filter((b) => b.t >= day0);
-    if (win.length < 8) win = m15.slice(-32);
-    let pv = 0, vv = 0;
-    for (const b of win) {
-      const tp = (b.h + b.l + b.c) / 3;
-      pv += tp * b.v;
-      vv += b.v;
-    }
-    if (!(vv > 0)) return res(S, "watching", `${symbol}: no volume for VWAP`, last(m15).c, 20);
-    const vwap = pv / vv;
-    let varSum = 0;
-    for (const b of win) {
-      const tp = (b.h + b.l + b.c) / 3;
-      varSum += b.v * (tp - vwap) ** 2;
-    }
-    const sd = Math.sqrt(varSum / vv), price = last(m15).c, r = rsi(m15.map((b) => b.c));
-    const z3 = sd > 0 ? (price - vwap) / sd : 0;
-    if (z3 <= -2 && r != null && r <= 35) return res(S, "signal", `${symbol}: ${z3.toFixed(1)}\u03C3 below VWAP ${vwap.toPrecision(5)}, RSI ${r.toFixed(0)} \u2014 mean-reversion long`, price, 70, "BUY");
-    return res(S, "watching", `${symbol}: ${z3.toFixed(1)}\u03C3 from VWAP, RSI ${r?.toFixed(0) ?? "n/a"}`, price, 35);
-  };
-  const liquiditySweep = async (symbol, cfg) => {
-    const S = "liquidity_sweep";
-    const m15 = await fetchBars2(symbol, "15m", 60, chainOf(cfg));
-    if (m15.length < 35) return res(S, "error", `${symbol}: not enough history for liquidity_sweep`, null);
-    const prior = m15.slice(-33, -3), recent = m15.slice(-3), price = last(m15).c;
-    const swingLo = Math.min(...prior.map((b) => b.l)), swingHi = Math.max(...prior.map((b) => b.h));
-    const bull = recent.some((b) => b.l < swingLo && b.c > swingLo) && price > swingLo;
-    const bear = recent.some((b) => b.h > swingHi && b.c < swingHi) && price < swingHi;
-    if (bull && !bear) return res(S, "signal", `${symbol}: swept the 15m swing low ${swingLo.toPrecision(5)} and closed back above`, price, 68, "BUY");
-    if (bear && !bull) return res(S, "signal", `${symbol}: swept the 15m swing high ${swingHi.toPrecision(5)} and closed back below`, price, 68, "SELL");
-    return res(S, "watching", `${symbol}: no sweep`, price, 30);
-  };
-  const sessionBreakout = async (symbol, cfg) => {
-    const S = "session_breakout";
-    const now = /* @__PURE__ */ new Date(), h = now.getUTCHours();
-    const m15 = await fetchBars2(symbol, "15m", 120, chainOf(cfg));
-    const price = m15.length ? last(m15).c : null;
-    if (h < 7 || h >= 12) return res(S, "watching", `${symbol}: outside the 07\u201312 UTC window`, price, 0);
-    const day0 = Math.floor(now.getTime() / 864e5) * 864e5;
-    const range = m15.filter((b) => b.t >= day0 && b.t < day0 + 7 * 36e5);
-    if (range.length < 20 || price == null) return res(S, "watching", `${symbol}: no complete 00\u201307 UTC range`, price, 0);
-    const hi2 = Math.max(...range.map((b) => b.h)), lo2 = Math.min(...range.map((b) => b.l)), size = hi2 - lo2;
-    const after = m15.filter((b) => b.t >= day0 + 7 * 36e5).slice(0, -1);
-    const brk = after.find((b) => b.c > hi2 || b.c < lo2);
-    if (!brk || !(size > 0)) return res(S, "watching", `${symbol}: 00\u201307 UTC range intact`, price, 30);
-    const dir = brk.c > hi2 ? "BUY" : "SELL";
-    const level = dir === "BUY" ? hi2 : lo2;
-    if (Math.abs(price - level) > size * 0.5) return res(S, "watching", `${symbol}: broke ${dir === "BUY" ? "up" : "down"} but price is extended from the level`, price, 45);
-    return res(S, "signal", `${symbol}: 00\u201307 UTC range ${lo2.toPrecision(5)}\u2013${hi2.toPrecision(5)} broken ${dir === "BUY" ? "up" : "down"}, near the level`, price, 65, dir);
-  };
-  const btcWeekendRange = async (symbol, cfg) => {
-    const S = "btc_weekend_range";
-    if (symbol.toUpperCase() !== "CBBTC") return res(S, "watching", `${symbol}: BTC only`, null, 0);
-    const now = /* @__PURE__ */ new Date(), dow = now.getUTCDay();
-    const h1 = await fetchBars2(symbol, "1h", 72, chainOf(cfg));
-    const price = h1.length ? last(h1).c : null;
-    if (!(dow === 6 || dow === 0) || price == null) return res(S, "watching", `${symbol}: weekday`, price, 0);
-    const sat0 = Math.floor(now.getTime() / 864e5) * 864e5 - (dow === 0 ? 864e5 : 0);
-    const range = h1.filter((b) => b.t >= sat0 && b.t < sat0 + 12 * 36e5);
-    if (range.length < 10) return res(S, "watching", `${symbol}: Saturday range not complete`, price, 0);
-    const hi2 = Math.max(...range.map((b) => b.h)), lo2 = Math.min(...range.map((b) => b.l));
-    const after = h1.filter((b) => b.t >= sat0 + 12 * 36e5).slice(0, -1);
-    const brk = after.find((b) => b.c > hi2 || b.c < lo2);
-    if (!brk) return res(S, "watching", `${symbol}: weekend range intact`, price, 30);
-    const dir = brk.c > hi2 ? "BUY" : "SELL";
-    return res(S, "signal", `${symbol}: Saturday 00\u201312 UTC range ${lo2.toFixed(0)}\u2013${hi2.toFixed(0)} broken ${dir === "BUY" ? "up" : "down"} on a 1h close`, price, 62, dir);
-  };
-  const minTx = () => Number(process.env.CRYPTO_FLOW_MIN_TXNS_H1 ?? 20);
-  const flowOf = (symbol, S) => {
-    const e = entryOf(symbol);
-    if (!e?.flow) return res(S, "watching", `${symbol}: no pool flow data`, e?.priceUsd ?? null, 0);
-    return { f: e.flow, e };
-  };
-  const isRes = (x) => !!x && typeof x.decision === "string";
-  const dipSniper = async (symbol) => {
-    const S = "dip_sniper";
-    const x = flowOf(symbol, S);
-    if (isRes(x)) return x;
-    const ch = x.f.change24hPct, bs2 = buyShare(x.f.h1), n = x.f.h1.buys + x.f.h1.sells;
-    if (ch != null && ch <= -4 && ch >= -40 && bs2 != null && bs2 > 0.62 && n >= minTx())
-      return res(S, "signal", `${symbol}: ${ch.toFixed(1)}% on 24h but ${(bs2 * 100).toFixed(0)}% of ${n} trades in the last hour are buys \u2014 accumulation into the dip`, x.e.priceUsd, 66, "BUY");
-    return res(S, "watching", `${symbol}: 24h ${ch?.toFixed(1) ?? "n/a"}%, 1h buys ${bs2 != null ? (bs2 * 100).toFixed(0) : "n/a"}%`, x.e.priceUsd, 30);
-  };
-  const volumeExplosion = async (symbol) => {
-    const S = "volume_explosion";
-    const x = flowOf(symbol, S);
-    if (isRes(x)) return x;
-    const v1 = x.f.volume1hUsd ?? 0, avg = (x.e.volume24Usd ?? 0) / 24, bs2 = buyShare(x.f.h1);
-    const mult = avg > 0 ? v1 / avg : 0;
-    if (mult >= Number(process.env.CRYPTO_VOLX_MULT ?? 4) && bs2 != null && bs2 > 0.52)
-      return res(S, "signal", `${symbol}: last-hour volume ${mult.toFixed(1)}x the 24h hourly average, ${(bs2 * 100).toFixed(0)}% buys`, x.e.priceUsd, 64, "BUY");
-    return res(S, "watching", `${symbol}: 1h volume ${mult.toFixed(1)}x average`, x.e.priceUsd, 30);
-  };
-  const flowFollower = async (symbol) => {
-    const S = "flow_follower";
-    const x = flowOf(symbol, S);
-    if (isRes(x)) return x;
-    const n1 = x.f.h1.buys + x.f.h1.sells, n24 = x.f.h24.buys + x.f.h24.sells;
-    const avg1 = n1 > 0 && x.f.volume1hUsd ? x.f.volume1hUsd / n1 : 0, avg24 = n24 > 0 ? (x.e.volume24Usd ?? 0) / n24 : 0;
-    const sizeX = avg24 > 0 ? avg1 / avg24 : 0, bs2 = buyShare(x.f.h1), ch = x.f.change1hPct;
-    if (sizeX >= 1.5 && bs2 != null && bs2 > 0.58 && n1 >= minTx() && ch != null && ch >= -5 && ch <= 20)
-      return res(S, "signal", `${symbol}: average trade ${sizeX.toFixed(1)}x the 24h norm, ${(bs2 * 100).toFixed(0)}% buys, 1h ${ch.toFixed(1)}% \u2014 large buyers before the move`, x.e.priceUsd, 64, "BUY");
-    return res(S, "watching", `${symbol}: trade size ${sizeX.toFixed(1)}x norm`, x.e.priceUsd, 30);
-  };
-  const memeVelocity = async (symbol) => {
-    const S = "meme_velocity";
-    const x = flowOf(symbol, S);
-    if (isRes(x)) return x;
-    if (!x.e.newToken) return res(S, "watching", `${symbol}: not a new pool`, x.e.priceUsd, 0);
-    const ch = x.f.change1hPct, bs2 = buyShare(x.f.h1), n = x.f.h1.buys + x.f.h1.sells;
-    if (ch != null && ch >= Number(process.env.CRYPTO_MEME_MIN_1H_PCT ?? 20) && bs2 != null && bs2 > 0.55 && n >= minTx())
-      return res(S, "signal", `${symbol}: new pool up ${ch.toFixed(0)}% in the last hour, ${(bs2 * 100).toFixed(0)}% buys over ${n} trades`, x.e.priceUsd, 60, "BUY");
-    return res(S, "watching", `${symbol}: new pool, 1h ${ch?.toFixed(0) ?? "n/a"}%`, x.e.priceUsd, 25);
-  };
-  const all = {
-    sniper,
-    smc_ote: smcOte,
-    vwap_reversion: vwapReversion,
-    liquidity_sweep: liquiditySweep,
-    session_breakout: sessionBreakout,
-    btc_weekend_range: btcWeekendRange,
-    dip_sniper: dipSniper,
-    volume_explosion: volumeExplosion,
-    flow_follower: flowFollower,
-    meme_velocity: memeVelocity
-  };
-  if (!portsEnabled()) return {};
-  return Object.fromEntries(Object.entries(all).filter(([id]) => runnerEnabled(id)));
-}
-var FLOW_RUNNERS, NEW_TOKEN_RUNNERS, SHADOW_ONLY_TESTS, portsEnabled, last, res, chainOf;
-var init_crypto_ports = __esm({
-  "server/services/crypto-ports.ts"() {
-    "use strict";
-    FLOW_RUNNERS = /* @__PURE__ */ new Set(["dip_sniper", "volume_explosion", "flow_follower", "meme_velocity"]);
-    NEW_TOKEN_RUNNERS = /* @__PURE__ */ new Set(["meme_velocity"]);
-    SHADOW_ONLY_TESTS = /* @__PURE__ */ new Set(["session_breakout", "btc_weekend_range"]);
-    portsEnabled = () => process.env.CRYPTO_PORTS !== "off";
-    last = (a) => a[a.length - 1];
-    res = (strategy, decision, reasoning, price, score = null, direction) => ({ decision, reasoning, score, price, dailyChangePercent: null, strategy, ...direction ? { direction } : {} });
-    chainOf = (cfg) => cfg?.defiChain || "base";
-  }
-});
-
-// server/services/crypto-shadow.ts
-var crypto_shadow_exports = {};
-__export(crypto_shadow_exports, {
-  adviceFor: () => adviceFor,
-  aggregate: () => aggregate,
-  bucketsOf: () => bucketsOf,
-  computeCryptoShadowStats: () => computeCryptoShadowStats,
-  ensureCryptoShadowTables: () => ensureCryptoShadowTables,
-  getCryptoShadowStatsText: () => getCryptoShadowStatsText,
-  resolveCryptoShadowTrades: () => resolveCryptoShadowTrades,
-  runCryptoShadowAll: () => runCryptoShadowAll,
-  shadowAllEnabled: () => shadowAllEnabled
-});
-function ensureCryptoShadowTables() {
-  if (!_ensured2) {
-    _ensured2 = pool.query(`CREATE TABLE IF NOT EXISTS crypto_shadow_trades (
-      id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, symbol text NOT NULL, underlying text NOT NULL,
-      chain text, token_address text, pool_address text, direction text NOT NULL,
-      entry_price double precision NOT NULL, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
-      sl_pct double precision NOT NULL, notional_usd double precision NOT NULL, cost_bps double precision NOT NULL,
-      score real, max_hours double precision NOT NULL, status text NOT NULL DEFAULT 'open',
-      exit_price double precision, exit_reason text, gross_return_pct double precision, return_pct double precision,
-      r_multiple double precision, peak_gain_pct double precision,
-      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS crypto_shadow_trades_user_status ON crypto_shadow_trades (user_id, status)`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS crypto_shadow_context (
-      trade_id int PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, symbol text NOT NULL, direction text NOT NULL,
-      liquidity_usd double precision, change_1h double precision, change_24h double precision, volume_24h_usd double precision,
-      atr_pct double precision, h1_trend text, h4_trend text, htf_aligned boolean, live_gate_blocked boolean,
-      btc_change_24h double precision, hour_utc int, day_of_week int, score real, tags text[], advice_at_entry text,
-      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision)`)).then(() => pool.query(`ALTER TABLE crypto_shadow_context
-        ADD COLUMN IF NOT EXISTS buy_share_h1 double precision, ADD COLUMN IF NOT EXISTS buy_share_h24 double precision,
-        ADD COLUMN IF NOT EXISTS txns_h1 int, ADD COLUMN IF NOT EXISTS txns_h24 int,
-        ADD COLUMN IF NOT EXISTS buyers_h1 int, ADD COLUMN IF NOT EXISTS sellers_h1 int,
-        ADD COLUMN IF NOT EXISTS market_cap_usd double precision, ADD COLUMN IF NOT EXISTS token_age_hours double precision,
-        ADD COLUMN IF NOT EXISTS new_token boolean`)).then(() => void 0).catch((e) => {
-      _ensured2 = null;
-      throw e;
-    });
-  }
-  return _ensured2;
-}
-function ema(vals, n) {
-  if (vals.length < n) return null;
-  const k2 = 2 / (n + 1);
-  let e = vals.slice(0, n).reduce((a, b) => a + b, 0) / n;
-  for (let i = n; i < vals.length; i++) e = vals[i] * k2 + e * (1 - k2);
-  return e;
-}
-function oldestFirst(bars) {
-  return bars.length > 1 && bars[0].t > bars[bars.length - 1].t ? bars.slice().reverse() : bars;
-}
-function trendOf(closes, fast, slow) {
-  const f = ema(closes, fast), s = ema(closes, slow);
-  if (f == null || s == null) return null;
-  return f > s * 1.002 ? "BULLISH" : f < s * 0.998 ? "BEARISH" : "NEUTRAL";
-}
-function pctChange(bars, hoursBack) {
-  if (bars.length <= hoursBack) return null;
-  const now = bars[bars.length - 1].c, then = bars[bars.length - 1 - hoursBack].c;
-  return then > 0 ? (now - then) / then * 100 : null;
-}
-function bucketsOf(c) {
-  const b = {};
-  if (c.buy_share_h1 != null) b.buyShare = c.buy_share_h1 < 0.45 ? "sellers<45%" : c.buy_share_h1 < 0.55 ? "balanced" : c.buy_share_h1 < 0.65 ? "buyers55-65%" : "buyers65%+";
-  if (c.txns_h1 != null) b.activity = c.txns_h1 < 20 ? "quiet<20tx/h" : c.txns_h1 < 100 ? "20-100tx/h" : c.txns_h1 < 500 ? "100-500tx/h" : "500+tx/h";
-  if (c.market_cap_usd != null && c.market_cap_usd > 0) b.mcap = c.market_cap_usd < 1e7 ? "<10M" : c.market_cap_usd < 1e8 ? "10-100M" : c.market_cap_usd < 1e9 ? "100M-1B" : "1B+";
-  if (c.token_age_hours != null) b.age = c.token_age_hours < 72 ? "<3d" : c.token_age_hours < 720 ? "3-30d" : "30d+";
-  if (c.direction) b.side = c.direction;
-  if (c.hour_utc != null) {
-    const s = Math.floor(c.hour_utc / 4) * 4;
-    b.hour = `${String(s).padStart(2, "0")}-${String(s + 4).padStart(2, "0")}UTC`;
-  }
-  const liq = c.liquidity_usd ?? 0;
-  if (liq > 0) b.liquidity = liq < 25e4 ? "<250k" : liq < 1e6 ? "250k-1M" : liq < 5e6 ? "1-5M" : "5M+";
-  if (c.change_24h != null) b.change24h = c.change_24h < -10 ? "<-10%" : c.change_24h < -2 ? "-10--2%" : c.change_24h < 2 ? "flat" : c.change_24h < 10 ? "2-10%" : "10%+";
-  if (c.atr_pct != null) b.volatility = c.atr_pct < 1 ? "atr<1%" : c.atr_pct < 3 ? "atr1-3%" : "atr3%+";
-  if (c.htf_aligned != null) b.htf = c.htf_aligned ? "aligned" : "against";
-  if (c.btc_change_24h != null) b.btc = c.btc_change_24h < -2 ? "btc_down" : c.btc_change_24h > 2 ? "btc_up" : "btc_flat";
-  return b;
-}
-function quantile(s, q) {
-  if (!s.length) return 0;
-  const p2 = (s.length - 1) * q, lo2 = Math.floor(p2), hi2 = Math.ceil(p2);
-  return s[lo2] + (s[hi2] - s[lo2]) * (p2 - lo2);
-}
-function aggregate(rows) {
-  const g = /* @__PURE__ */ new Map();
-  for (const r of rows) {
-    const v = Number(r.net_pct);
-    if (!Number.isFinite(v)) continue;
-    for (const [dim, bucket] of Object.entries({ ...bucketsOf(r), all: "all" })) {
-      const k2 = `${r.strategy}|${dim}|${bucket}`;
-      (g.get(k2) ?? g.set(k2, []).get(k2)).push(v);
-    }
-  }
-  const minN = num2("CRYPTO_SHADOW_STATS_MIN_N", 15), fav = num2("CRYPTO_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num2("CRYPTO_SHADOW_AVOID_MEDIAN_PCT", 1);
-  return Array.from(g.entries()).map(([k2, v]) => {
-    const [strategy, dim, bucket] = k2.split("|");
-    const s = v.slice().sort((a, b) => a - b);
-    const med = quantile(s, 0.5);
-    const verdict = s.length >= minN ? med > fav ? "favor" : med < -avd ? "avoid" : "learning" : "learning";
-    return { strategy, dim, bucket, n: s.length, medianNet: med, winRate: s.filter((x) => x > 0).length / s.length, verdict };
-  });
-}
-async function computeCryptoShadowStats(userId, force = false) {
-  const hit = _statsCache.get(userId);
-  if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.stats;
-  await ensureCryptoShadowTables();
-  const { rows } = await pool.query(
-    `SELECT strategy, direction, hour_utc, liquidity_usd, change_24h, atr_pct, htf_aligned, btc_change_24h, buy_share_h1, txns_h1, market_cap_usd, token_age_hours, net_pct FROM crypto_shadow_context
-      WHERE user_id=$1 AND closed_at IS NOT NULL AND net_pct IS NOT NULL AND closed_at >= now() - interval '60 days'`,
-    [userId]
-  );
-  const stats = aggregate(rows);
-  _statsCache.set(userId, { at: Date.now(), stats });
-  return stats;
-}
-function adviceFor(stats, strategy, ctx) {
-  const bs2 = bucketsOf(ctx);
-  const hits = stats.filter((s) => s.strategy === strategy && s.verdict !== "learning" && bs2[s.dim] === s.bucket);
-  if (!hits.length) return "learning";
-  const avoid = hits.filter((s) => s.verdict === "avoid");
-  const f = (s) => `${s.verdict}: ${s.dim} ${s.bucket} (n=${s.n}, median ${s.medianNet.toFixed(1)}%)`;
-  return `${avoid.length ? "avoid" : "favor"} \u2014 ${[...avoid, ...hits.filter((s) => s.verdict === "favor")].map(f).join("; ")}`.slice(0, 500);
-}
-async function getCryptoShadowStatsText(userId, max = 12) {
-  try {
-    const { SHADOW_ONLY_TESTS: SHADOW_ONLY_TESTS2 } = await Promise.resolve().then(() => (init_crypto_ports(), crypto_ports_exports));
-    const st = (await computeCryptoShadowStats(userId)).filter((s) => s.verdict !== "learning" && s.dim !== "all" && s.dim !== "hour" && !SHADOW_ONLY_TESTS2.has(s.strategy));
-    if (!st.length) return "";
-    const top = st.sort((a, b) => Math.abs(b.medianNet) * Math.sqrt(b.n) - Math.abs(a.medianNet) * Math.sqrt(a.n)).slice(0, max);
-    return `CRYPTO SHADOW EVIDENCE (virtual trades of every strategy, net of costs, judged by MEDIAN; advice only; 'short' rows are hypothetical \u2014 Base spot can't short):
-` + top.map((s) => `- ${s.strategy} ${s.verdict.toUpperCase()} when ${s.dim}=${s.bucket}: n=${s.n}, median ${s.medianNet >= 0 ? "+" : ""}${s.medianNet.toFixed(2)}%, win ${(s.winRate * 100).toFixed(0)}%`).join("\n");
-  } catch {
-    return "";
-  }
-}
-async function resolveCryptoShadowTrades(userId) {
-  await ensureCryptoShadowTables();
-  const { rows } = await pool.query(`SELECT * FROM crypto_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
-  if (!rows.length) return 0;
-  const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
-  let closed = 0;
-  for (const t of rows) {
-    const px = t.pool_address ? await getDefiPrice2(t.chain || "base", t.pool_address).catch(() => null) : null;
-    const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
-    const short = t.direction !== "long";
-    let exit = null, why = "";
-    if (px != null && px > 0) {
-      const move = (short ? t.entry_price - px : px - t.entry_price) / t.entry_price * 100;
-      if (t.peak_gain_pct == null || move > t.peak_gain_pct) await pool.query(`UPDATE crypto_shadow_trades SET peak_gain_pct=$2 WHERE id=$1`, [t.id, move]);
-      if (short ? px >= t.stop_loss : px <= t.stop_loss) {
-        exit = short ? Math.max(px, t.stop_loss) : Math.min(px, t.stop_loss);
-        why = "stop";
-      } else if (short ? px <= t.take_profit : px >= t.take_profit) {
-        exit = t.take_profit;
-        why = "target";
-      } else if (ageH >= t.max_hours) {
-        exit = px;
-        why = "time limit";
-      }
-    } else if (ageH >= t.max_hours + 24) {
-      exit = null;
-      why = "no price";
-    }
-    if (!why) continue;
-    const gross = exit != null ? (short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price * 100 : null;
-    const net = gross != null ? gross - Number(t.cost_bps) / 100 : null;
-    const r = net != null && t.sl_pct > 0 ? net / t.sl_pct : null;
-    const upd = await pool.query(
-      `UPDATE crypto_shadow_trades SET status='closed', exit_price=$2, exit_reason=$3, gross_return_pct=$4, return_pct=$5, r_multiple=$6, closed_at=now()
-        WHERE id=$1 AND status='open'`,
-      [t.id, exit, why, gross, net, r]
-    );
-    if (!upd.rowCount) continue;
-    closed++;
-    await pool.query(
-      `UPDATE crypto_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, net_pct=$4 WHERE trade_id=$1`,
-      [t.id, why, ageH * 60, net]
-    ).catch(() => {
-    });
-  }
-  return closed;
-}
-async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, deps) {
-  if (!shadowAllEnabled()) return { opened: 0, closed: 0 };
-  await ensureCryptoShadowTables();
-  const closed = await resolveCryptoShadowTrades(userId).catch(() => 0);
-  if (Date.now() - (_lastRun.get(userId) || 0) < EVERY_MS()) return { opened: 0, closed };
-  _lastRun.set(userId, Date.now());
-  const { isTokenizedAsset: isTokenizedAsset2, underlyingOf: underlyingOf2, paperMaxHoursFor: paperMaxHoursFor2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
-  const { estimateCryptoRoundTripBps: estimateCryptoRoundTripBps2 } = await Promise.resolve().then(() => (init_paper_costs(), paper_costs_exports));
-  const stats = await computeCryptoShadowStats(userId).catch(() => []);
-  const { rows: open } = await pool.query(`SELECT strategy, underlying FROM crypto_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
-  const { rows: recent } = await pool.query(
-    `SELECT strategy, underlying FROM crypto_shadow_trades WHERE user_id=$1 AND status='closed' AND closed_at >= now() - ($2::text || ' milliseconds')::interval`,
-    [userId, String(COOLDOWN_MS())]
-  );
-  const btc = deps.universe("CBBTC") ? await deps.h1("CBBTC").catch(() => null) : null;
-  const btcChange = btc ? pctChange(oldestFirst(btc.bars), 24) : null;
-  const lo2 = num2("CRYPTO_PAPER_SL_MIN", 1.5), hi2 = num2("CRYPTO_PAPER_SL_MAX", 12), atrMult = num2("CRYPTO_SL_ATR_MULT", 1.5), rr = num2("CRYPTO_MIN_RR", 2);
-  const floorMult = Number(process.env.CRYPTO_PAPER_COST_FLOOR_MULT ?? 3);
-  let opened = 0;
-  const shadowCfg = { ...cfg, directionFilter: "both" };
-  for (const symbol of symbols) {
-    if (open.length >= MAX_OPEN()) break;
-    if (isTokenizedAsset2(symbol)) continue;
-    const uni = deps.universe(symbol);
-    if (!uni?.poolAddress) continue;
-    const und = underlyingOf2(symbol);
-    const { NEW_TOKEN_RUNNERS: NEW_TOKEN_RUNNERS2, buyShare: buyShare2 } = await Promise.resolve().then(() => (init_crypto_ports(), crypto_ports_exports));
-    const runnersFor = Object.entries(deps.runners).filter(([k2]) => uni.newToken ? NEW_TOKEN_RUNNERS2.has(k2) : !NEW_TOKEN_RUNNERS2.has(k2));
-    const results = (await Promise.all(runnersFor.map(([k2, fn]) => fn(symbol, shadowCfg).then((r) => ({ ...r, strategy: r.strategy || k2 })).catch(() => null)))).filter((r) => !!r);
-    const ORIGINAL = /* @__PURE__ */ new Set(["trend_following", "momentum", "order_flow", "volume_profile", "breakout", "structure", "divergence"]);
-    const dirs = results.filter((r) => r.direction && ORIGINAL.has(r.strategy));
-    const buys = dirs.filter((r) => r.direction === "BUY"), sells = dirs.filter((r) => r.direction === "SELL");
-    const side = buys.length > sells.length ? buys : sells.length > buys.length ? sells : [];
-    const signals = results.filter((r) => r.decision === "signal" && r.direction && r.price);
-    if (side.length >= 2) {
-      const comp = Math.round(side.reduce((s, r) => s + (r.score ?? 0), 0) / side.length);
-      if (comp >= (cfg.compositeMinEdgeScore ?? 72)) signals.push({ ...side[0], decision: "signal", score: comp, strategy: "composite_autonomous", reasoning: `${side.length} runners agree` });
-    }
-    if (!signals.length) continue;
-    const h1 = await deps.h1(symbol).catch(() => null);
-    if (!h1 || !(h1.atr > 0)) continue;
-    const bars = oldestFirst(h1.bars), closes = bars.map((b) => b.c);
-    const h1Trend = trendOf(closes, 9, 21);
-    const h4Closes = closes.filter((_, i) => (closes.length - 1 - i) % 4 === 0);
-    const h4Trend = trendOf(h4Closes, 5, 10);
-    const ch1 = pctChange(bars, 1), ch24 = pctChange(bars, 24);
-    const vol24 = bars.slice(-24).reduce((a, b) => a + (b.v || 0) * (b.c || 0), 0);
-    for (const sig of signals) {
-      if (open.length >= MAX_OPEN()) break;
-      const strat = sig.strategy;
-      if (open.filter((o) => o.strategy === strat).length >= MAX_PER_STRAT()) continue;
-      if (open.some((o) => o.strategy === strat && o.underlying === und)) continue;
-      if (recent.some((o) => o.strategy === strat && o.underlying === und)) continue;
-      const price = Number(sig.price) || Number(uni.priceUsd);
-      if (!(price > 0)) continue;
-      const direction = sig.direction === "SELL" ? "hypothetical_short" : "long";
-      const short = direction !== "long";
-      const slPct = Math.min(hi2, Math.max(lo2, h1.atr * atrMult / price * 100));
-      const costBps = estimateCryptoRoundTripBps2({ notionalUsd: NOTIONAL(), liquidityUsd: uni.liquidityUsd, slippageCapBps }).roundTripBps + (uni.newToken ? Number(process.env.CRYPTO_MEME_EXTRA_COST_BPS ?? 200) : 0);
-      if (floorMult > 0 && slPct < floorMult * costBps / 100) continue;
-      const stop = short ? price * (1 + slPct / 100) : price * (1 - slPct / 100);
-      const target = short ? price * (1 - slPct * rr / 100) : price * (1 + slPct * rr / 100);
-      const aligned = h4Trend == null ? null : short ? h4Trend === "BEARISH" : h4Trend === "BULLISH";
-      const gated = await deps.gate(symbol, sig, cfg).then((g) => g.decision !== "signal").catch(() => null);
-      const hourUtc = (/* @__PURE__ */ new Date()).getUTCHours();
-      const fl = uni.flow;
-      const created = fl?.poolCreatedAt ? new Date(fl.poolCreatedAt).getTime() : NaN;
-      const ctx = {
-        hour_utc: hourUtc,
-        liquidity_usd: uni.liquidityUsd,
-        change_24h: ch24,
-        atr_pct: h1.atr / price * 100,
-        htf_aligned: aligned,
-        btc_change_24h: btcChange,
-        direction: short ? "short" : "long",
-        buy_share_h1: fl ? buyShare2(fl.h1) : null,
-        txns_h1: fl ? fl.h1.buys + fl.h1.sells : null,
-        market_cap_usd: fl ? fl.marketCapUsd ?? fl.fdvUsd : null,
-        token_age_hours: Number.isFinite(created) ? (Date.now() - created) / 36e5 : null
-      };
-      const advice = adviceFor(stats, strat, ctx);
-      const tags = [];
-      if (ch1 != null && Math.abs(ch1) >= 3) tags.push(ch1 > 0 ? "hot_hour" : "dump_hour");
-      if (ch24 != null && ch24 >= 20) tags.push("extended_24h");
-      if (aligned === false) tags.push("against_htf");
-      if (aligned === true) tags.push("htf_aligned");
-      if (gated) tags.push("live_gate_would_block");
-      if (uni.liquidityUsd < 25e4) tags.push("thin_pool");
-      if (uni.newToken) tags.push("new_token");
-      if (ctx.buy_share_h1 != null && ctx.buy_share_h1 > 0.65) tags.push("buyers_dominant");
-      if (ctx.buy_share_h1 != null && ctx.buy_share_h1 < 0.45) tags.push("sellers_dominant");
-      const ins = await pool.query(
-        `INSERT INTO crypto_shadow_trades (user_id, strategy, symbol, underlying, chain, token_address, pool_address, direction, entry_price, stop_loss, take_profit,
-           sl_pct, notional_usd, cost_bps, score, max_hours) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
-        [userId, strat, symbol, und, chain, uni.address ?? null, uni.poolAddress, direction, price, stop, target, slPct, NOTIONAL(), costBps, sig.score ?? null, paperMaxHoursFor2(strat)]
-      );
-      const id = ins.rows[0]?.id;
-      if (!id) continue;
-      await pool.query(
-        `INSERT INTO crypto_shadow_context (trade_id, user_id, strategy, symbol, direction, liquidity_usd, change_1h, change_24h, volume_24h_usd, atr_pct,
-           h1_trend, h4_trend, htf_aligned, live_gate_blocked, btc_change_24h, hour_utc, day_of_week, score, tags, advice_at_entry,
-           buy_share_h1, buy_share_h24, txns_h1, txns_h24, buyers_h1, sellers_h1, market_cap_usd, token_age_hours, new_token)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29) ON CONFLICT (trade_id) DO NOTHING`,
-        [
-          id,
-          userId,
-          strat,
-          symbol,
-          ctx.direction,
-          uni.liquidityUsd,
-          ch1,
-          ch24,
-          vol24 || null,
-          ctx.atr_pct,
-          h1Trend,
-          h4Trend,
-          aligned,
-          gated,
-          btcChange,
-          hourUtc,
-          (/* @__PURE__ */ new Date()).getUTCDay(),
-          sig.score ?? null,
-          tags,
-          advice,
-          ctx.buy_share_h1,
-          fl ? buyShare2(fl.h24) : null,
-          ctx.txns_h1,
-          fl ? fl.h24.buys + fl.h24.sells : null,
-          fl?.h1.buyers ?? null,
-          fl?.h1.sellers ?? null,
-          ctx.market_cap_usd,
-          ctx.token_age_hours,
-          !!uni.newToken
-        ]
-      ).catch(() => {
-      });
-      open.push({ strategy: strat, underlying: und });
-      opened++;
-    }
-  }
-  return { opened, closed };
-}
-var num2, shadowAllEnabled, MAX_OPEN, MAX_PER_STRAT, COOLDOWN_MS, EVERY_MS, NOTIONAL, _ensured2, _statsCache, _lastRun;
-var init_crypto_shadow = __esm({
-  "server/services/crypto-shadow.ts"() {
-    "use strict";
-    init_db();
-    num2 = (n, d) => {
-      const v = Number(process.env[n]);
-      return Number.isFinite(v) && v > 0 ? v : d;
-    };
-    shadowAllEnabled = () => process.env.CRYPTO_SHADOW_ALL !== "off";
-    MAX_OPEN = () => Math.floor(num2("CRYPTO_SHADOW_MAX_OPEN", 30));
-    MAX_PER_STRAT = () => Math.floor(num2("CRYPTO_SHADOW_MAX_PER_STRATEGY", 3));
-    COOLDOWN_MS = () => num2("CRYPTO_SHADOW_COOLDOWN_MIN", 60) * 6e4;
-    EVERY_MS = () => num2("CRYPTO_SHADOW_EVERY_MIN", 10) * 6e4;
-    NOTIONAL = () => num2("CRYPTO_SHADOW_NOTIONAL_USD", 20);
-    _ensured2 = null;
-    _statsCache = /* @__PURE__ */ new Map();
-    _lastRun = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/ensure-kalshi-perp-shadow-tables.ts
-var ensure_kalshi_perp_shadow_tables_exports = {};
-__export(ensure_kalshi_perp_shadow_tables_exports, {
-  ensureKalshiPerpShadowTables: () => ensureKalshiPerpShadowTables
-});
-function ensureKalshiPerpShadowTables() {
-  if (!_ensured3) {
-    _ensured3 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_shadow_trades (
-      id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, ticker text NOT NULL, underlying text NOT NULL,
-      direction text NOT NULL,
-      entry_price double precision NOT NULL, entry_bid double precision, entry_ask double precision,
-      stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
-      sl_pct double precision NOT NULL, contracts double precision NOT NULL, notional_usd double precision NOT NULL,
-      cost_bps double precision NOT NULL, cost_model text NOT NULL DEFAULT 'placeholder',
-      funding_accrued_usd double precision NOT NULL DEFAULT 0, funding_through_ms bigint NOT NULL DEFAULT 0,
-      score real, max_hours double precision NOT NULL, status text NOT NULL DEFAULT 'open',
-      exit_price double precision, exit_reason text, gross_return_pct double precision, return_pct double precision,
-      r_multiple double precision, peak_gain_pct double precision, exclude_from_stats boolean NOT NULL DEFAULT false,
-      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_shadow_trades_user_status ON kalshi_perp_shadow_trades (user_id, status)`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_shadow_context (
-      trade_id int PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, ticker text NOT NULL, direction text NOT NULL,
-      spread_bps double precision, volume_24h_usd double precision, open_interest double precision,
-      atr_pct double precision, h1_trend text, h4_trend text, htf_aligned boolean,
-      funding_rate_at_entry double precision, session_et text, hour_utc int, hour_et int, day_of_week int,
-      earnings_within_48h boolean, corporate_action_pending boolean, live_gate_blocked boolean,
-      leverage_estimate double precision, tags text[], advice_at_entry text,
-      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision, funding_paid_usd double precision)`)).then(() => void 0).catch((e) => {
-      _ensured3 = null;
-      throw e;
-    });
-  }
-  return _ensured3;
-}
-var _ensured3;
-var init_ensure_kalshi_perp_shadow_tables = __esm({
-  "server/services/ensure-kalshi-perp-shadow-tables.ts"() {
-    "use strict";
-    init_db();
-    _ensured3 = null;
-  }
-});
-
-// server/services/strategy-deployments.ts
-var strategy_deployments_exports = {};
-__export(strategy_deployments_exports, {
-  closeStrategyTrade: () => closeStrategyTrade,
-  createDeployment: () => createDeployment,
-  ensureStrategyTables: () => ensureStrategyTables,
-  getDeployment: () => getDeployment,
-  getOpenStrategyTrade: () => getOpenStrategyTrade,
-  listDeployments: () => listDeployments,
-  listRunningDeployments: () => listRunningDeployments,
-  listStrategyTrades: () => listStrategyTrades,
-  markStrategyTradeBreakeven: () => markStrategyTradeBreakeven,
-  openStrategyTrade: () => openStrategyTrade,
-  stopDeployment: () => stopDeployment,
-  touchDeployment: () => touchDeployment,
-  updateStrategyTradeLevels: () => updateStrategyTradeLevels
-});
-function ensureTables() {
-  if (!tableReady) {
-    tableReady = (async () => {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS strategy_deployments (
-          id SERIAL PRIMARY KEY,
-          user_id INTEGER NOT NULL,
-          strategy_id INTEGER NOT NULL,
-          platform TEXT NOT NULL,
-          connection_ref TEXT NOT NULL,
-          account_label TEXT,
-          status TEXT NOT NULL DEFAULT 'running',
-          last_bar_time BIGINT DEFAULT 0,
-          last_signal_at TIMESTAMPTZ,
-          last_error TEXT,
-          error_streak INTEGER NOT NULL DEFAULT 0,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          stopped_at TIMESTAMPTZ
-        )`);
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS strategy_trades (
-          id SERIAL PRIMARY KEY,
-          deployment_id INTEGER NOT NULL,
-          strategy_id INTEGER NOT NULL,
-          user_id INTEGER NOT NULL,
-          platform TEXT NOT NULL,
-          symbol TEXT NOT NULL,
-          direction TEXT NOT NULL,
-          volume DOUBLE PRECISION NOT NULL DEFAULT 0,
-          entry_price DOUBLE PRECISION NOT NULL DEFAULT 0,
-          exit_price DOUBLE PRECISION,
-          pnl DOUBLE PRECISION,
-          platform_ref TEXT,
-          status TEXT NOT NULL DEFAULT 'open',
-          opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          closed_at TIMESTAMPTZ,
-          exit_reason TEXT
-        )`);
-      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_deployments_user ON strategy_deployments (user_id, status)`);
-      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS breakeven_applied BOOLEAN NOT NULL DEFAULT false`);
-      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_strategy ON strategy_trades (strategy_id, status)`);
-      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'live'`);
-      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS stop_loss DOUBLE PRECISION`);
-      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS take_profit DOUBLE PRECISION`);
-      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS risk_price_dist DOUBLE PRECISION`);
-      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS extreme_price DOUBLE PRECISION`);
-      await pool.query(`ALTER TABLE strategy_trades ADD COLUMN IF NOT EXISTS r_multiple DOUBLE PRECISION`);
-      await pool.query(`CREATE INDEX IF NOT EXISTS idx_strategy_trades_mode ON strategy_trades (strategy_id, mode, status)`);
-    })().catch((e) => {
-      tableReady = null;
-      throw e;
-    });
-  }
-  return tableReady;
-}
-async function ensureStrategyTables() {
-  return ensureTables();
-}
-function rowToDeployment(r) {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    strategyId: r.strategy_id,
-    platform: r.platform,
-    connectionRef: r.connection_ref,
-    accountLabel: r.account_label ?? null,
-    status: r.status,
-    lastBarTime: Number(r.last_bar_time) || 0,
-    lastSignalAt: r.last_signal_at ?? null,
-    lastError: r.last_error ?? null,
-    createdAt: r.created_at,
-    stoppedAt: r.stopped_at ?? null
-  };
-}
-async function createDeployment(userId, strategyId, platform, connectionRef, accountLabel) {
-  await ensureTables();
-  const { rows } = await pool.query(
-    `INSERT INTO strategy_deployments (user_id, strategy_id, platform, connection_ref, account_label)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [userId, strategyId, platform, connectionRef, accountLabel]
-  );
-  return rowToDeployment(rows[0]);
-}
-async function listDeployments(userId, strategyId) {
-  await ensureTables();
-  const { rows } = strategyId ? await pool.query(`SELECT * FROM strategy_deployments WHERE user_id=$1 AND strategy_id=$2 ORDER BY created_at DESC`, [userId, strategyId]) : await pool.query(`SELECT * FROM strategy_deployments WHERE user_id=$1 ORDER BY created_at DESC`, [userId]);
-  return rows.map(rowToDeployment);
-}
-async function listRunningDeployments() {
-  await ensureTables();
-  const { rows } = await pool.query(`SELECT * FROM strategy_deployments WHERE status='running' ORDER BY id ASC`);
-  return rows.map(rowToDeployment);
-}
-async function getDeployment(userId, id) {
-  await ensureTables();
-  const { rows } = await pool.query(`SELECT * FROM strategy_deployments WHERE id=$1 AND user_id=$2`, [id, userId]);
-  return rows.length ? rowToDeployment(rows[0]) : null;
-}
-async function stopDeployment(userId, id) {
-  await ensureTables();
-  const r = await pool.query(
-    `UPDATE strategy_deployments SET status='stopped', stopped_at=now() WHERE id=$1 AND user_id=$2 AND status='running'`,
-    [id, userId]
-  );
-  return (r.rowCount ?? 0) > 0;
-}
-async function touchDeployment(id, patch) {
-  await ensureTables();
-  if (patch.error === null) {
-    await pool.query(
-      `UPDATE strategy_deployments SET last_error=NULL, error_streak=0,
-         last_bar_time=COALESCE($2, last_bar_time),
-         last_signal_at=CASE WHEN $3 THEN now() ELSE last_signal_at END
-       WHERE id=$1`,
-      [id, patch.lastBarTime ?? null, !!patch.lastSignalAt]
-    );
-  } else if (typeof patch.error === "string") {
-    await pool.query(
-      `UPDATE strategy_deployments SET last_error=$2, error_streak=error_streak+1,
-         status=CASE WHEN error_streak+1 >= 5 THEN 'stopped' ELSE status END,
-         stopped_at=CASE WHEN error_streak+1 >= 5 THEN now() ELSE stopped_at END
-       WHERE id=$1`,
-      [id, patch.error.slice(0, 500)]
-    );
-  } else if (patch.lastBarTime != null || patch.lastSignalAt) {
-    await pool.query(
-      `UPDATE strategy_deployments SET last_bar_time=COALESCE($2, last_bar_time),
-         last_signal_at=CASE WHEN $3 THEN now() ELSE last_signal_at END WHERE id=$1`,
-      [id, patch.lastBarTime ?? null, !!patch.lastSignalAt]
-    );
-  }
-}
-async function openStrategyTrade(dep, t) {
-  await ensureTables();
-  const { rows } = await pool.query(
-    `INSERT INTO strategy_trades (deployment_id, strategy_id, user_id, platform, symbol, direction, volume, entry_price, platform_ref, mode, stop_loss, take_profit, risk_price_dist, extreme_price)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
-    [
-      dep.id,
-      dep.strategyId,
-      dep.userId,
-      dep.platform,
-      t.symbol,
-      t.direction,
-      t.volume,
-      t.entryPrice,
-      t.platformRef,
-      t.mode ?? "live",
-      t.stopLoss ?? null,
-      t.takeProfit ?? null,
-      t.riskDist ?? null,
-      t.extremePrice ?? null
-    ]
-  );
-  return rows[0].id;
-}
-async function getOpenStrategyTrade(deploymentId) {
-  await ensureTables();
-  const { rows } = await pool.query(
-    `SELECT * FROM strategy_trades WHERE deployment_id=$1 AND status='open' ORDER BY opened_at DESC LIMIT 1`,
-    [deploymentId]
-  );
-  return rows[0] ?? null;
-}
-async function markStrategyTradeBreakeven(id) {
-  await ensureTables();
-  await pool.query(`UPDATE strategy_trades SET breakeven_applied=true WHERE id=$1`, [id]);
-}
-async function closeStrategyTrade(id, exitPrice, pnl, exitReason, rMultiple2) {
-  await ensureTables();
-  await pool.query(
-    `UPDATE strategy_trades SET status='closed', exit_price=$2, pnl=$3, exit_reason=$4, closed_at=now(),
-       r_multiple=COALESCE($5, r_multiple) WHERE id=$1`,
-    [id, exitPrice, pnl, exitReason, rMultiple2 ?? null]
-  );
-}
-async function updateStrategyTradeLevels(id, patch) {
-  await ensureTables();
-  await pool.query(
-    `UPDATE strategy_trades SET
-       stop_loss=COALESCE($2, stop_loss),
-       extreme_price=COALESCE($3, extreme_price),
-       breakeven_applied=CASE WHEN $4 THEN true ELSE breakeven_applied END
-     WHERE id=$1`,
-    [id, patch.stopLoss ?? null, patch.extremePrice ?? null, !!patch.breakevenApplied]
-  );
-}
-async function listStrategyTrades(userId, strategyId, limit = 500) {
-  await ensureTables();
-  const { rows } = await pool.query(
-    `SELECT * FROM strategy_trades WHERE user_id=$1 AND strategy_id=$2 ORDER BY opened_at DESC LIMIT $3`,
-    [userId, strategyId, limit]
-  );
-  return rows;
-}
-var tableReady;
-var init_strategy_deployments = __esm({
-  "server/services/strategy-deployments.ts"() {
-    "use strict";
-    init_db();
-    tableReady = null;
-  }
-});
-
-// server/services/wizard-spec-strategies.ts
-var wizard_spec_strategies_exports = {};
-__export(wizard_spec_strategies_exports, {
-  createWizardStrategy: () => createWizardStrategy,
-  deleteWizardStrategy: () => deleteWizardStrategy,
-  ensureWizardStrategiesTable: () => ensureWizardStrategiesTable,
-  getWizardStrategy: () => getWizardStrategy,
-  listWizardStrategies: () => listWizardStrategies,
-  recordWizardBacktest: () => recordWizardBacktest,
-  recordWizardBrain: () => recordWizardBrain,
-  recordWizardEa: () => recordWizardEa,
-  updateWizardStrategySpec: () => updateWizardStrategySpec
-});
-function ensureTable2() {
-  return tableReady2 ??= (async () => {
-    await pool.query(`CREATE TABLE IF NOT EXISTS wizard_strategies (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      source TEXT NOT NULL DEFAULT 'builder',
-      template_id TEXT,
-      spec JSONB NOT NULL,
-      last_backtest JSONB,
-      status TEXT NOT NULL DEFAULT 'draft',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS wizard_strategies_user_idx ON wizard_strategies (user_id, id DESC)`);
-    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS ea_code TEXT`);
-    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS brain_profile JSONB`);
-    await pool.query(`ALTER TABLE wizard_strategies ADD COLUMN IF NOT EXISTS brain_listing_id INTEGER`);
-  })().catch((e) => {
-    tableReady2 = null;
-    throw e;
-  });
-}
-function rowToStrategy(r) {
-  return {
-    id: r.id,
-    userId: r.user_id,
-    name: r.name,
-    source: r.source,
-    templateId: r.template_id ?? null,
-    spec: r.spec,
-    lastBacktest: r.last_backtest ?? null,
-    hasEa: !!r.has_ea,
-    brainProfile: r.brain_profile ?? null,
-    brainListingId: r.brain_listing_id ?? null,
-    status: r.status,
-    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
-    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at)
-  };
-}
-async function ensureWizardStrategiesTable() {
-  return ensureTable2();
-}
-async function createWizardStrategy(userId, spec) {
-  await ensureTable2();
-  const { rows } = await pool.query(
-    `INSERT INTO wizard_strategies (user_id, name, source, template_id, spec)
-     VALUES ($1,$2,$3,$4,$5) RETURNING ${COLS}`,
-    [userId, spec.name, spec.source, spec.templateId ?? null, JSON.stringify(spec)]
-  );
-  return rowToStrategy(rows[0]);
-}
-async function listWizardStrategies(userId) {
-  await ensureTable2();
-  const { rows } = await pool.query(
-    `SELECT ${COLS} FROM wizard_strategies WHERE user_id=$1 ORDER BY id DESC LIMIT 100`,
-    [userId]
-  );
-  return rows.map(rowToStrategy);
-}
-async function getWizardStrategy(userId, id) {
-  await ensureTable2();
-  const { rows } = await pool.query(
-    `SELECT ${COLS} FROM wizard_strategies WHERE id=$1 AND user_id=$2`,
-    [id, userId]
-  );
-  return rows.length ? rowToStrategy(rows[0]) : null;
-}
-async function updateWizardStrategySpec(userId, id, spec) {
-  await ensureTable2();
-  const { rows } = await pool.query(
-    `UPDATE wizard_strategies SET name=$3, source=$4, template_id=$5, spec=$6, updated_at=now()
-     WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
-    [id, userId, spec.name, spec.source, spec.templateId ?? null, JSON.stringify(spec)]
-  );
-  return rows.length ? rowToStrategy(rows[0]) : null;
-}
-async function deleteWizardStrategy(userId, id) {
-  await ensureTable2();
-  const { rowCount } = await pool.query(
-    `DELETE FROM wizard_strategies WHERE id=$1 AND user_id=$2`,
-    [id, userId]
-  );
-  return (rowCount ?? 0) > 0;
-}
-async function recordWizardBrain(userId, id, patch) {
-  await ensureTable2();
-  const sets = [];
-  const params = [id, userId];
-  if (patch.profile !== void 0) {
-    params.push(JSON.stringify(patch.profile));
-    sets.push(`brain_profile = $${params.length}`);
-  }
-  if (patch.listingId !== void 0) {
-    params.push(patch.listingId);
-    sets.push(`brain_listing_id = $${params.length}`);
-  }
-  if (!sets.length) return false;
-  sets.push("updated_at = now()");
-  const r = await pool.query(
-    `UPDATE wizard_strategies SET ${sets.join(", ")} WHERE id = $1 AND user_id = $2`,
-    params
-  );
-  return (r.rowCount ?? 0) > 0;
-}
-async function recordWizardEa(userId, id, code) {
-  await ensureTable2();
-  const { rowCount } = await pool.query(
-    `UPDATE wizard_strategies SET ea_code=$3, updated_at=now() WHERE id=$1 AND user_id=$2`,
-    [id, userId, code]
-  );
-  return (rowCount ?? 0) > 0;
-}
-async function recordWizardBacktest(userId, id, summary) {
-  await ensureTable2();
-  const { rows } = await pool.query(
-    `UPDATE wizard_strategies SET last_backtest=$3, status='backtested', updated_at=now()
-     WHERE id=$1 AND user_id=$2 RETURNING ${COLS}`,
-    [id, userId, JSON.stringify(summary)]
-  );
-  return rows.length ? rowToStrategy(rows[0]) : null;
-}
-var tableReady2, COLS;
-var init_wizard_spec_strategies = __esm({
-  "server/services/wizard-spec-strategies.ts"() {
-    "use strict";
-    init_db();
-    tableReady2 = null;
-    COLS = `id, user_id, name, source, template_id, spec, last_backtest, (ea_code IS NOT NULL) AS has_ea, status, created_at, updated_at, brain_profile, brain_listing_id`;
-  }
-});
-
-// server/services/shadow-ledger.ts
-var shadow_ledger_exports = {};
-__export(shadow_ledger_exports, {
-  ensureShadowLedger: () => ensureShadowLedger,
-  shadowLedgerSummary: () => shadowLedgerSummary
-});
-function ensureShadowLedger() {
-  if (!_ensured4) {
-    _ensured4 = (async () => {
-      try {
-        const { ensurePaperTable: ensurePaperTable2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
-        await ensurePaperTable2();
-      } catch {
-      }
-      try {
-        const { ensureCryptoShadowTables: ensureCryptoShadowTables2 } = await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports));
-        await ensureCryptoShadowTables2();
-      } catch {
-      }
-      try {
-        const { ensureKalshiPerpShadowTables: ensureKalshiPerpShadowTables2 } = await Promise.resolve().then(() => (init_ensure_kalshi_perp_shadow_tables(), ensure_kalshi_perp_shadow_tables_exports));
-        await ensureKalshiPerpShadowTables2();
-      } catch {
-      }
-      try {
-        const { ensureStrategyTables: ensureStrategyTables2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
-        await ensureStrategyTables2();
-      } catch {
-      }
-      try {
-        const { ensureWizardStrategiesTable: ensureWizardStrategiesTable2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
-        await ensureWizardStrategiesTable2();
-      } catch {
-      }
-      await pool.query(VIEW_SQL);
-    })().catch((e) => {
-      _ensured4 = null;
-      throw e;
-    });
-  }
-  return _ensured4;
-}
-async function shadowLedgerSummary(userId, days = 30) {
-  await ensureShadowLedger();
-  const since = `now() - ($2 || ' days')::interval`;
-  const q = (sql18) => pool.query(sql18, [userId, String(Math.max(1, Math.min(365, days)))]).then((r) => r.rows);
-  const agg = `count(*)::int AS trades, count(*) FILTER (WHERE result='WIN')::int AS wins,
-               round(avg(r_multiple)::numeric, 2)::float AS avg_r, round(sum(r_multiple)::numeric, 1)::float AS total_r`;
-  const [bySource, bySession, byDirection, slices, alignment] = await Promise.all([
-    q(`SELECT source, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} GROUP BY 1 ORDER BY 1`),
-    q(`SELECT source, session, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} GROUP BY 1,2 ORDER BY 1,2`),
-    q(`SELECT source, direction, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} GROUP BY 1,2 ORDER BY 1,2`),
-    q(`SELECT source, strategy, symbol, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since}
-        GROUP BY 1,2,3 HAVING count(*) >= 3 ORDER BY avg(r_multiple) DESC NULLS LAST`),
-    q(`SELECT source, h4_aligned, ${agg} FROM shadow_ledger WHERE user_id=$1 AND closed_at >= ${since} AND context_reliable AND h4_aligned IS NOT NULL
-        GROUP BY 1,2 ORDER BY 1,2`)
-  ]);
-  return { days, bySource, bySession, byDirection, best: slices.slice(0, 10), worst: slices.slice(-10).reverse(), h4Alignment: alignment };
-}
-var SESSION_SQL, VIEW_SQL, _ensured4;
-var init_shadow_ledger = __esm({
-  "server/services/shadow-ledger.ts"() {
-    "use strict";
-    init_db();
-    SESSION_SQL = (ts) => `CASE
-  WHEN extract(hour from ${ts}) < 7  THEN 'Asian'
-  WHEN extract(hour from ${ts}) < 12 THEN 'London'
-  WHEN extract(hour from ${ts}) < 16 THEN 'Overlap'
-  WHEN extract(hour from ${ts}) < 21 THEN 'NewYork'
-  ELSE 'Late' END`;
-    VIEW_SQL = `
-CREATE OR REPLACE VIEW shadow_ledger AS
-  SELECT ('fx_model:' || d.id)::text AS ledger_id,
-         CASE WHEN d.engine = 'crypto' THEN 'crypto_shadow' ELSE 'fx_shadow' END AS source,
-         COALESCE(d.engine, 'fx') AS engine, d.user_id,
-         d.model AS strategy, d.symbol,
-         CASE WHEN upper(d.direction) = 'SELL' THEN 'SHORT' ELSE 'LONG' END AS direction,
-         (d.created_at AT TIME ZONE 'UTC') AS opened_at, (d.resolved_at AT TIME ZONE 'UTC') AS closed_at,
-         extract(hour from d.created_at)::int AS hour_utc,
-         ${SESSION_SQL("d.created_at")} AS session,
-         d.day_type,
-         d.context->'h1'->>'trend' AS h1_trend, d.context->'h4'->>'trend' AS h4_trend,
-         CASE WHEN d.context->'h4'->>'trend' IS NULL THEN NULL
-              WHEN upper(d.direction) = 'BUY'  THEN (d.context->'h4'->>'trend') = 'BULLISH'
-              WHEN upper(d.direction) = 'SELL' THEN (d.context->'h4'->>'trend') = 'BEARISH' END AS h4_aligned,
-         (d.created_at >= TIMESTAMP '2026-10-23 04:00:00') AS context_reliable,
-         CASE WHEN d.result = 'EXPIRED' THEN 'EXPIRED' WHEN d.r_multiple > 0 THEN 'WIN' WHEN d.r_multiple < 0 THEN 'LOSS' ELSE d.result END AS result,
-         d.r_multiple::float AS r_multiple, NULL::float AS return_pct
-    FROM fx_model_decisions d
-   WHERE d.result IN ('WIN','LOSS','EXPIRED') AND d.direction IN ('BUY','SELL') AND d.source = 'own'
-  UNION ALL
-  SELECT ('crypto_paper:' || c.id)::text, 'crypto_paper', 'crypto', c.user_id,
-         c.strategy, c.symbol,
-         CASE WHEN c.direction = 'short' THEN 'SHORT' ELSE 'LONG' END,
-         c.opened_at, c.closed_at,
-         extract(hour from c.opened_at AT TIME ZONE 'UTC')::int,
-         ${SESSION_SQL("(c.opened_at AT TIME ZONE 'UTC')")},
-         NULL, NULL, NULL, NULL, true,
-         CASE WHEN c.exit_reason = 'time limit' THEN 'EXPIRED' WHEN c.r_multiple > 0 THEN 'WIN' WHEN c.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
-         c.r_multiple::float, c.return_pct::float
-    FROM crypto_paper_trades c
-   WHERE c.status = 'closed'
-  UNION ALL
-  SELECT ('sol_' || s.mode || ':' || s.id)::text,
-         CASE WHEN s.mode = 'shadow' THEN 'sol_shadow' ELSE 'sol_paper' END, 'sol', s.user_id,
-         s.strategy_id, s.symbol, 'LONG',
-         s.opened_at::timestamptz, NULLIF(s.closed_at, '')::timestamptz,
-         extract(hour from s.opened_at::timestamptz AT TIME ZONE 'UTC')::int,
-         ${SESSION_SQL("(s.opened_at::timestamptz AT TIME ZONE 'UTC')")},
-         NULL, NULL, NULL, NULL, true,
-         CASE WHEN s.close_pnl_pct > 0 THEN 'WIN' WHEN s.close_pnl_pct < 0 THEN 'LOSS' ELSE 'FLAT' END,
-         CASE WHEN s.sl_pct > 0 THEN (s.close_pnl_pct / s.sl_pct)::float END,
-         s.close_pnl_pct::float
-    FROM sol_engine_positions s
-   WHERE s.mode IN ('paper', 'shadow') AND s.status = 'closed' AND s.close_pnl_pct IS NOT NULL
-     AND NOT (
-       NULLIF(s.closed_at, '')::timestamptz < TIMESTAMPTZ '2026-11-06 19:15:00+00'
-       AND abs(s.close_pnl_pct) >= 40
-       AND (extract(epoch from (NULLIF(s.closed_at, '')::timestamptz - s.opened_at::timestamptz)) < 120
-            -- known junk-priced symbols (sol-brain.ts BAD_PRICE_SYMBOLS), any hold
-            OR s.symbol IN ('RAY', 'mSOL'))
-     )
-  UNION ALL
-  -- Crypto all-strategy shadow lane (crypto-shadow.ts). Shorts are hypothetical
-  -- (Base spot can't short) and get their own source so they are reported apart.
-  SELECT ('crypto_shadow_all:' || x.id)::text,
-         CASE WHEN x.direction = 'long' THEN 'crypto_shadow_all' ELSE 'crypto_shadow_short' END, 'crypto', x.user_id,
-         x.strategy, x.symbol, CASE WHEN x.direction = 'long' THEN 'LONG' ELSE 'SHORT' END,
-         x.opened_at, x.closed_at,
-         extract(hour from x.opened_at AT TIME ZONE 'UTC')::int,
-         ${SESSION_SQL("(x.opened_at AT TIME ZONE 'UTC')")},
-         NULL, xc.h1_trend, xc.h4_trend, xc.htf_aligned, true,
-         CASE WHEN x.exit_reason = 'time limit' THEN 'EXPIRED' WHEN x.r_multiple > 0 THEN 'WIN' WHEN x.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
-         x.r_multiple::float, x.return_pct::float
-    FROM crypto_shadow_trades x
-    LEFT JOIN crypto_shadow_context xc ON xc.trade_id = x.id
-   WHERE x.status = 'closed' AND x.return_pct IS NOT NULL
-  UNION ALL
-  -- Kalshi stock-perp shadow lane (kalshi-stock-shadow.ts). Perps short
-  -- natively, so shorts are real reads, not hypothetical. Corporate-action
-  -- closes are excluded (the price series adjusts across the action \u2014 any
-  -- return spanning it is fiction), as are sub-2-minute \u226540% prints (the
-  -- Sol quarantine discipline: a large-cap perp does not legitimately move
-  -- 40% in 2 minutes outside a split print, and splits are handled above).
-  SELECT ('kalshi_stock_shadow:' || k.id)::text, 'kalshi_stock_shadow', 'kalshi_perp', k.user_id,
-         k.strategy, k.ticker, CASE WHEN k.direction = 'short' THEN 'SHORT' ELSE 'LONG' END,
-         k.opened_at, k.closed_at,
-         extract(hour from k.opened_at AT TIME ZONE 'UTC')::int,
-         ${SESSION_SQL("(k.opened_at AT TIME ZONE 'UTC')")},
-         NULL, kc.h1_trend, kc.h4_trend, kc.htf_aligned, true,
-         CASE WHEN k.exit_reason = 'time limit' THEN 'EXPIRED' WHEN k.r_multiple > 0 THEN 'WIN' WHEN k.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
-         k.r_multiple::float, k.return_pct::float
-    FROM kalshi_perp_shadow_trades k
-    LEFT JOIN kalshi_perp_shadow_context kc ON kc.trade_id = k.id
-   WHERE k.status = 'closed' AND k.return_pct IS NOT NULL AND k.exclude_from_stats IS NOT TRUE
-     AND NOT (abs(k.return_pct) >= 40 AND extract(epoch from (k.closed_at - k.opened_at)) < 120)
-  UNION ALL
-  -- Strategy Studio shadow deployments (strategy-shadow.ts): the runner
-  -- trading saved spec strategies virtually \u2014 fills resolved from bar
-  -- prices into strategy_trades rows with mode='shadow'. R comes from
-  -- the row's own r_multiple (P&L vs the entry-time stop distance), so
-  -- only closes that carried a stop participate. return_pct is not
-  -- tracked for spec trades (no account balance to percentage against)
-  -- and stays NULL. Live rows (mode='live') never appear here, and
-  -- these rows never count toward Brain Marketplace eligibility.
-  SELECT ('strategy_studio_shadow:' || t.id)::text, 'strategy_studio_shadow', 'studio', t.user_id,
-         COALESCE(w.name, 'strategy ' || t.strategy_id), t.symbol,
-         CASE WHEN upper(t.direction) = 'SELL' THEN 'SHORT' ELSE 'LONG' END,
-         t.opened_at, t.closed_at,
-         extract(hour from t.opened_at AT TIME ZONE 'UTC')::int,
-         ${SESSION_SQL("(t.opened_at AT TIME ZONE 'UTC')")},
-         NULL, NULL, NULL, NULL, true,
-         CASE WHEN t.r_multiple > 0 THEN 'WIN' WHEN t.r_multiple < 0 THEN 'LOSS' ELSE 'FLAT' END,
-         t.r_multiple::float, NULL::float
-    FROM strategy_trades t
-    LEFT JOIN wizard_strategies w ON w.id = t.strategy_id
-   WHERE t.mode = 'shadow' AND t.status = 'closed' AND t.r_multiple IS NOT NULL
-`;
-    _ensured4 = null;
   }
 });
 
@@ -29000,6 +29161,7 @@ __export(fx_models_exports, {
   fxModelMarketplaceLiveOn: () => fxModelMarketplaceLiveOn,
   fxModelProvenanceForSlice: () => fxModelProvenanceForSlice,
   fxModelRowsForStats: () => fxModelRowsForStats,
+  getDeadSlices: () => getDeadSlices,
   getFxModelListingRows: () => getFxModelListingRows,
   getFxModelSettings: () => getFxModelSettings,
   getModelMastery: () => getModelMastery,
@@ -29687,6 +29849,29 @@ async function decideModelIdeas(userId, session3, pairs, engine, deps) {
   }
   return out;
 }
+async function getDeadSlices(userId, engine) {
+  const ck = `${userId}|${engine}`;
+  const hit = _deadSliceCache.get(ck);
+  if (hit && Date.now() - hit.at < 15 * 6e4) return hit.dead;
+  const days = Math.max(7, Math.floor(Number(process.env.FX_MODELS_LESSON_WINDOW_DAYS ?? 60) || 60));
+  const { rows } = await pool.query(
+    `SELECT model, day_type, symbol, session, count(*)::int AS trades,
+            count(*) FILTER (WHERE result='WIN')::int AS wins, COALESCE(avg(r_multiple),0)::float AS avg_r
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND engine=$2 AND source='own' AND result IN ('WIN','LOSS','EXPIRED')
+        AND created_at >= now() - ($3 || ' days')::interval
+        ${modelsEpochOn() ? `AND epoch = ${MODELS_EPOCH}` : ""}
+      GROUP BY model, day_type, symbol, session`,
+    [userId, engine, String(days)]
+  );
+  const dead = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const stat = { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgR: Number(r.avg_r) || 0 };
+    if (promotionBarLoser(stat)) dead.set(`${r.model}|${r.day_type}|${r.symbol}|${r.session}`, stat);
+  }
+  _deadSliceCache.set(ck, { at: Date.now(), dead });
+  return dead;
+}
 async function shadowDecide(userId, session3, pairs, engine = "fx") {
   const mastery2 = await getModelMastery(userId, { engine }).catch(() => null);
   const masteryLines = formatMasteryLines(mastery2?.slices);
@@ -29694,7 +29879,49 @@ async function shadowDecide(userId, session3, pairs, engine = "fx") {
     masteryLines,
     rangeFor: (s) => rangeFeatures(s, engine).catch(() => null)
   });
+  const dead = fxModelsLessonGateOn() ? await getDeadSlices(userId, engine).catch(() => null) : null;
   for (const o of res2.outcomes) {
+    const deadStat = o.isTrade && dead ? dead.get(`${o.model}|${o.dayType}|${o.symbol}|${session3}`) : void 0;
+    if (deadStat) {
+      const winRate2 = deadStat.trades ? deadStat.wins / deadStat.trades : 0;
+      const gateCtx = {
+        ...o.storedCtx,
+        guard: "lesson_gate",
+        lessonGate: { trades: deadStat.trades, wins: deadStat.wins, avgR: deadStat.avgR, winRate: winRate2, windowDays: Math.max(7, Math.floor(Number(process.env.FX_MODELS_LESSON_WINDOW_DAYS ?? 60) || 60)) }
+      };
+      await pool.query(
+        `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, source, engine, epoch)
+         VALUES ($1,$2,$3,'blocked',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,'lesson_gate',$14,$15)`,
+        [
+          userId,
+          o.symbol,
+          o.model,
+          o.dayType,
+          session3,
+          o.tradeDirection,
+          o.entry,
+          o.stopLoss,
+          o.takeProfit,
+          o.confidence,
+          o.setup,
+          (`[lesson gate: slice proven dead \u2014 ${deadStat.trades} resolved, avg ${deadStat.avgR.toFixed(2)}R, win ${Math.round(winRate2 * 100)}%] ` + o.reasoning).slice(0, 700),
+          JSON.stringify(gateCtx),
+          engine,
+          MODELS_EPOCH
+        ]
+      ).catch(() => null);
+      void logShadowLessonBlock({
+        lane: "fx_models",
+        userId,
+        strategyKey: o.model,
+        bucket: `${o.model} \xB7 ${o.dayType} \xB7 ${o.symbol} \xB7 ${session3}`,
+        n: deadStat.trades,
+        winRate: winRate2,
+        avgR: deadStat.avgR,
+        reason: `slice proven dead on the lesson bar: ${deadStat.trades} resolved, avg ${deadStat.avgR.toFixed(2)}R, win ${Math.round(winRate2 * 100)}% in the rolling window`
+      });
+      continue;
+    }
     const ins = await pool.query(
       `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, result, engine, epoch)
        VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16) RETURNING id`,
@@ -30219,7 +30446,7 @@ async function getModelMastery(userId, opts = {}) {
             COALESCE(AVG(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_avg_r,
             COALESCE(SUM(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_total_r
        FROM fx_model_decisions
-      WHERE user_id=$1 AND engine='${_eng}' AND result IN ('WIN','LOSS','EXPIRED') AND source <> 'guard_block'${opts.ownOnly ? " AND source='own'" : ""}
+      WHERE user_id=$1 AND engine='${_eng}' AND result IN ('WIN','LOSS','EXPIRED') AND source NOT IN ('guard_block','lesson_gate')${opts.ownOnly ? " AND source='own'" : ""}
       GROUP BY ${group} ORDER BY trades DESC`,
     [userId]
   )).rows;
@@ -30312,13 +30539,14 @@ async function getModelMastery(userId, opts = {}) {
     propSim: { M1: propSimulate(byModel.M1), M2: propSimulate(byModel.M2) }
   };
 }
-var DDL3, ensured3, barsProviders, barsFor, pipSize, modelsEnrichOn, MODELS_EPOCH, modelsEpochOn, modelsLiftsOn, fxModelMarketplaceLiveOn, liftsActive, clampNum, round22, d1CtxCache, orbCtxCache, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
+var DDL3, ensured3, barsProviders, barsFor, pipSize, modelsEnrichOn, MODELS_EPOCH, modelsEpochOn, modelsLiftsOn, fxModelMarketplaceLiveOn, liftsActive, clampNum, round22, d1CtxCache, orbCtxCache, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, _deadSliceCache, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
 var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
     init_db();
     init_service();
     init_markov_chain();
+    init_shadow_lesson_gate();
     DDL3 = `
 CREATE TABLE IF NOT EXISTS fx_day_regimes (
   id serial PRIMARY KEY,
@@ -30396,6 +30624,7 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
     M2_SESSIONS = (process.env.FX_M2_SESSIONS || "London,London/NY overlap").split(",").map((x) => x.trim()).filter(Boolean);
     M2_MAX_ADX = Number(process.env.FX_M2_MAX_ADX) || 30;
     M2_MIN_RR = Number(process.env.FX_M2_MIN_RR) || 3;
+    _deadSliceCache = /* @__PURE__ */ new Map();
     FX_MODEL_MIN_TO_LIST = 20;
     DEFAULT_SETTINGS = { live: false, m1DailyCap: 3, m2DailyCap: 2 };
     LIVE_LEVELS = ["Proficient", "Master"];
@@ -41294,7 +41523,7 @@ function isFakeWinSignature(holdingMinutes, returnPct) {
   return holdingMinutes != null && holdingMinutes <= QUARANTINE_MAX_HOLD_MIN && returnPct != null && Math.abs(returnPct) >= QUARANTINE_MIN_ABS_RETURN_PCT;
 }
 async function ensureTable4() {
-  if (_ensured5) return;
+  if (_ensured6) return;
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
@@ -41316,7 +41545,7 @@ async function ensureTable4() {
       );
       CREATE INDEX IF NOT EXISTS "idx_sol_brain_outcomes_user_symbol" ON "sol_brain_outcomes" ("user_id", "symbol");
     `);
-    _ensured5 = true;
+    _ensured6 = true;
   } catch (err) {
     console.error("[sol-brain] ensureTable failed (non-fatal):", err?.message ?? err);
   }
@@ -41476,7 +41705,7 @@ async function recordSolBrainOutcome(o) {
     console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var MIN_TRADES5, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, BAD_PRICE_SYMBOLS, _ensured5, _cache3;
+var MIN_TRADES5, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, BAD_PRICE_SYMBOLS, _ensured6, _cache3;
 var init_sol_brain = __esm({
   "server/services/sol-brain.ts"() {
     "use strict";
@@ -41487,7 +41716,7 @@ var init_sol_brain = __esm({
     QUARANTINE_MAX_HOLD_MIN = 1;
     QUARANTINE_MIN_ABS_RETURN_PCT = 40;
     BAD_PRICE_SYMBOLS = ["RAY", "mSOL"];
-    _ensured5 = false;
+    _ensured6 = false;
     _cache3 = /* @__PURE__ */ new Map();
   }
 });
@@ -41990,8 +42219,8 @@ __export(sol_shadow_stats_exports, {
   sessionOf: () => sessionOf
 });
 function ensureSolShadowContextTable() {
-  if (!_ensured6) {
-    _ensured6 = pool.query(`CREATE TABLE IF NOT EXISTS sol_shadow_context (
+  if (!_ensured7) {
+    _ensured7 = pool.query(`CREATE TABLE IF NOT EXISTS sol_shadow_context (
       id serial PRIMARY KEY, user_id int NOT NULL, position_id text NOT NULL UNIQUE,
       strategy_id text NOT NULL, symbol text NOT NULL, mint text, dex text,
       liquidity_usd double precision, price_change_1h double precision, price_change_24h double precision,
@@ -42005,11 +42234,11 @@ function ensureSolShadowContextTable() {
       opened_at timestamptz NOT NULL DEFAULT now(),
       closed_at timestamptz, exit_reason text, hold_minutes double precision,
       gross_pct double precision, net_pct double precision, peak_gain_pct double precision)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS sol_shadow_context_user_closed ON sol_shadow_context (user_id, closed_at)`)).then(() => void 0).catch((e) => {
-      _ensured6 = null;
+      _ensured7 = null;
       throw e;
     });
   }
-  return _ensured6;
+  return _ensured7;
 }
 function sessionOf(hourUtc) {
   if (hourUtc < 7) return "Asian";
@@ -42167,7 +42396,7 @@ async function getSolShadowStatsText(userId, max = 12) {
     return "";
   }
 }
-var num5, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured6, _cache5;
+var num5, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured7, _cache5;
 var init_sol_shadow_stats = __esm({
   "server/services/sol-shadow-stats.ts"() {
     "use strict";
@@ -42179,7 +42408,7 @@ var init_sol_shadow_stats = __esm({
     MIN_N = () => num5("SOL_SHADOW_STATS_MIN_N", 15);
     FAVOR_PCT = () => num5("SOL_SHADOW_FAVOR_MEDIAN_PCT", 1);
     AVOID_PCT = () => num5("SOL_SHADOW_AVOID_MEDIAN_PCT", 2);
-    _ensured6 = null;
+    _ensured7 = null;
     _cache5 = /* @__PURE__ */ new Map();
   }
 });
@@ -43481,7 +43710,23 @@ async function evaluateShadowEntries(userId, state, scanResult) {
   if (!strategies.length) return;
   const statsMod = await Promise.resolve().then(() => (init_sol_shadow_stats(), sol_shadow_stats_exports));
   const stats = await statsMod.computeSolShadowStats(userId).catch(() => []);
+  const gateMod = await Promise.resolve().then(() => (init_shadow_lesson_gate(), shadow_lesson_gate_exports));
+  const lessonVerdicts = gateMod.solShadowLessonsOn() ? await gateMod.getSolShadowLessonVerdicts(userId).catch(() => null) : null;
   for (const strat of strategies) {
+    const lv = lessonVerdicts?.get(strat.id);
+    if (lv?.blocked) {
+      void gateMod.logShadowLessonBlock({
+        lane: "sol_shadow",
+        userId,
+        strategyKey: strat.id,
+        bucket: "strategy (all directions)",
+        n: lv.trades,
+        winRate: lv.trades ? lv.wins / lv.trades : null,
+        avgR: lv.avgR,
+        reason: `proven losing on the lesson bar: ${lv.trades} resolved, avg ${lv.avgR.toFixed(2)}R, win ${Math.round(lv.wins / Math.max(1, lv.trades) * 100)}%, no winning week in the rolling window`
+      });
+      continue;
+    }
     for (const analysis of scanResult) {
       const openAll = state.shadowPositions.filter((p2) => p2.status === "open");
       if (openAll.length >= SHADOW_MAX_OPEN) return;
@@ -66344,7 +66589,7 @@ async function buildStrategyBrain(userId, strategyId) {
       lastTradeAt: live.lastTradeAt
     },
     shadow,
-    deployments: deployments.map((d) => ({ id: d.id, platform: d.platform, accountLabel: d.accountLabel, status: d.status })),
+    deployments: deployments.map((d) => ({ id: d.id, platform: d.platform, accountLabel: d.accountLabel, status: d.status, lessonPaused: d.lessonPaused, lessonPauseReason: d.lessonPauseReason })),
     listableTrades,
     marketplace: strategyMarketplaceProof(live, shadow)
   };
@@ -76595,6 +76840,7 @@ var init_strategy_shadow = __esm({
 var strategy_runner_exports = {};
 __export(strategy_runner_exports, {
   assertBrokerDispatchAllowed: () => assertBrokerDispatchAllowed,
+  getDeploymentShadowLessonState: () => getDeploymentShadowLessonState,
   startStrategyRunner: () => startStrategyRunner
 });
 function startStrategyRunner() {
@@ -76746,6 +76992,30 @@ function assertBrokerDispatchAllowed(dep, fn) {
     throw new Error(`[Strategy Runner] ${fn}: shadow deployment ${dep.id} reached broker dispatch \u2014 refused (shadow deployments are virtual-only and have no account)`);
   }
 }
+async function getDeploymentShadowLessonState(deploymentId, force = false) {
+  const hit = _lessonStateCache.get(deploymentId);
+  if (!force && hit && Date.now() - hit.at < 5 * 6e4) return hit.state;
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const days = Math.max(7, Math.floor(Number(process.env.STUDIO_SHADOW_LESSON_WINDOW_DAYS ?? 90) || 90));
+  const { rows } = await pool2.query(
+    `SELECT count(*)::int AS n, count(*) FILTER (WHERE r_multiple > 0)::int AS wins, avg(r_multiple)::float AS avg_r
+       FROM strategy_trades
+      WHERE deployment_id=$1 AND mode='shadow' AND status='closed' AND r_multiple IS NOT NULL
+        AND closed_at >= now() - ($2 || ' days')::interval`,
+    [deploymentId, String(days)]
+  );
+  const r = rows[0] ?? { n: 0, wins: 0, avg_r: null };
+  const rTrades = Number(r.n) || 0, wins = Number(r.wins) || 0;
+  const avgR = r.avg_r == null ? null : Number(r.avg_r);
+  const state = {
+    rTrades,
+    wins,
+    avgR,
+    losing: studioDeploymentProvenLosing({ rTrades, wins, avgR })
+  };
+  _lessonStateCache.set(deploymentId, { at: Date.now(), state });
+  return state;
+}
 async function runShadowDeployment(dep, spec, sig, bars) {
   const bar = bars[bars.length - 1];
   const open = await getOpenStrategyTrade(dep.id);
@@ -76762,6 +77032,33 @@ async function runShadowDeployment(dep, spec, sig, bars) {
       riskDist: open.risk_price_dist != null ? Number(open.risk_price_dist) : null,
       volume: Number(open.volume) || spec.risk.lotSize
     };
+  }
+  if (!position) {
+    if (!studioShadowLessonsOn()) {
+      if (dep.lessonPaused) await setDeploymentLessonPause(dep.id, null).catch(() => {
+      });
+    } else {
+      const ls = await getDeploymentShadowLessonState(dep.id).catch(() => null);
+      if (ls?.losing) {
+        const reason = `Paused by its own lessons: ${ls.rTrades} R-bearing shadow closes, avg ${ls.avgR != null ? ls.avgR.toFixed(2) : "?"}R, win ${Math.round(ls.wins / Math.max(1, ls.rTrades) * 100)}% in the rolling window \u2014 no new shadow trades until the record recovers.`;
+        if (!dep.lessonPaused) await setDeploymentLessonPause(dep.id, reason).catch(() => {
+        });
+        void logShadowLessonBlock({
+          lane: "studio_shadow",
+          userId: dep.userId,
+          strategyKey: `strategy ${dep.strategyId}`,
+          bucket: `deployment ${dep.id}`,
+          n: ls.rTrades,
+          winRate: ls.rTrades ? ls.wins / ls.rTrades : null,
+          avgR: ls.avgR,
+          reason
+        });
+        await touchDeployment(dep.id, { error: null });
+        return;
+      }
+      if (dep.lessonPaused) await setDeploymentLessonPause(dep.id, null).catch(() => {
+      });
+    }
   }
   let entriesAllowed = true;
   if (!open && spec.risk.maxTradesPerDay && spec.risk.maxTradesPerDay > 0) {
@@ -77076,12 +77373,13 @@ async function dispatchBreakeven(dep, open, newStop, newTp) {
   }
   return false;
 }
-var TICK_MS3, TF_API, TF_MS, CRYPTOS, CONTRACT_SIZE3, started5, ticking;
+var TICK_MS3, TF_API, TF_MS, CRYPTOS, CONTRACT_SIZE3, started5, ticking, _lessonStateCache;
 var init_strategy_runner = __esm({
   "server/services/strategy-runner.ts"() {
     "use strict";
     init_wizard_spec_strategies();
     init_strategy_deployments();
+    init_shadow_lesson_gate();
     init_strategy_backtest();
     init_strategy_shadow();
     init_strategy_spec();
@@ -77093,6 +77391,7 @@ var init_strategy_runner = __esm({
     CONTRACT_SIZE3 = { XAUUSD: 100, XAGUSD: 5e3, BTCUSD: 1, ETHUSD: 10, SOLUSD: 100, XRPUSD: 1e4 };
     started5 = false;
     ticking = false;
+    _lessonStateCache = /* @__PURE__ */ new Map();
   }
 });
 
@@ -77993,9 +78292,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "27dde9a1-dirty";
-var BUILD_BRANCH = "feat/kalshi-100-account";
-var BUILT_AT = "2026-11-13T05:35:14.199Z";
+var BUILD_COMMIT = "0dd2bb85-dirty";
+var BUILD_BRANCH = "feat/shadow-act-on-lessons";
+var BUILT_AT = "2026-11-13T05:56:03.914Z";
 
 // server/stripe.ts
 init_db();

@@ -59,7 +59,7 @@ export interface StrategyBrainProfile {
   /** Shadow (virtual) deployment results — forward paper evidence,
    *  displayed separately from live and never counted in listableTrades. */
   shadow: StrategyTradeLayerSummary;
-  deployments: Array<{ id: number; platform: string; accountLabel: string | null; status: string }>;
+  deployments: Array<{ id: number; platform: string; accountLabel: string | null; status: string; lessonPaused?: boolean; lessonPauseReason?: string | null }>;
   /** Live trades available — the live Marketplace path needs >= 10. */
   listableTrades: number;
   /** Which Marketplace proof this strategy has earned, if any. */
@@ -278,7 +278,7 @@ export async function buildStrategyBrain(userId: number, strategyId: number): Pr
       lastTradeAt: live.lastTradeAt,
     },
     shadow,
-    deployments: deployments.map((d) => ({ id: d.id, platform: d.platform, accountLabel: d.accountLabel, status: d.status })),
+    deployments: deployments.map((d) => ({ id: d.id, platform: d.platform, accountLabel: d.accountLabel, status: d.status, lessonPaused: d.lessonPaused, lessonPauseReason: d.lessonPauseReason })),
     listableTrades,
     marketplace: strategyMarketplaceProof(live, shadow),
   };

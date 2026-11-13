@@ -66,6 +66,7 @@
 import { pool } from '../db';
 import { marketDataService } from '../market-data/service';
 import { getCachedMatrix, getMarkovSnapshot } from './markov-chain';
+import { fxModelsLessonGateOn, logShadowLessonBlock, promotionBarLoser } from './shadow-lesson-gate';
 
 export type DayType = 'range' | 'trend' | 'mixed';
 export type ModelId = 'M1' | 'M2';
@@ -1056,6 +1057,55 @@ export async function decideModelIdeas(userId: number, session: string, pairs: A
   return out;
 }
 
+// ── Lesson gate (2026-11-12, "all shadow lanes act on their lessons") ──
+// Mastery already stops a proven-dead slice from going LIVE, but the
+// slice kept recording normal shadow ideas forever. Now the shadow
+// lane acts on the same lesson: when a slice's (model × day type ×
+// pair × session) OWN current-system record is proven dead on the
+// lesson bar — 50+ resolved in the rolling window
+// (FX_MODELS_LESSON_WINDOW_DAYS, default 60), avg R ≤ −0.2, win rate
+// ≤ 40% — a new trade idea for that slice is written as a BLOCKED
+// counterfactual instead of a normal shadow decision: mode='blocked',
+// source='lesson_gate', guard kind in context, exactly the Stage-B
+// guard_block shape (guard-events.ts). The existing resolver
+// (resolveShadowDecisions, no mode/source filter) still scores the
+// idea against real prices, so what the gate stopped stays measurable.
+// Blocked rows can never teach: mastery/promotion counts exclude them
+// alongside guard_block (see the getModelMastery agg query), the prop
+// sim and listings read source='own' only, and the shadow ledger's FX
+// arm is source='own' only. Gate stats read own rows in a ROLLING
+// window, so a slice rehabilitates as its old losses age out.
+// The veto lives HERE — the live recording path — never inside
+// decideModelIdeas: that function is shared with the 14-day replay,
+// whose job is unbiased measurement of what the AI would have done.
+// Kill switch: FX_MODELS_LESSON_GATE=off.
+export interface SliceLessonStat { trades: number; wins: number; avgR: number }
+const _deadSliceCache = new Map<string, { at: number; dead: Map<string, SliceLessonStat> }>();
+
+export async function getDeadSlices(userId: number, engine: ModelEngine): Promise<Map<string, SliceLessonStat>> {
+  const ck = `${userId}|${engine}`;
+  const hit = _deadSliceCache.get(ck);
+  if (hit && Date.now() - hit.at < 15 * 60_000) return hit.dead;
+  const days = Math.max(7, Math.floor(Number(process.env.FX_MODELS_LESSON_WINDOW_DAYS ?? 60) || 60));
+  const { rows } = await pool.query(
+    `SELECT model, day_type, symbol, session, count(*)::int AS trades,
+            count(*) FILTER (WHERE result='WIN')::int AS wins, COALESCE(avg(r_multiple),0)::float AS avg_r
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND engine=$2 AND source='own' AND result IN ('WIN','LOSS','EXPIRED')
+        AND created_at >= now() - ($3 || ' days')::interval
+        ${modelsEpochOn() ? `AND epoch = ${MODELS_EPOCH}` : ''}
+      GROUP BY model, day_type, symbol, session`,
+    [userId, engine, String(days)],
+  );
+  const dead = new Map<string, SliceLessonStat>();
+  for (const r of rows) {
+    const stat: SliceLessonStat = { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgR: Number(r.avg_r) || 0 };
+    if (promotionBarLoser(stat)) dead.set(`${r.model}|${r.day_type}|${r.symbol}|${r.session}`, stat);
+  }
+  _deadSliceCache.set(ck, { at: Date.now(), dead });
+  return dead;
+}
+
 async function shadowDecide(userId: number, session: string, pairs: Array<{ symbol: string; ctx: any }>, engine: ModelEngine = 'fx'): Promise<void> {
   const mastery = await getModelMastery(userId, { engine }).catch(() => null);
   const masteryLines = formatMasteryLines(mastery?.slices);
@@ -1063,7 +1113,33 @@ async function shadowDecide(userId: number, session: string, pairs: Array<{ symb
     masteryLines,
     rangeFor: (s) => rangeFeatures(s, engine).catch(() => null),
   });
+  // Lesson gate verdicts for this cycle (cached ~15 min; fail-open —
+  // a stats error must never stop the shadow lane from recording).
+  const dead = fxModelsLessonGateOn() ? await getDeadSlices(userId, engine).catch(() => null) : null;
   for (const o of res.outcomes) {
+    const deadStat = o.isTrade && dead ? dead.get(`${o.model}|${o.dayType}|${o.symbol}|${session}`) : undefined;
+    if (deadStat) {
+      const winRate = deadStat.trades ? deadStat.wins / deadStat.trades : 0;
+      const gateCtx = {
+        ...o.storedCtx, guard: 'lesson_gate',
+        lessonGate: { trades: deadStat.trades, wins: deadStat.wins, avgR: deadStat.avgR, winRate, windowDays: Math.max(7, Math.floor(Number(process.env.FX_MODELS_LESSON_WINDOW_DAYS ?? 60) || 60)) },
+      };
+      await pool.query(
+        `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, source, engine, epoch)
+         VALUES ($1,$2,$3,'blocked',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,'lesson_gate',$14,$15)`,
+        [userId, o.symbol, o.model, o.dayType, session, o.tradeDirection, o.entry, o.stopLoss, o.takeProfit,
+          o.confidence, o.setup,
+          (`[lesson gate: slice proven dead — ${deadStat.trades} resolved, avg ${deadStat.avgR.toFixed(2)}R, win ${Math.round(winRate * 100)}%] ` + o.reasoning).slice(0, 700),
+          JSON.stringify(gateCtx), engine, MODELS_EPOCH],
+      ).catch(() => null);
+      void logShadowLessonBlock({
+        lane: 'fx_models', userId, strategyKey: o.model,
+        bucket: `${o.model} · ${o.dayType} · ${o.symbol} · ${session}`,
+        n: deadStat.trades, winRate, avgR: deadStat.avgR,
+        reason: `slice proven dead on the lesson bar: ${deadStat.trades} resolved, avg ${deadStat.avgR.toFixed(2)}R, win ${Math.round(winRate * 100)}% in the rolling window`,
+      });
+      continue;
+    }
     const ins = await pool.query(
       `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, result, engine, epoch)
        VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16) RETURNING id`,
@@ -1679,7 +1755,7 @@ export async function getModelMastery(userId: number, opts: { ownOnly?: boolean;
             COALESCE(AVG(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_avg_r,
             COALESCE(SUM(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_total_r
        FROM fx_model_decisions
-      WHERE user_id=$1 AND engine='${_eng}' AND result IN ('WIN','LOSS','EXPIRED') AND source <> 'guard_block'${opts.ownOnly ? " AND source='own'" : ''}
+      WHERE user_id=$1 AND engine='${_eng}' AND result IN ('WIN','LOSS','EXPIRED') AND source NOT IN ('guard_block','lesson_gate')${opts.ownOnly ? " AND source='own'" : ''}
       GROUP BY ${group} ORDER BY trades DESC`, [userId])).rows;
   const shape = (r: any) => {
     const winRate = r.trades ? r.wins / r.trades : 0;

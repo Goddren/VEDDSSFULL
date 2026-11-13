@@ -30,6 +30,9 @@
  * broker code: positions are virtual, resolved from bar prices by
  * services/strategy-shadow.ts, and logged as mode='shadow' rows.
  * Kill switch: STUDIO_SHADOW=off pauses shadow deployments only.
+ * Lesson gate: a shadow deployment whose own shadow record is proven
+ * losing pauses its own new entries (see getDeploymentShadowLessonState
+ * below); kill switch STUDIO_SHADOW_LESSONS=off.
  *
  * Cadence honesty: bars are evaluated when they close, checked every
  * 30s — right for M15/H1/H4/D1 strategies. Sub-M5 strategies belong on
@@ -39,8 +42,10 @@ import { getWizardStrategy } from './wizard-spec-strategies';
 import {
   listRunningDeployments, touchDeployment, openStrategyTrade,
   getOpenStrategyTrade, closeStrategyTrade, markStrategyTradeBreakeven, updateStrategyTradeLevels,
+  setDeploymentLessonPause,
   type StrategyDeployment,
 } from './strategy-deployments';
+import { studioShadowLessonsOn, studioDeploymentProvenLosing, logShadowLessonBlock } from './shadow-lesson-gate';
 import { evaluateSpecSignals, type BacktestBar } from './strategy-backtest';
 import { evaluateShadowBar, type ShadowPositionState } from './strategy-shadow';
 import { specWarmupBars, type StrategySpec } from './strategy-spec';
@@ -217,6 +222,40 @@ export function assertBrokerDispatchAllowed(dep: StrategyDeployment, fn: string)
  * strategy_studio_shadow arm is a view over those rows) and the
  * strategy brain's separate Shadow (virtual) layer.
  */
+// ── Studio shadow lesson gate (2026-11-12) ───────────────────────────
+// The deployment is the unit: its OWN shadow record, graded on the
+// shadow-proof bar inverted (studioDeploymentProvenLosing: ≥30
+// R-bearing closes in the rolling window, avg R ≤ −0.2, win rate
+// ≤ 40%). "Merely unproven" never pauses anything. The window
+// (STUDIO_SHADOW_LESSON_WINDOW_DAYS, default 90) is what makes the
+// pause self-lifting: condemned closes age out, the average recovers,
+// and the runner clears the pause on a later tick with no human touch.
+export interface DeploymentShadowLessonState { rTrades: number; wins: number; avgR: number | null; losing: boolean }
+const _lessonStateCache = new Map<number, { at: number; state: DeploymentShadowLessonState }>();
+
+export async function getDeploymentShadowLessonState(deploymentId: number, force = false): Promise<DeploymentShadowLessonState> {
+  const hit = _lessonStateCache.get(deploymentId);
+  if (!force && hit && Date.now() - hit.at < 5 * 60_000) return hit.state;
+  const { pool } = await import('../db');
+  const days = Math.max(7, Math.floor(Number(process.env.STUDIO_SHADOW_LESSON_WINDOW_DAYS ?? 90) || 90));
+  const { rows } = await pool.query(
+    `SELECT count(*)::int AS n, count(*) FILTER (WHERE r_multiple > 0)::int AS wins, avg(r_multiple)::float AS avg_r
+       FROM strategy_trades
+      WHERE deployment_id=$1 AND mode='shadow' AND status='closed' AND r_multiple IS NOT NULL
+        AND closed_at >= now() - ($2 || ' days')::interval`,
+    [deploymentId, String(days)],
+  );
+  const r = rows[0] ?? { n: 0, wins: 0, avg_r: null };
+  const rTrades = Number(r.n) || 0, wins = Number(r.wins) || 0;
+  const avgR = r.avg_r == null ? null : Number(r.avg_r);
+  const state: DeploymentShadowLessonState = {
+    rTrades, wins, avgR,
+    losing: studioDeploymentProvenLosing({ rTrades, wins, avgR }),
+  };
+  _lessonStateCache.set(deploymentId, { at: Date.now(), state });
+  return state;
+}
+
 async function runShadowDeployment(dep: StrategyDeployment, spec: StrategySpec, sig: NonNullable<ReturnType<typeof evaluateSpecSignals>>, bars: BacktestBar[]): Promise<void> {
   const bar = bars[bars.length - 1];
   const open = await getOpenStrategyTrade(dep.id);
@@ -234,6 +273,31 @@ async function runShadowDeployment(dep: StrategyDeployment, spec: StrategySpec, 
       riskDist: open.risk_price_dist != null ? Number(open.risk_price_dist) : null,
       volume: Number(open.volume) || spec.risk.lotSize,
     };
+  }
+
+  // Lesson gate — FLAT deployments only. An open shadow position is
+  // never stranded by its own lessons: it resolves on its own rules
+  // below. A flat, proven-losing deployment opens nothing new; the
+  // pause marker is set (idempotently) and the block audited. When the
+  // rolling record clears, the marker is cleared here and entries
+  // resume — the deployment stayed 'running' the whole time.
+  if (!position) {
+    if (!studioShadowLessonsOn()) {
+      if (dep.lessonPaused) await setDeploymentLessonPause(dep.id, null).catch(() => {});
+    } else {
+      const ls = await getDeploymentShadowLessonState(dep.id).catch(() => null);
+      if (ls?.losing) {
+        const reason = `Paused by its own lessons: ${ls.rTrades} R-bearing shadow closes, avg ${ls.avgR != null ? ls.avgR.toFixed(2) : '?'}R, win ${Math.round((ls.wins / Math.max(1, ls.rTrades)) * 100)}% in the rolling window — no new shadow trades until the record recovers.`;
+        if (!dep.lessonPaused) await setDeploymentLessonPause(dep.id, reason).catch(() => {});
+        void logShadowLessonBlock({
+          lane: 'studio_shadow', userId: dep.userId, strategyKey: `strategy ${dep.strategyId}`, bucket: `deployment ${dep.id}`,
+          n: ls.rTrades, winRate: ls.rTrades ? ls.wins / ls.rTrades : null, avgR: ls.avgR, reason,
+        });
+        await touchDeployment(dep.id, { error: null });
+        return;
+      }
+      if (dep.lessonPaused) await setDeploymentLessonPause(dep.id, null).catch(() => {});
+    }
   }
 
   // Daily entry cap — same semantics as the live path, counted on this
