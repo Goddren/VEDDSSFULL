@@ -35,7 +35,7 @@ import ConnectedAccountPicker, {
 } from "@/components/connected-account-picker";
 import { TradePerformanceCard, TodayReviewPanel } from "@/components/trade-performance-card";
 import { FxModelsPanel } from "@/components/fx-models-panel";
-import { SettingsOverviewPanel, PracticeCostPanel } from "@/components/engine-safeguards-panel";
+import { PracticeCostPanel } from "@/components/engine-safeguards-panel";
 import { KalshiShadowPanel } from "@/components/kalshi-shadow-panel";
 
 const POPULAR_PAIRS = [
@@ -5098,7 +5098,6 @@ export default function WeeklyStrategyPage() {
                   <TodayReviewPanel className="mt-3" />
                   <FxModelsPanel className="mt-3" />
                   <GuardsTrailsSummaryCard className="mt-3" />
-                  <SettingsOverviewPanel className="mt-3" />
                   <KalshiShadowPanel className="mt-3" />
                   <PracticeCostPanel className="mt-3" />
                   {brainStatus.learningInsights?.length > 0 && (
