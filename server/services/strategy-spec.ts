@@ -130,6 +130,18 @@ export interface StrategySpec {
   trendFilter?: TrendFilter | null;
   sessionFilter?: SessionFilter | null;
   risk: StrategyRisk;
+  /** Set ONLY on a buyer's cloned copy of a Marketplace strategy
+   *  listing: which listing/seller/strategy it came from and which
+   *  proof (shadow or live) the seller's record carried. The runner
+   *  ignores it; it exists so the copy is honestly labelled forever. */
+  marketplace?: {
+    purchased: true;
+    source: 'marketplace_strategy';
+    listingId: number;
+    sellerId: number;
+    sourceStrategyId: number;
+    proofType: 'shadow' | 'live';
+  };
 }
 
 export const INDICATOR_CATALOG: Array<{
