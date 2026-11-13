@@ -36,7 +36,7 @@ interface VolumeMetrics {
   isHighActivity: boolean;
 }
 
-function computeVolumeMetrics(bars: Array<{ volume: number }>): VolumeMetrics {
+export function computeVolumeMetrics(bars: Array<{ volume: number }>): VolumeMetrics {
   if (!bars || bars.length < 5) {
     return { currentVolume: 0, avgVolume: 0, relativeVolume: 0, volumeTrend: 'below_average', volumeSpikes: 0, isHighActivity: false };
   }
@@ -1306,7 +1306,7 @@ const countedTradeKeys = new Map<number, Set<string>>();
 //                   H4 has turned against it (anti-shakeout)   |  off
 const h4BiasCache = new Map<string, { at: number; data: HTFBiasData }>();
 const H4_REFRESH_MS = 60 * 60 * 1000;
-function computeHtfBias(bars: any[]): HTFBiasData | null {
+export function computeHtfBias(bars: any[]): HTFBiasData | null {
   if (!bars || bars.length < 15) return null;
   const confirmed = bars.slice(0, -1); // drop the partial live candle
   if (confirmed.length < 14) return null;
@@ -1692,7 +1692,7 @@ export function recordTradeResult(userId: number, result: {
   }
 }
 
-function convertToCandles(bars: Array<{ timestamp: number; open: number; high: number; low: number; close: number; volume: number }>): CandleData[] {
+export function convertToCandles(bars: Array<{ timestamp: number; open: number; high: number; low: number; close: number; volume: number }>): CandleData[] {
   return bars.map(b => ({ t: b.timestamp, o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume }));
 }
 
@@ -2557,7 +2557,7 @@ function computeSteppedFixedTrailSL(
  *
  * Callers must treat null as "I don't know" and abstain, never as zero.
  */
-function adxOrNull(src: any): number | null {
+export function adxOrNull(src: any): number | null {
   const v = src?.adx?.adx ?? src?.adx?.value ?? (typeof src?.adx === 'number' ? src.adx : undefined);
   const n = Number(v);
   return isFinite(n) && n > 0 ? n : null;

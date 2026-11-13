@@ -20616,9 +20616,13 @@ var init_hour_filter = __esm({
 // server/services/live-trading-engine.ts
 var live_trading_engine_exports = {};
 __export(live_trading_engine_exports, {
+  adxOrNull: () => adxOrNull,
   broadcastMT5Signal: () => broadcastMT5Signal,
+  computeHtfBias: () => computeHtfBias,
   computeOrbStateFromCandles: () => computeOrbStateFromCandles,
+  computeVolumeMetrics: () => computeVolumeMetrics,
   confirmMT5Signal: () => confirmMT5Signal,
+  convertToCandles: () => convertToCandles,
   emergencyStopEngine: () => emergencyStopEngine,
   fxMarketClosedFor: () => fxMarketClosedFor,
   generateRuleBasedSignals: () => generateRuleBasedSignals,
@@ -28977,14 +28981,18 @@ __export(fx_models_exports, {
   aggregateDailyBars: () => aggregateDailyBars,
   altClassifyD1H1: () => altClassifyD1H1,
   barsFor: () => barsFor,
+  buildModelFeatures: () => buildModelFeatures,
   buildModelsPrompt: () => buildModelsPrompt,
   classifyDayType: () => classifyDayType,
   compactMarkov: () => compactMarkov,
   compactVolumeProfile: () => compactVolumeProfile,
+  computeRangeFeatures: () => computeRangeFeatures,
   d1Features: () => d1Features,
   d1Summary: () => d1Summary,
+  decideModelIdeas: () => decideModelIdeas,
   decisionProvenance: () => decisionProvenance,
   ensureFxModelTables: () => ensureFxModelTables,
+  formatMasteryLines: () => formatMasteryLines,
   fxModelDailyCap: () => fxModelDailyCap,
   fxModelDailyCapAllows: () => fxModelDailyCapAllows,
   fxModelImportEpoch: () => fxModelImportEpoch,
@@ -29010,8 +29018,10 @@ __export(fx_models_exports, {
   modelsEpochOn: () => modelsEpochOn,
   modelsLiftsOn: () => modelsLiftsOn,
   parseFxModelScope: () => parseFxModelScope,
+  pipSize: () => pipSize,
   promotionStats: () => promotionStats,
   propSimulate: () => propSimulate,
+  raceResolveOnBars: () => raceResolveOnBars,
   rangeFeatures: () => rangeFeatures,
   registerBarsProvider: () => registerBarsProvider,
   resolveShadowDecisions: () => resolveShadowDecisions,
@@ -29239,8 +29249,8 @@ function aggregateDailyBars(h1Bars) {
   }
   return Array.from(byDay.entries()).sort((x, y) => x[0] - y[0]).map(([, v]) => v);
 }
-function d1Summary(daily, price) {
-  const todayKey = Math.floor(Date.now() / 864e5);
+function d1Summary(daily, price, nowMs = Date.now()) {
+  const todayKey = Math.floor(nowMs / 864e5);
   const confirmed = (daily || []).filter((d) => Math.floor(Number(d.timestamp) / 864e5) < todayKey);
   if (confirmed.length < 20) return null;
   const closes = confirmed.map((d) => Number(d.close));
@@ -29280,6 +29290,36 @@ async function orbContext(userId, symbol) {
   orbCtxCache.set(ck, { at: Date.now(), data });
   return data;
 }
+function buildModelFeatures(input) {
+  const { a, snap, h1, h4, session: session3 } = input;
+  const cls = classifyDayType({ adx: snap.adx, relVolume: snap.relativeVolume, h1: h1?.trend, h4: h4?.trend, session: session3 });
+  const features = {
+    price: a?.currentPrice ?? snap.price,
+    m15Trend: snap.trend,
+    rsi: snap.rsi,
+    adx: snap.adx,
+    plusDI: snap.plusDI,
+    minusDI: snap.minusDI,
+    atr: Number(snap.atr) > 0 ? snap.atr : null,
+    // 0 means "not computed", never tell the AI ATR is zero
+    relVolume: snap.relativeVolume,
+    volumeTrend: snap.volumeTrend,
+    h1: h1 ? { trend: h1.trend, bos: h1.bosChoch?.detected ? h1.bosChoch.description : null, pd: h1.premiumDiscount?.zone, wyckoff: h1.wyckoff?.detected ? h1.wyckoff.phase : null } : null,
+    h4: h4 ? { trend: h4.trend, bos: h4.bosChoch?.detected ? h4.bosChoch.description : null, pd: h4.premiumDiscount?.zone, wyckoff: h4.wyckoff?.detected ? h4.wyckoff.phase : null } : null,
+    signals: a?.signals ?? a?.strategySignals ?? void 0
+  };
+  if (modelsEnrichOn()) {
+    const px = Number(features.price);
+    const parts = input.enrichParts || { volumeProfileRaw: void 0, markov: null, orb: null, d1: null };
+    features.volumeProfile = compactVolumeProfile(parts.volumeProfileRaw, px);
+    features.markov = parts.markov;
+    features.orb = parts.orb;
+    features.d1 = parts.d1;
+    const alt = altClassifyD1H1({ adx: snap.adx, relVolume: snap.relativeVolume, d1: parts.d1?.trend, h1: h1?.trend, session: session3 });
+    features.regimeAlt = { basis: "D1/H1", dayType: alt.dayType, autoModel: alt.autoModel, score: alt.score };
+  }
+  return { features, cls };
+}
 async function runFxModelsCycle(userId, ctx) {
   if (process.env.FX_MODELS_SHADOW === "off") return;
   try {
@@ -29292,35 +29332,21 @@ async function runFxModelsCycle(userId, ctx) {
     for (const [symbol, a] of Object.entries(ctx.marketAnalysis || {})) {
       const snap = ctx.snapshot?.[symbol] || {};
       const { h1, h4 } = ctx.mtf(symbol);
-      const cls = classifyDayType({ adx: snap.adx, relVolume: snap.relativeVolume, h1: h1?.trend, h4: h4?.trend, session: session3 });
-      const features = {
-        price: a?.currentPrice ?? snap.price,
-        m15Trend: snap.trend,
-        rsi: snap.rsi,
-        adx: snap.adx,
-        plusDI: snap.plusDI,
-        minusDI: snap.minusDI,
-        atr: Number(snap.atr) > 0 ? snap.atr : null,
-        // 0 means "not computed", never tell the AI ATR is zero
-        relVolume: snap.relativeVolume,
-        volumeTrend: snap.volumeTrend,
-        h1: h1 ? { trend: h1.trend, bos: h1.bosChoch?.detected ? h1.bosChoch.description : null, pd: h1.premiumDiscount?.zone, wyckoff: h1.wyckoff?.detected ? h1.wyckoff.phase : null } : null,
-        h4: h4 ? { trend: h4.trend, bos: h4.bosChoch?.detected ? h4.bosChoch.description : null, pd: h4.premiumDiscount?.zone, wyckoff: h4.wyckoff?.detected ? h4.wyckoff.phase : null } : null,
-        signals: a?.signals ?? a?.strategySignals ?? void 0
-      };
+      let enrichParts = null;
       if (modelsEnrichOn()) {
-        const px = Number(features.price);
-        features.volumeProfile = compactVolumeProfile(a?.volumeProfile, px);
-        features.markov = compactMarkov(symbol, a?.lastConfirmedCandle ?? null);
+        const px = Number(a?.currentPrice ?? snap.price);
         const [orb, d1] = await Promise.all([
           orbContext(userId, symbol).catch(() => null),
           d1Features(symbol, "fx", px).catch(() => null)
         ]);
-        features.orb = orb;
-        features.d1 = d1;
-        const alt = altClassifyD1H1({ adx: snap.adx, relVolume: snap.relativeVolume, d1: d1?.trend, h1: h1?.trend, session: session3 });
-        features.regimeAlt = { basis: "D1/H1", dayType: alt.dayType, autoModel: alt.autoModel, score: alt.score };
+        enrichParts = {
+          volumeProfileRaw: a?.volumeProfile,
+          markov: compactMarkov(symbol, a?.lastConfirmedCandle ?? null),
+          orb,
+          d1
+        };
       }
+      const { features, cls } = buildModelFeatures({ a, snap, h1, h4, session: session3, enrichParts });
       await pool.query(
         `INSERT INTO fx_day_regimes (user_id, symbol, day, hour_utc, session, day_type, auto_model, trend_score, adx_m15, rel_volume, atr, h1_trend, h4_trend, features)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)
@@ -29355,16 +29381,8 @@ function num3(x) {
   const n = Number(x);
   return Number.isFinite(n) ? n : null;
 }
-async function rangeFeatures(symbol, engine = "fx") {
-  const ck = `${engine}|${symbol}`;
-  const hit = rangeCache.get(ck);
-  if (hit && Date.now() - hit.at < 30 * 6e4) return hit.data;
-  let bars = [];
-  try {
-    bars = (await barsFor(engine)(symbol, "1h", 72)).slice(0, -1);
-  } catch {
-    return null;
-  }
+function computeRangeFeatures(confirmedBars, symbol, nowMs) {
+  const bars = confirmedBars || [];
   if (bars.length < 30) return null;
   const ts = (b) => Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp);
   const box = bars.slice(-24);
@@ -29394,7 +29412,7 @@ async function rangeFeatures(symbol, engine = "fx") {
   const bbPct = Math.round(widths.filter((w) => w <= nowW).length / widths.length * 100);
   const trs = bars.slice(-15).map((b, i, a) => i === 0 ? b.high - b.low : Math.max(b.high - b.low, Math.abs(b.high - a[i - 1].close), Math.abs(b.low - a[i - 1].close))).slice(1);
   const atrH1 = trs.reduce((s, x) => s + x, 0) / trs.length;
-  const today = /* @__PURE__ */ new Date();
+  const today = new Date(nowMs);
   today.setUTCHours(0, 0, 0, 0);
   const t0 = today.getTime();
   const prevDay = bars.filter((b) => ts(b) >= t0 - 864e5 && ts(b) < t0);
@@ -29417,6 +29435,20 @@ async function rangeFeatures(symbol, engine = "fx") {
     asianLow: asian.length ? Math.min(...asian.map((b) => b.low)) : null,
     qualifies: touchesHigh >= 2 && touchesLow >= 2 && bbPct <= 65
   };
+  return data;
+}
+async function rangeFeatures(symbol, engine = "fx") {
+  const ck = `${engine}|${symbol}`;
+  const hit = rangeCache.get(ck);
+  if (hit && Date.now() - hit.at < 30 * 6e4) return hit.data;
+  let bars = [];
+  try {
+    bars = (await barsFor(engine)(symbol, "1h", 72)).slice(0, -1);
+  } catch {
+    return null;
+  }
+  if (bars.length < 30) return null;
+  const data = computeRangeFeatures(bars, symbol, Date.now());
   rangeCache.set(ck, { at: Date.now(), data });
   return data;
 }
@@ -29527,10 +29559,17 @@ Give exactly one M1 and one M2 entry per pair.`;
   if (!enriched) return base;
   return base.replace("Both models use every input", `${enrichmentGuidance(engine)}Both models use every input`);
 }
-async function shadowDecide(userId, session3, pairs, engine = "fx") {
+function formatMasteryLines(slices) {
+  return (slices || []).filter((m) => m.trades >= 5).slice(0, 20).map((m) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join("\n");
+}
+async function decideModelIdeas(userId, session3, pairs, engine, deps) {
+  const out = { outcomes: [], aiCalls: 0, paused: false, failed: false };
   try {
     const { fxShouldPauseForCredits: fxShouldPauseForCredits2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
-    if (fxShouldPauseForCredits2()) return;
+    if (fxShouldPauseForCredits2()) {
+      out.paused = true;
+      return out;
+    }
   } catch {
   }
   let ai;
@@ -29538,17 +29577,17 @@ async function shadowDecide(userId, session3, pairs, engine = "fx") {
     const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
     ai = await getUniversalAIClientForUser2(userId);
   } catch {
-    return;
+    out.failed = true;
+    return out;
   }
   for (const p2 of pairs) {
-    const range = await rangeFeatures(p2.symbol, engine).catch(() => null);
+    const range = await deps.rangeFor(p2.symbol).catch(() => null);
     p2.ctx.range = range ? { ...range } : null;
     if (p2.ctx.range) p2.ctx.range.m1Candidate = m1Candidate(p2.symbol, p2.ctx, engine);
   }
-  const mastery2 = await getModelMastery(userId, { engine }).catch(() => null);
-  const masteryLines = (mastery2?.slices || []).filter((m) => m.trades >= 5).slice(0, 20).map((m) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join("\n");
-  const prompt = buildModelsPrompt(engine, session3, pairs, masteryLines);
+  const prompt = buildModelsPrompt(engine, session3, pairs, deps.masteryLines);
   let content = "";
+  out.aiCalls = 1;
   try {
     const resp = await ai.chat.completions.create({
       model: ai.defaultModel || "gpt-4o-mini",
@@ -29564,13 +29603,14 @@ async function shadowDecide(userId, session3, pairs, engine = "fx") {
       noteAiBudgetError2(e);
     } catch {
     }
-    return;
+    out.failed = true;
+    return out;
   }
   let ideas = [];
   try {
     ideas = JSON.parse(content.slice(content.indexOf("{"), content.lastIndexOf("}") + 1))?.ideas || [];
   } catch {
-    return;
+    return out;
   }
   const byPair = new Map(pairs.map((p2) => [p2.symbol.toUpperCase(), p2.ctx]));
   for (const i of ideas) {
@@ -29623,46 +29663,101 @@ async function shadowDecide(userId, session3, pairs, engine = "fx") {
       ...prov.wasExcludedPair ? { wasExcludedPair: true } : {},
       ...prov.wasBlockedSession ? { wasBlockedSession: true } : {}
     };
+    out.outcomes.push({
+      symbol: sym2,
+      model,
+      dayType: ctx.dayType,
+      autoModel: ctx.autoModel,
+      direction: isTrade ? dir : "NONE",
+      isTrade,
+      tradeDirection: dir,
+      price,
+      entry: isTrade ? price : null,
+      stopLoss: isTrade ? sl : null,
+      takeProfit: isTrade ? tp : null,
+      confidence: Math.max(0, Math.min(100, Math.round(Number(i?.confidence) || 0))),
+      setup: String(i?.setup || "").slice(0, 80),
+      rawConfidence: Math.round(Number(i?.confidence) || 0),
+      rawSetup: String(i?.setup || ""),
+      reason: String(i?.reason || ""),
+      reasoning: (ruleNote ? `[${ruleNote}] ` : "") + String(i?.reason || "").slice(0, 500),
+      ruleNote,
+      storedCtx
+    });
+  }
+  return out;
+}
+async function shadowDecide(userId, session3, pairs, engine = "fx") {
+  const mastery2 = await getModelMastery(userId, { engine }).catch(() => null);
+  const masteryLines = formatMasteryLines(mastery2?.slices);
+  const res2 = await decideModelIdeas(userId, session3, pairs, engine, {
+    masteryLines,
+    rangeFor: (s) => rangeFeatures(s, engine).catch(() => null)
+  });
+  for (const o of res2.outcomes) {
     const ins = await pool.query(
       `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, result, engine, epoch)
        VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16) RETURNING id`,
       [
         userId,
-        sym2,
-        model,
-        ctx.dayType,
+        o.symbol,
+        o.model,
+        o.dayType,
         session3,
-        isTrade ? dir : "NONE",
-        isTrade ? price : null,
-        isTrade ? sl : null,
-        isTrade ? tp : null,
-        Math.max(0, Math.min(100, Math.round(Number(i?.confidence) || 0))),
-        String(i?.setup || "").slice(0, 80),
-        (ruleNote ? `[${ruleNote}] ` : "") + String(i?.reason || "").slice(0, 500),
-        JSON.stringify(storedCtx),
-        isTrade ? null : "NO_TRADE",
+        o.direction,
+        o.entry,
+        o.stopLoss,
+        o.takeProfit,
+        o.confidence,
+        o.setup,
+        o.reasoning,
+        JSON.stringify(o.storedCtx),
+        o.isTrade ? null : "NO_TRADE",
         engine,
         MODELS_EPOCH
       ]
     ).catch(() => null);
-    if (engine === "fx" && isTrade && ins?.rows?.[0]?.id) {
+    if (engine === "fx" && o.isTrade && ins?.rows?.[0]?.id) {
       await maybeGoLive(userId, {
         id: ins.rows[0].id,
-        symbol: sym2,
-        model,
-        dayType: ctx.dayType,
-        autoModel: ctx.autoModel,
+        symbol: o.symbol,
+        model: o.model,
+        dayType: o.dayType,
+        autoModel: o.autoModel,
         session: session3,
-        direction: dir,
-        entry: price,
-        stopLoss: sl,
-        takeProfit: tp,
-        confidence: Math.round(Number(i?.confidence) || 0),
-        setup: String(i?.setup || ""),
-        reason: String(i?.reason || "")
+        direction: o.tradeDirection,
+        entry: o.price,
+        stopLoss: o.stopLoss,
+        takeProfit: o.takeProfit,
+        confidence: o.rawConfidence,
+        setup: o.rawSetup,
+        reason: o.reason
       }).catch((e) => console.error("[fx-models] live hand-off failed (non-fatal):", e?.message || e));
     }
   }
+}
+function raceResolveOnBars(dec, bars, nowMs) {
+  const t0 = new Date(dec.created_at).getTime();
+  const entry = Number(dec.entry_price), sl = Number(dec.stop_loss), tp = Number(dec.take_profit);
+  const risk = Math.abs(entry - sl);
+  if (!(risk > 0)) return null;
+  const buy = dec.direction === "BUY";
+  const list = bars || [];
+  for (const b of list) {
+    const ts = Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp);
+    if (ts < t0) continue;
+    const hitSl = buy ? b.low <= sl : b.high >= sl;
+    const hitTp = buy ? b.high >= tp : b.low <= tp;
+    if (hitSl) return { result: "LOSS", exitPrice: sl, resolvedAtMs: ts };
+    if (hitTp) return { result: "WIN", exitPrice: tp, resolvedAtMs: ts };
+  }
+  if (nowMs - t0 > 48 * 36e5) {
+    const cutoff = t0 + 48 * 36e5;
+    const atCut = list.filter((b) => (Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp)) <= cutoff);
+    const exit = Number(atCut[atCut.length - 1]?.close) || Number(list[list.length - 1]?.close) || entry;
+    return { result: "EXPIRED", exitPrice: exit, resolvedAtMs: cutoff };
+  }
+  return null;
 }
 async function resolveShadowDecisions(engine = "fx", userId) {
   await pool.query(
@@ -29691,39 +29786,15 @@ async function resolveShadowDecisions(engine = "fx", userId) {
     }
     if (!bars.length) continue;
     for (const r of list) {
-      const t0 = new Date(r.created_at).getTime();
-      const entry = Number(r.entry_price), sl = Number(r.stop_loss), tp = Number(r.take_profit);
+      const out = raceResolveOnBars(r, bars, Date.now());
+      if (!out) continue;
+      const entry = Number(r.entry_price), sl = Number(r.stop_loss);
       const risk = Math.abs(entry - sl);
-      if (!(risk > 0)) continue;
       const buy = r.direction === "BUY";
-      let result = null, exit = 0;
-      for (const b of bars) {
-        const ts = Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp);
-        if (ts < t0) continue;
-        const hitSl = buy ? b.low <= sl : b.high >= sl;
-        const hitTp = buy ? b.high >= tp : b.low <= tp;
-        if (hitSl) {
-          result = "LOSS";
-          exit = sl;
-          break;
-        }
-        if (hitTp) {
-          result = "WIN";
-          exit = tp;
-          break;
-        }
-      }
-      if (!result && Date.now() - t0 > 48 * 36e5) {
-        const cutoff = t0 + 48 * 36e5;
-        const atCut = bars.filter((b) => (Number(b.timestamp) < 1e12 ? Number(b.timestamp) * 1e3 : Number(b.timestamp)) <= cutoff);
-        exit = Number(atCut[atCut.length - 1]?.close) || Number(bars[bars.length - 1]?.close) || entry;
-        result = "EXPIRED";
-      }
-      if (!result) continue;
-      const move = buy ? exit - entry : entry - exit;
+      const move = buy ? out.exitPrice - entry : entry - out.exitPrice;
       await pool.query(
         `UPDATE fx_model_decisions SET result=$2, exit_price=$3, r_multiple=$4, pips=$5, resolved_at=now() WHERE id=$1 AND result IS NULL`,
-        [r.id, result, exit, move / risk, engine === "crypto" ? entry > 0 ? move / entry * 100 : 0 : move / pipSize(symbol)]
+        [r.id, out.result, out.exitPrice, move / risk, engine === "crypto" ? entry > 0 ? move / entry * 100 : 0 : move / pipSize(symbol)]
       ).catch(() => {
       });
     }
@@ -57464,6 +57535,586 @@ var init_options_backtest = __esm({
   }
 });
 
+// server/services/fx-models-replay.ts
+var fx_models_replay_exports = {};
+__export(fx_models_replay_exports, {
+  barsBefore: () => barsBefore,
+  compactMarkovAsOf: () => compactMarkovAsOf,
+  computeReplayResults: () => computeReplayResults,
+  ensureFxModelReplayTables: () => ensureFxModelReplayTables,
+  fxModelsReplayOn: () => fxModelsReplayOn,
+  getLatestFxModelReplay: () => getLatestFxModelReplay,
+  markovMatrixFromCandles: () => markovMatrixFromCandles,
+  replayMarketClosed: () => replayMarketClosed,
+  replayMasteryLines: () => replayMasteryLines,
+  resumeFxModelReplayRuns: () => resumeFxModelReplayRuns,
+  startFxModelReplay: () => startFxModelReplay,
+  tsMs: () => tsMs
+});
+function ensureFxModelReplayTables() {
+  if (!ensured9) {
+    ensured9 = pool.query(DDL4).then(() => void 0).catch((e) => {
+      console.error("[fx-models-replay] ensure tables failed (non-fatal):", e?.message || e);
+      ensured9 = null;
+    });
+  }
+  return ensured9;
+}
+function barsBefore(bars, asOfMs, lastN) {
+  const out = (bars || []).filter((b) => tsMs(b) < asOfMs);
+  return lastN && out.length > lastN ? out.slice(out.length - lastN) : out;
+}
+function replayMarketClosed(symbol, ms) {
+  if (/^(BTC|ETH|SOL|LTC|XRP|DOGE|ADA|BNB)/i.test(String(symbol || ""))) return false;
+  const d = new Date(ms);
+  const day = d.getUTCDay(), h = d.getUTCHours();
+  return day === 6 || day === 5 && h >= 21 || day === 0 && h < 21;
+}
+function markovMatrixFromCandles(candles) {
+  if (!candles || candles.length < 5) return null;
+  const counts = {};
+  for (const s of MARKOV_STATES) {
+    counts[s] = {};
+    for (const t of MARKOV_STATES) counts[s][t] = 0;
+  }
+  const states = candles.map((c) => classifyCandle(c.open, c.close));
+  let total = 0;
+  for (let i = 0; i < states.length - 1; i++) {
+    counts[states[i]][states[i + 1]]++;
+    total++;
+  }
+  if (total === 0) return null;
+  const prob = {};
+  for (const from of MARKOV_STATES) {
+    const rowTotal = Object.values(counts[from]).reduce((s, v) => s + v, 0);
+    const smoothedTotal = rowTotal + MARKOV_STATES.length;
+    prob[from] = {};
+    for (const to of MARKOV_STATES) prob[from][to] = (counts[from][to] + 1) / smoothedTotal;
+  }
+  return prob;
+}
+function compactMarkovAsOf(confirmedM15) {
+  if (!confirmedM15?.length) return null;
+  const matrix = markovMatrixFromCandles(confirmedM15.map((b) => ({ open: Number(b.open), close: Number(b.close) })));
+  if (!matrix) return null;
+  const last2 = confirmedM15[confirmedM15.length - 1];
+  const state = classifyCandle(Number(last2.open), Number(last2.close));
+  const row = matrix[state];
+  const r3 = (x) => Math.round(x * 1e3) / 1e3;
+  const bull = r3((row.STRONG_BULL || 0) + (row.BULL || 0));
+  const bear = r3((row.STRONG_BEAR || 0) + (row.BEAR || 0));
+  const neut = r3(row.NEUTRAL || 0);
+  return { state, pTrend: r3(bull + bear), pChop: neut, pBull: bull, pBear: bear };
+}
+function replayMasteryLines(decisions) {
+  const map = /* @__PURE__ */ new Map();
+  for (const d of decisions || []) {
+    if (!d || d.result == null || d.result === "NO_TRADE") continue;
+    const key = `${d.model}|${d.day_type}|${d.symbol}|${d.session}`;
+    const cur = map.get(key) || { model: d.model, dayType: d.day_type, symbol: d.symbol, session: d.session, trades: 0, wins: 0, sumR: 0 };
+    cur.trades++;
+    if (d.result === "WIN") cur.wins++;
+    cur.sumR += Number(d.r_multiple) || 0;
+    map.set(key, cur);
+  }
+  const slices = Array.from(map.values()).map((s) => {
+    const winRate2 = s.trades ? s.wins / s.trades : 0;
+    const avgR = s.trades ? s.sumR / s.trades : 0;
+    return { model: s.model, dayType: s.dayType, symbol: s.symbol, session: s.session, trades: s.trades, winRate: winRate2, avgR, level: masteryLevel(s.trades, winRate2, avgR) };
+  }).sort((x, y) => y.trades - x.trades);
+  return formatMasteryLines(slices);
+}
+function computeReplayResults(decisions) {
+  const stats = (rows) => {
+    const trades = rows.length;
+    const wins = rows.filter((r) => r.result === "WIN").length;
+    const totalR = rows.reduce((a, r) => a + (Number(r.r_multiple) || 0), 0);
+    return {
+      trades,
+      wins,
+      winRate: trades ? wins / trades : null,
+      avgR: trades ? totalR / trades : null,
+      totalR: Math.round(totalR * 100) / 100
+    };
+  };
+  const resolvedTrades = (decisions || []).filter((d) => d && (d.direction === "BUY" || d.direction === "SELL") && (d.result === "WIN" || d.result === "LOSS" || d.result === "EXPIRED"));
+  const byModel = (m) => resolvedTrades.filter((d) => d.model === m);
+  const blockedBy = (m) => resolvedTrades.filter((d) => d.model === m && d.old_rules_blocked).length;
+  return {
+    simulation: true,
+    perModel: { M1: stats(byModel("M1")), M2: stats(byModel("M2")) },
+    propSim: {
+      M1: propSimulate(byModel("M1").map((d) => ({ ...d, created_at: d.hour_at ?? d.created_at }))),
+      M2: propSimulate(byModel("M2").map((d) => ({ ...d, created_at: d.hour_at ?? d.created_at })))
+    },
+    blockedComparison: {
+      tradesTotal: resolvedTrades.length,
+      wouldHaveBeenBlocked: resolvedTrades.filter((d) => d.old_rules_blocked).length,
+      byModel: { M1: blockedBy("M1"), M2: blockedBy("M2") }
+    },
+    openDecisions: (decisions || []).filter((d) => d && (d.direction === "BUY" || d.direction === "SELL") && d.result == null).length,
+    noTradeDecisions: (decisions || []).filter((d) => d && d.result === "NO_TRADE").length
+  };
+}
+async function fetchSeries(symbol, timeframe, limit) {
+  const assetType = marketDataService.detectAssetType(symbol);
+  const prior = CACHE_PROVIDERS.map((p2) => ({ provider: p2, entry: marketDataCache.get(symbol, timeframe, p2) }));
+  const r = await marketDataService.fetchMarketData({ symbol, assetType, timeframe, limit });
+  for (const { provider, entry } of prior) {
+    if (entry) marketDataCache.set(symbol, timeframe, provider, entry, marketDataCache.getTTLForTimeframe(timeframe));
+    else marketDataCache.invalidate(symbol, timeframe, provider);
+  }
+  const bars = r?.bars || [];
+  return bars.map((b) => ({ ...b, timestamp: tsMs(b) })).filter((b) => Number.isFinite(b.timestamp) && b.timestamp > 0).sort((x, y) => x.timestamp - y.timestamp);
+}
+async function loadSeries(symbol, days) {
+  const [m15, m5, h1, h4] = await Promise.all([
+    fetchSeries(symbol, "15m", days * 96 + 48 * 4 + 120).catch(() => []),
+    fetchSeries(symbol, "5m", days * 288 + 240).catch(() => []),
+    fetchSeries(symbol, "1h", 1500 + days * 24 + 120).catch(() => []),
+    fetchSeries(symbol, "4h", days * 6 + 160).catch(() => [])
+  ]);
+  return { m15, m5, h1, h4 };
+}
+async function lte2() {
+  if (!lteMod) lteMod = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+  return lteMod;
+}
+function htfBiasAsOf(bars, asOfMs, price, engine) {
+  const confirmed = barsBefore(bars, asOfMs, 49);
+  if (confirmed.length < 14) return null;
+  const partial = { timestamp: asOfMs, open: price, high: price, low: price, close: price, volume: 0 };
+  try {
+    return engine.computeHtfBias([...confirmed, partial]);
+  } catch {
+    return null;
+  }
+}
+function d1AsOf(h1, asOfMs, price) {
+  const win = barsBefore(h1, asOfMs, 1500);
+  if (win.length < 24 * 20) return null;
+  try {
+    return d1Summary(aggregateDailyBars(win), price, asOfMs);
+  } catch {
+    return null;
+  }
+}
+function orbAsOf(m5, asOfMs, price, engine) {
+  const ny = engine.getNYTime(asOfMs);
+  const mins = ny.hour * 60 + ny.minute;
+  if (mins < 9 * 60 + 30 || mins >= 15 * 60) return null;
+  const recent = barsBefore(m5, asOfMs).filter((b) => tsMs(b) >= asOfMs - 26 * HOUR_MS);
+  const newestFirst = [...recent].reverse().map((b) => ({
+    t: Math.floor(tsMs(b) / 1e3),
+    o: Number(b.open),
+    h: Number(b.high),
+    l: Number(b.low),
+    c: Number(b.close),
+    v: Number(b.volume) || 0
+  }));
+  const head = { t: Math.floor(asOfMs / 1e3), o: price, h: price, l: price, c: price, v: 0 };
+  let st = null;
+  try {
+    st = engine.computeOrbStateFromCandles([head, ...newestFirst], price, ny.dateStr);
+  } catch {
+    return null;
+  }
+  if (!st || st.phase === "no_range" || !(Number(st.orbHigh) > 0)) return null;
+  return { phase: st.phase, direction: st.breakoutDir ?? null, rangeHigh: st.orbHigh, rangeLow: st.orbLow, retest: !!st.retestActive };
+}
+async function buildPairCtxAsOf(symbol, asOfMs, series, opts, engine) {
+  const confirmed = barsBefore(series.m15, asOfMs, 49);
+  if (confirmed.length < 19) return null;
+  const lastC = confirmed[confirmed.length - 1];
+  const price = Number(lastC.close);
+  if (!(price > 0)) return null;
+  const candles = engine.convertToCandles(confirmed);
+  const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M15");
+  const adxData = indicators.adx;
+  const adxRaw = engine.adxOrNull(indicators);
+  const adxStrength = adxRaw ?? 0;
+  const plusDI = adxData?.plusDI ?? 0;
+  const minusDI = adxData?.minusDI ?? 0;
+  let trend = "NEUTRAL";
+  if (adxStrength > 20) {
+    trend = plusDI > minusDI ? "BULLISH" : "BEARISH";
+  } else if (adxStrength > 12 && Math.abs(plusDI - minusDI) > 8) {
+    trend = plusDI > minusDI ? "BULLISH" : "BEARISH";
+  }
+  const volumeMetrics = engine.computeVolumeMetrics(confirmed);
+  const snap = {
+    price,
+    trend,
+    rsi: Math.round(indicators.stochastic?.k || 50),
+    atr: Math.round((indicators.volatilityContext?.currentATR || 0) * 1e5) / 1e5,
+    adx: adxRaw ?? void 0,
+    plusDI,
+    minusDI,
+    volumeTrend: volumeMetrics.volumeTrend,
+    relativeVolume: volumeMetrics.relativeVolume
+  };
+  const a = {
+    currentPrice: price,
+    volumeProfile: indicators.volumeProfile,
+    lastConfirmedCandle: { open: Number(lastC.open), close: Number(lastC.close) }
+  };
+  const h1Bias = htfBiasAsOf(series.h1, asOfMs, price, engine);
+  const h4Bias = htfBiasAsOf(series.h4, asOfMs, price, engine);
+  const mtf = opts.primaryH1 ? { h1: null, h4: h4Bias } : { h1: h1Bias, h4: h4Bias };
+  let enrichParts = null;
+  if (modelsEnrichOn()) {
+    enrichParts = {
+      volumeProfileRaw: indicators.volumeProfile,
+      markov: compactMarkovAsOf(confirmed),
+      orb: orbAsOf(series.m5, asOfMs, price, engine),
+      d1: d1AsOf(series.h1, asOfMs, price)
+    };
+  }
+  const session3 = sessionFor(new Date(asOfMs));
+  const { features, cls } = buildModelFeatures({ a, snap, h1: mtf.h1, h4: mtf.h4, session: session3, enrichParts });
+  return { symbol, ctx: { ...features, dayType: cls.dayType, autoModel: cls.autoModel, trendScore: cls.score } };
+}
+function toPublicRun(row) {
+  const meta = row.metadata || {};
+  return {
+    id: Number(row.id),
+    days: Number(row.days),
+    windowStart: new Date(row.window_start).toISOString(),
+    windowEnd: new Date(row.window_end).toISOString(),
+    status: String(row.status),
+    progress: {
+      hoursDone: Number(row.hours_done) || 0,
+      hoursTotal: Number(row.hours_total) || 0,
+      decisionsMade: Number(row.decisions_made) || 0,
+      aiCalls: Number(row.ai_calls) || 0
+    },
+    pairs: Array.isArray(row.pairs) ? row.pairs : [],
+    knownDifferences: Array.isArray(meta.knownDifferences) ? meta.knownDifferences : KNOWN_DIFFERENCES,
+    results: row.results || null,
+    error: row.error || null,
+    createdAt: new Date(row.created_at).toISOString(),
+    completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
+    simulation: true
+  };
+}
+async function getRunRow(runId) {
+  const { rows } = await pool.query(`SELECT * FROM fx_model_replay_runs WHERE id=$1`, [runId]);
+  return rows[0] || null;
+}
+async function loadRunDecisions(runId) {
+  const { rows } = await pool.query(`SELECT * FROM fx_model_replay_decisions WHERE run_id=$1 ORDER BY id`, [runId]);
+  return rows;
+}
+async function resolveReplayDecision(dec, m15, nowMs) {
+  const out = raceResolveOnBars(
+    { direction: dec.direction, entry_price: dec.entry_price, stop_loss: dec.stop_loss, take_profit: dec.take_profit, created_at: dec.hour_at },
+    barsBefore(m15, nowMs + 1),
+    nowMs
+  );
+  if (!out) return false;
+  const entry = Number(dec.entry_price);
+  const risk = Math.abs(entry - Number(dec.stop_loss));
+  const move = dec.direction === "BUY" ? out.exitPrice - entry : entry - out.exitPrice;
+  dec.result = out.result;
+  dec.exit_price = out.exitPrice;
+  dec.r_multiple = risk > 0 ? move / risk : 0;
+  dec.pips = risk > 0 ? move / pipSize(dec.symbol) : 0;
+  dec.resolved_at = new Date(out.resolvedAtMs).toISOString();
+  await pool.query(
+    `UPDATE fx_model_replay_decisions SET result=$2, exit_price=$3, r_multiple=$4, pips=$5, resolved_at=$6 WHERE id=$1 AND result IS NULL`,
+    [dec.id, out.result, out.exitPrice, dec.r_multiple, dec.pips, new Date(out.resolvedAtMs)]
+  ).catch(() => {
+  });
+  return true;
+}
+async function executeRun(runId) {
+  if (activeRuns.has(runId)) return;
+  activeRuns.add(runId);
+  try {
+    if (!fxModelsReplayOn()) {
+      await pool.query(`UPDATE fx_model_replay_runs SET status='failed', error='Replay is off (FX_MODELS_REPLAY=off)', updated_at=now() WHERE id=$1`, [runId]).catch(() => {
+      });
+      return;
+    }
+    const run = await getRunRow(runId);
+    if (!run || run.status !== "running") return;
+    const userId = Number(run.user_id);
+    const days = Math.max(1, Math.min(14, Number(run.days) || 14));
+    const startMs = new Date(run.window_start).getTime();
+    const endMs = new Date(run.window_end).getTime();
+    const hoursTotal = Math.max(1, Math.round((endMs - startMs) / HOUR_MS));
+    const engine = await lte2();
+    const config = engine.getEffectiveEngineConfig(userId);
+    const pairs = (config?.pairs || []).slice(0, 8).map((s) => String(s)).filter(Boolean);
+    const primaryH1 = (config?.primaryTimeframe || "M15") === "H1";
+    let everyH = 1;
+    try {
+      const lvl2 = await (await Promise.resolve().then(() => (init_ai_level(), ai_level_exports))).getAiLevel(userId);
+      everyH = Math.max(1, Number(lvl2?.fxModelsEveryH) || 1);
+    } catch {
+    }
+    await pool.query(
+      `UPDATE fx_model_replay_runs SET pairs=$2::jsonb, metadata=$3::jsonb, updated_at=now() WHERE id=$1`,
+      [runId, JSON.stringify(pairs), JSON.stringify({ knownDifferences: KNOWN_DIFFERENCES, everyH, primaryTimeframe: primaryH1 ? "H1" : "M15", enrichOn: modelsEnrichOn() })]
+    ).catch(() => {
+    });
+    const seriesByPair = /* @__PURE__ */ new Map();
+    await Promise.all(pairs.map(async (symbol) => {
+      seriesByPair.set(symbol, await loadSeries(symbol, days).catch(() => ({ m15: [], m5: [], h1: [], h4: [] })));
+    }));
+    const decisions = await loadRunDecisions(runId);
+    let aiCalls = Number(run.ai_calls) || 0;
+    let decisionsMade = Number(run.decisions_made) || 0;
+    let failedHours = 0;
+    const startIdx = Math.min(Number(run.hours_done) || 0, hoursTotal);
+    for (let idx = startIdx; idx < hoursTotal; idx++) {
+      const H2 = startMs + idx * HOUR_MS;
+      const hourDate = new Date(H2);
+      const session3 = sessionFor(hourDate);
+      try {
+        for (const dec of decisions) {
+          if (dec.result == null && (dec.direction === "BUY" || dec.direction === "SELL")) {
+            const s = seriesByPair.get(dec.symbol);
+            if (s) await resolveReplayDecision(dec, s.m15, H2).catch(() => {
+            });
+          }
+        }
+        if (hourDate.getUTCHours() % everyH === 0) {
+          const openPairs = pairs.filter((s) => !replayMarketClosed(s, H2));
+          const built = (await Promise.all(openPairs.map(
+            (symbol) => buildPairCtxAsOf(symbol, H2, seriesByPair.get(symbol), { primaryH1 }, engine).catch(() => null)
+          ))).filter(Boolean);
+          if (built.length) {
+            const rangeBySymbol = /* @__PURE__ */ new Map();
+            for (const p2 of built) {
+              const s = seriesByPair.get(p2.symbol);
+              rangeBySymbol.set(p2.symbol, computeRangeFeatures(barsBefore(s.h1, H2, 71), p2.symbol, H2));
+            }
+            const res2 = await decideModelIdeas(userId, session3, built, "fx", {
+              masteryLines: replayMasteryLines(decisions),
+              rangeFor: async (symbol) => rangeBySymbol.get(symbol) ?? null
+            });
+            aiCalls += res2.aiCalls;
+            if (res2.paused) throw new Error("AI budget guard paused the replay (credits) \u2014 run stopped; the hours already decided are kept.");
+            if (res2.failed) failedHours++;
+            for (const o of res2.outcomes) {
+              const prov = decisionProvenance(o.model, o.symbol, session3, "fx");
+              const oldBlocked = o.isTrade && (prov.wasExcludedPair || prov.wasBlockedSession);
+              const ctxJson = JSON.stringify({ ...o.storedCtx, replay: { runId, hourAt: hourDate.toISOString(), simulation: true } });
+              const ins = await pool.query(
+                `INSERT INTO fx_model_replay_decisions (run_id, user_id, symbol, model, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, hour_at, was_excluded_pair, was_blocked_session, old_rules_blocked, result)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,$17,$18,$19) RETURNING id`,
+                [
+                  runId,
+                  userId,
+                  o.symbol,
+                  o.model,
+                  o.dayType,
+                  session3,
+                  o.direction,
+                  o.entry,
+                  o.stopLoss,
+                  o.takeProfit,
+                  o.confidence,
+                  o.setup,
+                  o.reasoning,
+                  ctxJson,
+                  hourDate,
+                  prov.wasExcludedPair,
+                  prov.wasBlockedSession,
+                  oldBlocked,
+                  o.isTrade ? null : "NO_TRADE"
+                ]
+              ).catch(() => null);
+              decisionsMade++;
+              decisions.push({
+                id: ins?.rows?.[0]?.id ?? null,
+                run_id: runId,
+                user_id: userId,
+                symbol: o.symbol,
+                model: o.model,
+                day_type: o.dayType,
+                session: session3,
+                direction: o.direction,
+                entry_price: o.entry,
+                stop_loss: o.stopLoss,
+                take_profit: o.takeProfit,
+                confidence: o.confidence,
+                hour_at: hourDate.toISOString(),
+                was_excluded_pair: prov.wasExcludedPair,
+                was_blocked_session: prov.wasBlockedSession,
+                old_rules_blocked: oldBlocked,
+                result: o.isTrade ? null : "NO_TRADE",
+                r_multiple: null,
+                resolved_at: null
+              });
+            }
+          }
+        }
+      } catch (e) {
+        if (String(e?.message || "").includes("budget guard paused")) throw e;
+        console.error(`[fx-models-replay] run ${runId} hour ${hourDate.toISOString()} failed (continuing):`, e?.message || e);
+      }
+      await pool.query(
+        `UPDATE fx_model_replay_runs SET hours_done=$2, ai_calls=$3, decisions_made=$4, updated_at=now() WHERE id=$1`,
+        [runId, idx + 1, aiCalls, decisionsMade]
+      ).catch(() => {
+      });
+    }
+    const nowMs = Date.now();
+    for (const dec of decisions) {
+      if (dec.result == null && (dec.direction === "BUY" || dec.direction === "SELL")) {
+        const s = seriesByPair.get(dec.symbol);
+        if (s) await resolveReplayDecision(dec, s.m15, nowMs).catch(() => {
+        });
+      }
+    }
+    const results = computeReplayResults(decisions);
+    await pool.query(
+      `UPDATE fx_model_replay_runs SET status='complete', results=$2::jsonb, ai_calls=$3, decisions_made=$4,
+         metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb, completed_at=now(), updated_at=now() WHERE id=$1`,
+      [runId, JSON.stringify(results), aiCalls, decisionsMade, JSON.stringify({ failedHours })]
+    );
+  } catch (e) {
+    console.error(`[fx-models-replay] run ${runId} failed:`, e?.message || e);
+    await pool.query(
+      `UPDATE fx_model_replay_runs SET status='failed', error=$2, updated_at=now() WHERE id=$1`,
+      [runId, String(e?.message || e).slice(0, 500)]
+    ).catch(() => {
+    });
+  } finally {
+    activeRuns.delete(runId);
+  }
+}
+function kick(runId) {
+  void executeRun(runId).catch((e) => console.error("[fx-models-replay] runner error:", e?.message || e));
+}
+async function startFxModelReplay(userId, daysRaw) {
+  await ensureFxModelReplayTables();
+  const days = Math.max(1, Math.min(14, Math.floor(Number(daysRaw) || 14)));
+  const { rows: existing } = await pool.query(
+    `SELECT * FROM fx_model_replay_runs WHERE user_id=$1 AND status='running' ORDER BY id DESC LIMIT 1`,
+    [userId]
+  );
+  if (existing[0]) {
+    kick(Number(existing[0].id));
+    return { run: toPublicRun(existing[0]), started: false };
+  }
+  const endMs = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+  const startMs = endMs - days * DAY_MS;
+  const hoursTotal = Math.round((endMs - startMs) / HOUR_MS);
+  const { rows } = await pool.query(
+    `INSERT INTO fx_model_replay_runs (user_id, days, window_start, window_end, status, hours_total, metadata)
+     VALUES ($1,$2,$3,$4,'running',$5,$6::jsonb) RETURNING *`,
+    [userId, days, new Date(startMs), new Date(endMs), hoursTotal, JSON.stringify({ knownDifferences: KNOWN_DIFFERENCES })]
+  );
+  const run = rows[0];
+  kick(Number(run.id));
+  return { run: toPublicRun(run), started: true };
+}
+async function getLatestFxModelReplay(userId) {
+  await ensureFxModelReplayTables();
+  const { rows } = await pool.query(
+    `SELECT * FROM fx_model_replay_runs WHERE user_id=$1 ORDER BY id DESC LIMIT 1`,
+    [userId]
+  );
+  const run = rows[0];
+  if (!run) return null;
+  if (run.status === "running" && fxModelsReplayOn()) kick(Number(run.id));
+  return toPublicRun(run);
+}
+async function resumeFxModelReplayRuns() {
+  if (!fxModelsReplayOn()) return;
+  try {
+    await ensureFxModelReplayTables();
+    const { rows } = await pool.query(`SELECT id FROM fx_model_replay_runs WHERE status='running' ORDER BY id`);
+    for (const r of rows) kick(Number(r.id));
+    if (rows.length) console.log(`[fx-models-replay] resumed ${rows.length} interrupted run(s)`);
+  } catch (e) {
+    console.error("[fx-models-replay] resume scan failed (non-fatal):", e?.message || e);
+  }
+}
+var fxModelsReplayOn, HOUR_MS, DAY_MS, DDL4, ensured9, tsMs, CACHE_PROVIDERS, lteMod, activeRuns, KNOWN_DIFFERENCES;
+var init_fx_models_replay = __esm({
+  "server/services/fx-models-replay.ts"() {
+    "use strict";
+    init_db();
+    init_service();
+    init_cache();
+    init_indicators();
+    init_markov_chain();
+    init_fx_models();
+    fxModelsReplayOn = () => process.env.FX_MODELS_REPLAY !== "off";
+    HOUR_MS = 36e5;
+    DAY_MS = 864e5;
+    DDL4 = `
+CREATE TABLE IF NOT EXISTS fx_model_replay_runs (
+  id serial PRIMARY KEY,
+  user_id integer NOT NULL,
+  days integer NOT NULL,
+  window_start timestamp NOT NULL,
+  window_end timestamp NOT NULL,
+  status text NOT NULL DEFAULT 'running',
+  hours_total integer NOT NULL DEFAULT 0,
+  hours_done integer NOT NULL DEFAULT 0,
+  decisions_made integer NOT NULL DEFAULT 0,
+  ai_calls integer NOT NULL DEFAULT 0,
+  pairs jsonb,
+  metadata jsonb,
+  results jsonb,
+  error text,
+  created_at timestamp NOT NULL DEFAULT now(),
+  updated_at timestamp NOT NULL DEFAULT now(),
+  completed_at timestamp
+);
+CREATE INDEX IF NOT EXISTS fx_model_replay_runs_user_idx ON fx_model_replay_runs (user_id, id DESC);
+CREATE TABLE IF NOT EXISTS fx_model_replay_decisions (
+  id serial PRIMARY KEY,
+  run_id integer NOT NULL,
+  user_id integer NOT NULL,
+  symbol text NOT NULL,
+  model text NOT NULL,
+  day_type text,
+  session text,
+  direction text,
+  entry_price double precision,
+  stop_loss double precision,
+  take_profit double precision,
+  confidence integer,
+  setup text,
+  reasoning text,
+  context jsonb,
+  hour_at timestamp NOT NULL,
+  was_excluded_pair boolean NOT NULL DEFAULT false,
+  was_blocked_session boolean NOT NULL DEFAULT false,
+  old_rules_blocked boolean NOT NULL DEFAULT false,
+  result text,
+  r_multiple real,
+  pips real,
+  exit_price double precision,
+  resolved_at timestamp,
+  created_at timestamp NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS fx_model_replay_decisions_run_idx ON fx_model_replay_decisions (run_id, id);
+`;
+    ensured9 = null;
+    tsMs = (b) => {
+      const raw = Number(b?.timestamp);
+      return raw < 1e12 ? raw * 1e3 : raw;
+    };
+    CACHE_PROVIDERS = ["twelvedata", "yahoo-index"];
+    lteMod = null;
+    activeRuns = /* @__PURE__ */ new Set();
+    KNOWN_DIFFERENCES = [
+      "Simulation: fresh AI decisions on reconstructed historical context \u2014 not the models\u2019 real shadow record.",
+      "Decision instant is the top of each hour; live decides on the first engine scan of the hour.",
+      "Prompt track-record lines come from this replay\u2019s own resolved-so-far record, not the live record.",
+      "ORB for index symbols uses Twelve Data candles; live reads the user\u2019s broker feed for indices.",
+      "Markov is rebuilt point-in-time from the same 49 confirmed M15 bars the live engine uses."
+    ];
+  }
+});
+
 // server/services/options-brain.ts
 var options_brain_exports = {};
 __export(options_brain_exports, {
@@ -57986,13 +58637,13 @@ var init_kalshi_perps = __esm({
 });
 
 // server/services/kalshi-orb.ts
-function orbEtDayKey(tsMs) {
-  const parts = etDateFmt.formatToParts(new Date(tsMs));
+function orbEtDayKey(tsMs2) {
+  const parts = etDateFmt.formatToParts(new Date(tsMs2));
   const g = (t) => parts.find((p2) => p2.type === t)?.value || "";
   return `${g("year")}-${g("month")}-${g("day")}`;
 }
-function etMinutesAndDow(tsMs) {
-  const parts = etPartsFmt.formatToParts(new Date(tsMs));
+function etMinutesAndDow(tsMs2) {
+  const parts = etPartsFmt.formatToParts(new Date(tsMs2));
   const g = (t) => parts.find((p2) => p2.type === t)?.value || "";
   const dowMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
   return { minutes: Number(g("hour")) % 24 * 60 + Number(g("minute")), dow: dowMap[g("weekday")] ?? 0 };
@@ -59290,7 +59941,7 @@ __export(hyperliquid_executor_exports, {
 });
 async function ensureHyperliquidTable() {
   try {
-    await pool.query(DDL4);
+    await pool.query(DDL5);
     console.log("[startup] Hyperliquid connections table ensured (hyperliquid_connections).");
   } catch (err) {
     console.error("[startup] ensureHyperliquidTable failed (non-fatal):", err?.message ?? err);
@@ -59468,14 +60119,14 @@ async function hyperliquidExit(userId, trade) {
   await cancelCoinStops(creds, asset);
   return { ok: true, exitPrice: fill.avgPx };
 }
-var DDL4, HL_PREFIX, acctCache;
+var DDL5, HL_PREFIX, acctCache;
 var init_hyperliquid_executor = __esm({
   "server/services/hyperliquid-executor.ts"() {
     "use strict";
     init_db();
     init_cryptocom();
     init_hyperliquid();
-    DDL4 = `
+    DDL5 = `
 CREATE TABLE IF NOT EXISTS "hyperliquid_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -73620,7 +74271,7 @@ __export(ensure_kalshi_engine_config_table_exports, {
 });
 async function ensureKalshiEngineConfigTable() {
   try {
-    await pool.query(DDL5);
+    await pool.query(DDL6);
     console.log("[startup] Kalshi engine config table ensured (kalshi_engine_configs) \u2014 coin selection/strategy/risk settings now survive restarts.");
     try {
       const res2 = await pool.query(
@@ -73665,12 +74316,12 @@ async function ensureKalshiEngineConfigTable() {
     console.error("[startup] ensureKalshiEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL5;
+var DDL6;
 var init_ensure_kalshi_engine_config_table = __esm({
   "server/services/ensure-kalshi-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL5 = `
+    DDL6 = `
 CREATE TABLE IF NOT EXISTS "kalshi_engine_configs" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -73689,18 +74340,18 @@ __export(ensure_kalshi_brain_tables_exports, {
 });
 async function ensureKalshiBrainTables() {
   try {
-    await pool.query(DDL6);
+    await pool.query(DDL7);
     console.log("[startup] Kalshi brain table ensured (kalshi_brain_outcomes) \u2014 per-trade learning features now persist.");
   } catch (err) {
     console.error("[startup] ensureKalshiBrainTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL6;
+var DDL7;
 var init_ensure_kalshi_brain_tables = __esm({
   "server/services/ensure-kalshi-brain-tables.ts"() {
     "use strict";
     init_db();
-    DDL6 = `
+    DDL7 = `
 CREATE TABLE IF NOT EXISTS "kalshi_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -73736,18 +74387,18 @@ __export(ensure_options_tables_exports, {
 });
 async function ensureOptionsTables() {
   try {
-    await pool.query(DDL7);
+    await pool.query(DDL8);
     console.log("[startup] Options-engine broker tables ensured (alpaca/tastytrade/cryptocom/options_engine_configs/options_engine_activity/options_engine_trades).");
   } catch (err) {
     console.error("[startup] ensureOptionsTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL7;
+var DDL8;
 var init_ensure_options_tables = __esm({
   "server/services/ensure-options-tables.ts"() {
     "use strict";
     init_db();
-    DDL7 = `
+    DDL8 = `
 CREATE TABLE IF NOT EXISTS "alpaca_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -73893,18 +74544,18 @@ __export(ensure_blog_tables_exports, {
 });
 async function ensureBlogTables() {
   try {
-    await pool.query(DDL8);
+    await pool.query(DDL9);
     console.log("[startup] Blog lead-gen tables ensured (blog_newsletter_subscribers).");
   } catch (err) {
     console.error("[startup] ensureBlogTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL8;
+var DDL9;
 var init_ensure_blog_tables = __esm({
   "server/services/ensure-blog-tables.ts"() {
     "use strict";
     init_db();
-    DDL8 = `
+    DDL9 = `
 CREATE TABLE IF NOT EXISTS "blog_newsletter_subscribers" (
   "id" serial PRIMARY KEY NOT NULL,
   "email" text NOT NULL UNIQUE,
@@ -73925,18 +74576,18 @@ __export(ensure_ambassador_prime_tables_exports, {
 });
 async function ensureAmbassadorPrimeTables() {
   try {
-    await pool.query(DDL9);
+    await pool.query(DDL10);
     console.log("[startup] Ambassador Prime tables ensured (run_summary, daily_content, daily_kpis, hook_variations, bonus_content, community_content, reddit_insights, run_step_log, weekly_calendar, market_briefing).");
   } catch (err) {
     console.error("[startup] ensureAmbassadorPrimeTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL9;
+var DDL10;
 var init_ensure_ambassador_prime_tables = __esm({
   "server/services/ensure-ambassador-prime-tables.ts"() {
     "use strict";
     init_db();
-    DDL9 = `
+    DDL10 = `
 CREATE TABLE IF NOT EXISTS "ambassador_run_summary" (
   "id" serial PRIMARY KEY NOT NULL,
   "run_date" varchar(20) NOT NULL UNIQUE,
@@ -74045,18 +74696,18 @@ __export(ensure_brain_marketplace_tables_exports, {
 });
 async function ensureBrainMarketplaceTables() {
   try {
-    await pool.query(DDL10);
+    await pool.query(DDL11);
     console.log("[startup] Brain Data Marketplace tables ensured (brain_data_listings, brain_data_purchases).");
   } catch (err) {
     console.error("[startup] ensureBrainMarketplaceTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL10;
+var DDL11;
 var init_ensure_brain_marketplace_tables = __esm({
   "server/services/ensure-brain-marketplace-tables.ts"() {
     "use strict";
     init_db();
-    DDL10 = `
+    DDL11 = `
 CREATE TABLE IF NOT EXISTS "brain_data_listings" (
   "id" serial PRIMARY KEY NOT NULL,
   "seller_id" integer NOT NULL REFERENCES "users"("id"),
@@ -74133,18 +74784,18 @@ __export(ensure_options_brain_outcomes_table_exports, {
 });
 async function ensureOptionsBrainOutcomesTable() {
   try {
-    await pool.query(DDL11);
+    await pool.query(DDL12);
     console.log("[startup] Options brain feature store ensured (options_brain_outcomes) \u2014 options brain is now durable + sellable on the marketplace.");
   } catch (err) {
     console.error("[startup] ensureOptionsBrainOutcomesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL11;
+var DDL12;
 var init_ensure_options_brain_outcomes_table = __esm({
   "server/services/ensure-options-brain-outcomes-table.ts"() {
     "use strict";
     init_db();
-    DDL11 = `
+    DDL12 = `
 CREATE TABLE IF NOT EXISTS "options_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -74176,18 +74827,18 @@ __export(ensure_options_iv_history_table_exports, {
 });
 async function ensureOptionsIvHistoryTable() {
   try {
-    await pool.query(DDL12);
+    await pool.query(DDL13);
     console.log("[startup] Options IV-history table ensured (options_iv_history) \u2014 IV Rank now self-builds from daily ATM IV snapshots.");
   } catch (err) {
     console.error("[startup] ensureOptionsIvHistoryTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL12;
+var DDL13;
 var init_ensure_options_iv_history_table = __esm({
   "server/services/ensure-options-iv-history-table.ts"() {
     "use strict";
     init_db();
-    DDL12 = `
+    DDL13 = `
 CREATE TABLE IF NOT EXISTS "options_iv_history" (
   "id" serial PRIMARY KEY NOT NULL,
   "underlying_symbol" text NOT NULL,
@@ -74207,7 +74858,7 @@ __export(ensure_persona_content_tables_exports, {
   ensurePersonaContentTables: () => ensurePersonaContentTables
 });
 async function ensurePersonaContentTables() {
-  await pool.query(DDL13);
+  await pool.query(DDL14);
   for (const pillar of PILLARS) {
     await pool.query(
       `INSERT INTO "persona_pillar_rotation" ("pillar") VALUES ($1) ON CONFLICT ("pillar") DO NOTHING`,
@@ -74218,7 +74869,7 @@ async function ensurePersonaContentTables() {
     `INSERT INTO "persona_arc_state" ("id", "current_index", "loops_completed") VALUES (1, 0, 0) ON CONFLICT ("id") DO NOTHING`
   );
 }
-var PILLARS, DDL13;
+var PILLARS, DDL14;
 var init_ensure_persona_content_tables = __esm({
   "server/services/ensure-persona-content-tables.ts"() {
     "use strict";
@@ -74235,7 +74886,7 @@ var init_ensure_persona_content_tables = __esm({
       "Behind-the-scenes",
       "Family/life balance/purpose"
     ];
-    DDL13 = `
+    DDL14 = `
 CREATE TABLE IF NOT EXISTS "persona_pillar_rotation" (
   "id" serial PRIMARY KEY NOT NULL,
   "pillar" text NOT NULL UNIQUE,
@@ -74272,18 +74923,18 @@ __export(ensure_content_image_columns_exports, {
 });
 async function ensureContentImageColumns() {
   try {
-    await pool.query(DDL14);
+    await pool.query(DDL15);
     console.log("[startup] Content image columns ensured (devotionals.hero_image, ambassador_daily_content/bonus_content/community_content.image_url).");
   } catch (err) {
     console.error("[startup] ensureContentImageColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL14;
+var DDL15;
 var init_ensure_content_image_columns = __esm({
   "server/services/ensure-content-image-columns.ts"() {
     "use strict";
     init_db();
-    DDL14 = `
+    DDL15 = `
 ALTER TABLE "devotionals" ADD COLUMN IF NOT EXISTS "hero_image" text;
 ALTER TABLE "ambassador_daily_content" ADD COLUMN IF NOT EXISTS "image_url" text;
 ALTER TABLE "ambassador_bonus_content" ADD COLUMN IF NOT EXISTS "image_url" text;
@@ -74299,18 +74950,18 @@ __export(ensure_order_flow_column_exports, {
 });
 async function ensureOrderFlowColumn() {
   try {
-    await pool.query(DDL15);
+    await pool.query(DDL16);
     console.log("[startup] Options Engine order-flow column ensured (options_engine_configs.order_flow_lookback_bars).");
   } catch (err) {
     console.error("[startup] ensureOrderFlowColumn failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL15;
+var DDL16;
 var init_ensure_order_flow_column = __esm({
   "server/services/ensure-order-flow-column.ts"() {
     "use strict";
     init_db();
-    DDL15 = `
+    DDL16 = `
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "order_flow_lookback_bars" integer NOT NULL DEFAULT 30;
 `;
   }
@@ -74323,18 +74974,18 @@ __export(ensure_options_engine_parity_columns_exports, {
 });
 async function ensureOptionsEngineParityColumns() {
   try {
-    await pool.query(DDL16);
+    await pool.query(DDL17);
     console.log("[startup] Options Engine FX-parity columns ensured (trailing stops, Drawdown Shield, Kelly, Brain Learning Mode, prop-firm presets + consistency rule, Copy Mode, Volatile Cap, Goal Tracker, scheduling, AI intelligence extras, liquidity filter, per-trade confidence/DTE/IV/spread).");
   } catch (err) {
     console.error("[startup] ensureOptionsEngineParityColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL16;
+var DDL17;
 var init_ensure_options_engine_parity_columns = __esm({
   "server/services/ensure-options-engine-parity-columns.ts"() {
     "use strict";
     init_db();
-    DDL16 = `
+    DDL17 = `
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "ai_mode" text NOT NULL DEFAULT 'full';
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "use_kelly_criterion" boolean NOT NULL DEFAULT false;
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "brain_learning_mode" boolean NOT NULL DEFAULT true;
@@ -74411,18 +75062,18 @@ __export(ensure_futures_engine_tables_exports, {
 });
 async function ensureFuturesEngineTables() {
   try {
-    await pool.query(DDL17);
+    await pool.query(DDL18);
     console.log("[startup] Futures Engine tables ensured (futures_engine_configs/activity/trades \u2014 FX-parity persisted config, trailing stops, Kelly, Brain Learning Mode, Drawdown Shield, consistency rule, scheduling).");
   } catch (err) {
     console.error("[startup] ensureFuturesEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL17;
+var DDL18;
 var init_ensure_futures_engine_tables = __esm({
   "server/services/ensure-futures-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL17 = `
+    DDL18 = `
 CREATE TABLE IF NOT EXISTS "futures_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -74530,18 +75181,18 @@ __export(ensure_content_studio_tables_exports, {
 });
 async function ensureContentStudioTables() {
   try {
-    await pool.query(DDL18);
+    await pool.query(DDL19);
     console.log("[startup] Content Studio durable media tables ensured (content_studio_assets/generations).");
   } catch (err) {
     console.error("[startup] ensureContentStudioTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL18;
+var DDL19;
 var init_ensure_content_studio_tables = __esm({
   "server/services/ensure-content-studio-tables.ts"() {
     "use strict";
     init_db();
-    DDL18 = `
+    DDL19 = `
 CREATE TABLE IF NOT EXISTS "content_studio_assets" (
   "id" serial PRIMARY KEY,
   "mime_type" text NOT NULL,
@@ -74572,18 +75223,18 @@ __export(ensure_cryptocom_engine_tables_exports, {
 });
 async function ensureCryptocomEngineTables() {
   try {
-    await pool.query(DDL19);
+    await pool.query(DDL20);
     console.log("[startup] Crypto.com Engine tables ensured (cryptocom_engine_configs/activity/trades).");
   } catch (err) {
     console.error("[startup] ensureCryptocomEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL19;
+var DDL20;
 var init_ensure_cryptocom_engine_tables = __esm({
   "server/services/ensure-cryptocom-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL19 = `
+    DDL20 = `
 CREATE TABLE IF NOT EXISTS "cryptocom_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -74721,18 +75372,18 @@ __export(ensure_crypto_brain_table_exports, {
 });
 async function ensureCryptoBrainTable() {
   try {
-    await pool.query(DDL20);
+    await pool.query(DDL21);
     console.log("[startup] Crypto brain feature store ensured (crypto_brain_outcomes) \u2014 per-trade learning now durable.");
   } catch (err) {
     console.error("[startup] ensureCryptoBrainTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL20;
+var DDL21;
 var init_ensure_crypto_brain_table = __esm({
   "server/services/ensure-crypto-brain-table.ts"() {
     "use strict";
     init_db();
-    DDL20 = `
+    DDL21 = `
 CREATE TABLE IF NOT EXISTS "crypto_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -74762,18 +75413,18 @@ __export(ensure_fx_brain_table_exports, {
 });
 async function ensureFxBrainTable() {
   try {
-    await pool.query(DDL21);
+    await pool.query(DDL22);
     console.log("[startup] FX brain feature store ensured (fx_brain_outcomes) \u2014 per-trade condition learning now durable.");
   } catch (err) {
     console.error("[startup] ensureFxBrainTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL21;
+var DDL22;
 var init_ensure_fx_brain_table = __esm({
   "server/services/ensure-fx-brain-table.ts"() {
     "use strict";
     init_db();
-    DDL21 = `
+    DDL22 = `
 CREATE TABLE IF NOT EXISTS "fx_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -74886,18 +75537,18 @@ __export(ensure_sol_brain_table_exports, {
 });
 async function ensureSolBrainTable() {
   try {
-    await pool.query(DDL22);
+    await pool.query(DDL23);
     console.log("[startup] Sol brain feature store ensured (sol_brain_outcomes) \u2014 per-trade learning now durable.");
   } catch (err) {
     console.error("[startup] ensureSolBrainTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL22;
+var DDL23;
 var init_ensure_sol_brain_table = __esm({
   "server/services/ensure-sol-brain-table.ts"() {
     "use strict";
     init_db();
-    DDL22 = `
+    DDL23 = `
 CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -74927,18 +75578,18 @@ __export(ensure_coinbase_tables_exports, {
 });
 async function ensureCoinbaseTables() {
   try {
-    await pool.query(DDL23);
+    await pool.query(DDL24);
     console.log("[startup] Coinbase connections table ensured (coinbase_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureCoinbaseTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL23;
+var DDL24;
 var init_ensure_coinbase_tables = __esm({
   "server/services/ensure-coinbase-tables.ts"() {
     "use strict";
     init_db();
-    DDL23 = `
+    DDL24 = `
 CREATE TABLE IF NOT EXISTS "coinbase_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -74963,18 +75614,18 @@ __export(ensure_kraken_tables_exports, {
 });
 async function ensureKrakenTables() {
   try {
-    await pool.query(DDL24);
+    await pool.query(DDL25);
     console.log("[startup] Kraken connections table ensured (kraken_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureKrakenTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL24;
+var DDL25;
 var init_ensure_kraken_tables = __esm({
   "server/services/ensure-kraken-tables.ts"() {
     "use strict";
     init_db();
-    DDL24 = `
+    DDL25 = `
 CREATE TABLE IF NOT EXISTS "kraken_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -74999,18 +75650,18 @@ __export(ensure_gemini_tables_exports, {
 });
 async function ensureGeminiTables() {
   try {
-    await pool.query(DDL25);
+    await pool.query(DDL26);
     console.log("[startup] Gemini connections table ensured (gemini_connections) \u2014 read-only wallet balances.");
   } catch (err) {
     console.error("[startup] ensureGeminiTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL25;
+var DDL26;
 var init_ensure_gemini_tables = __esm({
   "server/services/ensure-gemini-tables.ts"() {
     "use strict";
     init_db();
-    DDL25 = `
+    DDL26 = `
 CREATE TABLE IF NOT EXISTS "gemini_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -75035,18 +75686,18 @@ __export(ensure_defi_wallets_table_exports, {
 });
 async function ensureDefiWalletsTable() {
   try {
-    await pool.query(DDL26);
+    await pool.query(DDL27);
     console.log("[startup] DeFi wallets table ensured (defi_wallets) \u2014 public addresses only, on-chain read-only.");
   } catch (err) {
     console.error("[startup] ensureDefiWalletsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL26;
+var DDL27;
 var init_ensure_defi_wallets_table = __esm({
   "server/services/ensure-defi-wallets-table.ts"() {
     "use strict";
     init_db();
-    DDL26 = `
+    DDL27 = `
 CREATE TABLE IF NOT EXISTS "defi_wallets" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -75070,18 +75721,18 @@ __export(ensure_defi_hotwallet_table_exports, {
 });
 async function ensureDefiHotWalletTable() {
   try {
-    await pool.query(DDL27);
+    await pool.query(DDL28);
     console.log("[startup] DeFi hot-wallet table ensured (defi_hot_wallets) \u2014 encrypted key for unattended swaps.");
   } catch (err) {
     console.error("[startup] ensureDefiHotWalletTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL27;
+var DDL28;
 var init_ensure_defi_hotwallet_table = __esm({
   "server/services/ensure-defi-hotwallet-table.ts"() {
     "use strict";
     init_db();
-    DDL27 = `
+    DDL28 = `
 CREATE TABLE IF NOT EXISTS "defi_hot_wallets" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -75104,19 +75755,19 @@ __export(ensure_dxtrade_tables_exports, {
 });
 async function ensureDxtradeTables() {
   try {
-    await pool.query(DDL28);
+    await pool.query(DDL29);
     await pool.query(ALTERS);
     console.log("[startup] DXtrade connections table ensured (dxtrade_connections).");
   } catch (err) {
     console.error("[startup] ensureDxtradeTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL28, ALTERS;
+var DDL29, ALTERS;
 var init_ensure_dxtrade_tables = __esm({
   "server/services/ensure-dxtrade-tables.ts"() {
     "use strict";
     init_db();
-    DDL28 = `
+    DDL29 = `
 CREATE TABLE IF NOT EXISTS "dxtrade_connections" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -75155,18 +75806,18 @@ __export(ensure_engine_consensus_table_exports, {
 });
 async function ensureEngineConsensusTable() {
   try {
-    await pool.query(DDL29);
+    await pool.query(DDL30);
     console.log("[startup] Engine consensus table ensured (engine_consensus_log) \u2014 Dual-Vote Consensus panels now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureEngineConsensusTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL29;
+var DDL30;
 var init_ensure_engine_consensus_table = __esm({
   "server/services/ensure-engine-consensus-table.ts"() {
     "use strict";
     init_db();
-    DDL29 = `
+    DDL30 = `
 CREATE TABLE IF NOT EXISTS "engine_consensus_log" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -75194,18 +75845,18 @@ __export(ensure_micro_growth_milestones_table_exports, {
 });
 async function ensureMicroGrowthMilestonesTable() {
   try {
-    await pool.query(DDL30);
+    await pool.query(DDL31);
     console.log("[startup] Micro Growth milestones table ensured (micro_growth_milestones) \u2014 doubling challenge now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthMilestonesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL30;
+var DDL31;
 var init_ensure_micro_growth_milestones_table = __esm({
   "server/services/ensure-micro-growth-milestones-table.ts"() {
     "use strict";
     init_db();
-    DDL30 = `
+    DDL31 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_milestones" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -75227,18 +75878,18 @@ __export(ensure_micro_growth_sessions_table_exports, {
 });
 async function ensureMicroGrowthSessionsTable() {
   try {
-    await pool.query(DDL31);
+    await pool.query(DDL32);
     console.log("[startup] Micro Growth sessions table ensured (micro_growth_sessions) \u2014 session history now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthSessionsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL31;
+var DDL32;
 var init_ensure_micro_growth_sessions_table = __esm({
   "server/services/ensure-micro-growth-sessions-table.ts"() {
     "use strict";
     init_db();
-    DDL31 = `
+    DDL32 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_sessions" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -75269,18 +75920,18 @@ __export(ensure_workforce_course_progress_table_exports, {
 });
 async function ensureWorkforceCourseProgressTable() {
   try {
-    await pool.query(DDL32);
+    await pool.query(DDL33);
     console.log('[startup] Workforce course progress table ensured (workforce_course_progress) \u2014 "where you left off" now survives restarts.');
   } catch (err) {
     console.error("[startup] ensureWorkforceCourseProgressTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL32;
+var DDL33;
 var init_ensure_workforce_course_progress_table = __esm({
   "server/services/ensure-workforce-course-progress-table.ts"() {
     "use strict";
     init_db();
-    DDL32 = `
+    DDL33 = `
 CREATE TABLE IF NOT EXISTS "workforce_course_progress" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -75304,18 +75955,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL33);
+    await pool.query(DDL34);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL33;
+var DDL34;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL33 = `
+    DDL34 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -75334,18 +75985,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL34);
+    await pool.query(DDL35);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL34;
+var DDL35;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL34 = `
+    DDL35 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -75362,18 +76013,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL35);
+    await pool.query(DDL36);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL35;
+var DDL36;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL35 = `
+    DDL36 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -75471,18 +76122,18 @@ __export(ensure_profit_split_tables_exports, {
 });
 async function ensureProfitSplitTables() {
   try {
-    await pool.query(DDL36);
+    await pool.query(DDL37);
     console.log("[startup] Profit Split tables ensured (profit_split_enrollments, profit_split_payments) \u2014 ambassador 30% prop-firm profit-split program.");
   } catch (err) {
     console.error("[startup] ensureProfitSplitTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL36;
+var DDL37;
 var init_ensure_profit_split_tables = __esm({
   "server/services/ensure-profit-split-tables.ts"() {
     "use strict";
     init_db();
-    DDL36 = `
+    DDL37 = `
 CREATE TABLE IF NOT EXISTS "profit_split_enrollments" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -77279,9 +77930,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "ca64623d-dirty";
-var BUILD_BRANCH = "feat/propsim-card";
-var BUILT_AT = "2026-11-13T04:36:14.526Z";
+var BUILD_COMMIT = "93b452d2-dirty";
+var BUILD_BRANCH = "feat/fx-models-replay";
+var BUILT_AT = "2026-11-13T05:09:36.870Z";
 
 // server/stripe.ts
 init_db();
@@ -94662,6 +95313,29 @@ Rules:
       res2.status(500).json({ error: e?.message || "failed" });
     }
   });
+  app2.post("/api/fx-models/replay", async (req, res2) => {
+    try {
+      const { fxModelsReplayOn: fxModelsReplayOn2, startFxModelReplay: startFxModelReplay2 } = await Promise.resolve().then(() => (init_fx_models_replay(), fx_models_replay_exports));
+      if (!fxModelsReplayOn2()) return res2.status(404).json({ error: "Replay is off" });
+      if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+      const days = Math.max(1, Math.min(14, Math.floor(Number(req.body?.days) || 14)));
+      const { run, started: started7 } = await startFxModelReplay2(req.user.id, days);
+      res2.json({ success: true, started: started7, run, simulation: true });
+    } catch (e) {
+      res2.status(500).json({ error: e?.message || "failed" });
+    }
+  });
+  app2.get("/api/fx-models/replay", async (req, res2) => {
+    try {
+      const { fxModelsReplayOn: fxModelsReplayOn2, getLatestFxModelReplay: getLatestFxModelReplay2 } = await Promise.resolve().then(() => (init_fx_models_replay(), fx_models_replay_exports));
+      if (!fxModelsReplayOn2()) return res2.status(404).json({ error: "Replay is off" });
+      if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+      const run = await getLatestFxModelReplay2(req.user.id);
+      res2.json({ success: true, run, simulation: true });
+    } catch (e) {
+      res2.status(500).json({ error: e?.message || "failed" });
+    }
+  });
   app2.get("/api/fx-models/day-types", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     try {
@@ -111371,6 +112045,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureMarketplaceSubscriptionTables2();
   } catch (err) {
     console.error(`[startup] ensureMarketplaceSubscriptionTables import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { resumeFxModelReplayRuns: resumeFxModelReplayRuns2 } = await Promise.resolve().then(() => (init_fx_models_replay(), fx_models_replay_exports));
+    await resumeFxModelReplayRuns2();
+  } catch (err) {
+    console.error(`[startup] resumeFxModelReplayRuns import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensureOptionsBrainOutcomesTable: ensureOptionsBrainOutcomesTable2 } = await Promise.resolve().then(() => (init_ensure_options_brain_outcomes_table(), ensure_options_brain_outcomes_table_exports));
