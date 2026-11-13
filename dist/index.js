@@ -10260,59 +10260,189 @@ var init_service = __esm({
   }
 });
 
-// server/services/ai-level.ts
-var ai_level_exports = {};
-__export(ai_level_exports, {
-  AI_LEVELS: () => AI_LEVELS,
-  getAiLevel: () => getAiLevel,
-  getAiLevelSync: () => getAiLevelSync,
-  setAiLevel: () => setAiLevel
+// server/services/markov-chain.ts
+var markov_chain_exports = {};
+__export(markov_chain_exports, {
+  MARKOV_STATES: () => MARKOV_STATES,
+  buildTransitionMatrix: () => buildTransitionMatrix,
+  classifyCandle: () => classifyCandle,
+  getAllCachedSymbols: () => getAllCachedSymbols,
+  getCachedMatrix: () => getCachedMatrix,
+  getMarkovSignal: () => getMarkovSignal,
+  getMarkovSnapshot: () => getMarkovSnapshot
 });
-function getAiLevelSync(userId) {
-  const hit = cache4.get(userId);
-  if (!hit || Date.now() - hit.at > 6e4) void refresh(userId);
-  return AI_LEVELS[hit?.level ?? "balanced"];
+function classifyCandle(open, close, threshold = 6e-4) {
+  if (close <= 0 || open <= 0) return "NEUTRAL";
+  const changePct = (close - open) / open;
+  const strong = threshold * 2;
+  if (changePct >= strong) return "STRONG_BULL";
+  if (changePct > 0) return "BULL";
+  if (changePct <= -strong) return "STRONG_BEAR";
+  if (changePct < 0) return "BEAR";
+  return "NEUTRAL";
 }
-async function getAiLevel(userId) {
-  const hit = cache4.get(userId);
-  if (hit && Date.now() - hit.at < 6e4) return AI_LEVELS[hit.level];
-  return AI_LEVELS[await refresh(userId)];
-}
-async function refresh(userId) {
-  try {
-    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-    const v = await getRuntimeStateStrict2("ai_level", String(userId));
-    const level = v?.level === "eco" || v?.level === "turbo" ? v.level : "balanced";
-    cache4.set(userId, { at: Date.now(), level });
-    return level;
-  } catch {
-    const prev = cache4.get(userId)?.level ?? "balanced";
-    cache4.set(userId, { at: Date.now(), level: prev });
-    return prev;
+function emptyCountMatrix() {
+  const m = {};
+  for (const from of MARKOV_STATES) {
+    m[from] = {};
+    for (const to of MARKOV_STATES) m[from][to] = 0;
   }
+  return m;
 }
-async function setAiLevel(userId, level) {
-  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-  await ensureRuntimeStateTable2();
-  await pool2.query(
-    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('ai_level', $1, $2::jsonb, now())
-     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-    [String(userId), JSON.stringify({ level })]
-  );
-  cache4.set(userId, { at: Date.now(), level });
-  return AI_LEVELS[level];
-}
-var AI_LEVELS, cache4;
-var init_ai_level = __esm({
-  "server/services/ai-level.ts"() {
-    "use strict";
-    AI_LEVELS = {
-      eco: { level: "eco", scanMult: 2, cacheMs: 5 * 6e4, cachePips: 8, fxModelsEveryH: 2, cryptoSkipMemoryMin: 120, cryptoModelsEveryH: 4 },
-      balanced: { level: "balanced", scanMult: 1, cacheMs: 6e4, cachePips: 3, fxModelsEveryH: 1, cryptoSkipMemoryMin: 60, cryptoModelsEveryH: 2 },
-      turbo: { level: "turbo", scanMult: 0.67, cacheMs: 3e4, cachePips: 1.5, fxModelsEveryH: 1, cryptoSkipMemoryMin: 30, cryptoModelsEveryH: 1 }
+function buildTransitionMatrix(symbol, candles, threshold) {
+  if (candles.length < 5) {
+    const flat = emptyCountMatrix();
+    const uniform = emptyCountMatrix();
+    for (const from of MARKOV_STATES) {
+      for (const to of MARKOV_STATES) uniform[from][to] = 0.2;
+    }
+    const matrix = {
+      matrix: uniform,
+      counts: flat,
+      totalTransitions: 0,
+      candleCount: candles.length,
+      computedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      candleHistory: candles
     };
-    cache4 = /* @__PURE__ */ new Map();
+    matrixCache.set(symbol, matrix);
+    return matrix;
+  }
+  const counts = emptyCountMatrix();
+  const states = candles.map((c) => classifyCandle(c.open, c.close, threshold));
+  let totalTransitions = 0;
+  for (let i = 0; i < states.length - 1; i++) {
+    counts[states[i]][states[i + 1]]++;
+    totalTransitions++;
+  }
+  const prob = emptyCountMatrix();
+  for (const from of MARKOV_STATES) {
+    const rowTotal = Object.values(counts[from]).reduce((s, v) => s + v, 0);
+    const smoothedTotal = rowTotal + MARKOV_STATES.length;
+    for (const to of MARKOV_STATES) {
+      prob[from][to] = (counts[from][to] + 1) / smoothedTotal;
+    }
+  }
+  const result = {
+    matrix: prob,
+    counts,
+    totalTransitions,
+    candleCount: candles.length,
+    computedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    candleHistory: candles
+  };
+  matrixCache.set(symbol, result);
+  return result;
+}
+function bullishStates() {
+  return ["STRONG_BULL", "BULL"];
+}
+function bearishStates() {
+  return ["STRONG_BEAR", "BEAR"];
+}
+function groupProbability(matrix, fromState, toGroup) {
+  return toGroup.reduce((sum, to) => sum + (matrix[fromState][to] ?? 0), 0);
+}
+function twoStepGroupProbability(matrix, fromState, toGroup) {
+  let total = 0;
+  for (const mid of MARKOV_STATES) {
+    const pFromMid = matrix[fromState][mid] ?? 0;
+    const pMidToGroup = groupProbability(matrix, mid, toGroup);
+    total += pFromMid * pMidToGroup;
+  }
+  return Math.round(total * 1e3) / 1e3;
+}
+function getMarkovSignal(symbol, direction, candles) {
+  const tm = buildTransitionMatrix(symbol, candles);
+  const matrix = tm.matrix;
+  const lastCandle = candles[candles.length - 1];
+  const currentState = classifyCandle(lastCandle.open, lastCandle.close);
+  const nextStateProbabilities = { ...matrix[currentState] };
+  const bullP = groupProbability(matrix, currentState, bullishStates());
+  const bearP = groupProbability(matrix, currentState, bearishStates());
+  const neutP = groupProbability(matrix, currentState, ["NEUTRAL"]);
+  const bull2P = twoStepGroupProbability(matrix, currentState, bullishStates());
+  const bear2P = twoStepGroupProbability(matrix, currentState, bearishStates());
+  let confidenceAdjustment = 0;
+  let reason = "";
+  const alignP = direction === "BUY" ? bullP : bearP;
+  const align2P = direction === "BUY" ? bull2P : bear2P;
+  const opposP = direction === "BUY" ? bearP : bullP;
+  if (alignP >= 0.7) {
+    confidenceAdjustment = 8;
+    reason = `Markov: ${Math.round(alignP * 100)}% probability of ${direction === "BUY" ? "bullish" : "bearish"} next state (strong alignment) +8%`;
+  } else if (alignP >= 0.58) {
+    confidenceAdjustment = 5;
+    reason = `Markov: ${Math.round(alignP * 100)}% alignment with ${direction} direction +5%`;
+  } else if (alignP >= 0.48) {
+    confidenceAdjustment = 2;
+    reason = `Markov: marginal ${Math.round(alignP * 100)}% alignment with ${direction} +2%`;
+  } else if (opposP >= 0.7) {
+    confidenceAdjustment = -10;
+    reason = `Markov CONFLICT: ${Math.round(opposP * 100)}% probability of ${direction === "BUY" ? "bearish" : "bullish"} next state \u2014 strong opposing signal -10%`;
+  } else if (opposP >= 0.58) {
+    confidenceAdjustment = -6;
+    reason = `Markov conflict: ${Math.round(opposP * 100)}% opposing probability \u2014 reduces confidence -6%`;
+  } else if (opposP >= 0.48) {
+    confidenceAdjustment = -3;
+    reason = `Markov mild conflict: ${Math.round(opposP * 100)}% opposing probability -3%`;
+  } else {
+    confidenceAdjustment = 0;
+    reason = `Markov neutral: ${Math.round(alignP * 100)}% align / ${Math.round(opposP * 100)}% oppose \u2014 no adjustment`;
+  }
+  if (confidenceAdjustment > 0 && align2P >= 0.55) {
+    confidenceAdjustment = Math.min(10, confidenceAdjustment + 2);
+    reason += ` | 2-step ${Math.round(align2P * 100)}% \u2713`;
+  } else if (confidenceAdjustment < 0 && bear2P >= 0.55 && direction === "BUY") {
+    confidenceAdjustment = Math.max(-12, confidenceAdjustment - 2);
+    reason += ` | 2-step bearish ${Math.round(bear2P * 100)}% \u2717`;
+  }
+  return {
+    currentState,
+    bullishProbability: Math.round(bullP * 1e3) / 1e3,
+    bearishProbability: Math.round(bearP * 1e3) / 1e3,
+    neutralProbability: Math.round(neutP * 1e3) / 1e3,
+    confidenceAdjustment,
+    reason,
+    nextStateProbabilities,
+    twoStepBullProbability: bull2P,
+    twoStepBearProbability: bear2P
+  };
+}
+function getCachedMatrix(symbol) {
+  return matrixCache.get(symbol) ?? null;
+}
+function getMarkovSnapshot(symbol, lastCandle) {
+  const tm = matrixCache.get(symbol);
+  if (!tm || !lastCandle) return null;
+  const currentState = classifyCandle(lastCandle.open, lastCandle.close);
+  const row = tm.matrix[currentState];
+  const bullP = groupProbability(tm.matrix, currentState, bullishStates());
+  const bearP = groupProbability(tm.matrix, currentState, bearishStates());
+  const neutP = groupProbability(tm.matrix, currentState, ["NEUTRAL"]);
+  return {
+    currentState,
+    bullishProbability: Math.round(bullP * 1e3) / 1e3,
+    bearishProbability: Math.round(bearP * 1e3) / 1e3,
+    neutralProbability: Math.round(neutP * 1e3) / 1e3,
+    nextStateProbabilities: { ...row },
+    matrix: tm
+  };
+}
+function getAllCachedSymbols() {
+  return Array.from(matrixCache.keys());
+}
+var MARKOV_STATES, matrixCache;
+var init_markov_chain = __esm({
+  "server/services/markov-chain.ts"() {
+    "use strict";
+    MARKOV_STATES = [
+      "STRONG_BULL",
+      "BULL",
+      "NEUTRAL",
+      "BEAR",
+      "STRONG_BEAR"
+    ];
+    matrixCache = /* @__PURE__ */ new Map();
   }
 });
 
@@ -10621,6 +10751,62 @@ var init_goal_pace = __esm({
     TTL_MS3 = 15 * 6e4;
     plans = /* @__PURE__ */ new Map();
     loading = /* @__PURE__ */ new Set();
+  }
+});
+
+// server/services/ai-level.ts
+var ai_level_exports = {};
+__export(ai_level_exports, {
+  AI_LEVELS: () => AI_LEVELS,
+  getAiLevel: () => getAiLevel,
+  getAiLevelSync: () => getAiLevelSync,
+  setAiLevel: () => setAiLevel
+});
+function getAiLevelSync(userId) {
+  const hit = cache4.get(userId);
+  if (!hit || Date.now() - hit.at > 6e4) void refresh(userId);
+  return AI_LEVELS[hit?.level ?? "balanced"];
+}
+async function getAiLevel(userId) {
+  const hit = cache4.get(userId);
+  if (hit && Date.now() - hit.at < 6e4) return AI_LEVELS[hit.level];
+  return AI_LEVELS[await refresh(userId)];
+}
+async function refresh(userId) {
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const v = await getRuntimeStateStrict2("ai_level", String(userId));
+    const level = v?.level === "eco" || v?.level === "turbo" ? v.level : "balanced";
+    cache4.set(userId, { at: Date.now(), level });
+    return level;
+  } catch {
+    const prev = cache4.get(userId)?.level ?? "balanced";
+    cache4.set(userId, { at: Date.now(), level: prev });
+    return prev;
+  }
+}
+async function setAiLevel(userId, level) {
+  const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+  const { ensureRuntimeStateTable: ensureRuntimeStateTable2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+  await ensureRuntimeStateTable2();
+  await pool2.query(
+    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ('ai_level', $1, $2::jsonb, now())
+     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [String(userId), JSON.stringify({ level })]
+  );
+  cache4.set(userId, { at: Date.now(), level });
+  return AI_LEVELS[level];
+}
+var AI_LEVELS, cache4;
+var init_ai_level = __esm({
+  "server/services/ai-level.ts"() {
+    "use strict";
+    AI_LEVELS = {
+      eco: { level: "eco", scanMult: 2, cacheMs: 5 * 6e4, cachePips: 8, fxModelsEveryH: 2, cryptoSkipMemoryMin: 120, cryptoModelsEveryH: 4 },
+      balanced: { level: "balanced", scanMult: 1, cacheMs: 6e4, cachePips: 3, fxModelsEveryH: 1, cryptoSkipMemoryMin: 60, cryptoModelsEveryH: 2 },
+      turbo: { level: "turbo", scanMult: 0.67, cacheMs: 3e4, cachePips: 1.5, fxModelsEveryH: 1, cryptoSkipMemoryMin: 30, cryptoModelsEveryH: 1 }
+    };
+    cache4 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -15889,192 +16075,6 @@ var init_tl_risk_settings = __esm({
     "use strict";
     FILE = path.join(process.cwd(), "data", "tl_risk_settings.json");
     DEFAULT = { useRiskPercent: true, riskPercent: 0.5 };
-  }
-});
-
-// server/services/markov-chain.ts
-var markov_chain_exports = {};
-__export(markov_chain_exports, {
-  MARKOV_STATES: () => MARKOV_STATES,
-  buildTransitionMatrix: () => buildTransitionMatrix,
-  classifyCandle: () => classifyCandle,
-  getAllCachedSymbols: () => getAllCachedSymbols,
-  getCachedMatrix: () => getCachedMatrix,
-  getMarkovSignal: () => getMarkovSignal,
-  getMarkovSnapshot: () => getMarkovSnapshot
-});
-function classifyCandle(open, close, threshold = 6e-4) {
-  if (close <= 0 || open <= 0) return "NEUTRAL";
-  const changePct = (close - open) / open;
-  const strong = threshold * 2;
-  if (changePct >= strong) return "STRONG_BULL";
-  if (changePct > 0) return "BULL";
-  if (changePct <= -strong) return "STRONG_BEAR";
-  if (changePct < 0) return "BEAR";
-  return "NEUTRAL";
-}
-function emptyCountMatrix() {
-  const m = {};
-  for (const from of MARKOV_STATES) {
-    m[from] = {};
-    for (const to of MARKOV_STATES) m[from][to] = 0;
-  }
-  return m;
-}
-function buildTransitionMatrix(symbol, candles, threshold) {
-  if (candles.length < 5) {
-    const flat = emptyCountMatrix();
-    const uniform = emptyCountMatrix();
-    for (const from of MARKOV_STATES) {
-      for (const to of MARKOV_STATES) uniform[from][to] = 0.2;
-    }
-    const matrix = {
-      matrix: uniform,
-      counts: flat,
-      totalTransitions: 0,
-      candleCount: candles.length,
-      computedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      candleHistory: candles
-    };
-    matrixCache.set(symbol, matrix);
-    return matrix;
-  }
-  const counts = emptyCountMatrix();
-  const states = candles.map((c) => classifyCandle(c.open, c.close, threshold));
-  let totalTransitions = 0;
-  for (let i = 0; i < states.length - 1; i++) {
-    counts[states[i]][states[i + 1]]++;
-    totalTransitions++;
-  }
-  const prob = emptyCountMatrix();
-  for (const from of MARKOV_STATES) {
-    const rowTotal = Object.values(counts[from]).reduce((s, v) => s + v, 0);
-    const smoothedTotal = rowTotal + MARKOV_STATES.length;
-    for (const to of MARKOV_STATES) {
-      prob[from][to] = (counts[from][to] + 1) / smoothedTotal;
-    }
-  }
-  const result = {
-    matrix: prob,
-    counts,
-    totalTransitions,
-    candleCount: candles.length,
-    computedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    candleHistory: candles
-  };
-  matrixCache.set(symbol, result);
-  return result;
-}
-function bullishStates() {
-  return ["STRONG_BULL", "BULL"];
-}
-function bearishStates() {
-  return ["STRONG_BEAR", "BEAR"];
-}
-function groupProbability(matrix, fromState, toGroup) {
-  return toGroup.reduce((sum, to) => sum + (matrix[fromState][to] ?? 0), 0);
-}
-function twoStepGroupProbability(matrix, fromState, toGroup) {
-  let total = 0;
-  for (const mid of MARKOV_STATES) {
-    const pFromMid = matrix[fromState][mid] ?? 0;
-    const pMidToGroup = groupProbability(matrix, mid, toGroup);
-    total += pFromMid * pMidToGroup;
-  }
-  return Math.round(total * 1e3) / 1e3;
-}
-function getMarkovSignal(symbol, direction, candles) {
-  const tm = buildTransitionMatrix(symbol, candles);
-  const matrix = tm.matrix;
-  const lastCandle = candles[candles.length - 1];
-  const currentState = classifyCandle(lastCandle.open, lastCandle.close);
-  const nextStateProbabilities = { ...matrix[currentState] };
-  const bullP = groupProbability(matrix, currentState, bullishStates());
-  const bearP = groupProbability(matrix, currentState, bearishStates());
-  const neutP = groupProbability(matrix, currentState, ["NEUTRAL"]);
-  const bull2P = twoStepGroupProbability(matrix, currentState, bullishStates());
-  const bear2P = twoStepGroupProbability(matrix, currentState, bearishStates());
-  let confidenceAdjustment = 0;
-  let reason = "";
-  const alignP = direction === "BUY" ? bullP : bearP;
-  const align2P = direction === "BUY" ? bull2P : bear2P;
-  const opposP = direction === "BUY" ? bearP : bullP;
-  if (alignP >= 0.7) {
-    confidenceAdjustment = 8;
-    reason = `Markov: ${Math.round(alignP * 100)}% probability of ${direction === "BUY" ? "bullish" : "bearish"} next state (strong alignment) +8%`;
-  } else if (alignP >= 0.58) {
-    confidenceAdjustment = 5;
-    reason = `Markov: ${Math.round(alignP * 100)}% alignment with ${direction} direction +5%`;
-  } else if (alignP >= 0.48) {
-    confidenceAdjustment = 2;
-    reason = `Markov: marginal ${Math.round(alignP * 100)}% alignment with ${direction} +2%`;
-  } else if (opposP >= 0.7) {
-    confidenceAdjustment = -10;
-    reason = `Markov CONFLICT: ${Math.round(opposP * 100)}% probability of ${direction === "BUY" ? "bearish" : "bullish"} next state \u2014 strong opposing signal -10%`;
-  } else if (opposP >= 0.58) {
-    confidenceAdjustment = -6;
-    reason = `Markov conflict: ${Math.round(opposP * 100)}% opposing probability \u2014 reduces confidence -6%`;
-  } else if (opposP >= 0.48) {
-    confidenceAdjustment = -3;
-    reason = `Markov mild conflict: ${Math.round(opposP * 100)}% opposing probability -3%`;
-  } else {
-    confidenceAdjustment = 0;
-    reason = `Markov neutral: ${Math.round(alignP * 100)}% align / ${Math.round(opposP * 100)}% oppose \u2014 no adjustment`;
-  }
-  if (confidenceAdjustment > 0 && align2P >= 0.55) {
-    confidenceAdjustment = Math.min(10, confidenceAdjustment + 2);
-    reason += ` | 2-step ${Math.round(align2P * 100)}% \u2713`;
-  } else if (confidenceAdjustment < 0 && bear2P >= 0.55 && direction === "BUY") {
-    confidenceAdjustment = Math.max(-12, confidenceAdjustment - 2);
-    reason += ` | 2-step bearish ${Math.round(bear2P * 100)}% \u2717`;
-  }
-  return {
-    currentState,
-    bullishProbability: Math.round(bullP * 1e3) / 1e3,
-    bearishProbability: Math.round(bearP * 1e3) / 1e3,
-    neutralProbability: Math.round(neutP * 1e3) / 1e3,
-    confidenceAdjustment,
-    reason,
-    nextStateProbabilities,
-    twoStepBullProbability: bull2P,
-    twoStepBearProbability: bear2P
-  };
-}
-function getCachedMatrix(symbol) {
-  return matrixCache.get(symbol) ?? null;
-}
-function getMarkovSnapshot(symbol, lastCandle) {
-  const tm = matrixCache.get(symbol);
-  if (!tm || !lastCandle) return null;
-  const currentState = classifyCandle(lastCandle.open, lastCandle.close);
-  const row = tm.matrix[currentState];
-  const bullP = groupProbability(tm.matrix, currentState, bullishStates());
-  const bearP = groupProbability(tm.matrix, currentState, bearishStates());
-  const neutP = groupProbability(tm.matrix, currentState, ["NEUTRAL"]);
-  return {
-    currentState,
-    bullishProbability: Math.round(bullP * 1e3) / 1e3,
-    bearishProbability: Math.round(bearP * 1e3) / 1e3,
-    neutralProbability: Math.round(neutP * 1e3) / 1e3,
-    nextStateProbabilities: { ...row },
-    matrix: tm
-  };
-}
-function getAllCachedSymbols() {
-  return Array.from(matrixCache.keys());
-}
-var MARKOV_STATES, matrixCache;
-var init_markov_chain = __esm({
-  "server/services/markov-chain.ts"() {
-    "use strict";
-    MARKOV_STATES = [
-      "STRONG_BULL",
-      "BULL",
-      "NEUTRAL",
-      "BEAR",
-      "STRONG_BEAR"
-    ];
-    matrixCache = /* @__PURE__ */ new Map();
   }
 });
 
@@ -28146,8 +28146,15 @@ var init_live_trading_engine = __esm({
 var fx_models_exports = {};
 __export(fx_models_exports, {
   FX_MODEL_MIN_TO_LIST: () => FX_MODEL_MIN_TO_LIST,
+  aggregateDailyBars: () => aggregateDailyBars,
+  altClassifyD1H1: () => altClassifyD1H1,
   barsFor: () => barsFor,
+  buildModelsPrompt: () => buildModelsPrompt,
   classifyDayType: () => classifyDayType,
+  compactMarkov: () => compactMarkov,
+  compactVolumeProfile: () => compactVolumeProfile,
+  d1Features: () => d1Features,
+  d1Summary: () => d1Summary,
   ensureFxModelTables: () => ensureFxModelTables,
   fxModelRowsForStats: () => fxModelRowsForStats,
   getFxModelListingRows: () => getFxModelListingRows,
@@ -28159,6 +28166,7 @@ __export(fx_models_exports, {
   m1Reject: () => m1Reject,
   m2Reject: () => m2Reject,
   masteryLevel: () => masteryLevel,
+  modelsEnrichOn: () => modelsEnrichOn,
   parseFxModelScope: () => parseFxModelScope,
   rangeFeatures: () => rangeFeatures,
   registerBarsProvider: () => registerBarsProvider,
@@ -28203,6 +28211,97 @@ function classifyDayType(input) {
   const autoModel = dayType === "trend" ? "M2" : dayType === "range" ? "M1" : Number.isFinite(adx) && adx >= 18 ? "M2" : "M1";
   return { dayType, autoModel, score: s };
 }
+function altClassifyD1H1(input) {
+  return classifyDayType({ adx: input.adx, relVolume: input.relVolume, h1: input.h1, h4: input.d1, session: input.session, news: input.news });
+}
+function compactVolumeProfile(vp, price) {
+  const poc = Number(vp?.poc), vah = Number(vp?.vah), val = Number(vp?.val), px = Number(price);
+  if (!(poc > 0) || !(vah > 0) || !(val > 0) || !(px > 0)) return null;
+  const pricePos = px > vah ? "above VA" : px < val ? "below VA" : "in VA";
+  return { poc, vah, val, pricePos, distToPocPct: Math.round((px - poc) / poc * 1e4) / 100 };
+}
+function compactMarkov(symbol, lastCandle) {
+  try {
+    let lc = lastCandle;
+    if (!lc) {
+      const hist = getCachedMatrix(symbol)?.candleHistory;
+      if (hist?.length) lc = hist[hist.length - 1];
+    }
+    if (!lc) return null;
+    const snap = getMarkovSnapshot(symbol, lc);
+    if (!snap) return null;
+    const r3 = (x) => Math.round(x * 1e3) / 1e3;
+    return {
+      state: snap.currentState,
+      pTrend: r3(snap.bullishProbability + snap.bearishProbability),
+      pChop: r3(snap.neutralProbability),
+      pBull: r3(snap.bullishProbability),
+      pBear: r3(snap.bearishProbability)
+    };
+  } catch {
+    return null;
+  }
+}
+function aggregateDailyBars(h1Bars) {
+  const byDay = /* @__PURE__ */ new Map();
+  for (const b of h1Bars || []) {
+    const raw = Number(b?.timestamp);
+    if (!Number.isFinite(raw)) continue;
+    const ts = raw < 1e12 ? raw * 1e3 : raw;
+    const day = Math.floor(ts / 864e5);
+    const cur = byDay.get(day);
+    if (!cur) {
+      byDay.set(day, { timestamp: day * 864e5, open: Number(b.open), high: Number(b.high), low: Number(b.low), close: Number(b.close), volume: Number(b.volume) || 0 });
+    } else {
+      cur.high = Math.max(cur.high, Number(b.high));
+      cur.low = Math.min(cur.low, Number(b.low));
+      cur.close = Number(b.close);
+      cur.volume = (cur.volume || 0) + (Number(b.volume) || 0);
+    }
+  }
+  return Array.from(byDay.entries()).sort((x, y) => x[0] - y[0]).map(([, v]) => v);
+}
+function d1Summary(daily, price) {
+  const todayKey = Math.floor(Date.now() / 864e5);
+  const confirmed = (daily || []).filter((d) => Math.floor(Number(d.timestamp) / 864e5) < todayKey);
+  if (confirmed.length < 20) return null;
+  const closes = confirmed.map((d) => Number(d.close));
+  const e20 = emaLast(closes, 20);
+  const px = Number(price);
+  const priceAbove = px > 0 ? Number.isFinite(e20) && e20 > 0 ? px > e20 : px > closes[closes.length - 1] : null;
+  return { trend: barTrend(confirmed), priceAbove };
+}
+async function d1Features(symbol, engine = "fx", price) {
+  const ck = `${engine}|${symbol}`;
+  const hit = d1CtxCache.get(ck);
+  if (hit && Date.now() - hit.at < 30 * 6e4) return hit.data;
+  let data = null;
+  try {
+    const h1 = await barsFor(engine)(symbol, "1h", 1500);
+    data = d1Summary(aggregateDailyBars(h1 || []), Number(price));
+  } catch {
+    data = null;
+  }
+  d1CtxCache.set(ck, { at: Date.now(), data });
+  return data;
+}
+async function orbContext(userId, symbol) {
+  const ck = `${userId}|${symbol}`;
+  const hit = orbCtxCache.get(ck);
+  if (hit && Date.now() - hit.at < 6e4) return hit.data;
+  let data = null;
+  try {
+    const { getOrbState: getOrbState2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+    const st = await getOrbState2(userId, symbol).catch(() => null);
+    if (st && st.phase !== "no_range" && Number(st.orbHigh) > 0) {
+      data = { phase: st.phase, direction: st.breakoutDir ?? null, rangeHigh: st.orbHigh, rangeLow: st.orbLow, retest: !!st.retestActive };
+    }
+  } catch {
+    data = null;
+  }
+  orbCtxCache.set(ck, { at: Date.now(), data });
+  return data;
+}
 async function runFxModelsCycle(userId, ctx) {
   if (process.env.FX_MODELS_SHADOW === "off") return;
   try {
@@ -28231,6 +28330,19 @@ async function runFxModelsCycle(userId, ctx) {
         h4: h4 ? { trend: h4.trend, bos: h4.bosChoch?.detected ? h4.bosChoch.description : null, pd: h4.premiumDiscount?.zone, wyckoff: h4.wyckoff?.detected ? h4.wyckoff.phase : null } : null,
         signals: a?.signals ?? a?.strategySignals ?? void 0
       };
+      if (modelsEnrichOn()) {
+        const px = Number(features.price);
+        features.volumeProfile = compactVolumeProfile(a?.volumeProfile, px);
+        features.markov = compactMarkov(symbol, a?.lastConfirmedCandle ?? null);
+        const [orb, d1] = await Promise.all([
+          orbContext(userId, symbol).catch(() => null),
+          d1Features(symbol, "fx", px).catch(() => null)
+        ]);
+        features.orb = orb;
+        features.d1 = d1;
+        const alt = altClassifyD1H1({ adx: snap.adx, relVolume: snap.relativeVolume, d1: d1?.trend, h1: h1?.trend, session: session3 });
+        features.regimeAlt = { basis: "D1/H1", dayType: alt.dayType, autoModel: alt.autoModel, score: alt.score };
+      }
       await pool.query(
         `INSERT INTO fx_day_regimes (user_id, symbol, day, hour_utc, session, day_type, auto_model, trend_score, adx_m15, rel_volume, atr, h1_trend, h4_trend, features)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)
@@ -28356,6 +28468,12 @@ function m1Reject(symbol, dir, entry, sl, ctx, engine = "fx") {
   if (dir === "BUY" && !atBottom) return `BUY not at range bottom (${r.positionInRangePct}%)`;
   const h4 = ctx?.h4?.trend;
   if (dir === "SELL" && h4 === "BULLISH" || dir === "BUY" && h4 === "BEARISH") return `fading a trending H4 (${h4})`;
+  if (engine === "fx" && modelsEnrichOn()) {
+    const orb = ctx?.orb;
+    if (orb && (orb.phase === "breakout" || orb.phase === "retest") && (orb.direction === "BUY" || orb.direction === "SELL")) {
+      if (dir === "BUY" && orb.direction === "SELL" || dir === "SELL" && orb.direction === "BUY") return "ORB breakout active against the fade";
+    }
+  }
   const risk = Math.abs(entry - sl);
   const toMid = Math.abs(r.rangeMid - entry);
   if (!(risk > 0) || toMid / risk < 1) return `R:R to range middle ${(toMid / (risk || 1)).toFixed(2)} < 1`;
@@ -28386,27 +28504,20 @@ function m1Candidate(symbol, ctx, engine = "fx") {
     rrToMidEst: Math.round(rrToMidEst * 100) / 100
   };
 }
-async function shadowDecide(userId, session3, pairs, engine = "fx") {
-  try {
-    const { fxShouldPauseForCredits: fxShouldPauseForCredits2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
-    if (fxShouldPauseForCredits2()) return;
-  } catch {
-  }
-  let ai;
-  try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    ai = await getUniversalAIClientForUser2(userId);
-  } catch {
-    return;
-  }
-  for (const p2 of pairs) {
-    const range = await rangeFeatures(p2.symbol, engine).catch(() => null);
-    p2.ctx.range = range ? { ...range } : null;
-    if (p2.ctx.range) p2.ctx.range.m1Candidate = m1Candidate(p2.symbol, p2.ctx, engine);
-  }
-  const mastery2 = await getModelMastery(userId, { engine }).catch(() => null);
-  const masteryLines = (mastery2?.slices || []).filter((m) => m.trades >= 5).slice(0, 20).map((m) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join("\n");
-  const prompt = `You run TWO ${engine === "crypto" ? "CRYPTO (24/7 on-chain tokens)" : "FX"} trading models side by side. For EACH ${engine === "crypto" ? "token" : "pair"} below, say what each model would trade RIGHT NOW (or NONE).
+function enrichmentGuidance(engine) {
+  const lines = [
+    "ENRICHED CONTEXT (per pair below; a field is null when that feed is unavailable \u2014 ignore nulls):",
+    "  \u2022 ctx.volumeProfile \u2014 POC is the price with the most traded volume (a magnet); VAH/VAL bound the value area (~70% of volume). Model 1: prefer fades from the value-area edges (VAH/VAL) and thin low-volume nodes back toward the POC \u2014 treat the POC like the range middle. Model 2: breakouts that push through a low-volume node, and pullbacks that hold at the POC / VAH / VAL, are valid trend setups.",
+    ...engine === "fx" ? [
+      '  \u2022 ctx.orb \u2014 the NY opening range (9:30\u20139:45 ET) when live: phase "breakout"/"retest" with a direction is a CONFIRMED opening-range breakout. Model 1: NEVER fade against an active confirmed ORB breakout \u2014 stand aside on that pair (the server vetoes it too). Model 2: a confirmed ORB breakout + retest inside the NY window is a valid trend setup \u2014 trade the breakout direction, stop beyond the far side of the range.'
+    ] : [],
+    "  \u2022 ctx.markov \u2014 5-state Markov regime read: state now, pTrend = chance the next step is a directional state, pChop = chance it stays NEUTRAL. Regime evidence, not a signal: do not force Model 2 trend trades when Markov is NEUTRAL with high pChop; a directional Markov state backs the model that agrees with it.",
+    '  \u2022 ctx.d1 \u2014 the daily (D1) trend is the SENIOR bias (priceAbove = live price vs the daily EMA20). Prefer trades WITH the D1 trend; when an idea fights D1, say so in its "reason".'
+  ];
+  return lines.join("\n") + "\n";
+}
+function buildModelsPrompt(engine, session3, pairs, masteryLines, enriched = modelsEnrichOn()) {
+  const base = `You run TWO ${engine === "crypto" ? "CRYPTO (24/7 on-chain tokens)" : "FX"} trading models side by side. For EACH ${engine === "crypto" ? "token" : "pair"} below, say what each model would trade RIGHT NOW (or NONE).
 ${engine === "crypto" ? 'Crypto notes: markets never close; "sessions" are when US/EU volume is highest (London/NY hours give the cleanest trends). The live venue is spot DeFi (long-only): give BUY or NONE only \u2014 never SELL. Thin tokens wick hard \u2014 stops must sit beyond real structure, not inside noise.\n' : ""}
 MODEL 1 (range / low-volume days) \u2014 only when ctx.range.qualifies is true:
   \u2022 Trade ONLY at an edge: SELL when positionInRangePct >= 75, BUY when <= 25. Never the middle.
@@ -28433,6 +28544,30 @@ ${pairs.map((p2) => `${p2.symbol}: ${JSON.stringify(p2.ctx)}`).join("\n")}
 Respond ONLY with JSON:
 {"ideas":[{"symbol":"EURUSD","model":"M1","direction":"BUY|SELL|NONE","entry":1.0,"stopLoss":1.0,"takeProfit":1.0,"confidence":0-100,"setup":"short name","reason":"one sentence"}]}
 Give exactly one M1 and one M2 entry per pair.`;
+  if (!enriched) return base;
+  return base.replace("Both models use every input", `${enrichmentGuidance(engine)}Both models use every input`);
+}
+async function shadowDecide(userId, session3, pairs, engine = "fx") {
+  try {
+    const { fxShouldPauseForCredits: fxShouldPauseForCredits2 } = await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports));
+    if (fxShouldPauseForCredits2()) return;
+  } catch {
+  }
+  let ai;
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    ai = await getUniversalAIClientForUser2(userId);
+  } catch {
+    return;
+  }
+  for (const p2 of pairs) {
+    const range = await rangeFeatures(p2.symbol, engine).catch(() => null);
+    p2.ctx.range = range ? { ...range } : null;
+    if (p2.ctx.range) p2.ctx.range.m1Candidate = m1Candidate(p2.symbol, p2.ctx, engine);
+  }
+  const mastery2 = await getModelMastery(userId, { engine }).catch(() => null);
+  const masteryLines = (mastery2?.slices || []).filter((m) => m.trades >= 5).slice(0, 20).map((m) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join("\n");
+  const prompt = buildModelsPrompt(engine, session3, pairs, masteryLines);
   let content = "";
   try {
     const resp = await ai.chat.completions.create({
@@ -28848,6 +28983,15 @@ async function runCryptoModelsCycle(userId, symbols) {
       const t1 = barTrend(h1), t4 = h4.length >= 55 ? barTrend(h4) : "NEUTRAL";
       const cls = classifyDayType({ adx, relVolume, h1: t1, h4: t4, session: session3 });
       const features = { price, adx, relVolume, h1: { trend: t1 }, h4: { trend: t4 } };
+      if (modelsEnrichOn()) {
+        const lastH1 = h1[h1.length - 1];
+        features.volumeProfile = null;
+        features.markov = compactMarkov(symbol, lastH1 ? { open: Number(lastH1.open), close: Number(lastH1.close) } : null);
+        const d1 = await d1Features(symbol, "crypto", price).catch(() => null);
+        features.d1 = d1;
+        const alt = altClassifyD1H1({ adx, relVolume, d1: d1?.trend, h1: t1, session: session3 });
+        features.regimeAlt = { basis: "D1/H1", dayType: alt.dayType, autoModel: alt.autoModel, score: alt.score };
+      }
       await pool.query(
         `INSERT INTO fx_day_regimes (user_id, symbol, day, hour_utc, session, day_type, auto_model, trend_score, adx_m15, rel_volume, atr, h1_trend, h4_trend, features, engine)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11,$12,$13::jsonb,'crypto')
@@ -28907,12 +29051,13 @@ async function getModelMastery(userId, opts = {}) {
     slices: (await agg("model, day_type, symbol, session")).map(shape)
   };
 }
-var DDL3, ensured3, barsProviders, barsFor, pipSize, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
+var DDL3, ensured3, barsProviders, barsFor, pipSize, modelsEnrichOn, d1CtxCache, orbCtxCache, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
 var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
     init_db();
     init_service();
+    init_markov_chain();
     DDL3 = `
 CREATE TABLE IF NOT EXISTS fx_day_regimes (
   id serial PRIMARY KEY,
@@ -28971,6 +29116,9 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
     };
     barsFor = (engine) => barsProviders[engine] || barsProviders.fx;
     pipSize = (sym2) => /JPY/.test(sym2) ? 0.01 : /^XAU/.test(sym2) ? 0.1 : /^(BTC|ETH)/.test(sym2) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym2) ? 1 : 1e-4;
+    modelsEnrichOn = () => process.env.FX_MODELS_ENRICH !== "off";
+    d1CtxCache = /* @__PURE__ */ new Map();
+    orbCtxCache = /* @__PURE__ */ new Map();
     lastShadowCandle = /* @__PURE__ */ new Map();
     lastResolveAt2 = 0;
     M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || "GBPJPY,XAUUSD,BTCUSD,US30,NAS100").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
@@ -76076,9 +76224,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "b9fbd437-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-12T19:55:31.796Z";
+var BUILD_COMMIT = "3f04a5f8-dirty";
+var BUILD_BRANCH = "feat/fx-models-enrich";
+var BUILT_AT = "2026-11-13T01:43:18.704Z";
 
 // server/stripe.ts
 init_db();

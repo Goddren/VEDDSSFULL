@@ -17,10 +17,20 @@
 // It is exposed via /api/fx-models/* and fed back into the shadow prompt so
 // the models learn from their own record. Nothing here can trade; turning a
 // model live is a later, separate step.
+//
+// Enrichment (Nov 12, 2026, user request): the shadow context ALSO carries
+// volume profile (POC/VAH/VAL), the 5-state Markov regime read, the NY
+// opening-range (ORB) state (FX only), and the D1 daily trend — plus a
+// RECORDED-ONLY alternate regime (regimeAlt) that answers "what would the
+// day type be under D1/H1 agreement instead of H1/H4?" from shadow data
+// later. regimeAlt never drives autoModel, vetoes, or the live hand-off.
+// Kill switch FX_MODELS_ENRICH=off restores the exact pre-enrichment
+// context, prompt, and veto behavior.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { pool } from '../db';
 import { marketDataService } from '../market-data/service';
+import { getCachedMatrix, getMarkovSnapshot } from './markov-chain';
 
 export type DayType = 'range' | 'trend' | 'mixed';
 export type ModelId = 'M1' | 'M2';
@@ -135,6 +145,151 @@ export function classifyDayType(input: {
   return { dayType, autoModel, score: s };
 }
 
+// ── Shadow enrichment: VP / Markov / ORB / D1 + recorded-only alt regime ──
+export const modelsEnrichOn = (): boolean => process.env.FX_MODELS_ENRICH !== 'off';
+
+/**
+ * Alternate regime experiment (RECORDED ONLY): the exact classifyDayType
+ * scorecard with the D1 trend substituted for H4 — "what would today be
+ * under D1/H1 agreement?" Stored as ctx.regimeAlt on every enriched cycle
+ * so the shadow record can later say whether D1/H1 would have beaten
+ * H1/H4. Never used for autoModel, vetoes, or the live hand-off.
+ */
+export function altClassifyD1H1(input: {
+  adx?: number | null; relVolume?: number | null; d1?: string | null; h1?: string | null; session: string; news?: boolean;
+}): { dayType: DayType; autoModel: ModelId; score: number } {
+  return classifyDayType({ adx: input.adx, relVolume: input.relVolume, h1: input.h1, h4: input.d1, session: input.session, news: input.news });
+}
+
+/**
+ * Compact volume profile from the engine's indicators.volumeProfile shape
+ * ({ poc, vah, val, ... } from server/indicators.ts). Null when the true
+ * profile (POC/VAH/VAL) or a usable price is missing.
+ */
+export function compactVolumeProfile(vp: any, price: number): {
+  poc: number; vah: number; val: number; pricePos: 'above VA' | 'in VA' | 'below VA'; distToPocPct: number;
+} | null {
+  const poc = Number(vp?.poc), vah = Number(vp?.vah), val = Number(vp?.val), px = Number(price);
+  if (!(poc > 0) || !(vah > 0) || !(val > 0) || !(px > 0)) return null;
+  const pricePos = px > vah ? 'above VA' : px < val ? 'below VA' : 'in VA';
+  return { poc, vah, val, pricePos, distToPocPct: Math.round(((px - poc) / poc) * 10000) / 100 };
+}
+
+/**
+ * Compact Markov read from the CACHED transition matrix only — never builds
+ * a matrix here (that happens in the engine's signal path). pTrend is the
+ * next-step probability mass on any directional state (BULL/STRONG_BULL or
+ * BEAR/STRONG_BEAR); pChop is the mass on staying NEUTRAL. Null when no
+ * matrix is cached for the symbol yet.
+ */
+export function compactMarkov(symbol: string, lastCandle: { open: number; close: number } | null): {
+  state: string; pTrend: number; pChop: number; pBull: number; pBear: number;
+} | null {
+  try {
+    let lc = lastCandle;
+    if (!lc) {
+      const hist = getCachedMatrix(symbol)?.candleHistory;
+      if (hist?.length) lc = hist[hist.length - 1];
+    }
+    if (!lc) return null;
+    const snap = getMarkovSnapshot(symbol, lc);
+    if (!snap) return null;
+    const r3 = (x: number) => Math.round(x * 1000) / 1000;
+    return {
+      state: snap.currentState,
+      pTrend: r3(snap.bullishProbability + snap.bearishProbability),
+      pChop: r3(snap.neutralProbability),
+      pBull: r3(snap.bullishProbability),
+      pBear: r3(snap.bearishProbability),
+    };
+  } catch { return null; }
+}
+
+/** Aggregate H1 bars (oldest → newest, ts in ms or s) into UTC daily bars. */
+export function aggregateDailyBars(h1Bars: ModelBar[]): ModelBar[] {
+  const byDay = new Map<number, ModelBar>();
+  for (const b of h1Bars || []) {
+    const raw = Number(b?.timestamp);
+    if (!Number.isFinite(raw)) continue;
+    const ts = raw < 1e12 ? raw * 1000 : raw;
+    const day = Math.floor(ts / 86_400_000);
+    const cur = byDay.get(day);
+    if (!cur) {
+      byDay.set(day, { timestamp: day * 86_400_000, open: Number(b.open), high: Number(b.high), low: Number(b.low), close: Number(b.close), volume: Number(b.volume) || 0 });
+    } else {
+      cur.high = Math.max(cur.high, Number(b.high));
+      cur.low = Math.min(cur.low, Number(b.low));
+      cur.close = Number(b.close);
+      cur.volume = (cur.volume || 0) + (Number(b.volume) || 0);
+    }
+  }
+  return Array.from(byDay.entries()).sort((x, y) => x[0] - y[0]).map(([, v]) => v);
+}
+
+/**
+ * D1 summary from daily bars: trend from the file's EMA20/50 barTrend() over
+ * CONFIRMED (completed) UTC days only, plus whether the live price sits
+ * above the daily EMA20. Null with fewer than 20 confirmed days.
+ */
+export function d1Summary(daily: ModelBar[], price: number): { trend: string; priceAbove: boolean | null } | null {
+  const todayKey = Math.floor(Date.now() / 86_400_000);
+  const confirmed = (daily || []).filter((d) => Math.floor(Number(d.timestamp) / 86_400_000) < todayKey);
+  if (confirmed.length < 20) return null;
+  const closes = confirmed.map((d) => Number(d.close));
+  const e20 = emaLast(closes, 20);
+  const px = Number(price);
+  const priceAbove = px > 0 ? (Number.isFinite(e20) && e20 > 0 ? px > e20 : px > closes[closes.length - 1]) : null;
+  return { trend: barTrend(confirmed), priceAbove };
+}
+
+const d1CtxCache = new Map<string, { at: number; data: { trend: string; priceAbove: boolean | null } | null }>();
+
+/**
+ * D1 context for a symbol, cached 30 min per engine|symbol. Fetches ~1500
+ * H1 bars (≈62 days → ~61 confirmed daily bars): barTrend() needs 50+
+ * daily closes for its EMA50, so the ~500 bars that suffice elsewhere
+ * (≈20 days) would leave D1 permanently NEUTRAL. Any failure → null.
+ */
+export async function d1Features(symbol: string, engine: ModelEngine = 'fx', price?: number): Promise<{ trend: string; priceAbove: boolean | null } | null> {
+  const ck = `${engine}|${symbol}`;
+  const hit = d1CtxCache.get(ck);
+  if (hit && Date.now() - hit.at < 30 * 60_000) return hit.data;
+  let data: { trend: string; priceAbove: boolean | null } | null = null;
+  try {
+    const h1 = await barsFor(engine)(symbol, '1h', 1500);
+    data = d1Summary(aggregateDailyBars(h1 || []), Number(price));
+  } catch { data = null; }
+  d1CtxCache.set(ck, { at: Date.now(), data });
+  return data;
+}
+
+const orbCtxCache = new Map<string, { at: number; data: any }>();
+
+/**
+ * Compact ORB context (FX only), 60s-cached like the engine's own sniper
+ * ORB cache. Dynamic import: live-trading-engine already dynamically
+ * imports this module, so a static import would close a cycle.
+ * getOrbState returns null outside the 9:30–15:00 ET window; a formed
+ * range with no breakout yet is kept (phase 'awaiting_breakout').
+ */
+async function orbContext(userId: number, symbol: string): Promise<{
+  phase: string; direction: 'BUY' | 'SELL' | null; rangeHigh: number; rangeLow: number; retest: boolean;
+} | null> {
+  const ck = `${userId}|${symbol}`;
+  const hit = orbCtxCache.get(ck);
+  if (hit && Date.now() - hit.at < 60_000) return hit.data;
+  let data: any = null;
+  try {
+    const { getOrbState } = await import('./live-trading-engine');
+    const st: any = await getOrbState(userId, symbol).catch(() => null);
+    if (st && st.phase !== 'no_range' && Number(st.orbHigh) > 0) {
+      data = { phase: st.phase, direction: st.breakoutDir ?? null, rangeHigh: st.orbHigh, rangeLow: st.orbLow, retest: !!st.retestActive };
+    }
+  } catch { data = null; }
+  orbCtxCache.set(ck, { at: Date.now(), data });
+  return data;
+}
+
 const lastShadowCandle = new Map<string, number>();
 let lastResolveAt = 0;
 
@@ -159,7 +314,7 @@ export async function runFxModelsCycle(userId: number, ctx: {
       const snap = ctx.snapshot?.[symbol] || {};
       const { h1, h4 } = ctx.mtf(symbol);
       const cls = classifyDayType({ adx: snap.adx, relVolume: snap.relativeVolume, h1: h1?.trend, h4: h4?.trend, session });
-      const features = {
+      const features: Record<string, any> = {
         price: a?.currentPrice ?? snap.price, m15Trend: snap.trend, rsi: snap.rsi, adx: snap.adx, plusDI: snap.plusDI, minusDI: snap.minusDI,
         atr: Number(snap.atr) > 0 ? snap.atr : null, // 0 means "not computed", never tell the AI ATR is zero
         relVolume: snap.relativeVolume, volumeTrend: snap.volumeTrend,
@@ -167,6 +322,22 @@ export async function runFxModelsCycle(userId: number, ctx: {
         h4: h4 ? { trend: h4.trend, bos: h4.bosChoch?.detected ? h4.bosChoch.description : null, pd: h4.premiumDiscount?.zone, wyckoff: h4.wyckoff?.detected ? h4.wyckoff.phase : null } : null,
         signals: a?.signals ?? a?.strategySignals ?? undefined,
       };
+      if (modelsEnrichOn()) {
+        // Enriched shadow context (VP / Markov / ORB / D1 + alt regime).
+        // Keys exist only when enrichment is on, so FX_MODELS_ENRICH=off
+        // keeps the stored features byte-identical to the pre-enrichment shape.
+        const px = Number(features.price);
+        features.volumeProfile = compactVolumeProfile(a?.volumeProfile, px);
+        features.markov = compactMarkov(symbol, a?.lastConfirmedCandle ?? null);
+        const [orb, d1] = await Promise.all([
+          orbContext(userId, symbol).catch(() => null),
+          d1Features(symbol, 'fx', px).catch(() => null),
+        ]);
+        features.orb = orb;
+        features.d1 = d1;
+        const alt = altClassifyD1H1({ adx: snap.adx, relVolume: snap.relativeVolume, d1: d1?.trend, h1: h1?.trend, session });
+        features.regimeAlt = { basis: 'D1/H1', dayType: alt.dayType, autoModel: alt.autoModel, score: alt.score };
+      }
       await pool.query(
         `INSERT INTO fx_day_regimes (user_id, symbol, day, hour_utc, session, day_type, auto_model, trend_score, adx_m15, rel_volume, atr, h1_trend, h4_trend, features)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)
@@ -307,6 +478,16 @@ export function m1Reject(symbol: string, dir: string, entry: number, sl: number,
   if (dir === 'BUY' && !atBottom) return `BUY not at range bottom (${r.positionInRangePct}%)`;
   const h4 = ctx?.h4?.trend;
   if ((dir === 'SELL' && h4 === 'BULLISH') || (dir === 'BUY' && h4 === 'BEARISH')) return `fading a trending H4 (${h4})`;
+  // Enrichment veto (Nov 12, 2026 — the ONE veto added with the enrichment):
+  // never fade INTO an active confirmed ORB breakout. A range fade against a
+  // live NY opening-range breakout is the classic range-day blow-up. Behind
+  // FX_MODELS_ENRICH like the rest of the enrichment.
+  if (engine === 'fx' && modelsEnrichOn()) {
+    const orb = ctx?.orb;
+    if (orb && (orb.phase === 'breakout' || orb.phase === 'retest') && (orb.direction === 'BUY' || orb.direction === 'SELL')) {
+      if ((dir === 'BUY' && orb.direction === 'SELL') || (dir === 'SELL' && orb.direction === 'BUY')) return 'ORB breakout active against the fade';
+    }
+  }
   const risk = Math.abs(entry - sl);
   const toMid = Math.abs(r.rangeMid - entry);
   if (!(risk > 0) || toMid / risk < 1) return `R:R to range middle ${(toMid / (risk || 1)).toFixed(2)} < 1`;
@@ -345,28 +526,33 @@ export function m1Candidate(symbol: string, ctx: any, engine: ModelEngine = 'fx'
   };
 }
 
-async function shadowDecide(userId: number, session: string, pairs: Array<{ symbol: string; ctx: any }>, engine: ModelEngine = 'fx'): Promise<void> {
-  try {
-    const { fxShouldPauseForCredits } = await import('./ai-budget-guard');
-    if (fxShouldPauseForCredits()) return;
-  } catch { /* guard unavailable: continue */ }
-  let ai: any;
-  try {
-    const { getUniversalAIClientForUser } = await import('../openai');
-    ai = await getUniversalAIClientForUser(userId);
-  } catch { return; }
+/**
+ * Enrichment guidance spliced into the models prompt when enrichment is on.
+ * Written against the enriched ctx fields (volumeProfile / orb / markov /
+ * d1); the same wording the check script asserts on. FX gets the ORB line;
+ * crypto has no opening range.
+ */
+function enrichmentGuidance(engine: ModelEngine): string {
+  const lines = [
+    'ENRICHED CONTEXT (per pair below; a field is null when that feed is unavailable \u2014 ignore nulls):',
+    '  \u2022 ctx.volumeProfile \u2014 POC is the price with the most traded volume (a magnet); VAH/VAL bound the value area (~70% of volume). Model 1: prefer fades from the value-area edges (VAH/VAL) and thin low-volume nodes back toward the POC \u2014 treat the POC like the range middle. Model 2: breakouts that push through a low-volume node, and pullbacks that hold at the POC / VAH / VAL, are valid trend setups.',
+    ...(engine === 'fx' ? [
+      '  \u2022 ctx.orb \u2014 the NY opening range (9:30\u20139:45 ET) when live: phase "breakout"/"retest" with a direction is a CONFIRMED opening-range breakout. Model 1: NEVER fade against an active confirmed ORB breakout \u2014 stand aside on that pair (the server vetoes it too). Model 2: a confirmed ORB breakout + retest inside the NY window is a valid trend setup \u2014 trade the breakout direction, stop beyond the far side of the range.',
+    ] : []),
+    '  \u2022 ctx.markov \u2014 5-state Markov regime read: state now, pTrend = chance the next step is a directional state, pChop = chance it stays NEUTRAL. Regime evidence, not a signal: do not force Model 2 trend trades when Markov is NEUTRAL with high pChop; a directional Markov state backs the model that agrees with it.',
+    '  \u2022 ctx.d1 \u2014 the daily (D1) trend is the SENIOR bias (priceAbove = live price vs the daily EMA20). Prefer trades WITH the D1 trend; when an idea fights D1, say so in its "reason".',
+  ];
+  return lines.join('\n') + '\n';
+}
 
-  for (const p of pairs) {
-    const range = await rangeFeatures(p.symbol, engine).catch(() => null);
-    // Copy, never mutate: rangeFeatures returns a cached object shared across cycles.
-    p.ctx.range = range ? { ...range } : null;
-    if (p.ctx.range) p.ctx.range.m1Candidate = m1Candidate(p.symbol, p.ctx, engine);
-  }
-  const mastery = await getModelMastery(userId, { engine }).catch(() => null);
-  const masteryLines = (mastery?.slices || []).filter((m: any) => m.trades >= 5).slice(0, 20)
-    .map((m: any) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join('\n');
-
-  const prompt = `You run TWO ${engine === 'crypto' ? 'CRYPTO (24/7 on-chain tokens)' : 'FX'} trading models side by side. For EACH ${engine === 'crypto' ? 'token' : 'pair'} below, say what each model would trade RIGHT NOW (or NONE).
+/**
+ * The shadow-decide prompt. With enriched=false (FX_MODELS_ENRICH=off) this
+ * returns the pre-enrichment prompt byte for byte; with enrichment on, the
+ * ONLY change is the guidance block spliced in immediately before the
+ * "Both models use every input" paragraph.
+ */
+export function buildModelsPrompt(engine: ModelEngine, session: string, pairs: Array<{ symbol: string; ctx: any }>, masteryLines: string, enriched: boolean = modelsEnrichOn()): string {
+  const base = `You run TWO ${engine === 'crypto' ? 'CRYPTO (24/7 on-chain tokens)' : 'FX'} trading models side by side. For EACH ${engine === 'crypto' ? 'token' : 'pair'} below, say what each model would trade RIGHT NOW (or NONE).
 ${engine === 'crypto' ? 'Crypto notes: markets never close; "sessions" are when US/EU volume is highest (London/NY hours give the cleanest trends). The live venue is spot DeFi (long-only): give BUY or NONE only — never SELL. Thin tokens wick hard — stops must sit beyond real structure, not inside noise.\n' : ''}
 MODEL 1 (range / low-volume days) — only when ctx.range.qualifies is true:
   • Trade ONLY at an edge: SELL when positionInRangePct >= 75, BUY when <= 25. Never the middle.
@@ -391,6 +577,32 @@ ${pairs.map((p) => `${p.symbol}: ${JSON.stringify(p.ctx)}`).join('\n')}
 Respond ONLY with JSON:
 {"ideas":[{"symbol":"EURUSD","model":"M1","direction":"BUY|SELL|NONE","entry":1.0,"stopLoss":1.0,"takeProfit":1.0,"confidence":0-100,"setup":"short name","reason":"one sentence"}]}
 Give exactly one M1 and one M2 entry per pair.`;
+  if (!enriched) return base;
+  return base.replace('Both models use every input', `${enrichmentGuidance(engine)}Both models use every input`);
+}
+
+async function shadowDecide(userId: number, session: string, pairs: Array<{ symbol: string; ctx: any }>, engine: ModelEngine = 'fx'): Promise<void> {
+  try {
+    const { fxShouldPauseForCredits } = await import('./ai-budget-guard');
+    if (fxShouldPauseForCredits()) return;
+  } catch { /* guard unavailable: continue */ }
+  let ai: any;
+  try {
+    const { getUniversalAIClientForUser } = await import('../openai');
+    ai = await getUniversalAIClientForUser(userId);
+  } catch { return; }
+
+  for (const p of pairs) {
+    const range = await rangeFeatures(p.symbol, engine).catch(() => null);
+    // Copy, never mutate: rangeFeatures returns a cached object shared across cycles.
+    p.ctx.range = range ? { ...range } : null;
+    if (p.ctx.range) p.ctx.range.m1Candidate = m1Candidate(p.symbol, p.ctx, engine);
+  }
+  const mastery = await getModelMastery(userId, { engine }).catch(() => null);
+  const masteryLines = (mastery?.slices || []).filter((m: any) => m.trades >= 5).slice(0, 20)
+    .map((m: any) => `${m.model} ${m.dayType} ${m.symbol} ${m.session}: ${m.trades} trades, WR ${(m.winRate * 100).toFixed(0)}%, avg ${m.avgR.toFixed(2)}R (${m.level})`).join('\n');
+
+  const prompt = buildModelsPrompt(engine, session, pairs, masteryLines);
 
   let content = '';
   try {
@@ -763,7 +975,20 @@ export async function runCryptoModelsCycle(userId: number, symbols: string[]): P
       const adx = adx14(h1);
       const t1 = barTrend(h1), t4 = h4.length >= 55 ? barTrend(h4) : 'NEUTRAL';
       const cls = classifyDayType({ adx, relVolume, h1: t1, h4: t4, session });
-      const features = { price, adx, relVolume, h1: { trend: t1 }, h4: { trend: t4 } };
+      const features: Record<string, any> = { price, adx, relVolume, h1: { trend: t1 }, h4: { trend: t4 } };
+      if (modelsEnrichOn()) {
+        // Same enrichment as the FX cycle, from what crypto has: Markov from
+        // the cached matrix (last confirmed H1 bar as the state candle) and
+        // D1 from its own candles. No volume-profile feed exists in this
+        // cycle, so the field is present but null; ORB is FX-only.
+        const lastH1 = h1[h1.length - 1];
+        features.volumeProfile = null;
+        features.markov = compactMarkov(symbol, lastH1 ? { open: Number(lastH1.open), close: Number(lastH1.close) } : null);
+        const d1 = await d1Features(symbol, 'crypto', price).catch(() => null);
+        features.d1 = d1;
+        const alt = altClassifyD1H1({ adx, relVolume, d1: d1?.trend, h1: t1, session });
+        features.regimeAlt = { basis: 'D1/H1', dayType: alt.dayType, autoModel: alt.autoModel, score: alt.score };
+      }
       await pool.query(
         `INSERT INTO fx_day_regimes (user_id, symbol, day, hour_utc, session, day_type, auto_model, trend_score, adx_m15, rel_volume, atr, h1_trend, h4_trend, features, engine)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11,$12,$13::jsonb,'crypto')
