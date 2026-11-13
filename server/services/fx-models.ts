@@ -26,6 +26,31 @@
 // later. regimeAlt never drives autoModel, vetoes, or the live hand-off.
 // Kill switch FX_MODELS_ENRICH=off restores the exact pre-enrichment
 // context, prompt, and veto behavior.
+//
+// Epoch + probation + prop-firm sim (Nov 12, 2026, user directives):
+//   • EPOCH — the promotion bar (sliceLiveReady) must grade only the
+//     CURRENT system. Decisions inserted from this build onward are
+//     stamped epoch = MODELS_EPOCH (2); pre-existing rows default to
+//     epoch 1. getModelMastery still returns all-time rows for display,
+//     but level / ready math uses epoch-filtered stats. Kill switch
+//     FX_MODELS_EPOCH=off makes promotion counting all-time again.
+//   • LIFTS (probation release) — for the enriched (epoch-2) models,
+//     BOTH standing blocks are lifted in the shadow pipeline: the
+//     per-model pair exclusions (M1_PAIRS_EXCLUDED / M2_PAIRS_EXCLUDED)
+//     and M2's session restriction (M2_SESSIONS) no longer veto ideas.
+//     Every decision records its provenance in ctx (wasExcludedPair /
+//     wasBlockedSession) so the record shows which ground was formerly
+//     blocked. There is NO pair/session hard block on live eligibility:
+//     a formerly blocked slice can go live only the normal way — an
+//     epoch-2 record clearing the full go-live bar, the user's live
+//     toggle, and the daily caps. The epoch reset is the protection.
+//     Kill switch FX_MODELS_LIFTS=off restores ALL old behavior (pair
+//     vetoes + M2 session veto + the old prompt wording).
+//   • PROP-FIRM SIM — propSimulate() replays the epoch-2 shadow record
+//     as if traded on a $100,000 prop-firm account (0.5% risk per trade
+//     or lower, scaled by confidence and slice accuracy; 2.5% daily
+//     loss cap; 6% max loss = blown). A reporting tool only — it is
+//     wired into getModelMastery as `propSim`, never into a live path.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { pool } from '../db';
@@ -82,6 +107,7 @@ CREATE INDEX IF NOT EXISTS fx_model_decisions_open_idx ON fx_model_decisions (re
 CREATE INDEX IF NOT EXISTS fx_model_decisions_user_idx ON fx_model_decisions (user_id, model, created_at);
 ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'own';
 ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
+ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS epoch integer NOT NULL DEFAULT 1;
 ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
 `;
 
@@ -147,6 +173,220 @@ export function classifyDayType(input: {
 
 // ── Shadow enrichment: VP / Markov / ORB / D1 + recorded-only alt regime ──
 export const modelsEnrichOn = (): boolean => process.env.FX_MODELS_ENRICH !== 'off';
+
+// ── Epoch (promotion counts the current system only) ─────────────────────
+// Epoch 1 = every decision recorded before this build (including the
+// brief enriched-but-unstamped window after PR #57 — those rows carry
+// the DB default 1; only rows inserted by this build onward are stamped
+// 2). Epoch 2 = decisions made with the enriched context (VP / Markov /
+// ORB / D1) under the probation release.
+export const MODELS_EPOCH = 2;
+/** Kill switch FX_MODELS_EPOCH=off → promotion counting is all-time again. */
+export const modelsEpochOn = (): boolean => process.env.FX_MODELS_EPOCH !== 'off';
+
+// ── Lifts (formerly blocked pairs/sessions trade in shadow again) ────────
+/** Kill switch FX_MODELS_LIFTS=off → pair vetoes + M2 session veto return. */
+export const modelsLiftsOn = (): boolean => process.env.FX_MODELS_LIFTS !== 'off';
+
+/**
+ * The lifts apply to the ENRICHED (epoch-2) models only: with
+ * FX_MODELS_ENRICH=off the whole pre-enrichment behavior — context,
+ * prompt, and vetoes — is restored, exactly as PR #57 documented.
+ */
+export const liftsActive = (): boolean => modelsEnrichOn() && modelsLiftsOn();
+
+/**
+ * Is this pair on the model's (formerly) excluded list? The env lists
+ * (FX_M1_EXCLUDED_PAIRS / FX_M2_EXCLUDED_PAIRS) remain the single source
+ * of which pairs were blocked per model. FX engine only — the lists were
+ * never applied to crypto.
+ */
+export function isExcludedPair(model: string, symbol: string, engine: ModelEngine = 'fx'): boolean {
+  if (engine !== 'fx' || !symbol) return false;
+  const sym = String(symbol).toUpperCase();
+  if (model === 'M1') return M1_PAIRS_EXCLUDED.includes(sym);
+  if (model === 'M2') return M2_PAIRS_EXCLUDED.includes(sym);
+  return false;
+}
+
+/**
+ * Provenance of an idea against the OLD blocks, recorded on every
+ * epoch-2 decision's ctx: was this pair formerly excluded for the model,
+ * and (M2/FX) was this session formerly blocked? Pure facts — under the
+ * lifts neither one vetoes anything.
+ */
+export function decisionProvenance(model: string, symbol: string, session: string, engine: ModelEngine = 'fx'): { wasExcludedPair: boolean; wasBlockedSession: boolean } {
+  return {
+    wasExcludedPair: isExcludedPair(model, symbol, engine),
+    wasBlockedSession: engine === 'fx' && model === 'M2' && !M2_SESSIONS.includes(session),
+  };
+}
+
+/**
+ * The stats the PROMOTION bar grades: epoch-filtered while the epoch is
+ * on (the current system's record only), all-time when FX_MODELS_EPOCH=off.
+ * Pure — reads only the slice object getModelMastery produced.
+ */
+export function promotionStats(s: any): { trades: number; avgR: number; winRate: number; level: string } {
+  if (modelsEpochOn()) {
+    return {
+      trades: Number(s?.epochTrades) || 0,
+      avgR: Number(s?.epochAvgR) || 0,
+      winRate: Number(s?.epochWinRate) || 0,
+      level: String(s?.epochLevel || 'Learning'),
+    };
+  }
+  return {
+    trades: Number(s?.trades) || 0,
+    avgR: Number(s?.avgR) || 0,
+    winRate: Number(s?.winRate) || 0,
+    level: String(s?.allTimeLevel || s?.level || 'Learning'),
+  };
+}
+
+// ── Prop-firm simulation of the shadow record ────────────────────────────
+// Replays RESOLVED shadow decisions chronologically (by resolved_at,
+// falling back to created_at) as if each had been traded on a $100,000
+// prop-firm account. This is the AI-chosen sizing the user asked for:
+// "0.5% a trade or lower depending on the trade and accuracy":
+//
+//   riskPct = BASE (0.5%) × confidenceFactor × accuracyFactor, floored
+//             at 0.1% and capped at 0.5% of the CURRENT balance, where
+//     confidenceFactor = clamp(confidence / 100, 0.4, 1)   (missing
+//                        confidence is treated as 50 → 0.5)
+//     accuracyFactor   = clamp(slice win rate, 0.5, 1) once the slice
+//                        (model × day type × pair × session) has ≥10
+//                        prior resolved trades in this replay, else 0.75
+//   $ P&L of a trade = risk$ × its R multiple.
+//
+// Prop-firm guardrails: a daily loss cap (default 2.5% of the day-start
+// balance — the user's 2–3% band; env PROP_SIM_DAILY_CAP_PCT) skips the
+// rest of that day's trades once hit, and a 6% max loss from the $100k
+// start (env PROP_SIM_MAX_LOSS_PCT) ends the sim (blown). Pure function:
+// no DB, no clock of its own (timestamps come from the decisions).
+export interface PropSimDecision {
+  model?: string; day_type?: string; dayType?: string; symbol?: string; session?: string;
+  confidence?: number | null; r_multiple?: number | null; rMultiple?: number | null;
+  result?: string | null; created_at?: any; resolved_at?: any; id?: number;
+}
+export interface PropSimTradeDetail {
+  at: string; day: string; sliceKey: string; confidence: number | null;
+  riskPct: number; riskDollars: number; r: number; pnl: number; balanceAfter: number;
+  skipped: boolean; skipReason?: string;
+}
+export interface PropSimResult {
+  startBalance: number; endBalance: number; totalReturnPct: number;
+  tradesTaken: number; tradesSkipped: number; skippedByDailyCap: number;
+  blown: boolean; blownAt: string | null; worstDayPct: number; daysActive: number;
+  detail?: PropSimTradeDetail[];
+}
+export interface PropSimOpts {
+  startBalance?: number; baseRiskPct?: number; minRiskPct?: number; maxRiskPct?: number;
+  dailyCapPct?: number; maxLossPct?: number; includeDetail?: boolean;
+}
+
+const clampNum = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
+const round2 = (x: number) => Math.round(x * 100) / 100;
+
+export function propSimulate(decisions: PropSimDecision[], opts: PropSimOpts = {}): PropSimResult {
+  const startBalance = Number(opts.startBalance) > 0 ? Number(opts.startBalance) : 100_000;
+  const baseRiskPct = Number(opts.baseRiskPct) > 0 ? Number(opts.baseRiskPct) : 0.5;
+  const minRiskPct = Number.isFinite(Number(opts.minRiskPct)) ? Number(opts.minRiskPct) : 0.1;
+  const maxRiskPct = Number(opts.maxRiskPct) > 0 ? Number(opts.maxRiskPct) : baseRiskPct;
+  const dailyCapPct = Number(opts.dailyCapPct) > 0 ? Number(opts.dailyCapPct)
+    : (Number(process.env.PROP_SIM_DAILY_CAP_PCT) > 0 ? Number(process.env.PROP_SIM_DAILY_CAP_PCT) : 2.5);
+  const maxLossPct = Number(opts.maxLossPct) > 0 ? Number(opts.maxLossPct)
+    : (Number(process.env.PROP_SIM_MAX_LOSS_PCT) > 0 ? Number(process.env.PROP_SIM_MAX_LOSS_PCT) : 6);
+
+  const tsOf = (d: PropSimDecision): number => {
+    const t = new Date(d?.resolved_at ?? d?.created_at ?? 0).getTime();
+    return Number.isFinite(t) ? t : 0;
+  };
+  // Only resolved trades replay: WIN / LOSS / EXPIRED with a real R.
+  // NO_TRADE rows and still-open ideas are skipped entirely.
+  const rows = (decisions || []).filter((d) => {
+    const r = Number(d?.r_multiple ?? d?.rMultiple);
+    if (!Number.isFinite(r)) return false;
+    if (d?.result == null) return true;
+    const res = String(d.result).toUpperCase();
+    return res === 'WIN' || res === 'LOSS' || res === 'EXPIRED';
+  }).slice().sort((a, b) => (tsOf(a) - tsOf(b))
+    || (new Date(a?.created_at ?? 0).getTime() - new Date(b?.created_at ?? 0).getTime())
+    || ((Number(a?.id) || 0) - (Number(b?.id) || 0)));
+
+  let balance = startBalance;
+  let curDay: string | null = null;
+  let dayStartBalance = startBalance;
+  let dayPnl = 0;
+  let worstDayPct = 0;
+  let tradesTaken = 0;
+  let skippedByDailyCap = 0;
+  let blown = false;
+  let blownAt: string | null = null;
+  const activeDays = new Set<string>();
+  const slicePrior = new Map<string, { n: number; wins: number }>();
+  const detail: PropSimTradeDetail[] = [];
+  const blowLine = startBalance * (1 - maxLossPct / 100);
+  const closeDay = () => {
+    if (curDay && dayStartBalance > 0) worstDayPct = Math.min(worstDayPct, (dayPnl / dayStartBalance) * 100);
+  };
+
+  for (const d of rows) {
+    if (blown) break; // sim over: later trades are not processed at all
+    const ts = tsOf(d);
+    const day = new Date(ts).toISOString().slice(0, 10);
+    if (day !== curDay) { closeDay(); curDay = day; dayStartBalance = balance; dayPnl = 0; }
+    const r = Number(d?.r_multiple ?? d?.rMultiple);
+    const sliceKey = `${d?.model || ''}|${d?.day_type ?? d?.dayType ?? ''}|${String(d?.symbol || '').toUpperCase()}|${d?.session || ''}`;
+    const confRaw = Number(d?.confidence);
+    const confidence = Number.isFinite(confRaw) ? confRaw : null;
+
+    // Daily loss cap already hit → this trade (and the rest of today) is skipped.
+    if (dayPnl <= -(dailyCapPct / 100) * dayStartBalance + 1e-9) {
+      skippedByDailyCap++;
+      if (opts.includeDetail) detail.push({ at: new Date(ts).toISOString(), day, sliceKey, confidence, riskPct: 0, riskDollars: 0, r, pnl: 0, balanceAfter: balance, skipped: true, skipReason: 'daily loss cap' });
+      continue;
+    }
+
+    const prior = slicePrior.get(sliceKey) || { n: 0, wins: 0 };
+    const confFactor = clampNum((confidence ?? 50) / 100, 0.4, 1);
+    const accFactor = prior.n >= 10 ? clampNum(prior.wins / prior.n, 0.5, 1) : 0.75;
+    const riskPct = clampNum(baseRiskPct * confFactor * accFactor, minRiskPct, maxRiskPct);
+    const riskDollars = balance * (riskPct / 100);
+    const pnl = riskDollars * r;
+    balance += pnl;
+    dayPnl += pnl;
+    tradesTaken++;
+    activeDays.add(day);
+    prior.n++;
+    if (r > 0) prior.wins++;
+    slicePrior.set(sliceKey, prior);
+    if (opts.includeDetail) {
+      detail.push({
+        at: new Date(ts).toISOString(), day, sliceKey, confidence,
+        riskPct: Math.round(riskPct * 1e6) / 1e6, riskDollars: round2(riskDollars),
+        r, pnl: round2(pnl), balanceAfter: round2(balance), skipped: false,
+      });
+    }
+    if (balance <= blowLine) { blown = true; blownAt = day; }
+  }
+  closeDay();
+
+  const out: PropSimResult = {
+    startBalance,
+    endBalance: round2(balance),
+    totalReturnPct: round2(((balance - startBalance) / startBalance) * 100),
+    tradesTaken,
+    tradesSkipped: skippedByDailyCap,
+    skippedByDailyCap,
+    blown,
+    blownAt,
+    worstDayPct: round2(worstDayPct),
+    daysActive: activeDays.size,
+  };
+  if (opts.includeDetail) out.detail = detail;
+  return out;
+}
 
 /**
  * Alternate regime experiment (RECORDED ONLY): the exact classifyDayType
@@ -454,8 +694,13 @@ export function m2Reject(symbol: string, dir: string, entry: number, sl: number,
   const want = dir === 'BUY' ? 'BULLISH' : 'BEARISH';
   if (ctx?.h1?.trend !== want || ctx?.h4?.trend !== want) return `H1 ${ctx?.h1?.trend ?? 'n/a'} / H4 ${ctx?.h4?.trend ?? 'n/a'} not both ${want}`;
   if (engine !== 'fx') return null;
-  if (M2_PAIRS_EXCLUDED.includes(symbol)) return `${symbol} excluded from trend model`;
-  if (!M2_SESSIONS.includes(session)) return `${session} session (Model 2 trades ${M2_SESSIONS.join(' / ')} only)`;
+  // Lifts (Nov 12, 2026): for the enriched models BOTH the pair check
+  // and the session check below are lifted — formerly blocked pairs and
+  // sessions record shadow trades instead of vetoes. All other Model 2
+  // rules (premium/discount, ADX, 3R target) still apply everywhere.
+  // FX_MODELS_LIFTS=off (or FX_MODELS_ENRICH=off) restores both vetoes.
+  if (M2_PAIRS_EXCLUDED.includes(symbol) && !liftsActive()) return `${symbol} excluded from trend model`;
+  if (!M2_SESSIONS.includes(session) && !liftsActive()) return `${session} session (Model 2 trades ${M2_SESSIONS.join(' / ')} only)`;
   const pd = ctx?.h1?.pd;
   if (dir === 'BUY' && pd === 'PREMIUM') return 'BUY at H1 premium';
   if (dir === 'SELL' && pd === 'DISCOUNT') return 'SELL at H1 discount';
@@ -470,7 +715,10 @@ export function m2Reject(symbol: string, dir: string, entry: number, sl: number,
 /** Server-side Model 1 rules. Returns null when the idea passes, else the reason it fails. */
 export function m1Reject(symbol: string, dir: string, entry: number, sl: number, ctx: any, engine: ModelEngine = 'fx'): string | null {
   const r = ctx?.range;
-  if (engine === 'fx' && M1_PAIRS_EXCLUDED.includes(symbol)) return `${symbol} excluded from range model`;
+  // Lifts (Nov 12, 2026): the pair check is lifted for the enriched
+  // models; every other Model 1 rule below still applies to those pairs.
+  // FX_MODELS_LIFTS=off (or FX_MODELS_ENRICH=off) restores this veto.
+  if (engine === 'fx' && M1_PAIRS_EXCLUDED.includes(symbol) && !liftsActive()) return `${symbol} excluded from range model`;
   if (!r) return 'range data unavailable';
   if (!r.qualifies) return `no qualified range (touches ${r.touchesHigh}/${r.touchesLow}, BB width pct ${r.bbWidthPercentile})`;
   const atTop = r.positionInRangePct >= 75, atBottom = r.positionInRangePct <= 25;
@@ -507,7 +755,9 @@ export function m1Candidate(symbol: string, ctx: any, engine: ModelEngine = 'fx'
 } | null {
   const r = ctx?.range;
   if (!r?.qualifies) return null;
-  if (engine === 'fx' && M1_PAIRS_EXCLUDED.includes(symbol)) return null;
+  // Formerly excluded pairs get server-checked candidates too under the
+  // lifts — otherwise the release would never produce an M1 record.
+  if (engine === 'fx' && M1_PAIRS_EXCLUDED.includes(symbol) && !liftsActive()) return null;
   const atTop = r.positionInRangePct >= 75, atBottom = r.positionInRangePct <= 25;
   if (!atTop && !atBottom) return null;
   const direction = atTop ? 'SELL' : 'BUY';
@@ -548,10 +798,17 @@ function enrichmentGuidance(engine: ModelEngine): string {
 /**
  * The shadow-decide prompt. With enriched=false (FX_MODELS_ENRICH=off) this
  * returns the pre-enrichment prompt byte for byte; with enrichment on, the
- * ONLY change is the guidance block spliced in immediately before the
- * "Both models use every input" paragraph.
+ * changes are the guidance block spliced in immediately before the
+ * "Both models use every input" paragraph, plus — while the lifts are on
+ * (FX_MODELS_LIFTS) — the Model 2 scope line: any session, any pair, no
+ * self-censoring over the formerly blocked ground. Lifts off → the
+ * legacy scope line returns byte for byte.
  */
 export function buildModelsPrompt(engine: ModelEngine, session: string, pairs: Array<{ symbol: string; ctx: any }>, masteryLines: string, enriched: boolean = modelsEnrichOn()): string {
+  const liftsPrompt = enriched && modelsLiftsOn();
+  const m2ScopeLine = liftsPrompt
+    ? `  \u2022 Sessions and pairs: Model 2 may trade ANY session and any pair${M2_PAIRS_EXCLUDED.length ? ` \u2014 including ${M2_PAIRS_EXCLUDED.join(', ')} and the Asian / New York sessions, which were blocked until now` : ''}. Judge each idea on today's merits; the poor October record in those places is history in the track record below, not a rule.`
+    : `  \u2022 Only in ${M2_SESSIONS.join(' / ')} sessions${M2_PAIRS_EXCLUDED.length ? `, never on ${M2_PAIRS_EXCLUDED.join(', ')}` : ''} \u2014 otherwise Model 2 says NONE.`;
   const base = `You run TWO ${engine === 'crypto' ? 'CRYPTO (24/7 on-chain tokens)' : 'FX'} trading models side by side. For EACH ${engine === 'crypto' ? 'token' : 'pair'} below, say what each model would trade RIGHT NOW (or NONE).
 ${engine === 'crypto' ? 'Crypto notes: markets never close; "sessions" are when US/EU volume is highest (London/NY hours give the cleanest trends). The live venue is spot DeFi (long-only): give BUY or NONE only — never SELL. Thin tokens wick hard — stops must sit beyond real structure, not inside noise.\n' : ''}
 MODEL 1 (range / low-volume days) — only when ctx.range.qualifies is true:
@@ -562,7 +819,7 @@ MODEL 1 (range / low-volume days) — only when ctx.range.qualifies is true:
   • ctx.range.m1Candidate is the setup the server has ALREADY checked: the range qualifies, price is at an edge, and that edge does not fight the H4. When it is set, Model 1 TAKES that trade — its direction, entry at the current price, stop beyond the edge / sweep wick (stopRef is a guide), first target rangeMid — unless you name a specific, concrete reason in "reason" (e.g. "London open window", "H1 just closed outside the box", "R:R to rangeMid under 1 with a sensible stop"). "Range does not qualify" or "position does not qualify" are never valid reasons when m1Candidate is set.
   • When ctx.range.m1Candidate is null, Model 1 says NONE.
 MODEL 2 (trend / volume days): trade only in the H4+H1 direction — breakouts with volume or pullbacks to structure. Target ${engine === 'fx' ? `${M2_MIN_RR}R or more` : '2-4R'}, stop beyond the last H1 swing. Skip if H4 and H1 disagree.
-${engine === 'fx' ? `  • Only in ${M2_SESSIONS.join(' / ')} sessions${M2_PAIRS_EXCLUDED.length ? `, never on ${M2_PAIRS_EXCLUDED.join(', ')}` : ''} — otherwise Model 2 says NONE.
+${engine === 'fx' ? `${m2ScopeLine}
   • Buy pullbacks into H1 discount/equilibrium, sell rallies into H1 premium/equilibrium; never BUY at H1 premium or SELL at H1 discount (that is chasing).
   • Skip when ADX is ${M2_MAX_ADX} or higher — the move is already stretched; the best entries come while ADX is building (about 20-30).
   • The target must be at least ${M2_MIN_RR}R from the current price; if the next structure is closer, say NONE.
@@ -655,12 +912,21 @@ async function shadowDecide(userId: number, session: string, pairs: Array<{ symb
       const why = m2Reject(sym, dir, price, sl, tp, ctx, session, engine);
       if (why) { isTrade = false; ruleNote = `M2 rule: ${why}`; }
     }
+    // Epoch stamp + old-block provenance ride on every decision from
+    // this build onward. The stored ctx is a per-idea copy (the pair
+    // ctx is shared across both models' ideas for that pair).
+    const prov = decisionProvenance(model, sym, session, engine);
+    const storedCtx = {
+      ...ctx, epoch: MODELS_EPOCH, enrichOn: modelsEnrichOn(),
+      ...(prov.wasExcludedPair ? { wasExcludedPair: true } : {}),
+      ...(prov.wasBlockedSession ? { wasBlockedSession: true } : {}),
+    };
     const ins = await pool.query(
-      `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, result, engine)
-       VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15) RETURNING id`,
+      `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, result, engine, epoch)
+       VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16) RETURNING id`,
       [userId, sym, model, ctx.dayType, session, isTrade ? dir : 'NONE', isTrade ? price : null, isTrade ? sl : null, isTrade ? tp : null,
         Math.max(0, Math.min(100, Math.round(Number(i?.confidence) || 0))), String(i?.setup || '').slice(0, 80), (ruleNote ? `[${ruleNote}] ` : '') + String(i?.reason || '').slice(0, 500),
-        JSON.stringify(ctx), isTrade ? null : 'NO_TRADE', engine],
+        JSON.stringify(storedCtx), isTrade ? null : 'NO_TRADE', engine, MODELS_EPOCH],
     ).catch(() => null);
     // Crypto models are shadow-only for now; only FX ideas can be handed live.
     if (engine === 'fx' && isTrade && ins?.rows?.[0]?.id) {
@@ -841,14 +1107,28 @@ function clampInt(n: any, lo: number, hi: number) { const x = Math.round(Number(
 // have avg R ≥ +0.2, win rate ≥ 40%, and no losing week in its last two
 // calendar weeks (each week with resolved ideas must sum to ≥ 0R).
 const GO_LIVE = { minTrades: 50, minAvgR: 0.2, minWinRate: 0.4 };
-async function sliceLiveReady(userId: number, s: any): Promise<boolean> {
-  if (!LIVE_LEVELS.includes(s.level)) return false;
-  if (s.trades < GO_LIVE.minTrades || s.avgR < GO_LIVE.minAvgR || s.winRate < GO_LIVE.minWinRate) return false;
+
+/**
+ * The non-DB half of the go-live bar, graded on promotionStats (epoch-2
+ * record while the epoch is on). Pure and exported for the check script.
+ * NOTE: there is deliberately NO pair/session block here — under the
+ * lifts a formerly excluded pair or blocked session becomes eligible
+ * exactly this way, by clearing the same bar as everything else.
+ */
+export function sliceMeetsBar(s: any): boolean {
+  const p = promotionStats(s);
+  if (!LIVE_LEVELS.includes(p.level)) return false;
+  return p.trades >= GO_LIVE.minTrades && p.avgR >= GO_LIVE.minAvgR && p.winRate >= GO_LIVE.minWinRate;
+}
+
+export async function sliceLiveReady(userId: number, s: any): Promise<boolean> {
+  if (!sliceMeetsBar(s)) return false;
   const { rows } = await pool.query(
     `SELECT date_trunc('week', created_at) AS wk, SUM(r_multiple)::float AS r
        FROM fx_model_decisions
       WHERE user_id=$1 AND engine='fx' AND source='own' AND result IN ('WIN','LOSS','EXPIRED')
         AND model=$2 AND day_type=$3 AND symbol=$4 AND session=$5
+        ${modelsEpochOn() ? `AND epoch = ${MODELS_EPOCH}` : ''}
         AND created_at >= date_trunc('week', now()) - interval '7 days'
       GROUP BY 1`,
     [userId, s.model, s.dayType, s.symbol, s.session],
@@ -864,7 +1144,7 @@ export async function liveEligibleSlices(userId: number): Promise<any[]> {
   return out;
 }
 
-async function maybeGoLive(userId: number, idea: {
+export async function maybeGoLive(userId: number, idea: {
   id: number; symbol: string; model: ModelId; dayType: DayType; autoModel: ModelId; session: string; direction: string;
   entry: number; stopLoss: number; takeProfit: number; confidence: number; setup: string; reason: string;
 }): Promise<void> {
@@ -1014,30 +1294,59 @@ export function masteryLevel(trades: number, winRate: number, avgR: number): str
 }
 
 /** Per model × day type × pair × session: data volume, accuracy, expectancy, level. */
-export async function getModelMastery(userId: number, opts: { ownOnly?: boolean; engine?: ModelEngine } = {}): Promise<{ models: any[]; slices: any[] }> {
+export async function getModelMastery(userId: number, opts: { ownOnly?: boolean; engine?: ModelEngine } = {}): Promise<{ models: any[]; slices: any[]; propSim: Record<'M1' | 'M2', PropSimResult> }> {
   const _eng = opts.engine === 'crypto' ? 'crypto' : 'fx';
   await ensureFxModelTables();
   const agg = async (group: string) => (await pool.query(
     `SELECT ${group}, COUNT(*)::int AS trades,
             COUNT(*) FILTER (WHERE result='WIN')::int AS wins,
             COALESCE(AVG(r_multiple),0)::float AS avg_r,
-            COALESCE(SUM(r_multiple),0)::float AS total_r
+            COALESCE(SUM(r_multiple),0)::float AS total_r,
+            COUNT(*) FILTER (WHERE epoch = ${MODELS_EPOCH})::int AS epoch_trades,
+            COUNT(*) FILTER (WHERE epoch = ${MODELS_EPOCH} AND result='WIN')::int AS epoch_wins,
+            COALESCE(AVG(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_avg_r,
+            COALESCE(SUM(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_total_r
        FROM fx_model_decisions
       WHERE user_id=$1 AND engine='${_eng}' AND result IN ('WIN','LOSS','EXPIRED') AND source <> 'guard_block'${opts.ownOnly ? " AND source='own'" : ''}
       GROUP BY ${group} ORDER BY trades DESC`, [userId])).rows;
   const shape = (r: any) => {
     const winRate = r.trades ? r.wins / r.trades : 0;
+    const epochWinRate = r.epoch_trades ? r.epoch_wins / r.epoch_trades : 0;
     // Mastery score 0-100: half data volume (caps at 150 trades), half accuracy-adjusted expectancy.
     const dataPart = Math.min(1, r.trades / 150) * 50;
     const edgePart = Math.max(0, Math.min(1, (r.avg_r + 0.5) / 1.5)) * 50;
+    const allTimeLevel = masteryLevel(r.trades, winRate, r.avg_r);
+    const epochLevel = masteryLevel(r.epoch_trades, epochWinRate, r.epoch_avg_r);
     return {
       model: r.model, dayType: r.day_type, symbol: r.symbol, session: r.session,
       trades: r.trades, wins: r.wins, winRate, avgR: r.avg_r, totalR: r.total_r,
-      masteryScore: Math.round(dataPart + edgePart), level: masteryLevel(r.trades, winRate, r.avg_r),
+      masteryScore: Math.round(dataPart + edgePart),
+      // `level` is the PROMOTION level: epoch-filtered while the epoch is
+      // on (allTimeLevel keeps the all-time figure for display).
+      level: modelsEpochOn() ? epochLevel : allTimeLevel,
+      allTimeLevel, epochLevel,
+      epochTrades: r.epoch_trades, epochWins: r.epoch_wins, epochWinRate, epochAvgR: r.epoch_avg_r, epochTotalR: r.epoch_total_r,
+      // Provenance: this slice's pair was on the model's formerly
+      // excluded list (its record may include formerly blocked sessions
+      // too — see wasBlockedSession on individual decisions).
+      wasExcludedPair: isExcludedPair(r.model, r.symbol, _eng),
     };
   };
+  // Prop-firm simulation over the CURRENT system's own resolved record
+  // (epoch-filtered while the epoch is on; all-time when it is off).
+  // Formerly blocked pairs/sessions are included — it is a report on the
+  // shadow record, not a live path.
+  const simRows = (await pool.query(
+    `SELECT model, day_type, symbol, session, confidence, r_multiple, created_at, resolved_at
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND engine='${_eng}' AND source='own' AND result IN ('WIN','LOSS','EXPIRED')
+        ${modelsEpochOn() ? `AND epoch = ${MODELS_EPOCH}` : ''}
+      ORDER BY COALESCE(resolved_at, created_at), created_at`, [userId]).catch(() => ({ rows: [] as any[] }))).rows;
+  const byModel: Record<string, any[]> = { M1: [], M2: [] };
+  for (const r of simRows) { if (byModel[r.model]) byModel[r.model].push(r); }
   return {
     models: (await agg('model')).map(shape),
     slices: (await agg('model, day_type, symbol, session')).map(shape),
+    propSim: { M1: propSimulate(byModel.M1), M2: propSimulate(byModel.M2) },
   };
 }

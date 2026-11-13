@@ -29414,6 +29414,7 @@ var init_live_trading_engine = __esm({
 var fx_models_exports = {};
 __export(fx_models_exports, {
   FX_MODEL_MIN_TO_LIST: () => FX_MODEL_MIN_TO_LIST,
+  MODELS_EPOCH: () => MODELS_EPOCH,
   aggregateDailyBars: () => aggregateDailyBars,
   altClassifyD1H1: () => altClassifyD1H1,
   barsFor: () => barsFor,
@@ -29423,26 +29424,36 @@ __export(fx_models_exports, {
   compactVolumeProfile: () => compactVolumeProfile,
   d1Features: () => d1Features,
   d1Summary: () => d1Summary,
+  decisionProvenance: () => decisionProvenance,
   ensureFxModelTables: () => ensureFxModelTables,
   fxModelRowsForStats: () => fxModelRowsForStats,
   getFxModelListingRows: () => getFxModelListingRows,
   getFxModelSettings: () => getFxModelSettings,
   getModelMastery: () => getModelMastery,
   importFxModelSnapshot: () => importFxModelSnapshot,
+  isExcludedPair: () => isExcludedPair,
+  liftsActive: () => liftsActive,
   liveEligibleSlices: () => liveEligibleSlices,
   m1Candidate: () => m1Candidate,
   m1Reject: () => m1Reject,
   m2Reject: () => m2Reject,
   masteryLevel: () => masteryLevel,
+  maybeGoLive: () => maybeGoLive,
   modelsEnrichOn: () => modelsEnrichOn,
+  modelsEpochOn: () => modelsEpochOn,
+  modelsLiftsOn: () => modelsLiftsOn,
   parseFxModelScope: () => parseFxModelScope,
+  promotionStats: () => promotionStats,
+  propSimulate: () => propSimulate,
   rangeFeatures: () => rangeFeatures,
   registerBarsProvider: () => registerBarsProvider,
   resolveShadowDecisions: () => resolveShadowDecisions,
   runCryptoModelsCycle: () => runCryptoModelsCycle,
   runFxModelsCycle: () => runFxModelsCycle,
   saveFxModelSettings: () => saveFxModelSettings,
-  sessionFor: () => sessionFor
+  sessionFor: () => sessionFor,
+  sliceLiveReady: () => sliceLiveReady,
+  sliceMeetsBar: () => sliceMeetsBar
 });
 function ensureFxModelTables() {
   if (!ensured3) {
@@ -29478,6 +29489,136 @@ function classifyDayType(input) {
   const dayType = s >= 4 ? "trend" : s <= 1 ? "range" : "mixed";
   const autoModel = dayType === "trend" ? "M2" : dayType === "range" ? "M1" : Number.isFinite(adx) && adx >= 18 ? "M2" : "M1";
   return { dayType, autoModel, score: s };
+}
+function isExcludedPair(model, symbol, engine = "fx") {
+  if (engine !== "fx" || !symbol) return false;
+  const sym = String(symbol).toUpperCase();
+  if (model === "M1") return M1_PAIRS_EXCLUDED.includes(sym);
+  if (model === "M2") return M2_PAIRS_EXCLUDED.includes(sym);
+  return false;
+}
+function decisionProvenance(model, symbol, session2, engine = "fx") {
+  return {
+    wasExcludedPair: isExcludedPair(model, symbol, engine),
+    wasBlockedSession: engine === "fx" && model === "M2" && !M2_SESSIONS.includes(session2)
+  };
+}
+function promotionStats(s) {
+  if (modelsEpochOn()) {
+    return {
+      trades: Number(s?.epochTrades) || 0,
+      avgR: Number(s?.epochAvgR) || 0,
+      winRate: Number(s?.epochWinRate) || 0,
+      level: String(s?.epochLevel || "Learning")
+    };
+  }
+  return {
+    trades: Number(s?.trades) || 0,
+    avgR: Number(s?.avgR) || 0,
+    winRate: Number(s?.winRate) || 0,
+    level: String(s?.allTimeLevel || s?.level || "Learning")
+  };
+}
+function propSimulate(decisions, opts = {}) {
+  const startBalance = Number(opts.startBalance) > 0 ? Number(opts.startBalance) : 1e5;
+  const baseRiskPct = Number(opts.baseRiskPct) > 0 ? Number(opts.baseRiskPct) : 0.5;
+  const minRiskPct = Number.isFinite(Number(opts.minRiskPct)) ? Number(opts.minRiskPct) : 0.1;
+  const maxRiskPct = Number(opts.maxRiskPct) > 0 ? Number(opts.maxRiskPct) : baseRiskPct;
+  const dailyCapPct = Number(opts.dailyCapPct) > 0 ? Number(opts.dailyCapPct) : Number(process.env.PROP_SIM_DAILY_CAP_PCT) > 0 ? Number(process.env.PROP_SIM_DAILY_CAP_PCT) : 2.5;
+  const maxLossPct = Number(opts.maxLossPct) > 0 ? Number(opts.maxLossPct) : Number(process.env.PROP_SIM_MAX_LOSS_PCT) > 0 ? Number(process.env.PROP_SIM_MAX_LOSS_PCT) : 6;
+  const tsOf = (d) => {
+    const t = new Date(d?.resolved_at ?? d?.created_at ?? 0).getTime();
+    return Number.isFinite(t) ? t : 0;
+  };
+  const rows = (decisions || []).filter((d) => {
+    const r = Number(d?.r_multiple ?? d?.rMultiple);
+    if (!Number.isFinite(r)) return false;
+    if (d?.result == null) return true;
+    const res2 = String(d.result).toUpperCase();
+    return res2 === "WIN" || res2 === "LOSS" || res2 === "EXPIRED";
+  }).slice().sort((a, b) => tsOf(a) - tsOf(b) || new Date(a?.created_at ?? 0).getTime() - new Date(b?.created_at ?? 0).getTime() || (Number(a?.id) || 0) - (Number(b?.id) || 0));
+  let balance = startBalance;
+  let curDay = null;
+  let dayStartBalance = startBalance;
+  let dayPnl = 0;
+  let worstDayPct = 0;
+  let tradesTaken = 0;
+  let skippedByDailyCap = 0;
+  let blown = false;
+  let blownAt = null;
+  const activeDays = /* @__PURE__ */ new Set();
+  const slicePrior = /* @__PURE__ */ new Map();
+  const detail = [];
+  const blowLine = startBalance * (1 - maxLossPct / 100);
+  const closeDay = () => {
+    if (curDay && dayStartBalance > 0) worstDayPct = Math.min(worstDayPct, dayPnl / dayStartBalance * 100);
+  };
+  for (const d of rows) {
+    if (blown) break;
+    const ts = tsOf(d);
+    const day = new Date(ts).toISOString().slice(0, 10);
+    if (day !== curDay) {
+      closeDay();
+      curDay = day;
+      dayStartBalance = balance;
+      dayPnl = 0;
+    }
+    const r = Number(d?.r_multiple ?? d?.rMultiple);
+    const sliceKey = `${d?.model || ""}|${d?.day_type ?? d?.dayType ?? ""}|${String(d?.symbol || "").toUpperCase()}|${d?.session || ""}`;
+    const confRaw = Number(d?.confidence);
+    const confidence = Number.isFinite(confRaw) ? confRaw : null;
+    if (dayPnl <= -(dailyCapPct / 100) * dayStartBalance + 1e-9) {
+      skippedByDailyCap++;
+      if (opts.includeDetail) detail.push({ at: new Date(ts).toISOString(), day, sliceKey, confidence, riskPct: 0, riskDollars: 0, r, pnl: 0, balanceAfter: balance, skipped: true, skipReason: "daily loss cap" });
+      continue;
+    }
+    const prior = slicePrior.get(sliceKey) || { n: 0, wins: 0 };
+    const confFactor = clampNum((confidence ?? 50) / 100, 0.4, 1);
+    const accFactor = prior.n >= 10 ? clampNum(prior.wins / prior.n, 0.5, 1) : 0.75;
+    const riskPct = clampNum(baseRiskPct * confFactor * accFactor, minRiskPct, maxRiskPct);
+    const riskDollars = balance * (riskPct / 100);
+    const pnl = riskDollars * r;
+    balance += pnl;
+    dayPnl += pnl;
+    tradesTaken++;
+    activeDays.add(day);
+    prior.n++;
+    if (r > 0) prior.wins++;
+    slicePrior.set(sliceKey, prior);
+    if (opts.includeDetail) {
+      detail.push({
+        at: new Date(ts).toISOString(),
+        day,
+        sliceKey,
+        confidence,
+        riskPct: Math.round(riskPct * 1e6) / 1e6,
+        riskDollars: round22(riskDollars),
+        r,
+        pnl: round22(pnl),
+        balanceAfter: round22(balance),
+        skipped: false
+      });
+    }
+    if (balance <= blowLine) {
+      blown = true;
+      blownAt = day;
+    }
+  }
+  closeDay();
+  const out = {
+    startBalance,
+    endBalance: round22(balance),
+    totalReturnPct: round22((balance - startBalance) / startBalance * 100),
+    tradesTaken,
+    tradesSkipped: skippedByDailyCap,
+    skippedByDailyCap,
+    blown,
+    blownAt,
+    worstDayPct: round22(worstDayPct),
+    daysActive: activeDays.size
+  };
+  if (opts.includeDetail) out.detail = detail;
+  return out;
 }
 function altClassifyD1H1(input) {
   return classifyDayType({ adx: input.adx, relVolume: input.relVolume, h1: input.h1, h4: input.d1, session: input.session, news: input.news });
@@ -29714,8 +29855,8 @@ function m2Reject(symbol, dir, entry, sl, tp, ctx, session2, engine = "fx") {
   const want = dir === "BUY" ? "BULLISH" : "BEARISH";
   if (ctx?.h1?.trend !== want || ctx?.h4?.trend !== want) return `H1 ${ctx?.h1?.trend ?? "n/a"} / H4 ${ctx?.h4?.trend ?? "n/a"} not both ${want}`;
   if (engine !== "fx") return null;
-  if (M2_PAIRS_EXCLUDED.includes(symbol)) return `${symbol} excluded from trend model`;
-  if (!M2_SESSIONS.includes(session2)) return `${session2} session (Model 2 trades ${M2_SESSIONS.join(" / ")} only)`;
+  if (M2_PAIRS_EXCLUDED.includes(symbol) && !liftsActive()) return `${symbol} excluded from trend model`;
+  if (!M2_SESSIONS.includes(session2) && !liftsActive()) return `${session2} session (Model 2 trades ${M2_SESSIONS.join(" / ")} only)`;
   const pd = ctx?.h1?.pd;
   if (dir === "BUY" && pd === "PREMIUM") return "BUY at H1 premium";
   if (dir === "SELL" && pd === "DISCOUNT") return "SELL at H1 discount";
@@ -29728,7 +29869,7 @@ function m2Reject(symbol, dir, entry, sl, tp, ctx, session2, engine = "fx") {
 }
 function m1Reject(symbol, dir, entry, sl, ctx, engine = "fx") {
   const r = ctx?.range;
-  if (engine === "fx" && M1_PAIRS_EXCLUDED.includes(symbol)) return `${symbol} excluded from range model`;
+  if (engine === "fx" && M1_PAIRS_EXCLUDED.includes(symbol) && !liftsActive()) return `${symbol} excluded from range model`;
   if (!r) return "range data unavailable";
   if (!r.qualifies) return `no qualified range (touches ${r.touchesHigh}/${r.touchesLow}, BB width pct ${r.bbWidthPercentile})`;
   const atTop = r.positionInRangePct >= 75, atBottom = r.positionInRangePct <= 25;
@@ -29750,7 +29891,7 @@ function m1Reject(symbol, dir, entry, sl, ctx, engine = "fx") {
 function m1Candidate(symbol, ctx, engine = "fx") {
   const r = ctx?.range;
   if (!r?.qualifies) return null;
-  if (engine === "fx" && M1_PAIRS_EXCLUDED.includes(symbol)) return null;
+  if (engine === "fx" && M1_PAIRS_EXCLUDED.includes(symbol) && !liftsActive()) return null;
   const atTop = r.positionInRangePct >= 75, atBottom = r.positionInRangePct <= 25;
   if (!atTop && !atBottom) return null;
   const direction = atTop ? "SELL" : "BUY";
@@ -29785,6 +29926,8 @@ function enrichmentGuidance(engine) {
   return lines.join("\n") + "\n";
 }
 function buildModelsPrompt(engine, session2, pairs, masteryLines, enriched = modelsEnrichOn()) {
+  const liftsPrompt = enriched && modelsLiftsOn();
+  const m2ScopeLine = liftsPrompt ? `  \u2022 Sessions and pairs: Model 2 may trade ANY session and any pair${M2_PAIRS_EXCLUDED.length ? ` \u2014 including ${M2_PAIRS_EXCLUDED.join(", ")} and the Asian / New York sessions, which were blocked until now` : ""}. Judge each idea on today's merits; the poor October record in those places is history in the track record below, not a rule.` : `  \u2022 Only in ${M2_SESSIONS.join(" / ")} sessions${M2_PAIRS_EXCLUDED.length ? `, never on ${M2_PAIRS_EXCLUDED.join(", ")}` : ""} \u2014 otherwise Model 2 says NONE.`;
   const base = `You run TWO ${engine === "crypto" ? "CRYPTO (24/7 on-chain tokens)" : "FX"} trading models side by side. For EACH ${engine === "crypto" ? "token" : "pair"} below, say what each model would trade RIGHT NOW (or NONE).
 ${engine === "crypto" ? 'Crypto notes: markets never close; "sessions" are when US/EU volume is highest (London/NY hours give the cleanest trends). The live venue is spot DeFi (long-only): give BUY or NONE only \u2014 never SELL. Thin tokens wick hard \u2014 stops must sit beyond real structure, not inside noise.\n' : ""}
 MODEL 1 (range / low-volume days) \u2014 only when ctx.range.qualifies is true:
@@ -29795,7 +29938,7 @@ MODEL 1 (range / low-volume days) \u2014 only when ctx.range.qualifies is true:
   \u2022 ctx.range.m1Candidate is the setup the server has ALREADY checked: the range qualifies, price is at an edge, and that edge does not fight the H4. When it is set, Model 1 TAKES that trade \u2014 its direction, entry at the current price, stop beyond the edge / sweep wick (stopRef is a guide), first target rangeMid \u2014 unless you name a specific, concrete reason in "reason" (e.g. "London open window", "H1 just closed outside the box", "R:R to rangeMid under 1 with a sensible stop"). "Range does not qualify" or "position does not qualify" are never valid reasons when m1Candidate is set.
   \u2022 When ctx.range.m1Candidate is null, Model 1 says NONE.
 MODEL 2 (trend / volume days): trade only in the H4+H1 direction \u2014 breakouts with volume or pullbacks to structure. Target ${engine === "fx" ? `${M2_MIN_RR}R or more` : "2-4R"}, stop beyond the last H1 swing. Skip if H4 and H1 disagree.
-${engine === "fx" ? `  \u2022 Only in ${M2_SESSIONS.join(" / ")} sessions${M2_PAIRS_EXCLUDED.length ? `, never on ${M2_PAIRS_EXCLUDED.join(", ")}` : ""} \u2014 otherwise Model 2 says NONE.
+${engine === "fx" ? `${m2ScopeLine}
   \u2022 Buy pullbacks into H1 discount/equilibrium, sell rallies into H1 premium/equilibrium; never BUY at H1 premium or SELL at H1 discount (that is chasing).
   \u2022 Skip when ADX is ${M2_MAX_ADX} or higher \u2014 the move is already stretched; the best entries come while ADX is building (about 20-30).
   \u2022 The target must be at least ${M2_MIN_RR}R from the current price; if the next structure is closer, say NONE.
@@ -29903,9 +30046,17 @@ async function shadowDecide(userId, session2, pairs, engine = "fx") {
         ruleNote = `M2 rule: ${why}`;
       }
     }
+    const prov = decisionProvenance(model, sym, session2, engine);
+    const storedCtx = {
+      ...ctx,
+      epoch: MODELS_EPOCH,
+      enrichOn: modelsEnrichOn(),
+      ...prov.wasExcludedPair ? { wasExcludedPair: true } : {},
+      ...prov.wasBlockedSession ? { wasBlockedSession: true } : {}
+    };
     const ins = await pool.query(
-      `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, result, engine)
-       VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15) RETURNING id`,
+      `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, result, engine, epoch)
+       VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16) RETURNING id`,
       [
         userId,
         sym,
@@ -29919,9 +30070,10 @@ async function shadowDecide(userId, session2, pairs, engine = "fx") {
         Math.max(0, Math.min(100, Math.round(Number(i?.confidence) || 0))),
         String(i?.setup || "").slice(0, 80),
         (ruleNote ? `[${ruleNote}] ` : "") + String(i?.reason || "").slice(0, 500),
-        JSON.stringify(ctx),
+        JSON.stringify(storedCtx),
         isTrade ? null : "NO_TRADE",
-        engine
+        engine,
+        MODELS_EPOCH
       ]
     ).catch(() => null);
     if (engine === "fx" && isTrade && ins?.rows?.[0]?.id) {
@@ -30110,14 +30262,19 @@ function clampInt(n, lo, hi) {
   const x = Math.round(Number(n));
   return Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : lo;
 }
+function sliceMeetsBar(s) {
+  const p = promotionStats(s);
+  if (!LIVE_LEVELS.includes(p.level)) return false;
+  return p.trades >= GO_LIVE.minTrades && p.avgR >= GO_LIVE.minAvgR && p.winRate >= GO_LIVE.minWinRate;
+}
 async function sliceLiveReady(userId, s) {
-  if (!LIVE_LEVELS.includes(s.level)) return false;
-  if (s.trades < GO_LIVE.minTrades || s.avgR < GO_LIVE.minAvgR || s.winRate < GO_LIVE.minWinRate) return false;
+  if (!sliceMeetsBar(s)) return false;
   const { rows } = await pool.query(
     `SELECT date_trunc('week', created_at) AS wk, SUM(r_multiple)::float AS r
        FROM fx_model_decisions
       WHERE user_id=$1 AND engine='fx' AND source='own' AND result IN ('WIN','LOSS','EXPIRED')
         AND model=$2 AND day_type=$3 AND symbol=$4 AND session=$5
+        ${modelsEpochOn() ? `AND epoch = ${MODELS_EPOCH}` : ""}
         AND created_at >= date_trunc('week', now()) - interval '7 days'
       GROUP BY 1`,
     [userId, s.model, s.dayType, s.symbol, s.session]
@@ -30290,7 +30447,11 @@ async function getModelMastery(userId, opts = {}) {
     `SELECT ${group}, COUNT(*)::int AS trades,
             COUNT(*) FILTER (WHERE result='WIN')::int AS wins,
             COALESCE(AVG(r_multiple),0)::float AS avg_r,
-            COALESCE(SUM(r_multiple),0)::float AS total_r
+            COALESCE(SUM(r_multiple),0)::float AS total_r,
+            COUNT(*) FILTER (WHERE epoch = ${MODELS_EPOCH})::int AS epoch_trades,
+            COUNT(*) FILTER (WHERE epoch = ${MODELS_EPOCH} AND result='WIN')::int AS epoch_wins,
+            COALESCE(AVG(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_avg_r,
+            COALESCE(SUM(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_total_r
        FROM fx_model_decisions
       WHERE user_id=$1 AND engine='${_eng}' AND result IN ('WIN','LOSS','EXPIRED') AND source <> 'guard_block'${opts.ownOnly ? " AND source='own'" : ""}
       GROUP BY ${group} ORDER BY trades DESC`,
@@ -30298,8 +30459,11 @@ async function getModelMastery(userId, opts = {}) {
   )).rows;
   const shape = (r) => {
     const winRate = r.trades ? r.wins / r.trades : 0;
+    const epochWinRate = r.epoch_trades ? r.epoch_wins / r.epoch_trades : 0;
     const dataPart = Math.min(1, r.trades / 150) * 50;
     const edgePart = Math.max(0, Math.min(1, (r.avg_r + 0.5) / 1.5)) * 50;
+    const allTimeLevel = masteryLevel(r.trades, winRate, r.avg_r);
+    const epochLevel = masteryLevel(r.epoch_trades, epochWinRate, r.epoch_avg_r);
     return {
       model: r.model,
       dayType: r.day_type,
@@ -30311,15 +30475,41 @@ async function getModelMastery(userId, opts = {}) {
       avgR: r.avg_r,
       totalR: r.total_r,
       masteryScore: Math.round(dataPart + edgePart),
-      level: masteryLevel(r.trades, winRate, r.avg_r)
+      // `level` is the PROMOTION level: epoch-filtered while the epoch is
+      // on (allTimeLevel keeps the all-time figure for display).
+      level: modelsEpochOn() ? epochLevel : allTimeLevel,
+      allTimeLevel,
+      epochLevel,
+      epochTrades: r.epoch_trades,
+      epochWins: r.epoch_wins,
+      epochWinRate,
+      epochAvgR: r.epoch_avg_r,
+      epochTotalR: r.epoch_total_r,
+      // Provenance: this slice's pair was on the model's formerly
+      // excluded list (its record may include formerly blocked sessions
+      // too — see wasBlockedSession on individual decisions).
+      wasExcludedPair: isExcludedPair(r.model, r.symbol, _eng)
     };
   };
+  const simRows = (await pool.query(
+    `SELECT model, day_type, symbol, session, confidence, r_multiple, created_at, resolved_at
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND engine='${_eng}' AND source='own' AND result IN ('WIN','LOSS','EXPIRED')
+        ${modelsEpochOn() ? `AND epoch = ${MODELS_EPOCH}` : ""}
+      ORDER BY COALESCE(resolved_at, created_at), created_at`,
+    [userId]
+  ).catch(() => ({ rows: [] }))).rows;
+  const byModel = { M1: [], M2: [] };
+  for (const r of simRows) {
+    if (byModel[r.model]) byModel[r.model].push(r);
+  }
   return {
     models: (await agg("model")).map(shape),
-    slices: (await agg("model, day_type, symbol, session")).map(shape)
+    slices: (await agg("model, day_type, symbol, session")).map(shape),
+    propSim: { M1: propSimulate(byModel.M1), M2: propSimulate(byModel.M2) }
   };
 }
-var DDL5, ensured3, barsProviders, barsFor, pipSize, modelsEnrichOn, d1CtxCache, orbCtxCache, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
+var DDL5, ensured3, barsProviders, barsFor, pipSize, modelsEnrichOn, MODELS_EPOCH, modelsEpochOn, modelsLiftsOn, liftsActive, clampNum, round22, d1CtxCache, orbCtxCache, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
 var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
@@ -30373,6 +30563,7 @@ CREATE INDEX IF NOT EXISTS fx_model_decisions_open_idx ON fx_model_decisions (re
 CREATE INDEX IF NOT EXISTS fx_model_decisions_user_idx ON fx_model_decisions (user_id, model, created_at);
 ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'own';
 ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
+ALTER TABLE fx_model_decisions ADD COLUMN IF NOT EXISTS epoch integer NOT NULL DEFAULT 1;
 ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'fx';
 `;
     ensured3 = null;
@@ -30385,6 +30576,12 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
     barsFor = (engine) => barsProviders[engine] || barsProviders.fx;
     pipSize = (sym) => /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 1e-4;
     modelsEnrichOn = () => process.env.FX_MODELS_ENRICH !== "off";
+    MODELS_EPOCH = 2;
+    modelsEpochOn = () => process.env.FX_MODELS_EPOCH !== "off";
+    modelsLiftsOn = () => process.env.FX_MODELS_LIFTS !== "off";
+    liftsActive = () => modelsEnrichOn() && modelsLiftsOn();
+    clampNum = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+    round22 = (x) => Math.round(x * 100) / 100;
     d1CtxCache = /* @__PURE__ */ new Map();
     orbCtxCache = /* @__PURE__ */ new Map();
     lastShadowCandle = /* @__PURE__ */ new Map();
