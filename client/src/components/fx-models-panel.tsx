@@ -14,6 +14,12 @@ interface DayTypeRow {
 interface MasteryRow {
   model: "M1" | "M2"; dayType?: string; symbol?: string; session?: string;
   trades: number; wins: number; winRate: number; avgR: number; totalR: number; masteryScore: number; level: string;
+  epochTrades?: number; wasExcludedPair?: boolean;
+}
+interface PropSimSummary {
+  startBalance: number; endBalance: number; totalReturnPct: number;
+  tradesTaken: number; tradesSkipped: number; blown: boolean; blownAt: string | null;
+  worstDayPct: number; daysActive: number;
 }
 interface DecisionRow {
   id: number; symbol: string; model: "M1" | "M2"; day_type: string; session: string; direction: string;
@@ -52,7 +58,7 @@ export function FxModelsPanel({ className = "", engine = "fx" }: { className?: s
   const [tab, setTab] = useState<"today" | "mastery" | "ideas">("today");
   const isCrypto = engine === "crypto";
   const dayTypes = useQuery<{ dayTypes: DayTypeRow[] }>({ queryKey: [`/api/fx-models/day-types?engine=${engine}`], refetchInterval: 60000 });
-  const mastery = useQuery<{ models: MasteryRow[]; slices: MasteryRow[] }>({ queryKey: [`/api/fx-models/mastery?engine=${engine}`], refetchInterval: 120000 });
+  const mastery = useQuery<{ models: MasteryRow[]; slices: MasteryRow[]; propSim?: Record<string, PropSimSummary> }>({ queryKey: [`/api/fx-models/mastery?engine=${engine}`], refetchInterval: 120000 });
   const decisions = useQuery<{ decisions: DecisionRow[] }>({ queryKey: [`/api/fx-models/decisions?limit=60&engine=${engine}`], refetchInterval: 60000, enabled: tab === "ideas" });
 
   const settingsQ = useQuery<{ settings: { live: boolean; m1DailyCap: number; m2DailyCap: number }; eligible: MasteryRow[] }>({ queryKey: ["/api/fx-models/settings"], refetchInterval: 120000, enabled: !isCrypto });
@@ -127,6 +133,7 @@ export function FxModelsPanel({ className = "", engine = "fx" }: { className?: s
                     <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full" style={{ color: levelColor(s.level), background: `${levelColor(s.level)}22` }}>{s.level}</span>
                   </div>
                   <MasteryBar score={s.masteryScore} color={meta.color} />
+                  <PropSimLine sim={mastery.data?.propSim?.[m]} />
                 </>
               ) : (
                 <p className="text-[10px] text-gray-500">No resolved ideas yet</p>
@@ -156,6 +163,23 @@ export function FxModelsPanel({ className = "", engine = "fx" }: { className?: s
       {tab === "mastery" && <MasteryView rows={mastery.data?.slices} loading={mastery.isLoading} />}
       {tab === "ideas" && <IdeasView rows={decisions.data?.decisions} loading={decisions.isLoading} />}
     </div>
+  );
+}
+
+function PropSimLine({ sim }: { sim?: PropSimSummary }) {
+  if (!sim || sim.tradesTaken === 0) return null;
+  const money = (x: number) => `$${Math.round(x).toLocaleString("en-US")}`;
+  if (sim.blown) {
+    return (
+      <p className="text-[9px] mt-1 font-bold" style={{ color: "#f87171" }} title="Prop-firm simulation of this model's current-system shadow record: $100k account, 0.5% risk per trade or less, 2.5% daily loss cap, 6% max loss">
+        Prop sim ($100k): BLOWN {sim.blownAt ?? ""} · {money(sim.endBalance)} · {sim.tradesTaken} trades
+      </p>
+    );
+  }
+  return (
+    <p className="text-[9px] text-gray-500 mt-1" title="Prop-firm simulation of this model's current-system shadow record: $100k account, 0.5% risk per trade or less, 2.5% daily loss cap, 6% max loss">
+      Prop sim ($100k): {money(sim.endBalance)} ({sim.totalReturnPct >= 0 ? "+" : ""}{sim.totalReturnPct.toFixed(1)}%) · {sim.tradesTaken} trades · worst day {sim.worstDayPct.toFixed(1)}%
+    </p>
   );
 }
 
@@ -207,6 +231,11 @@ function MasteryView({ rows, loading }: { rows?: MasteryRow[]; loading: boolean 
         <div key={i} className="grid grid-cols-[1fr_auto_auto_auto] gap-x-2 items-center rounded-lg bg-black/20 px-2 py-1.5 text-[10px]">
           <span className="truncate text-gray-300">
             <span className="font-bold" style={{ color: MODEL_META[r.model].color }}>{r.model}</span> · {r.dayType} · {r.symbol} · {r.session}
+            {r.wasExcludedPair && (
+              <span className="ml-1 text-[8px] font-semibold px-1 py-px rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30" title="Probation: this pair was formerly blocked for this model — its record is being built under the lifted blocks">
+                probation
+              </span>
+            )}
           </span>
           <span className="text-right text-gray-400">{r.trades}</span>
           <span className="text-right text-gray-300">{(r.winRate * 100).toFixed(0)}% / {fmtR(r.avgR)}</span>

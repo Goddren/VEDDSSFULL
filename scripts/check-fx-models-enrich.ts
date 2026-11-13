@@ -20,7 +20,10 @@
  *   E. buildModelsPrompt: with enrichment off the prompt is the legacy
  *      prompt (anchors present, no enrichment markers, deterministic);
  *      with enrichment on, the ONLY difference is one contiguous guidance
- *      block (FX includes ORB, crypto does not).
+ *      block (FX includes ORB, crypto does not). Section E runs with
+ *      FX_MODELS_LIFTS=off: the lifts (epoch PR) legitimately change the
+ *      M2 scope line in the enriched prompt, which is a second, separate
+ *      difference — check-fx-models-epoch.ts covers it (L15–L17).
  */
 import {
   classifyDayType,
@@ -155,6 +158,7 @@ delete process.env.FX_MODELS_ENRICH; // default-on for the veto tests below
 
 // ── E. buildModelsPrompt ───────────────────────────────────────────────────
 {
+  process.env.FX_MODELS_LIFTS = 'off'; // isolate the enrichment diff (see header)
   const pairs = [{ symbol: 'EURUSD', ctx: { price: 1.1, dayType: 'range' } }];
   const off = buildModelsPrompt('fx', 'London', pairs, '', false);
   check('E1 off prompt: legacy head + tail anchors',
@@ -188,6 +192,7 @@ delete process.env.FX_MODELS_ENRICH; // default-on for the veto tests below
   process.env.FX_MODELS_ENRICH = 'off';
   check('E10 modelsEnrichOn false when FX_MODELS_ENRICH=off', modelsEnrichOn() === false);
   delete process.env.FX_MODELS_ENRICH;
+  delete process.env.FX_MODELS_LIFTS;
 }
 
 console.log(`\n${total - failures}/${total} checks passed${failures ? ` — ${failures} FAILED` : ''}`);
