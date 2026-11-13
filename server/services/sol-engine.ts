@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { getOrRefreshSolBrain, solBrainSizeMultiplier, solBrainGate, recordSolBrainOutcome } from './sol-brain';
 import { weekendBoostActive, boostedMinConfidence, weekendBoostSizeMultiplier } from './weekend-boost';
 import { solLearnedRulesOn, SOL_LR, learnedExitStep, blendGain, cappedSlPct, isFallingEntry, isSolStrategyPaused } from './sol-learned-rules';
-import { solTrailOverridesFor } from './trail-guards';
+import { solTrailGuardFor, type SolTrailProfile } from './trail-guards';
 
 // ── Sol-engine "edge" config (ported from the proven crypto engine) ──────────
 // Brain + gating default ON to match the crypto engine. Confluence gate applies
@@ -164,6 +164,13 @@ export interface SolAutoPosition {
   breakevenActive?: boolean;
   /** Learned rules: gain % at which half the paper/shadow position was banked. */
   partialGainPct?: number;
+  /** Trail-guard attribution (2026-11-13): set when a promoted trail
+   *  guard's profile governed this position's learned exit step. Carried
+   *  to the close record (sol_shadow_context for shadow) so closes under
+   *  a guard are countable by the guard's self-evaluation loop. */
+  trailGuardId?: string;
+  trailGuardAction?: string;
+  trailGuardProfile?: SolTrailProfile;
   trailActivationPct?: number;
   trailDistancePct?: number;
   closeReason?: 'tp' | 'sl' | 'trail' | 'abandoned' | 'max_hold' | 'breakeven';
@@ -1855,7 +1862,9 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
     // Learned rules: breakeven floor, half off at +15%, trail the rest.
     let lrBreakeven = false;
     if (solLearnedRulesOn()) {
-      const step = learnedExitStep(pos, currentPrice, (await solTrailOverridesFor(userId, pos.strategyId, pos.symbol)) ?? undefined);
+      const tgGuard = await solTrailGuardFor(userId, pos.strategyId, pos.symbol);
+      if (tgGuard) { pos.trailGuardId = tgGuard.id; pos.trailGuardAction = tgGuard.action; pos.trailGuardProfile = tgGuard.profile as SolTrailProfile; }
+      const step = learnedExitStep(pos, currentPrice, tgGuard ? (tgGuard.profile as SolTrailProfile) : undefined);
       if (step.action === 'exit') {
         isTrailHit = true;
         lrBreakeven = step.reason === 'breakeven';
@@ -2141,7 +2150,9 @@ async function monitorShadowPositions(userId: number, state: SolEngineState) {
     // Learned rules: breakeven floor, half off at +15%, trail the rest.
     let lrReason: 'breakeven' | 'trail' | null = null;
     if (solLearnedRulesOn() && !isWin && !isLoss && !isMaxHold) {
-      const step = learnedExitStep(pos, currentPrice, (await solTrailOverridesFor(userId, pos.strategyId, pos.symbol)) ?? undefined);
+      const tgGuard = await solTrailGuardFor(userId, pos.strategyId, pos.symbol);
+      if (tgGuard) { pos.trailGuardId = tgGuard.id; pos.trailGuardAction = tgGuard.action; pos.trailGuardProfile = tgGuard.profile as SolTrailProfile; }
+      const step = learnedExitStep(pos, currentPrice, tgGuard ? (tgGuard.profile as SolTrailProfile) : undefined);
       if (step.action === 'exit') lrReason = step.reason;
       else {
         if (step.breakevenJustSet) pos.breakevenActive = true;
@@ -2164,6 +2175,8 @@ async function monitorShadowPositions(userId: number, state: SolEngineState) {
         holdMinutes: (Date.now() - new Date(pos.openedAt).getTime()) / 60000,
         grossPct: unpriced ? null : gainPct, netPct: pos.closePnlPct ?? null,
         peakGainPct: pos.peakPrice && pos.entryPrice > 0 ? ((pos.peakPrice - pos.entryPrice) / pos.entryPrice) * 100 : null,
+        trailGuardId: pos.trailGuardId ?? null, trailGuardAction: pos.trailGuardAction ?? null,
+        trailGuardProfile: pos.trailGuardProfile ?? null,
       })).catch(() => {});
       state.closedShadowPositions.unshift(pos);
       if (state.closedShadowPositions.length > 50) state.closedShadowPositions = state.closedShadowPositions.slice(0, 50);

@@ -70,7 +70,10 @@ export function ensureShadowLessonBlocksTable(): Promise<void> {
 }
 
 export interface ShadowLessonBlock {
-  lane: 'sol_shadow' | 'crypto_shadow' | 'studio_shadow' | 'fx_models';
+  /** 'trail_guard' rows are not entry blocks — they are the trail guards'
+   *  self-evaluation retirements (trail-guard-learning.ts), written to the
+   *  same audit table so every lesson-driven action has one trail. */
+  lane: 'sol_shadow' | 'crypto_shadow' | 'studio_shadow' | 'fx_models' | 'trail_guard';
   userId: number;
   strategyKey: string;
   /** Human-readable bucket: "all", "liquidity <25k", "M1 · range · EURUSD · London", "deployment 42". */

@@ -1483,6 +1483,14 @@ var init_schema = __esm({
       closedAt: timestamp("closed_at"),
       peakRMultiple: doublePrecision("peak_r_multiple").notNull().default(0),
       trailArmed: boolean("trail_armed").notNull().default(false),
+      // Trail-guard attribution (2026-11-13): stamped when a promoted trail
+      // guard's profile governed this trade's exit evaluation, so closes
+      // under a guard are countable by the guard's self-evaluation loop.
+      // NULL on every unguarded trade. Lazily added in prod by
+      // ensureTrailGuardStampColumns() (trail-guards.ts).
+      trailGuardId: text("trail_guard_id"),
+      trailGuardAction: text("trail_guard_action"),
+      trailGuardProfile: jsonb("trail_guard_profile"),
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -8439,16 +8447,43 @@ function matchGuard(guards, engine, strategy, symbol) {
   if (strat && sym) return strat.action === "tighten" ? strat : sym.action === "tighten" ? sym : strat;
   return strat ?? sym ?? null;
 }
-async function cryptoTrailProfileFor(userId, strategy, symbol) {
+async function cryptoTrailGuardFor(userId, strategy, symbol) {
   if (!trailGuardsOn()) return null;
   try {
-    const g = matchGuard(await getTrailGuards(userId), "crypto", strategy, symbol);
-    return g ? g.profile : null;
+    return matchGuard(await getTrailGuards(userId), "crypto", strategy, symbol);
   } catch {
     return null;
   }
 }
-var SCOPE, _cache2, CACHE_MS;
+function ensureTrailGuardStampColumns() {
+  if (!_colsEnsured) {
+    _colsEnsured = pool.query(`ALTER TABLE cryptocom_engine_trades
+        ADD COLUMN IF NOT EXISTS trail_guard_id text,
+        ADD COLUMN IF NOT EXISTS trail_guard_action text,
+        ADD COLUMN IF NOT EXISTS trail_guard_profile jsonb`).then(() => void 0).catch((e) => {
+      _colsEnsured = null;
+      throw e;
+    });
+  }
+  return _colsEnsured;
+}
+async function stampCryptoTradeTrailGuard(userId, tradeId, guard) {
+  const memoKey = `${userId}:${tradeId}`;
+  const stampKey = `${guard.id}:${guard.action}`;
+  if (_stamped.get(memoKey) === stampKey) return;
+  try {
+    await ensureTrailGuardStampColumns();
+    await pool.query(
+      `UPDATE cryptocom_engine_trades SET trail_guard_id = $2, trail_guard_action = $3, trail_guard_profile = $4::jsonb
+        WHERE id = $1 AND user_id = $5`,
+      [tradeId, guard.id, guard.action, JSON.stringify(guard.profile), userId]
+    );
+    _stamped.set(memoKey, stampKey);
+  } catch (e) {
+    console.error("[trail-guards] stamp failed (non-fatal):", e?.message || e);
+  }
+}
+var SCOPE, _cache2, CACHE_MS, _colsEnsured, _stamped;
 var init_trail_guards = __esm({
   "server/services/trail-guards.ts"() {
     "use strict";
@@ -8459,6 +8494,8 @@ var init_trail_guards = __esm({
     SCOPE = "trail_guards";
     _cache2 = /* @__PURE__ */ new Map();
     CACHE_MS = 3e4;
+    _colsEnsured = null;
+    _stamped = /* @__PURE__ */ new Map();
   }
 });
 
@@ -37252,7 +37289,9 @@ async function monitorOpenPositions(userId, cfg) {
       if (riskDistance <= 0) continue;
       const currentR = isLong ? (currentPrice - trade.entryPrice) / riskDistance : (trade.entryPrice - currentPrice) / riskDistance;
       const peakR = Math.max(trade.peakRMultiple, currentR);
-      const tgProfile = await cryptoTrailProfileFor(userId, trade.strategy, trade.symbol);
+      const tgGuard = await cryptoTrailGuardFor(userId, trade.strategy, trade.symbol);
+      const tgProfile = tgGuard ? tgGuard.profile : null;
+      if (tgGuard) void stampCryptoTradeTrailGuard(userId, trade.id, tgGuard);
       const tCfg = tgProfile ? { ...cfg, trailMethod: tgProfile.method, trailActivationR: tgProfile.activationR, trailFixedR: tgProfile.fixedR, trailStepR: tgProfile.stepR, trailProfitLockPct: tgProfile.profitLockPct, trailSarInitialAF: tgProfile.sarInitialAF, trailSarMaxAF: tgProfile.sarMaxAF, breakevenBufferR: tgProfile.breakevenBufferR } : cfg;
       const armed = trade.trailArmed || peakR >= tCfg.trailActivationR;
       if (currentR <= -1) {

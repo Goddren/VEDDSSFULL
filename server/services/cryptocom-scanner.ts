@@ -15,7 +15,7 @@ import { getOrRefreshCryptoBrain, cryptoBrainSizeMultiplier, cryptoBrainGate, cr
 import { recordRealizedPnl } from './prop-firm-consistency';
 import { weekendBoostActive, boostedMinConfidence, weekendBoostSizeMultiplier } from './weekend-boost';
 import { PROCESS_BOOT_ID } from './process-fingerprint';
-import { cryptoTrailProfileFor } from './trail-guards';
+import { cryptoTrailGuardFor, stampCryptoTradeTrailGuard, type CryptoTrailProfile } from './trail-guards';
 import { cefiEntryBuy, cefiExitSell, baseCoin, type CefiVenue } from './cefi-executor';
 // NOTE: defi-executor is imported LAZILY (dynamic import at the two call sites
 // below) — it pulls in defi-swap → ethers, a heavy stack. Keeping it out of the
@@ -797,7 +797,13 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
       const peakR = Math.max(trade.peakRMultiple, currentR);
       // Trail guards: a promoted per-group profile overrides the global
       // trail settings for this trade's strategy/symbol (fails open).
-      const tgProfile = await cryptoTrailProfileFor(userId, trade.strategy, trade.symbol);
+      // When a guard governs, stamp the trade with the guard's identity —
+      // closes under a guard are how the guard's own record is counted
+      // (trail-guard-learning.ts). Absolute TP/SL closes above never reach
+      // this point, so they are never stamped: the guard governed nothing.
+      const tgGuard = await cryptoTrailGuardFor(userId, trade.strategy, trade.symbol);
+      const tgProfile = tgGuard ? (tgGuard.profile as CryptoTrailProfile) : null;
+      if (tgGuard) void stampCryptoTradeTrailGuard(userId, trade.id, tgGuard);
       const tCfg = tgProfile ? { ...cfg, trailMethod: tgProfile.method, trailActivationR: tgProfile.activationR, trailFixedR: tgProfile.fixedR, trailStepR: tgProfile.stepR, trailProfitLockPct: tgProfile.profitLockPct, trailSarInitialAF: tgProfile.sarInitialAF, trailSarMaxAF: tgProfile.sarMaxAF, breakevenBufferR: tgProfile.breakevenBufferR } : cfg;
       const armed = trade.trailArmed || peakR >= tCfg.trailActivationR;
 

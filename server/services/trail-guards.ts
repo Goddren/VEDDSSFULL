@@ -52,6 +52,12 @@ export interface TrailGuard {
   promotedAt: string;
   active: boolean;
   retiredAt?: string;
+  /** Who retired the guard: the user's own tap ('user', the default for
+   *  every guard retired before self-learning existed) or the guard's own
+   *  track record ('lessons' — trail-guard-learning.ts auto-retire). */
+  retiredBy?: 'user' | 'lessons';
+  /** Why the lessons loop retired it (present only when retiredBy='lessons'). */
+  retireReason?: string;
 }
 
 export interface TrailCandidate {
@@ -217,12 +223,14 @@ export async function promoteTrailGuard(userId: number, sel: { engine: 'crypto' 
   return { ok: true as const, guard };
 }
 
-export async function retireTrailGuard(userId: number, id: string) {
+export async function retireTrailGuard(userId: number, id: string, retiredBy: 'user' | 'lessons' = 'user', retireReason?: string) {
   const guards = await getTrailGuards(userId);
   const g = guards.find(x => x.id === id);
   if (!g) return { ok: false as const, status: 404, error: 'Guard not found.' };
   g.active = false;
   g.retiredAt = new Date().toISOString();
+  g.retiredBy = retiredBy;
+  if (retireReason) g.retireReason = retireReason;
   await storeGuards(userId, guards);
   return { ok: true as const, guard: g };
 }
@@ -237,17 +245,67 @@ function matchGuard(guards: TrailGuard[], engine: 'crypto' | 'sol', strategy: st
 }
 
 export async function cryptoTrailProfileFor(userId: number, strategy: string | null | undefined, symbol: string | null | undefined): Promise<CryptoTrailProfile | null> {
-  if (!trailGuardsOn()) return null;
-  try {
-    const g = matchGuard(await getTrailGuards(userId), 'crypto', strategy, symbol);
-    return g ? (g.profile as CryptoTrailProfile) : null;
-  } catch { return null; }
+  const g = await cryptoTrailGuardFor(userId, strategy, symbol);
+  return g ? (g.profile as CryptoTrailProfile) : null;
 }
 
 export async function solTrailOverridesFor(userId: number, strategyId: string | null | undefined, symbol: string | null | undefined): Promise<SolTrailProfile | null> {
+  const g = await solTrailGuardFor(userId, strategyId, symbol);
+  return g ? (g.profile as SolTrailProfile) : null;
+}
+
+/** The guard itself (not just its profile) when one governs this group —
+ *  the consult sites use this for attribution: a trade whose exit was
+ *  governed by a guard gets stamped with the guard's identity so the
+ *  guard's own record can be counted later (trail-guard-learning.ts).
+ *  Same matching and fail-open semantics as the profile consults. */
+export async function cryptoTrailGuardFor(userId: number, strategy: string | null | undefined, symbol: string | null | undefined): Promise<TrailGuard | null> {
   if (!trailGuardsOn()) return null;
   try {
-    const g = matchGuard(await getTrailGuards(userId), 'sol', strategyId, symbol);
-    return g ? (g.profile as SolTrailProfile) : null;
+    return matchGuard(await getTrailGuards(userId), 'crypto', strategy, symbol);
   } catch { return null; }
+}
+
+export async function solTrailGuardFor(userId: number, strategyId: string | null | undefined, symbol: string | null | undefined): Promise<TrailGuard | null> {
+  if (!trailGuardsOn()) return null;
+  try {
+    return matchGuard(await getTrailGuards(userId), 'sol', strategyId, symbol);
+  } catch { return null; }
+}
+
+// ── Attribution stamps (crypto) ─────────────────────────────────────────────
+// When a guard's profile governs a crypto trade's exit evaluation, the
+// trade row is stamped with the guard's id/action and a snapshot of the
+// profile in force. Additive nullable columns, lazily added — the same
+// rows the trail study reads, so closes under a guard are countable
+// without touching the study. Unguarded trades stay unstamped; a stamp
+// write never throws and never blocks the monitor.
+let _colsEnsured: Promise<void> | null = null;
+export function ensureTrailGuardStampColumns(): Promise<void> {
+  if (!_colsEnsured) {
+    _colsEnsured = pool.query(`ALTER TABLE cryptocom_engine_trades
+        ADD COLUMN IF NOT EXISTS trail_guard_id text,
+        ADD COLUMN IF NOT EXISTS trail_guard_action text,
+        ADD COLUMN IF NOT EXISTS trail_guard_profile jsonb`)
+      .then(() => undefined)
+      .catch((e) => { _colsEnsured = null; throw e; });
+  }
+  return _colsEnsured;
+}
+
+const _stamped = new Map<string, string>();
+export async function stampCryptoTradeTrailGuard(userId: number, tradeId: number, guard: TrailGuard): Promise<void> {
+  const memoKey = `${userId}:${tradeId}`;
+  const stampKey = `${guard.id}:${guard.action}`;
+  if (_stamped.get(memoKey) === stampKey) return;
+  try {
+    await ensureTrailGuardStampColumns();
+    await pool.query(
+      `UPDATE cryptocom_engine_trades SET trail_guard_id = $2, trail_guard_action = $3, trail_guard_profile = $4::jsonb
+        WHERE id = $1 AND user_id = $5`,
+      [tradeId, guard.id, guard.action, JSON.stringify(guard.profile), userId]);
+    _stamped.set(memoKey, stampKey);
+  } catch (e: any) {
+    console.error('[trail-guards] stamp failed (non-fatal):', e?.message || e);
+  }
 }

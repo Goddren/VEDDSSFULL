@@ -1646,6 +1646,13 @@ async function withRetry<T>(
     const { startEngineWatchdog } = await import('./services/engine-watchdog');
     startEngineWatchdog();
 
+    // Trail-guard self-learning — every 30 min, each active trail guard is
+    // judged against its own stamped record and retires itself if it is
+    // proven harmful (trail-guard-learning.ts). Kill switch
+    // TRAIL_GUARD_LEARNING=off.
+    const { startTrailGuardLearning } = await import('./services/trail-guard-learning');
+    startTrailGuardLearning();
+
     // Kalshi stock-perp SHADOW lane — virtual positions on public Kalshi
     // margin market data for the owner account. No credentials, no orders;
     // kill switch KALSHI_STOCK_SHADOW=off.
