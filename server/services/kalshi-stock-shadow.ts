@@ -71,6 +71,7 @@ export const stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== 'off';
 
 const num = (n: string, d: number) => { const v = Number(process.env[n]); return Number.isFinite(v) && v > 0 ? v : d; };
 export const stockShadowEnabled = () => process.env.KALSHI_STOCK_SHADOW !== 'off';
+export const accountSimEnabled = () => process.env.KALSHI_ACCOUNT_SIM !== 'off';
 const MAX_OPEN = () => Math.floor(num('KALSHI_STOCK_SHADOW_MAX_OPEN', 30));
 const MAX_PER_STRAT = () => Math.floor(num('KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY', 3));
 const COOLDOWN_MS = () => num('KALSHI_STOCK_SHADOW_COOLDOWN_MIN', 60) * 60_000;
@@ -194,6 +195,11 @@ export interface KalshiStockShadowStrategyStat {
   avgNetPct: number;
   estNetPnlUsd: number;
   fundingUsd: number;
+  // $100-account illustration for THIS strategy alone (accountReplay over its
+  // own closes, each strategy starting independently at $100). Absent when
+  // KALSHI_ACCOUNT_SIM=off; null when the strategy has no closes.
+  accountEnd?: number | null;
+  accountReturnPct?: number | null;
 }
 
 export interface KalshiStockShadowOpenPosition {
@@ -237,6 +243,62 @@ export interface KalshiStockShadowReport {
   byStrategy: KalshiStockShadowStrategyStat[];
   openPositions: KalshiStockShadowOpenPosition[];
   recentCloses: KalshiStockShadowRecentClose[];
+  // $100-account illustration over the window's closes. Absent when
+  // KALSHI_ACCOUNT_SIM=off (the client then hides the block).
+  accountSim?: KalshiAccountSimResult;
+}
+
+export interface KalshiAccountSimResult {
+  startBalance: number;
+  endBalance: number;
+  totalReturnPct: number;
+  trades: number;
+  maxDrawdownPct: number;
+  worstTradePct: number | null;
+  bestTradePct: number | null;
+}
+
+/**
+ * Pure $100-account replay over closed shadow trades, in the order they
+ * closed: each close moves the WHOLE running balance by that trade's NET
+ * return_pct (already net of funding + modeled costs), one trade at a time.
+ * Deterministic and DB-free so it can be unit-tested directly.
+ *
+ * Illustration, not an account history: the live lane can hold several
+ * positions at once at a fixed ~$250 notional, while this replay applies
+ * each result to the full balance sequentially — that is the honest,
+ * easy-to-read version of "what would these results have done to $100".
+ */
+export function accountReplay(
+  closes: Array<number | { return_pct: number }>,
+  startBalance = 100,
+): KalshiAccountSimResult {
+  const start = Number.isFinite(startBalance) && startBalance > 0 ? startBalance : 100;
+  let balance = start;
+  let peak = start;
+  let maxDrawdownPct = 0;
+  let worstTradePct: number | null = null;
+  let bestTradePct: number | null = null;
+  let trades = 0;
+  for (const close of closes) {
+    const pct = typeof close === 'number' ? close : Number((close as { return_pct: number })?.return_pct);
+    if (!Number.isFinite(pct)) continue;
+    balance += (balance * pct) / 100;
+    trades++;
+    if (balance > peak) peak = balance;
+    if (peak > 0) maxDrawdownPct = Math.max(maxDrawdownPct, ((peak - balance) / peak) * 100);
+    worstTradePct = worstTradePct == null ? pct : Math.min(worstTradePct, pct);
+    bestTradePct = bestTradePct == null ? pct : Math.max(bestTradePct, pct);
+  }
+  return {
+    startBalance: start,
+    endBalance: balance,
+    totalReturnPct: ((balance - start) / start) * 100,
+    trades,
+    maxDrawdownPct,
+    worstTradePct,
+    bestTradePct,
+  };
 }
 
 const toIso = (v: unknown): string | null => {
@@ -261,7 +323,8 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
 
   const validCloseWhere = `user_id=$1 AND status='closed' AND exclude_from_stats IS NOT TRUE
     AND return_pct IS NOT NULL AND closed_at >= now() - ($2::int * interval '1 day')`;
-  const [summaryRes, byStrategyRes, openRes, recentClosesRes] = await Promise.all([
+  const simOn = accountSimEnabled();
+  const [summaryRes, byStrategyRes, openRes, recentClosesRes, closesRes] = await Promise.all([
     pool.query(
       `WITH valid_closes AS (
          SELECT * FROM kalshi_perp_shadow_trades WHERE ${validCloseWhere}
@@ -311,6 +374,17 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
        ORDER BY t.closed_at DESC
        LIMIT 10`,
       [userId, windowDays]),
+    // Every valid close in the window, oldest first, for the $100-account
+    // replay (the recent-closes list above is capped at 10 — never reuse it).
+    // Same validCloseWhere, so corporate-action rows stay excluded.
+    simOn
+      ? pool.query(
+        `SELECT strategy, return_pct::float AS return_pct, closed_at
+         FROM kalshi_perp_shadow_trades
+         WHERE ${validCloseWhere}
+         ORDER BY closed_at ASC, id ASC`,
+        [userId, windowDays])
+      : Promise.resolve(null),
   ]);
 
   const s = summaryRes.rows[0] || {};
@@ -359,8 +433,26 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
     };
   });
 
+  // $100-account replays: one over the whole window, plus one per strategy
+  // (each strategy independently starts at $100 — an illustration per
+  // strategy, not a split of one account).
+  const windowCloses: Array<{ strategy: string; return_pct: number }> =
+    ((closesRes as any)?.rows || []).map((r: any) => ({ strategy: String(r.strategy), return_pct: Number(r.return_pct) }));
+  const accountSim = simOn ? accountReplay(windowCloses) : undefined;
+  const perStrategySim = new Map<string, KalshiAccountSimResult>();
+  if (simOn) {
+    const grouped = new Map<string, Array<{ return_pct: number }>>();
+    for (const c of windowCloses) {
+      const list = grouped.get(c.strategy) ?? [];
+      list.push({ return_pct: c.return_pct });
+      grouped.set(c.strategy, list);
+    }
+    grouped.forEach((list, strategy) => perStrategySim.set(strategy, accountReplay(list)));
+  }
+
   return {
     days: windowDays,
+    ...(accountSim ? { accountSim } : {}),
     summary: {
       openCount: Number(s.open_count) || 0,
       closedCount: Number(s.closed_count) || 0,
@@ -373,16 +465,24 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
       lastClosedAt: toIso(s.last_closed_at),
       enabled: stockShadowEnabled(),
     },
-    byStrategy: (byStrategyRes.rows || []).map((r: any): KalshiStockShadowStrategyStat => ({
-      strategy: String(r.strategy),
-      trades: Number(r.trades) || 0,
-      wins: Number(r.wins) || 0,
-      winRate: Number(r.win_rate) || 0,
-      avgR: r.avg_r == null ? null : Number(r.avg_r),
-      avgNetPct: Number(r.avg_net_pct) || 0,
-      estNetPnlUsd: Number(r.est_net_pnl_usd) || 0,
-      fundingUsd: Number(r.funding_usd) || 0,
-    })),
+    byStrategy: (byStrategyRes.rows || []).map((r: any): KalshiStockShadowStrategyStat => {
+      const strategy = String(r.strategy);
+      const sim = simOn ? perStrategySim.get(strategy) : undefined;
+      return {
+        strategy,
+        trades: Number(r.trades) || 0,
+        wins: Number(r.wins) || 0,
+        winRate: Number(r.win_rate) || 0,
+        avgR: r.avg_r == null ? null : Number(r.avg_r),
+        avgNetPct: Number(r.avg_net_pct) || 0,
+        estNetPnlUsd: Number(r.est_net_pnl_usd) || 0,
+        fundingUsd: Number(r.funding_usd) || 0,
+        ...(simOn ? {
+          accountEnd: sim ? sim.endBalance : null,
+          accountReturnPct: sim ? sim.totalReturnPct : null,
+        } : {}),
+      };
+    }),
     openPositions,
     recentCloses: (recentClosesRes.rows || []).map((r: any): KalshiStockShadowRecentClose => ({
       id: Number(r.id),

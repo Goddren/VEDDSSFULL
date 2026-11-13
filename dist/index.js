@@ -64768,6 +64768,8 @@ var init_strategy_backtest = __esm({
 // server/services/kalshi-stock-shadow.ts
 var kalshi_stock_shadow_exports = {};
 __export(kalshi_stock_shadow_exports, {
+  accountReplay: () => accountReplay,
+  accountSimEnabled: () => accountSimEnabled,
   aggregateKalshiStats: () => aggregateKalshiStats,
   computeKalshiStockShadowStats: () => computeKalshiStockShadowStats,
   getKalshiStockShadowReport: () => getKalshiStockShadowReport,
@@ -64868,12 +64870,41 @@ async function computeKalshiStockShadowStats(userId, force = false) {
   _statsCache2.set(userId, { at: Date.now(), stats });
   return stats;
 }
+function accountReplay(closes, startBalance = 100) {
+  const start = Number.isFinite(startBalance) && startBalance > 0 ? startBalance : 100;
+  let balance = start;
+  let peak = start;
+  let maxDrawdownPct = 0;
+  let worstTradePct = null;
+  let bestTradePct = null;
+  let trades = 0;
+  for (const close of closes) {
+    const pct3 = typeof close === "number" ? close : Number(close?.return_pct);
+    if (!Number.isFinite(pct3)) continue;
+    balance += balance * pct3 / 100;
+    trades++;
+    if (balance > peak) peak = balance;
+    if (peak > 0) maxDrawdownPct = Math.max(maxDrawdownPct, (peak - balance) / peak * 100);
+    worstTradePct = worstTradePct == null ? pct3 : Math.min(worstTradePct, pct3);
+    bestTradePct = bestTradePct == null ? pct3 : Math.max(bestTradePct, pct3);
+  }
+  return {
+    startBalance: start,
+    endBalance: balance,
+    totalReturnPct: (balance - start) / start * 100,
+    trades,
+    maxDrawdownPct,
+    worstTradePct,
+    bestTradePct
+  };
+}
 async function getKalshiStockShadowReport(userId, days = 30) {
   const windowDays = Number.isFinite(days) ? Math.max(1, Math.min(365, Math.floor(days))) : 30;
   await ensureKalshiPerpShadowTables();
   const validCloseWhere = `user_id=$1 AND status='closed' AND exclude_from_stats IS NOT TRUE
     AND return_pct IS NOT NULL AND closed_at >= now() - ($2::int * interval '1 day')`;
-  const [summaryRes, byStrategyRes, openRes, recentClosesRes] = await Promise.all([
+  const simOn = accountSimEnabled();
+  const [summaryRes, byStrategyRes, openRes, recentClosesRes, closesRes] = await Promise.all([
     pool.query(
       `WITH valid_closes AS (
          SELECT * FROM kalshi_perp_shadow_trades WHERE ${validCloseWhere}
@@ -64926,7 +64957,17 @@ async function getKalshiStockShadowReport(userId, days = 30) {
        ORDER BY t.closed_at DESC
        LIMIT 10`,
       [userId, windowDays]
-    )
+    ),
+    // Every valid close in the window, oldest first, for the $100-account
+    // replay (the recent-closes list above is capped at 10 — never reuse it).
+    // Same validCloseWhere, so corporate-action rows stay excluded.
+    simOn ? pool.query(
+      `SELECT strategy, return_pct::float AS return_pct, closed_at
+         FROM kalshi_perp_shadow_trades
+         WHERE ${validCloseWhere}
+         ORDER BY closed_at ASC, id ASC`,
+      [userId, windowDays]
+    ) : Promise.resolve(null)
   ]);
   const s = summaryRes.rows[0] || {};
   const openRows = openRes.rows || [];
@@ -64963,8 +65004,21 @@ async function getKalshiStockShadowReport(userId, days = 30) {
       unrealized_net_pct: unrealizedNetPct
     };
   });
+  const windowCloses = (closesRes?.rows || []).map((r) => ({ strategy: String(r.strategy), return_pct: Number(r.return_pct) }));
+  const accountSim = simOn ? accountReplay(windowCloses) : void 0;
+  const perStrategySim = /* @__PURE__ */ new Map();
+  if (simOn) {
+    const grouped = /* @__PURE__ */ new Map();
+    for (const c of windowCloses) {
+      const list = grouped.get(c.strategy) ?? [];
+      list.push({ return_pct: c.return_pct });
+      grouped.set(c.strategy, list);
+    }
+    grouped.forEach((list, strategy) => perStrategySim.set(strategy, accountReplay(list)));
+  }
   return {
     days: windowDays,
+    ...accountSim ? { accountSim } : {},
     summary: {
       openCount: Number(s.open_count) || 0,
       closedCount: Number(s.closed_count) || 0,
@@ -64977,16 +65031,24 @@ async function getKalshiStockShadowReport(userId, days = 30) {
       lastClosedAt: toIso(s.last_closed_at),
       enabled: stockShadowEnabled()
     },
-    byStrategy: (byStrategyRes.rows || []).map((r) => ({
-      strategy: String(r.strategy),
-      trades: Number(r.trades) || 0,
-      wins: Number(r.wins) || 0,
-      winRate: Number(r.win_rate) || 0,
-      avgR: r.avg_r == null ? null : Number(r.avg_r),
-      avgNetPct: Number(r.avg_net_pct) || 0,
-      estNetPnlUsd: Number(r.est_net_pnl_usd) || 0,
-      fundingUsd: Number(r.funding_usd) || 0
-    })),
+    byStrategy: (byStrategyRes.rows || []).map((r) => {
+      const strategy = String(r.strategy);
+      const sim = simOn ? perStrategySim.get(strategy) : void 0;
+      return {
+        strategy,
+        trades: Number(r.trades) || 0,
+        wins: Number(r.wins) || 0,
+        winRate: Number(r.win_rate) || 0,
+        avgR: r.avg_r == null ? null : Number(r.avg_r),
+        avgNetPct: Number(r.avg_net_pct) || 0,
+        estNetPnlUsd: Number(r.est_net_pnl_usd) || 0,
+        fundingUsd: Number(r.funding_usd) || 0,
+        ...simOn ? {
+          accountEnd: sim ? sim.endBalance : null,
+          accountReturnPct: sim ? sim.totalReturnPct : null
+        } : {}
+      };
+    }),
     openPositions,
     recentCloses: (recentClosesRes.rows || []).map((r) => ({
       id: Number(r.id),
@@ -65351,7 +65413,7 @@ function startKalshiStockShadow() {
   setInterval(tick3, 5 * 6e4).unref?.();
   console.log("[kalshi-stock-shadow] started \u2014 SHADOW lane on public Kalshi perp data (no credentials, no orders).");
 }
-var stockOrbEnabled, num7, stockShadowEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started2;
+var stockOrbEnabled, num7, stockShadowEnabled, accountSimEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started2;
 var init_kalshi_stock_shadow = __esm({
   "server/services/kalshi-stock-shadow.ts"() {
     "use strict";
@@ -65365,6 +65427,7 @@ var init_kalshi_stock_shadow = __esm({
       return Number.isFinite(v) && v > 0 ? v : d;
     };
     stockShadowEnabled = () => process.env.KALSHI_STOCK_SHADOW !== "off";
+    accountSimEnabled = () => process.env.KALSHI_ACCOUNT_SIM !== "off";
     MAX_OPEN2 = () => Math.floor(num7("KALSHI_STOCK_SHADOW_MAX_OPEN", 30));
     MAX_PER_STRAT2 = () => Math.floor(num7("KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY", 3));
     COOLDOWN_MS2 = () => num7("KALSHI_STOCK_SHADOW_COOLDOWN_MIN", 60) * 6e4;
@@ -77930,9 +77993,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "93b452d2-dirty";
-var BUILD_BRANCH = "feat/fx-models-replay";
-var BUILT_AT = "2026-11-13T05:09:36.870Z";
+var BUILD_COMMIT = "27dde9a1-dirty";
+var BUILD_BRANCH = "feat/kalshi-100-account";
+var BUILT_AT = "2026-11-13T05:35:14.199Z";
 
 // server/stripe.ts
 init_db();
