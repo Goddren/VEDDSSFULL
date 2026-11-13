@@ -517,6 +517,8 @@ __export(schema_exports, {
   blogPosts: () => blogPosts,
   brainDataListings: () => brainDataListings,
   brainDataPurchases: () => brainDataPurchases,
+  brainMarketplaceSubscriptionCharges: () => brainMarketplaceSubscriptionCharges,
+  brainMarketplaceSubscriptions: () => brainMarketplaceSubscriptions,
   chartAnalyses: () => chartAnalyses,
   communityPartnerships: () => communityPartnerships,
   connectedSocialAccounts: () => connectedSocialAccounts,
@@ -731,7 +733,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, aiUsageLog, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, cryptocomEngineConfigs, insertCryptocomEngineConfigSchema, cryptocomEngineActivity, cryptocomEngineTrades, insertCryptocomEngineTradeSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWalletEarnings, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, aiConfirmationLogs, propFirmAccountState, propFirmDailyPnl, engineConsensusLog, microGrowthMilestones, microGrowthSessions, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, contentStudioAssets, contentStudioGenerations, insertContentStudioGenerationSchema, ambassadorMarketBriefing, personaPillarRotation, personaArcState, personaContentDays, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, workforceCourseProgress, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, kalshiEngineConfigs, kalshiBrainOutcomes, optionsBrainOutcomes, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, aiUsageLog, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, cryptocomEngineConfigs, insertCryptocomEngineConfigSchema, cryptocomEngineActivity, cryptocomEngineTrades, insertCryptocomEngineTradeSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWalletEarnings, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, aiConfirmationLogs, propFirmAccountState, propFirmDailyPnl, engineConsensusLog, microGrowthMilestones, microGrowthSessions, brainDataListings, brainDataPurchases, brainMarketplaceSubscriptions, brainMarketplaceSubscriptionCharges, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, contentStudioAssets, contentStudioGenerations, insertContentStudioGenerationSchema, ambassadorMarketBriefing, personaPillarRotation, personaArcState, personaContentDays, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, workforceCourseProgress, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, kalshiEngineConfigs, kalshiBrainOutcomes, optionsBrainOutcomes, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -3393,6 +3395,12 @@ var init_schema = __esm({
       title: text("title").notNull(),
       description: text("description"),
       priceVedd: integer("price_vedd").notNull(),
+      // Optional MONTHLY subscription price in VEDD (marketplace subscriptions,
+      // server/services/marketplace-subscriptions.ts). Null = no subscription
+      // offered, one-time purchase only. A seller changing this only affects
+      // FUTURE subscribers — an existing subscription keeps the price locked
+      // at its subscribe time until it lapses or is cancelled.
+      priceVeddMonthly: integer("price_vedd_monthly"),
       suggestedPriceVedd: integer("suggested_price_vedd").notNull(),
       snapshotData: jsonb("snapshot_data").notNull(),
       // frozen array of outcome rows at listing time — re-listing the SAME category+symbolFilter combo replaces this with a fresh, updated snapshot
@@ -3420,6 +3428,41 @@ var init_schema = __esm({
       return {
         uniquePurchase: unique().on(table.listingId, table.buyerId)
       };
+    });
+    brainMarketplaceSubscriptions = pgTable("brain_marketplace_subscriptions", {
+      id: serial("id").primaryKey(),
+      listingId: integer("listing_id").references(() => brainDataListings.id).notNull(),
+      sellerId: integer("seller_id").references(() => users.id).notNull(),
+      buyerId: integer("buyer_id").references(() => users.id).notNull(),
+      priceVeddMonthly: integer("price_vedd_monthly").notNull(),
+      // locked at subscribe time
+      status: text("status").default("active").notNull(),
+      // active|past_due|lapsed|cancelled
+      startedAt: timestamp("started_at").defaultNow().notNull(),
+      lastChargedAt: timestamp("last_charged_at"),
+      nextChargeAt: timestamp("next_charge_at").notNull(),
+      paidThroughAt: timestamp("paid_through_at").notNull(),
+      failedAttempts: integer("failed_attempts").default(0).notNull(),
+      grantedAt: timestamp("granted_at"),
+      // when the buy-equivalent grant was applied (once)
+      accessRevokedAt: timestamp("access_revoked_at"),
+      // when lapse/cancel end-of-access was enforced
+      cancelledAt: timestamp("cancelled_at"),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    }, (table) => {
+      return {
+        uniqueSubscription: unique().on(table.listingId, table.buyerId)
+      };
+    });
+    brainMarketplaceSubscriptionCharges = pgTable("brain_marketplace_subscription_charges", {
+      id: serial("id").primaryKey(),
+      subscriptionId: integer("subscription_id").references(() => brainMarketplaceSubscriptions.id).notNull(),
+      periodKey: text("period_key").notNull().unique(),
+      amountVedd: integer("amount_vedd").notNull(),
+      status: text("status").default("charged").notNull(),
+      // charged|failed
+      chargedAt: timestamp("charged_at").defaultNow().notNull()
     });
     insertBrainDataListingSchema = createInsertSchema(brainDataListings).omit({
       id: true,
@@ -28142,6 +28185,790 @@ var init_live_trading_engine = __esm({
   }
 });
 
+// server/services/strategy-spec.ts
+var strategy_spec_exports = {};
+__export(strategy_spec_exports, {
+  ENGINE_STRATEGY_KEYS: () => ENGINE_STRATEGY_KEYS,
+  INDICATOR_CATALOG: () => INDICATOR_CATALOG,
+  TF_MINUTES: () => TF_MINUTES,
+  specWarmupBars: () => specWarmupBars,
+  validateStrategySpec: () => validateStrategySpec
+});
+function isNum(x, min, max) {
+  return typeof x === "number" && Number.isFinite(x) && x >= min && x <= max;
+}
+function validateGroup(g, indicatorIds, label, allowEmpty = false) {
+  if (!g || g.logic !== "AND" && g.logic !== "OR") return `${label}: logic must be AND or OR`;
+  const min = allowEmpty ? 0 : 1;
+  if (!Array.isArray(g.conditions) || g.conditions.length < min || g.conditions.length > 6) {
+    return `${label}: needs ${min}\u20136 conditions`;
+  }
+  for (const c of g.conditions) {
+    if (c.indicatorId !== "price" && !indicatorIds.has(c.indicatorId)) {
+      return `${label}: unknown indicator "${c.indicatorId}"`;
+    }
+    if (!FIELDS.includes(c.field)) return `${label}: bad field "${c.field}"`;
+    if (!OPERATORS.includes(c.operator)) return `${label}: bad operator "${c.operator}"`;
+    if (c.sustainBars !== void 0 && !isNum(c.sustainBars, 1, 50)) return `${label}: sustainBars out of range`;
+    if (c.minGapPips !== void 0 && !isNum(c.minGapPips, 0, 1e5)) return `${label}: minGapPips out of range`;
+    const cmp = c.compare;
+    if (!cmp || !["value", "indicator", "price"].includes(cmp.kind)) return `${label}: bad compare target`;
+    if (cmp.kind === "value" && !isNum(cmp.value, -1e9, 1e9)) return `${label}: compare value must be a number`;
+    if (cmp.kind === "indicator" && cmp.indicatorId !== "price" && !indicatorIds.has(cmp.indicatorId)) {
+      return `${label}: unknown compare indicator "${cmp.indicatorId}"`;
+    }
+  }
+  return null;
+}
+function validateStrategySpec(x) {
+  if (!x || typeof x !== "object") return { ok: false, error: "spec must be an object" };
+  const s = x;
+  if (typeof s.name !== "string" || !s.name.trim() || s.name.length > 80) return { ok: false, error: "name is required (max 80 chars)" };
+  if (s.source !== "template" && s.source !== "builder" && s.source !== "engine") return { ok: false, error: "source must be 'template', 'builder' or 'engine'" };
+  const isEngineNative = s.source === "engine";
+  if (isEngineNative && !ENGINE_STRATEGY_KEYS.includes(s.engineStrategyKey ?? "")) {
+    return { ok: false, error: "engine source needs a valid engineStrategyKey" };
+  }
+  if (typeof s.symbol !== "string" || !/^[A-Za-z0-9./_-]{3,15}$/.test(s.symbol)) return { ok: false, error: "bad symbol" };
+  if (!TIMEFRAMES.includes(s.timeframe)) return { ok: false, error: "bad timeframe" };
+  if (!Array.isArray(s.indicators) || s.indicators.length > 10) return { ok: false, error: "indicators: max 10" };
+  const ids = /* @__PURE__ */ new Set();
+  for (const ind of s.indicators) {
+    if (!ind.id || typeof ind.id !== "string" || ids.has(ind.id)) return { ok: false, error: "indicator ids must be unique strings" };
+    ids.add(ind.id);
+    if (!INDICATOR_CATALOG.some((c) => c.kind === ind.kind)) return { ok: false, error: `bad indicator kind "${ind.kind}"` };
+    if (ind.period !== void 0 && !isNum(ind.period, 1, 500)) return { ok: false, error: "indicator period out of range" };
+    if (ind.fastPeriod !== void 0 && !isNum(ind.fastPeriod, 1, 500)) return { ok: false, error: "fastPeriod out of range" };
+    if (ind.slowPeriod !== void 0 && !isNum(ind.slowPeriod, 1, 500)) return { ok: false, error: "slowPeriod out of range" };
+    if (ind.signalPeriod !== void 0 && !isNum(ind.signalPeriod, 1, 100)) return { ok: false, error: "signalPeriod out of range" };
+    if (ind.stdDev !== void 0 && !isNum(ind.stdDev, 0.1, 10)) return { ok: false, error: "stdDev out of range" };
+    if (ind.sourceId !== void 0 && (typeof ind.sourceId !== "string" || ind.sourceId === ind.id)) return { ok: false, error: "sourceId must name another indicator" };
+    if (ind.lookbackBars !== void 0 && !isNum(ind.lookbackBars, 10, 1e3)) return { ok: false, error: "lookbackBars out of range" };
+    if (ind.valueAreaPct !== void 0 && !isNum(ind.valueAreaPct, 10, 100)) return { ok: false, error: "valueAreaPct out of range" };
+    if (ind.pivotLeft !== void 0 && !isNum(ind.pivotLeft, 1, 50)) return { ok: false, error: "pivotLeft out of range" };
+    if (ind.pivotRight !== void 0 && !isNum(ind.pivotRight, 1, 50)) return { ok: false, error: "pivotRight out of range" };
+    if (ind.sessionStartHourUtc !== void 0 && !isNum(ind.sessionStartHourUtc, 0, 23)) return { ok: false, error: "sessionStartHourUtc out of range" };
+    if (ind.sessionStartMinuteUtc !== void 0 && !isNum(ind.sessionStartMinuteUtc, 0, 59)) return { ok: false, error: "sessionStartMinuteUtc out of range" };
+    if (ind.rangeMinutes !== void 0 && !isNum(ind.rangeMinutes, 1, 720)) return { ok: false, error: "rangeMinutes out of range" };
+  }
+  for (const ind of s.indicators) {
+    if (ind.sourceId !== void 0 && !ids.has(ind.sourceId)) return { ok: false, error: `sourceId "${ind.sourceId}" is not an indicator` };
+    if (ind.sourceId !== void 0 && ind.kind !== "EMA" && ind.kind !== "SMA") return { ok: false, error: "only EMA/SMA can smooth another indicator" };
+  }
+  for (const [label, g] of [["entryLong", s.entryLong], ["entryShort", s.entryShort]]) {
+    const err = validateGroup(g, ids, label, isEngineNative);
+    if (err) return { ok: false, error: err };
+  }
+  for (const [label, g] of [["exitLong", s.exitLong], ["exitShort", s.exitShort]]) {
+    if (g == null) continue;
+    const err = validateGroup(g, ids, label);
+    if (err) return { ok: false, error: err };
+  }
+  if (s.trendFilter != null) {
+    const tf = s.trendFilter;
+    if (!TIMEFRAMES.includes(tf.timeframe)) return { ok: false, error: "trendFilter: bad timeframe" };
+    if (TF_MINUTES[tf.timeframe] <= TF_MINUTES[s.timeframe]) {
+      return { ok: false, error: "trendFilter timeframe must be HIGHER than the strategy timeframe" };
+    }
+    if (tf.timeframe === "D1" && s.timeframe !== "H4" && s.timeframe !== "H1") {
+    }
+    for (const [label, g] of [["trendFilter.long", tf.longGroup], ["trendFilter.short", tf.shortGroup]]) {
+      if (g == null) continue;
+      const err = validateGroup(g, ids, label);
+      if (err) return { ok: false, error: err };
+    }
+    if (!tf.longGroup?.conditions?.length && !tf.shortGroup?.conditions?.length) {
+      return { ok: false, error: "trendFilter needs at least one filter group" };
+    }
+  }
+  if (s.sessionFilter != null) {
+    const sf = s.sessionFilter;
+    if (!isNum(sf.startHourUtc, 0, 23) || !isNum(sf.endHourUtc, 0, 24)) return { ok: false, error: "sessionFilter hours out of range" };
+    if (sf.daysUtc !== void 0 && (!Array.isArray(sf.daysUtc) || sf.daysUtc.some((d) => !isNum(d, 0, 6)))) {
+      return { ok: false, error: "sessionFilter days must be 0\u20136" };
+    }
+  }
+  const r = s.risk;
+  if (!r || !isNum(r.lotSize, 0.01, 50)) return { ok: false, error: "risk.lotSize must be 0.01\u201350" };
+  for (const k2 of ["stopLossPips", "takeProfitPips", "trailingStopPips", "breakevenTriggerPips", "breakevenOffsetPips"]) {
+    if (r[k2] != null && !isNum(r[k2], 0, 1e5)) return { ok: false, error: `risk.${k2} out of range` };
+  }
+  for (const k2 of ["stopLossAtrMult", "takeProfitAtrMult"]) {
+    if (r[k2] != null && !isNum(r[k2], 0, 100)) return { ok: false, error: `risk.${k2} out of range` };
+  }
+  if (r.maxTradesPerDay != null && !isNum(r.maxTradesPerDay, 1, 1e3)) return { ok: false, error: "risk.maxTradesPerDay out of range" };
+  if ((r.stopLossAtrMult != null || r.takeProfitAtrMult != null) && !s.indicators.some((i) => i.kind === "ATR")) {
+    return { ok: false, error: "ATR-based stops need an ATR indicator in the spec" };
+  }
+  if (!isEngineNative && r.stopLossPips == null && r.stopLossAtrMult == null && r.takeProfitPips == null && r.takeProfitAtrMult == null) {
+    return { ok: false, error: "a strategy needs at least a stop loss or a take profit" };
+  }
+  return { ok: true, spec: { ...s, symbol: s.symbol.toUpperCase(), name: s.name.trim() } };
+}
+function specWarmupBars(spec) {
+  let w = 2;
+  for (const ind of spec.indicators) {
+    const need = ind.kind === "MACD" ? (ind.slowPeriod ?? 26) + (ind.signalPeriod ?? 9) : ind.kind === "STOCHASTIC" ? (ind.period ?? 14) + (ind.signalPeriod ?? 3) : ind.kind === "ICHIMOKU" ? (ind.slowPeriod ?? 52) + (ind.fastPeriod ?? 26) : ind.kind === "VOLUME_PROFILE" || ind.kind === "FVG" || ind.kind === "ORDER_BLOCK" ? ind.lookbackBars ?? 100 : ind.kind === "SWINGS" ? (ind.pivotLeft ?? 3) + (ind.pivotRight ?? 3) + 10 : ind.kind === "ORB" || ind.kind === "PIVOTS" || ind.kind === "VWAP" ? 2 : ind.period ?? 14;
+    w = Math.max(w, need + 2);
+  }
+  if (spec.trendFilter) {
+    const ratio = Math.max(1, Math.round(TF_MINUTES[spec.trendFilter.timeframe] / TF_MINUTES[spec.timeframe]));
+    let htfWarm = 2;
+    for (const ind of spec.indicators) {
+      const need = ind.kind === "MACD" ? (ind.slowPeriod ?? 26) + (ind.signalPeriod ?? 9) : ind.period ?? 14;
+      htfWarm = Math.max(htfWarm, need + 2);
+    }
+    w = Math.max(w, htfWarm * ratio + ratio);
+  }
+  return w;
+}
+var ENGINE_STRATEGY_KEYS, INDICATOR_CATALOG, TIMEFRAMES, OPERATORS, FIELDS, TF_MINUTES;
+var init_strategy_spec = __esm({
+  "server/services/strategy-spec.ts"() {
+    "use strict";
+    ENGINE_STRATEGY_KEYS = [
+      "scalping",
+      "momentum",
+      "session_breakout",
+      "aggressive",
+      "sniper",
+      "compound",
+      "chart_pattern",
+      "ict_order_blocks",
+      "ict_fvg",
+      "ict_liquidity_sweep",
+      "ict_bos",
+      "ict_ote",
+      "smc_demand_supply",
+      "asia_range_breakout",
+      "vwap_mean_reversion",
+      "news_fade",
+      "prop_firm_sniper",
+      "sunday_gap",
+      "order_flow"
+    ];
+    INDICATOR_CATALOG = [
+      { kind: "EMA", label: "Exponential Moving Average", fields: ["value"], defaults: { period: 21 } },
+      { kind: "SMA", label: "Simple Moving Average", fields: ["value"], defaults: { period: 50 } },
+      { kind: "RSI", label: "Relative Strength Index", fields: ["value"], defaults: { period: 14 } },
+      { kind: "MACD", label: "MACD", fields: ["value", "signal", "histogram"], defaults: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 } },
+      { kind: "STOCHASTIC", label: "Stochastic Oscillator", fields: ["k", "d"], defaults: { period: 14, signalPeriod: 3 } },
+      { kind: "BOLLINGER", label: "Bollinger Bands", fields: ["upper", "middle", "lower"], defaults: { period: 20, stdDev: 2 } },
+      { kind: "ATR", label: "Average True Range", fields: ["value"], defaults: { period: 14 } },
+      { kind: "VWAP", label: "VWAP (daily reset)", fields: ["value"], defaults: {} },
+      { kind: "ADX", label: "ADX (trend strength)", fields: ["value", "plus", "minus"], defaults: { period: 14 } },
+      { kind: "CCI", label: "CCI", fields: ["value"], defaults: { period: 20 } },
+      { kind: "WILLIAMS_R", label: "Williams %R", fields: ["value"], defaults: { period: 14 } },
+      { kind: "ICHIMOKU", label: "Ichimoku Cloud", fields: ["tenkan", "kijun", "span_a", "span_b"], defaults: { period: 9, fastPeriod: 26, slowPeriod: 52 } },
+      { kind: "SUPERTREND", label: "Supertrend", fields: ["value"], defaults: { period: 10, stdDev: 3 } },
+      { kind: "DONCHIAN", label: "Donchian Channel", fields: ["upper", "middle", "lower"], defaults: { period: 20 } },
+      { kind: "VOLUME_PROFILE", label: "Volume Profile (POC / Value Area)", fields: ["poc", "vah", "val"], defaults: { lookbackBars: 100, valueAreaPct: 70 } },
+      { kind: "PIVOTS", label: "Daily Pivot Points", fields: ["pp", "r1", "r2", "s1", "s2"], defaults: {} },
+      { kind: "ORB", label: "Opening Range (ORB)", fields: ["or_high", "or_low"], defaults: { sessionStartHourUtc: 14, sessionStartMinuteUtc: 30, rangeMinutes: 30 } },
+      { kind: "SWINGS", label: "Swing Highs / Lows (structure)", fields: ["swing_high", "swing_low"], defaults: { pivotLeft: 3, pivotRight: 3 } },
+      { kind: "FVG", label: "Fair Value Gaps (ICT)", fields: ["bull_high", "bull_low", "bear_high", "bear_low"], defaults: { lookbackBars: 100 } },
+      { kind: "ORDER_BLOCK", label: "Order Blocks (ICT)", fields: ["bull_high", "bull_low", "bear_high", "bear_low"], defaults: { lookbackBars: 100, pivotLeft: 5 } }
+    ];
+    TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"];
+    OPERATORS = ["crosses_above", "crosses_below", "above", "below", "rising", "falling", "turns_up", "turns_down"];
+    FIELDS = [
+      "value",
+      "signal",
+      "histogram",
+      "upper",
+      "middle",
+      "lower",
+      "k",
+      "d",
+      "price",
+      "poc",
+      "vah",
+      "val",
+      "tenkan",
+      "kijun",
+      "span_a",
+      "span_b",
+      "plus",
+      "minus",
+      "swing_high",
+      "swing_low",
+      "or_high",
+      "or_low",
+      "bull_high",
+      "bull_low",
+      "bear_high",
+      "bear_low",
+      "pp",
+      "r1",
+      "r2",
+      "s1",
+      "s2"
+    ];
+    TF_MINUTES = {
+      M1: 1,
+      M5: 5,
+      M15: 15,
+      M30: 30,
+      H1: 60,
+      H4: 240,
+      D1: 1440
+    };
+  }
+});
+
+// server/services/strategy-marketplace.ts
+var strategy_marketplace_exports = {};
+__export(strategy_marketplace_exports, {
+  clonePurchasedStrategy: () => clonePurchasedStrategy,
+  cloneStrategySpecForBuyer: () => cloneStrategySpecForBuyer,
+  ensureStrategyMarketplaceTable: () => ensureStrategyMarketplaceTable,
+  findMarketplaceCloneStrategies: () => findMarketplaceCloneStrategies,
+  getStrategyMarketplacePackage: () => getStrategyMarketplacePackage,
+  purchasedStrategyRecord: () => purchasedStrategyRecord,
+  recordStrategyMarketplacePackage: () => recordStrategyMarketplacePackage,
+  strategyShadowDeployability: () => strategyShadowDeployability,
+  upgradeMarketplaceCloneGrant: () => upgradeMarketplaceCloneGrant
+});
+function ensureStrategyMarketplaceTable() {
+  return tableReady3 ??= (async () => {
+    await pool.query(`CREATE TABLE IF NOT EXISTS strategy_marketplace_packages (
+      listing_id INTEGER PRIMARY KEY,
+      seller_id INTEGER NOT NULL,
+      source_strategy_id INTEGER NOT NULL,
+      spec JSONB NOT NULL,
+      proof_type TEXT NOT NULL,
+      proof_stats JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+  })().catch((e) => {
+    tableReady3 = null;
+    throw e;
+  });
+}
+async function recordStrategyMarketplacePackage(pkg) {
+  await ensureStrategyMarketplaceTable();
+  await pool.query(
+    `INSERT INTO strategy_marketplace_packages (listing_id, seller_id, source_strategy_id, spec, proof_type, proof_stats)
+     VALUES ($1,$2,$3,$4::jsonb,$5,$6::jsonb)
+     ON CONFLICT (listing_id) DO UPDATE SET seller_id=EXCLUDED.seller_id,
+       source_strategy_id=EXCLUDED.source_strategy_id, spec=EXCLUDED.spec,
+       proof_type=EXCLUDED.proof_type, proof_stats=EXCLUDED.proof_stats`,
+    [
+      pkg.listingId,
+      pkg.sellerId,
+      pkg.sourceStrategyId,
+      JSON.stringify(pkg.spec),
+      pkg.proofType,
+      pkg.proofStats ? JSON.stringify(pkg.proofStats) : null
+    ]
+  );
+}
+async function getStrategyMarketplacePackage(listingId) {
+  await ensureStrategyMarketplaceTable();
+  const { rows } = await pool.query(
+    `SELECT listing_id, seller_id, source_strategy_id, spec, proof_type, proof_stats, created_at
+       FROM strategy_marketplace_packages WHERE listing_id=$1`,
+    [listingId]
+  ).catch(() => ({ rows: [] }));
+  if (!rows.length) return null;
+  const r = rows[0];
+  return {
+    listingId: Number(r.listing_id),
+    sellerId: Number(r.seller_id),
+    sourceStrategyId: Number(r.source_strategy_id),
+    spec: r.spec,
+    proofType: r.proof_type === "live" ? "live" : "shadow",
+    proofStats: r.proof_stats ?? null,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at)
+  };
+}
+function cloneStrategySpecForBuyer(spec, provenance) {
+  const cloned = JSON.parse(JSON.stringify(spec));
+  cloned.marketplace = {
+    purchased: true,
+    source: "marketplace_strategy",
+    listingId: provenance.listingId,
+    sellerId: provenance.sellerId,
+    sourceStrategyId: provenance.sourceStrategyId,
+    proofType: provenance.proofType,
+    grantType: provenance.grantType === "subscription" ? "subscription" : "purchase"
+  };
+  return cloned;
+}
+function purchasedStrategyRecord(buyerId, pkg) {
+  const spec = cloneStrategySpecForBuyer(pkg.spec, pkg);
+  return { userId: buyerId, name: spec.name, spec };
+}
+function strategyShadowDeployability(spec) {
+  if (!spec) return { ok: false, reason: "no strategy spec" };
+  if (spec.source === "engine") {
+    return { ok: false, reason: "Engine strategies execute through the FX engine \u2014 there is no per-strategy spec for the shadow runner to evaluate." };
+  }
+  const v = validateStrategySpec(spec);
+  if (!v.ok) return { ok: false, reason: v.error };
+  if (!spec.entryLong?.conditions?.length && !spec.entryShort?.conditions?.length) {
+    return { ok: false, reason: "This strategy has no mechanical entry rules to run." };
+  }
+  return { ok: true, reason: null };
+}
+async function clonePurchasedStrategy(buyerId, listingId, grantType = "purchase") {
+  const pkg = await getStrategyMarketplacePackage(listingId);
+  if (!pkg) throw new Error("This strategy listing has no deployable strategy package.");
+  const record = purchasedStrategyRecord(buyerId, { ...pkg, grantType });
+  const deployability = strategyShadowDeployability(record.spec);
+  const strategy = await createWizardStrategy(buyerId, record.spec);
+  return {
+    strategy,
+    provenance: {
+      listingId: pkg.listingId,
+      sellerId: pkg.sellerId,
+      sourceStrategyId: pkg.sourceStrategyId,
+      proofType: pkg.proofType,
+      grantType
+    },
+    shadowDeployable: deployability.ok,
+    shadowDeployabilityReason: deployability.reason
+  };
+}
+async function findMarketplaceCloneStrategies(buyerId, listingId) {
+  const { rows } = await pool.query(
+    `SELECT id, spec->'marketplace'->>'grantType' AS grant_type
+       FROM wizard_strategies
+      WHERE user_id=$1 AND spec->'marketplace'->>'listingId' = $2`,
+    [buyerId, String(listingId)]
+  ).catch(() => ({ rows: [] }));
+  return rows.map((r) => ({
+    strategyId: Number(r.id),
+    grantType: r.grant_type === "subscription" ? "subscription" : "purchase"
+  }));
+}
+async function upgradeMarketplaceCloneGrant(buyerId, listingId) {
+  const r = await pool.query(
+    `UPDATE wizard_strategies
+        SET spec = jsonb_set(spec, '{marketplace,grantType}', '"purchase"'), updated_at = now()
+      WHERE user_id=$1
+        AND spec->'marketplace'->>'listingId' = $2
+        AND spec->'marketplace'->>'grantType' = 'subscription'`,
+    [buyerId, String(listingId)]
+  ).catch(() => ({ rowCount: 0 }));
+  return r.rowCount ?? 0;
+}
+var tableReady3;
+var init_strategy_marketplace = __esm({
+  "server/services/strategy-marketplace.ts"() {
+    "use strict";
+    init_db();
+    init_wizard_spec_strategies();
+    init_strategy_spec();
+    tableReady3 = null;
+  }
+});
+
+// server/services/marketplace-subscriptions.ts
+var marketplace_subscriptions_exports = {};
+__export(marketplace_subscriptions_exports, {
+  SUBSCRIPTION_MAX_FAILED_ATTEMPTS: () => SUBSCRIPTION_MAX_FAILED_ATTEMPTS,
+  SUBSCRIPTION_PERIOD_DAYS: () => SUBSCRIPTION_PERIOD_DAYS,
+  addDays: () => addDays,
+  cancelSubscription: () => cancelSubscription,
+  chargeSubscriptionWallet: () => chargeSubscriptionWallet,
+  createSubscriptionRecord: () => createSubscriptionRecord,
+  ensureMarketplaceSubscriptionTables: () => ensureMarketplaceSubscriptionTables,
+  getSubscriptionById: () => getSubscriptionById,
+  getSubscriptionByListingAndBuyer: () => getSubscriptionByListingAndBuyer,
+  hasMarketplaceSubscriptionAccess: () => hasMarketplaceSubscriptionAccess,
+  initialSubscriptionTerms: () => initialSubscriptionTerms,
+  listBuyerSubscriptions: () => listBuyerSubscriptions,
+  listSellerSubscriptionSummary: () => listSellerSubscriptionSummary,
+  markSubscriptionGranted: () => markSubscriptionGranted,
+  processDueSubscription: () => processDueSubscription,
+  reactivateSubscription: () => reactivateSubscription,
+  renewalChargeAmount: () => renewalChargeAmount,
+  resumeSubscription: () => resumeSubscription,
+  revokeSubscriptionAccess: () => revokeSubscriptionAccess,
+  runSubscriptionRenewals: () => runSubscriptionRenewals,
+  startMarketplaceSubscriptionRunner: () => startMarketplaceSubscriptionRunner,
+  subscriptionAccessActive: () => subscriptionAccessActive,
+  subscriptionAccessEnded: () => subscriptionAccessEnded,
+  subscriptionAfterChargeFailure: () => subscriptionAfterChargeFailure,
+  subscriptionAfterChargeSuccess: () => subscriptionAfterChargeSuccess,
+  subscriptionChargeDue: () => subscriptionChargeDue,
+  subscriptionPeriodKey: () => subscriptionPeriodKey,
+  subscriptionsEnabled: () => subscriptionsEnabled
+});
+function subscriptionsEnabled() {
+  return process.env.MARKETPLACE_SUBSCRIPTIONS !== "off";
+}
+function addDays(d, days) {
+  return new Date(d.getTime() + days * 864e5);
+}
+function subscriptionPeriodKey(subscriptionId, periodStart) {
+  return `${subscriptionId}:${periodStart.toISOString().slice(0, 10)}`;
+}
+function renewalChargeAmount(sub) {
+  return sub.priceVeddMonthly;
+}
+function initialSubscriptionTerms(now) {
+  const paidThroughAt = addDays(now, SUBSCRIPTION_PERIOD_DAYS);
+  return { status: "active", lastChargedAt: now, paidThroughAt, nextChargeAt: paidThroughAt, failedAttempts: 0 };
+}
+function subscriptionAccessActive(sub, now) {
+  switch (sub.status) {
+    case "active":
+      return true;
+    // Retry grace: the runner is still trying to collect, so access
+    // holds until the final failed attempt lapses the subscription.
+    case "past_due":
+      return sub.failedAttempts < SUBSCRIPTION_MAX_FAILED_ATTEMPTS;
+    case "cancelled":
+      return now.getTime() < sub.paidThroughAt.getTime();
+    case "lapsed":
+      return false;
+    default:
+      return false;
+  }
+}
+function subscriptionAccessEnded(sub, now) {
+  if (sub.status === "lapsed") return true;
+  if (sub.status === "cancelled") return now.getTime() >= sub.paidThroughAt.getTime();
+  if (sub.status === "past_due") return sub.failedAttempts >= SUBSCRIPTION_MAX_FAILED_ATTEMPTS;
+  return false;
+}
+function subscriptionChargeDue(sub, now) {
+  return (sub.status === "active" || sub.status === "past_due") && sub.nextChargeAt.getTime() <= now.getTime();
+}
+function subscriptionAfterChargeSuccess(sub, now) {
+  const paidThroughAt = addDays(sub.paidThroughAt, SUBSCRIPTION_PERIOD_DAYS);
+  return { status: "active", failedAttempts: 0, lastChargedAt: now, paidThroughAt, nextChargeAt: paidThroughAt };
+}
+function subscriptionAfterChargeFailure(sub, now) {
+  const failedAttempts = sub.failedAttempts + 1;
+  if (failedAttempts >= SUBSCRIPTION_MAX_FAILED_ATTEMPTS) {
+    return { status: "lapsed", failedAttempts, nextChargeAt: now };
+  }
+  return { status: "past_due", failedAttempts, nextChargeAt: addDays(now, 1) };
+}
+function ensureMarketplaceSubscriptionTables() {
+  return tablesReady ??= (async () => {
+    await pool.query(`ALTER TABLE brain_data_listings ADD COLUMN IF NOT EXISTS price_vedd_monthly INTEGER`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS brain_marketplace_subscriptions (
+      id SERIAL PRIMARY KEY,
+      listing_id INTEGER NOT NULL REFERENCES brain_data_listings(id),
+      seller_id INTEGER NOT NULL REFERENCES users(id),
+      buyer_id INTEGER NOT NULL REFERENCES users(id),
+      price_vedd_monthly INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_charged_at TIMESTAMPTZ,
+      next_charge_at TIMESTAMPTZ NOT NULL,
+      paid_through_at TIMESTAMPTZ NOT NULL,
+      failed_attempts INTEGER NOT NULL DEFAULT 0,
+      granted_at TIMESTAMPTZ,
+      access_revoked_at TIMESTAMPTZ,
+      cancelled_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE(listing_id, buyer_id)
+    )`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS brain_marketplace_subscription_charges (
+      id SERIAL PRIMARY KEY,
+      subscription_id INTEGER NOT NULL REFERENCES brain_marketplace_subscriptions(id),
+      period_key TEXT NOT NULL UNIQUE,
+      amount_vedd INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'charged',
+      charged_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+  })().catch((e) => {
+    tablesReady = null;
+    throw e;
+  });
+}
+function rowToSubscription(r) {
+  const d = (v) => v == null ? null : v instanceof Date ? v : new Date(v);
+  return {
+    id: Number(r.id),
+    listingId: Number(r.listing_id),
+    sellerId: Number(r.seller_id),
+    buyerId: Number(r.buyer_id),
+    priceVeddMonthly: Number(r.price_vedd_monthly),
+    status: r.status,
+    startedAt: d(r.started_at),
+    lastChargedAt: d(r.last_charged_at),
+    nextChargeAt: d(r.next_charge_at),
+    paidThroughAt: d(r.paid_through_at),
+    failedAttempts: Number(r.failed_attempts) || 0,
+    grantedAt: d(r.granted_at),
+    accessRevokedAt: d(r.access_revoked_at),
+    cancelledAt: d(r.cancelled_at),
+    createdAt: d(r.created_at),
+    updatedAt: d(r.updated_at)
+  };
+}
+async function getSubscriptionByListingAndBuyer(listingId, buyerId) {
+  await ensureMarketplaceSubscriptionTables();
+  const { rows } = await pool.query(
+    `SELECT * FROM brain_marketplace_subscriptions WHERE listing_id=$1 AND buyer_id=$2`,
+    [listingId, buyerId]
+  ).catch(() => ({ rows: [] }));
+  return rows.length ? rowToSubscription(rows[0]) : null;
+}
+async function getSubscriptionById(id) {
+  await ensureMarketplaceSubscriptionTables();
+  const { rows } = await pool.query(
+    `SELECT * FROM brain_marketplace_subscriptions WHERE id=$1`,
+    [id]
+  ).catch(() => ({ rows: [] }));
+  return rows.length ? rowToSubscription(rows[0]) : null;
+}
+async function hasMarketplaceSubscriptionAccess(buyerId, listingId, now = /* @__PURE__ */ new Date()) {
+  const sub = await getSubscriptionByListingAndBuyer(listingId, buyerId).catch(() => null);
+  return !!sub && subscriptionAccessActive(sub, now);
+}
+async function listBuyerSubscriptions(buyerId) {
+  await ensureMarketplaceSubscriptionTables();
+  const { rows } = await pool.query(
+    `SELECT s.*, l.title AS listing_title, l.source_category
+       FROM brain_marketplace_subscriptions s
+       JOIN brain_data_listings l ON l.id = s.listing_id
+      WHERE s.buyer_id=$1 ORDER BY s.created_at DESC`,
+    [buyerId]
+  ).catch(() => ({ rows: [] }));
+  return rows.map((r) => ({ ...rowToSubscription(r), listingTitle: r.listing_title, sourceCategory: r.source_category }));
+}
+async function listSellerSubscriptionSummary(sellerId, now = /* @__PURE__ */ new Date()) {
+  await ensureMarketplaceSubscriptionTables();
+  const { rows } = await pool.query(
+    `SELECT s.*, l.title AS listing_title
+       FROM brain_marketplace_subscriptions s
+       JOIN brain_data_listings l ON l.id = s.listing_id
+      WHERE s.seller_id=$1`,
+    [sellerId]
+  ).catch(() => ({ rows: [] }));
+  const byListing = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const sub = rowToSubscription(r);
+    if (!subscriptionAccessActive(sub, now)) continue;
+    const cur = byListing.get(sub.listingId) ?? { listingId: sub.listingId, listingTitle: r.listing_title, activeSubscribers: 0, monthlyVedd: 0 };
+    cur.activeSubscribers += 1;
+    cur.monthlyVedd += sub.priceVeddMonthly;
+    byListing.set(sub.listingId, cur);
+  }
+  return Array.from(byListing.values());
+}
+async function chargeSubscriptionWallet(buyerId, sellerId, amountVedd) {
+  await storage.updateInternalWalletBalance(buyerId, -amountVedd);
+  await storage.addToWalletBalance(sellerId, amountVedd);
+}
+async function recordSubscriptionCharge(subscriptionId, periodKey, amountVedd, status) {
+  await pool.query(
+    `INSERT INTO brain_marketplace_subscription_charges (subscription_id, period_key, amount_vedd, status)
+     VALUES ($1,$2,$3,$4)
+     ON CONFLICT (period_key) DO UPDATE SET status=EXCLUDED.status, amount_vedd=EXCLUDED.amount_vedd, charged_at=now()`,
+    [subscriptionId, periodKey, amountVedd, status]
+  ).catch(() => {
+  });
+}
+async function createSubscriptionRecord(input) {
+  await ensureMarketplaceSubscriptionTables();
+  const t = initialSubscriptionTerms(input.now);
+  const { rows } = await pool.query(
+    `INSERT INTO brain_marketplace_subscriptions
+       (listing_id, seller_id, buyer_id, price_vedd_monthly, status, last_charged_at, next_charge_at, paid_through_at, failed_attempts)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+    [
+      input.listingId,
+      input.sellerId,
+      input.buyerId,
+      input.priceVeddMonthly,
+      t.status,
+      t.lastChargedAt,
+      t.nextChargeAt,
+      t.paidThroughAt,
+      t.failedAttempts
+    ]
+  );
+  const sub = rowToSubscription(rows[0]);
+  await recordSubscriptionCharge(sub.id, subscriptionPeriodKey(sub.id, input.now), input.priceVeddMonthly, "charged");
+  return sub;
+}
+async function reactivateSubscription(sub, priceVeddMonthly, now) {
+  await ensureMarketplaceSubscriptionTables();
+  const t = initialSubscriptionTerms(now);
+  const { rows } = await pool.query(
+    `UPDATE brain_marketplace_subscriptions
+        SET price_vedd_monthly=$2, status=$3, last_charged_at=$4, next_charge_at=$5,
+            paid_through_at=$6, failed_attempts=0, access_revoked_at=NULL, cancelled_at=NULL, updated_at=now()
+      WHERE id=$1 RETURNING *`,
+    [sub.id, priceVeddMonthly, t.status, t.lastChargedAt, t.nextChargeAt, t.paidThroughAt]
+  );
+  const next = rowToSubscription(rows[0]);
+  await recordSubscriptionCharge(next.id, subscriptionPeriodKey(next.id, now), priceVeddMonthly, "charged");
+  return next;
+}
+async function resumeSubscription(sub) {
+  await ensureMarketplaceSubscriptionTables();
+  const { rows } = await pool.query(
+    `UPDATE brain_marketplace_subscriptions
+        SET status='active', cancelled_at=NULL, next_charge_at=paid_through_at, updated_at=now()
+      WHERE id=$1 RETURNING *`,
+    [sub.id]
+  );
+  return rowToSubscription(rows[0]);
+}
+async function markSubscriptionGranted(sub, now) {
+  await pool.query(
+    `UPDATE brain_marketplace_subscriptions SET granted_at=$2, updated_at=now() WHERE id=$1 AND granted_at IS NULL`,
+    [sub.id, now]
+  ).catch(() => {
+  });
+}
+async function cancelSubscription(id, buyerId, now = /* @__PURE__ */ new Date()) {
+  await ensureMarketplaceSubscriptionTables();
+  const { rows } = await pool.query(
+    `UPDATE brain_marketplace_subscriptions
+        SET status='cancelled', cancelled_at=$3, updated_at=now()
+      WHERE id=$1 AND buyer_id=$2 AND status IN ('active','past_due') RETURNING *`,
+    [id, buyerId, now]
+  );
+  return rows.length ? rowToSubscription(rows[0]) : null;
+}
+async function processDueSubscription(sub, now = /* @__PURE__ */ new Date()) {
+  await ensureMarketplaceSubscriptionTables();
+  const listing = await storage.getBrainListing(sub.listingId).catch(() => void 0);
+  if (!listing || !listing.isActive) {
+    await pool.query(
+      `UPDATE brain_marketplace_subscriptions SET status='cancelled', cancelled_at=$2, updated_at=now()
+        WHERE id=$1 AND status IN ('active','past_due')`,
+      [sub.id, now]
+    ).catch(() => {
+    });
+    return "listing-inactive";
+  }
+  const periodKey = subscriptionPeriodKey(sub.id, sub.paidThroughAt);
+  const success = subscriptionAfterChargeSuccess(sub, now);
+  const claim = await pool.query(
+    `UPDATE brain_marketplace_subscriptions
+        SET status='active', failed_attempts=0, last_charged_at=$2,
+            paid_through_at=$3, next_charge_at=$4, updated_at=now()
+      WHERE id=$1 AND next_charge_at=$5 AND status IN ('active','past_due') RETURNING id`,
+    [sub.id, success.lastChargedAt, success.paidThroughAt, success.nextChargeAt, sub.nextChargeAt]
+  ).catch(() => ({ rows: [] }));
+  if (!claim.rows.length) return "skipped";
+  try {
+    await chargeSubscriptionWallet(sub.buyerId, sub.sellerId, renewalChargeAmount(sub));
+  } catch (e) {
+    if (e?.name === "InsufficientVeddError" || e instanceof InsufficientVeddError) {
+      const failure = subscriptionAfterChargeFailure(sub, now);
+      await pool.query(
+        `UPDATE brain_marketplace_subscriptions
+            SET status=$2, failed_attempts=$3, next_charge_at=$4,
+                paid_through_at=$5, last_charged_at=$6, updated_at=now()
+          WHERE id=$1`,
+        [sub.id, failure.status, failure.failedAttempts, failure.nextChargeAt, sub.paidThroughAt, sub.lastChargedAt]
+      ).catch(() => {
+      });
+      await recordSubscriptionCharge(sub.id, periodKey, renewalChargeAmount(sub), "failed");
+      return failure.status === "lapsed" ? "lapsed" : "failed";
+    }
+    console.error(`[marketplace-subscriptions] charge error for subscription ${sub.id} (period ${periodKey}):`, e?.message ?? e);
+    return "skipped";
+  }
+  await recordSubscriptionCharge(sub.id, periodKey, renewalChargeAmount(sub), "charged");
+  return "charged";
+}
+async function revokeSubscriptionAccess(sub) {
+  try {
+    const sm = await Promise.resolve().then(() => (init_strategy_marketplace(), strategy_marketplace_exports));
+    const clones = await sm.findMarketplaceCloneStrategies(sub.buyerId, sub.listingId);
+    const subscriptionClones = clones.filter((c) => c.grantType === "subscription");
+    if (subscriptionClones.length) {
+      const deps = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
+      for (const clone of subscriptionClones) {
+        const mine = await deps.listDeployments(sub.buyerId, clone.strategyId);
+        for (const d of mine) {
+          if (d.status === "running" && d.platform === "shadow") {
+            await deps.stopDeployment(sub.buyerId, d.id).catch(() => {
+            });
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error(`[marketplace-subscriptions] revocation sweep failed for subscription ${sub.id}:`, e?.message ?? e);
+  }
+  await pool.query(
+    `UPDATE brain_marketplace_subscriptions SET access_revoked_at=now(), updated_at=now() WHERE id=$1`,
+    [sub.id]
+  ).catch(() => {
+  });
+}
+async function runSubscriptionRenewals(now = /* @__PURE__ */ new Date()) {
+  const summary = { charged: 0, failed: 0, lapsed: 0, skipped: 0, revoked: 0 };
+  if (!subscriptionsEnabled()) return summary;
+  await ensureMarketplaceSubscriptionTables();
+  const { rows } = await pool.query(
+    `SELECT * FROM brain_marketplace_subscriptions
+      WHERE status IN ('active','past_due') AND next_charge_at <= $1
+      ORDER BY next_charge_at ASC LIMIT 200`,
+    [now]
+  ).catch(() => ({ rows: [] }));
+  for (const r of rows) {
+    const sub = rowToSubscription(r);
+    if (!subscriptionChargeDue(sub, now)) {
+      summary.skipped++;
+      continue;
+    }
+    try {
+      const outcome = await processDueSubscription(sub, now);
+      if (outcome === "charged") summary.charged++;
+      else if (outcome === "failed") summary.failed++;
+      else if (outcome === "lapsed") summary.lapsed++;
+      else summary.skipped++;
+    } catch (e) {
+      summary.skipped++;
+      console.error(`[marketplace-subscriptions] renewal failed for subscription ${sub.id}:`, e?.message ?? e);
+    }
+  }
+  const ended = await pool.query(
+    `SELECT * FROM brain_marketplace_subscriptions
+      WHERE access_revoked_at IS NULL AND status IN ('lapsed','cancelled','past_due') LIMIT 200`
+  ).catch(() => ({ rows: [] }));
+  for (const r of ended.rows) {
+    const sub = rowToSubscription(r);
+    if (!subscriptionAccessEnded(sub, now)) continue;
+    await revokeSubscriptionAccess(sub);
+    summary.revoked++;
+  }
+  if (summary.charged || summary.failed || summary.lapsed || summary.revoked) {
+    console.log(`[marketplace-subscriptions] renewal pass: ${JSON.stringify(summary)}`);
+  }
+  return summary;
+}
+function startMarketplaceSubscriptionRunner() {
+  if (runnerStarted) return;
+  runnerStarted = true;
+  if (!subscriptionsEnabled()) {
+    console.log("[marketplace-subscriptions] disabled via MARKETPLACE_SUBSCRIPTIONS=off \u2014 runner not started.");
+    return;
+  }
+  safeTimeout("marketplace-subscription-renewals-boot", 9e4, () => runSubscriptionRenewals());
+  safeInterval("marketplace-subscription-renewals", 60 * 60 * 1e3, () => runSubscriptionRenewals());
+  console.log("[marketplace-subscriptions] renewal runner started (hourly tick, 30-day periods).");
+}
+var SUBSCRIPTION_PERIOD_DAYS, SUBSCRIPTION_MAX_FAILED_ATTEMPTS, tablesReady, runnerStarted;
+var init_marketplace_subscriptions = __esm({
+  "server/services/marketplace-subscriptions.ts"() {
+    "use strict";
+    init_db();
+    init_storage();
+    init_process_guards();
+    SUBSCRIPTION_PERIOD_DAYS = 30;
+    SUBSCRIPTION_MAX_FAILED_ATTEMPTS = 3;
+    tablesReady = null;
+    runnerStarted = false;
+  }
+});
+
 // server/services/fx-models.ts
 var fx_models_exports = {};
 __export(fx_models_exports, {
@@ -28194,7 +29021,8 @@ __export(fx_models_exports, {
   sessionFor: () => sessionFor,
   sliceLiveReady: () => sliceLiveReady,
   sliceMeetsBar: () => sliceMeetsBar,
-  stampFxModelImportContext: () => stampFxModelImportContext
+  stampFxModelImportContext: () => stampFxModelImportContext,
+  upgradeFxModelSubscriptionGrants: () => upgradeFxModelSubscriptionGrants
 });
 function ensureFxModelTables() {
   if (!ensured3) {
@@ -28979,7 +29807,8 @@ function stampFxModelImportContext(context, row, provenance) {
       source: "marketplace_model",
       sellerId: Number.isFinite(sellerId) && sellerId > 0 ? sellerId : null,
       listingId,
-      epoch: fxModelImportEpoch(row)
+      epoch: fxModelImportEpoch(row),
+      grantType: provenance?.grantType === "subscription" ? "subscription" : "purchase"
     };
   }
   return Object.keys(base).length ? base : null;
@@ -29080,6 +29909,11 @@ function importedSliceMeetsBar(s) {
 }
 async function importedSliceLiveReady(userId, s) {
   if (!importedSliceMeetsBar(s)) return false;
+  if (s?.grantType === "subscription") {
+    const subs = await Promise.resolve().then(() => (init_marketplace_subscriptions(), marketplace_subscriptions_exports));
+    if (!subs.subscriptionsEnabled()) return false;
+    if (!await subs.hasMarketplaceSubscriptionAccess(userId, Number(s.listingId))) return false;
+  }
   const { rows } = await pool.query(
     `SELECT date_trunc('week', created_at) AS wk, SUM(r_multiple)::float AS r
        FROM fx_model_decisions
@@ -29092,6 +29926,18 @@ async function importedSliceLiveReady(userId, s) {
     [userId, s.model, s.dayType, s.symbol, s.session, String(s.listingId)]
   );
   return rows.every((r) => Number(r.r) >= 0);
+}
+async function upgradeFxModelSubscriptionGrants(buyerId, listingId) {
+  await ensureFxModelTables();
+  const r = await pool.query(
+    `UPDATE fx_model_decisions
+        SET context = jsonb_set(context, '{marketplace,grantType}', '"purchase"')
+      WHERE user_id=$1 AND engine='fx' AND source='purchased_brain'
+        AND context->'marketplace'->>'listingId' = $2
+        AND context->'marketplace'->>'grantType' = 'subscription'`,
+    [buyerId, String(listingId)]
+  ).catch(() => ({ rowCount: 0 }));
+  return r.rowCount ?? 0;
 }
 function fxModelProvenanceForSlice(s) {
   return {
@@ -29344,6 +30190,7 @@ async function getModelMastery(userId, opts = {}) {
     `SELECT model, day_type, symbol, session,
             context->'marketplace'->>'listingId' AS listing_id,
             context->'marketplace'->>'sellerId' AS seller_id,
+            MAX(context->'marketplace'->>'grantType') AS grant_type,
             MIN(epoch)::int AS min_epoch, MAX(epoch)::int AS max_epoch,
             COUNT(*)::int AS trades,
             COUNT(*) FILTER (WHERE result='WIN')::int AS wins,
@@ -29367,6 +30214,11 @@ async function getModelMastery(userId, opts = {}) {
       sellerId: Number(r.seller_id) > 0 ? Number(r.seller_id) : null,
       listingId,
       recordEpoch,
+      // 'subscription' when ANY row of this listing's record is still
+      // rented (a later one-time purchase upgrades rows to 'purchase';
+      // MAX() picks 'subscription' over 'purchase' alphabetically, so a
+      // partially-upgraded record stays gated until fully converted).
+      grantType: r.grant_type === "subscription" ? "subscription" : "purchase",
       legacy: !(recordEpoch === MODELS_EPOCH && listingId != null)
     };
   });
@@ -45172,17 +46024,17 @@ __export(cred_store_exports, {
 import * as fs2 from "fs";
 import * as path2 from "path";
 function ensureTable5() {
-  if (!tableReady3) {
-    tableReady3 = pool.query(`CREATE TABLE IF NOT EXISTS durable_files (
+  if (!tableReady4) {
+    tableReady4 = pool.query(`CREATE TABLE IF NOT EXISTS durable_files (
         name        text PRIMARY KEY,
         content     text NOT NULL,
         updated_at  timestamptz NOT NULL DEFAULT now()
       )`).then(() => void 0).catch((e) => {
       console.error("[cred-store] ensureTable failed (non-fatal):", e?.message);
-      tableReady3 = null;
+      tableReady4 = null;
     });
   }
-  return tableReady3;
+  return tableReady4;
 }
 async function restoreDurableFiles() {
   try {
@@ -45212,7 +46064,7 @@ function backupDurableFile(name, content) {
     )
   ).catch((e) => console.error(`[cred-store] backup ${name} failed (non-fatal):`, e?.message));
 }
-var DATA_DIR, DURABLE_FILES, tableReady3;
+var DATA_DIR, DURABLE_FILES, tableReady4;
 var init_cred_store = __esm({
   "server/services/cred-store.ts"() {
     "use strict";
@@ -45228,7 +46080,7 @@ var init_cred_store = __esm({
       "kalshi_performance.json"
       // per-strategy win-rate history feeding Brain Learning Mode / Kelly sizing
     ];
-    tableReady3 = null;
+    tableReady4 = null;
   }
 });
 
@@ -57048,7 +57900,7 @@ function aggregateBars(bars, factor) {
   return out;
 }
 async function getPerpBars(ticker, timeframe, count) {
-  const tf = TF_MINUTES[timeframe] ?? 15;
+  const tf = TF_MINUTES2[timeframe] ?? 15;
   const strip = (bars2) => bars2.slice(-count).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
   if (tf === 60 || tf === 1440) {
     const bars2 = await getPerpCandles(ticker, tf === 60 ? 60 : 1440, (count + 6) * tf);
@@ -57112,7 +57964,7 @@ async function getPerpCorporateActions() {
   _caCache = { at: Date.now(), actions };
   return actions;
 }
-var PROD_HOST, DEMO_HOST, num6, DEFAULT_INDEX_EXCLUDE, _marketsCache, MARKETS_TTL_MS, _riskCache, _candleCache, CANDLE_TTL_MS, TF_MINUTES, _caCache;
+var PROD_HOST, DEMO_HOST, num6, DEFAULT_INDEX_EXCLUDE, _marketsCache, MARKETS_TTL_MS, _riskCache, _candleCache, CANDLE_TTL_MS, TF_MINUTES2, _caCache;
 var init_kalshi_perps = __esm({
   "server/services/kalshi-perps.ts"() {
     "use strict";
@@ -57128,7 +57980,7 @@ var init_kalshi_perps = __esm({
     _riskCache = null;
     _candleCache = /* @__PURE__ */ new Map();
     CANDLE_TTL_MS = 45e3;
-    TF_MINUTES = { "1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440 };
+    TF_MINUTES2 = { "1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440 };
     _caCache = null;
   }
 });
@@ -62357,237 +63209,6 @@ var init_options_scanner = __esm({
   }
 });
 
-// server/services/strategy-spec.ts
-var strategy_spec_exports = {};
-__export(strategy_spec_exports, {
-  ENGINE_STRATEGY_KEYS: () => ENGINE_STRATEGY_KEYS,
-  INDICATOR_CATALOG: () => INDICATOR_CATALOG,
-  TF_MINUTES: () => TF_MINUTES2,
-  specWarmupBars: () => specWarmupBars,
-  validateStrategySpec: () => validateStrategySpec
-});
-function isNum(x, min, max) {
-  return typeof x === "number" && Number.isFinite(x) && x >= min && x <= max;
-}
-function validateGroup(g, indicatorIds, label, allowEmpty = false) {
-  if (!g || g.logic !== "AND" && g.logic !== "OR") return `${label}: logic must be AND or OR`;
-  const min = allowEmpty ? 0 : 1;
-  if (!Array.isArray(g.conditions) || g.conditions.length < min || g.conditions.length > 6) {
-    return `${label}: needs ${min}\u20136 conditions`;
-  }
-  for (const c of g.conditions) {
-    if (c.indicatorId !== "price" && !indicatorIds.has(c.indicatorId)) {
-      return `${label}: unknown indicator "${c.indicatorId}"`;
-    }
-    if (!FIELDS.includes(c.field)) return `${label}: bad field "${c.field}"`;
-    if (!OPERATORS.includes(c.operator)) return `${label}: bad operator "${c.operator}"`;
-    if (c.sustainBars !== void 0 && !isNum(c.sustainBars, 1, 50)) return `${label}: sustainBars out of range`;
-    if (c.minGapPips !== void 0 && !isNum(c.minGapPips, 0, 1e5)) return `${label}: minGapPips out of range`;
-    const cmp = c.compare;
-    if (!cmp || !["value", "indicator", "price"].includes(cmp.kind)) return `${label}: bad compare target`;
-    if (cmp.kind === "value" && !isNum(cmp.value, -1e9, 1e9)) return `${label}: compare value must be a number`;
-    if (cmp.kind === "indicator" && cmp.indicatorId !== "price" && !indicatorIds.has(cmp.indicatorId)) {
-      return `${label}: unknown compare indicator "${cmp.indicatorId}"`;
-    }
-  }
-  return null;
-}
-function validateStrategySpec(x) {
-  if (!x || typeof x !== "object") return { ok: false, error: "spec must be an object" };
-  const s = x;
-  if (typeof s.name !== "string" || !s.name.trim() || s.name.length > 80) return { ok: false, error: "name is required (max 80 chars)" };
-  if (s.source !== "template" && s.source !== "builder" && s.source !== "engine") return { ok: false, error: "source must be 'template', 'builder' or 'engine'" };
-  const isEngineNative = s.source === "engine";
-  if (isEngineNative && !ENGINE_STRATEGY_KEYS.includes(s.engineStrategyKey ?? "")) {
-    return { ok: false, error: "engine source needs a valid engineStrategyKey" };
-  }
-  if (typeof s.symbol !== "string" || !/^[A-Za-z0-9./_-]{3,15}$/.test(s.symbol)) return { ok: false, error: "bad symbol" };
-  if (!TIMEFRAMES.includes(s.timeframe)) return { ok: false, error: "bad timeframe" };
-  if (!Array.isArray(s.indicators) || s.indicators.length > 10) return { ok: false, error: "indicators: max 10" };
-  const ids = /* @__PURE__ */ new Set();
-  for (const ind of s.indicators) {
-    if (!ind.id || typeof ind.id !== "string" || ids.has(ind.id)) return { ok: false, error: "indicator ids must be unique strings" };
-    ids.add(ind.id);
-    if (!INDICATOR_CATALOG.some((c) => c.kind === ind.kind)) return { ok: false, error: `bad indicator kind "${ind.kind}"` };
-    if (ind.period !== void 0 && !isNum(ind.period, 1, 500)) return { ok: false, error: "indicator period out of range" };
-    if (ind.fastPeriod !== void 0 && !isNum(ind.fastPeriod, 1, 500)) return { ok: false, error: "fastPeriod out of range" };
-    if (ind.slowPeriod !== void 0 && !isNum(ind.slowPeriod, 1, 500)) return { ok: false, error: "slowPeriod out of range" };
-    if (ind.signalPeriod !== void 0 && !isNum(ind.signalPeriod, 1, 100)) return { ok: false, error: "signalPeriod out of range" };
-    if (ind.stdDev !== void 0 && !isNum(ind.stdDev, 0.1, 10)) return { ok: false, error: "stdDev out of range" };
-    if (ind.sourceId !== void 0 && (typeof ind.sourceId !== "string" || ind.sourceId === ind.id)) return { ok: false, error: "sourceId must name another indicator" };
-    if (ind.lookbackBars !== void 0 && !isNum(ind.lookbackBars, 10, 1e3)) return { ok: false, error: "lookbackBars out of range" };
-    if (ind.valueAreaPct !== void 0 && !isNum(ind.valueAreaPct, 10, 100)) return { ok: false, error: "valueAreaPct out of range" };
-    if (ind.pivotLeft !== void 0 && !isNum(ind.pivotLeft, 1, 50)) return { ok: false, error: "pivotLeft out of range" };
-    if (ind.pivotRight !== void 0 && !isNum(ind.pivotRight, 1, 50)) return { ok: false, error: "pivotRight out of range" };
-    if (ind.sessionStartHourUtc !== void 0 && !isNum(ind.sessionStartHourUtc, 0, 23)) return { ok: false, error: "sessionStartHourUtc out of range" };
-    if (ind.sessionStartMinuteUtc !== void 0 && !isNum(ind.sessionStartMinuteUtc, 0, 59)) return { ok: false, error: "sessionStartMinuteUtc out of range" };
-    if (ind.rangeMinutes !== void 0 && !isNum(ind.rangeMinutes, 1, 720)) return { ok: false, error: "rangeMinutes out of range" };
-  }
-  for (const ind of s.indicators) {
-    if (ind.sourceId !== void 0 && !ids.has(ind.sourceId)) return { ok: false, error: `sourceId "${ind.sourceId}" is not an indicator` };
-    if (ind.sourceId !== void 0 && ind.kind !== "EMA" && ind.kind !== "SMA") return { ok: false, error: "only EMA/SMA can smooth another indicator" };
-  }
-  for (const [label, g] of [["entryLong", s.entryLong], ["entryShort", s.entryShort]]) {
-    const err = validateGroup(g, ids, label, isEngineNative);
-    if (err) return { ok: false, error: err };
-  }
-  for (const [label, g] of [["exitLong", s.exitLong], ["exitShort", s.exitShort]]) {
-    if (g == null) continue;
-    const err = validateGroup(g, ids, label);
-    if (err) return { ok: false, error: err };
-  }
-  if (s.trendFilter != null) {
-    const tf = s.trendFilter;
-    if (!TIMEFRAMES.includes(tf.timeframe)) return { ok: false, error: "trendFilter: bad timeframe" };
-    if (TF_MINUTES2[tf.timeframe] <= TF_MINUTES2[s.timeframe]) {
-      return { ok: false, error: "trendFilter timeframe must be HIGHER than the strategy timeframe" };
-    }
-    if (tf.timeframe === "D1" && s.timeframe !== "H4" && s.timeframe !== "H1") {
-    }
-    for (const [label, g] of [["trendFilter.long", tf.longGroup], ["trendFilter.short", tf.shortGroup]]) {
-      if (g == null) continue;
-      const err = validateGroup(g, ids, label);
-      if (err) return { ok: false, error: err };
-    }
-    if (!tf.longGroup?.conditions?.length && !tf.shortGroup?.conditions?.length) {
-      return { ok: false, error: "trendFilter needs at least one filter group" };
-    }
-  }
-  if (s.sessionFilter != null) {
-    const sf = s.sessionFilter;
-    if (!isNum(sf.startHourUtc, 0, 23) || !isNum(sf.endHourUtc, 0, 24)) return { ok: false, error: "sessionFilter hours out of range" };
-    if (sf.daysUtc !== void 0 && (!Array.isArray(sf.daysUtc) || sf.daysUtc.some((d) => !isNum(d, 0, 6)))) {
-      return { ok: false, error: "sessionFilter days must be 0\u20136" };
-    }
-  }
-  const r = s.risk;
-  if (!r || !isNum(r.lotSize, 0.01, 50)) return { ok: false, error: "risk.lotSize must be 0.01\u201350" };
-  for (const k2 of ["stopLossPips", "takeProfitPips", "trailingStopPips", "breakevenTriggerPips", "breakevenOffsetPips"]) {
-    if (r[k2] != null && !isNum(r[k2], 0, 1e5)) return { ok: false, error: `risk.${k2} out of range` };
-  }
-  for (const k2 of ["stopLossAtrMult", "takeProfitAtrMult"]) {
-    if (r[k2] != null && !isNum(r[k2], 0, 100)) return { ok: false, error: `risk.${k2} out of range` };
-  }
-  if (r.maxTradesPerDay != null && !isNum(r.maxTradesPerDay, 1, 1e3)) return { ok: false, error: "risk.maxTradesPerDay out of range" };
-  if ((r.stopLossAtrMult != null || r.takeProfitAtrMult != null) && !s.indicators.some((i) => i.kind === "ATR")) {
-    return { ok: false, error: "ATR-based stops need an ATR indicator in the spec" };
-  }
-  if (!isEngineNative && r.stopLossPips == null && r.stopLossAtrMult == null && r.takeProfitPips == null && r.takeProfitAtrMult == null) {
-    return { ok: false, error: "a strategy needs at least a stop loss or a take profit" };
-  }
-  return { ok: true, spec: { ...s, symbol: s.symbol.toUpperCase(), name: s.name.trim() } };
-}
-function specWarmupBars(spec) {
-  let w = 2;
-  for (const ind of spec.indicators) {
-    const need = ind.kind === "MACD" ? (ind.slowPeriod ?? 26) + (ind.signalPeriod ?? 9) : ind.kind === "STOCHASTIC" ? (ind.period ?? 14) + (ind.signalPeriod ?? 3) : ind.kind === "ICHIMOKU" ? (ind.slowPeriod ?? 52) + (ind.fastPeriod ?? 26) : ind.kind === "VOLUME_PROFILE" || ind.kind === "FVG" || ind.kind === "ORDER_BLOCK" ? ind.lookbackBars ?? 100 : ind.kind === "SWINGS" ? (ind.pivotLeft ?? 3) + (ind.pivotRight ?? 3) + 10 : ind.kind === "ORB" || ind.kind === "PIVOTS" || ind.kind === "VWAP" ? 2 : ind.period ?? 14;
-    w = Math.max(w, need + 2);
-  }
-  if (spec.trendFilter) {
-    const ratio = Math.max(1, Math.round(TF_MINUTES2[spec.trendFilter.timeframe] / TF_MINUTES2[spec.timeframe]));
-    let htfWarm = 2;
-    for (const ind of spec.indicators) {
-      const need = ind.kind === "MACD" ? (ind.slowPeriod ?? 26) + (ind.signalPeriod ?? 9) : ind.period ?? 14;
-      htfWarm = Math.max(htfWarm, need + 2);
-    }
-    w = Math.max(w, htfWarm * ratio + ratio);
-  }
-  return w;
-}
-var ENGINE_STRATEGY_KEYS, INDICATOR_CATALOG, TIMEFRAMES, OPERATORS, FIELDS, TF_MINUTES2;
-var init_strategy_spec = __esm({
-  "server/services/strategy-spec.ts"() {
-    "use strict";
-    ENGINE_STRATEGY_KEYS = [
-      "scalping",
-      "momentum",
-      "session_breakout",
-      "aggressive",
-      "sniper",
-      "compound",
-      "chart_pattern",
-      "ict_order_blocks",
-      "ict_fvg",
-      "ict_liquidity_sweep",
-      "ict_bos",
-      "ict_ote",
-      "smc_demand_supply",
-      "asia_range_breakout",
-      "vwap_mean_reversion",
-      "news_fade",
-      "prop_firm_sniper",
-      "sunday_gap",
-      "order_flow"
-    ];
-    INDICATOR_CATALOG = [
-      { kind: "EMA", label: "Exponential Moving Average", fields: ["value"], defaults: { period: 21 } },
-      { kind: "SMA", label: "Simple Moving Average", fields: ["value"], defaults: { period: 50 } },
-      { kind: "RSI", label: "Relative Strength Index", fields: ["value"], defaults: { period: 14 } },
-      { kind: "MACD", label: "MACD", fields: ["value", "signal", "histogram"], defaults: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 } },
-      { kind: "STOCHASTIC", label: "Stochastic Oscillator", fields: ["k", "d"], defaults: { period: 14, signalPeriod: 3 } },
-      { kind: "BOLLINGER", label: "Bollinger Bands", fields: ["upper", "middle", "lower"], defaults: { period: 20, stdDev: 2 } },
-      { kind: "ATR", label: "Average True Range", fields: ["value"], defaults: { period: 14 } },
-      { kind: "VWAP", label: "VWAP (daily reset)", fields: ["value"], defaults: {} },
-      { kind: "ADX", label: "ADX (trend strength)", fields: ["value", "plus", "minus"], defaults: { period: 14 } },
-      { kind: "CCI", label: "CCI", fields: ["value"], defaults: { period: 20 } },
-      { kind: "WILLIAMS_R", label: "Williams %R", fields: ["value"], defaults: { period: 14 } },
-      { kind: "ICHIMOKU", label: "Ichimoku Cloud", fields: ["tenkan", "kijun", "span_a", "span_b"], defaults: { period: 9, fastPeriod: 26, slowPeriod: 52 } },
-      { kind: "SUPERTREND", label: "Supertrend", fields: ["value"], defaults: { period: 10, stdDev: 3 } },
-      { kind: "DONCHIAN", label: "Donchian Channel", fields: ["upper", "middle", "lower"], defaults: { period: 20 } },
-      { kind: "VOLUME_PROFILE", label: "Volume Profile (POC / Value Area)", fields: ["poc", "vah", "val"], defaults: { lookbackBars: 100, valueAreaPct: 70 } },
-      { kind: "PIVOTS", label: "Daily Pivot Points", fields: ["pp", "r1", "r2", "s1", "s2"], defaults: {} },
-      { kind: "ORB", label: "Opening Range (ORB)", fields: ["or_high", "or_low"], defaults: { sessionStartHourUtc: 14, sessionStartMinuteUtc: 30, rangeMinutes: 30 } },
-      { kind: "SWINGS", label: "Swing Highs / Lows (structure)", fields: ["swing_high", "swing_low"], defaults: { pivotLeft: 3, pivotRight: 3 } },
-      { kind: "FVG", label: "Fair Value Gaps (ICT)", fields: ["bull_high", "bull_low", "bear_high", "bear_low"], defaults: { lookbackBars: 100 } },
-      { kind: "ORDER_BLOCK", label: "Order Blocks (ICT)", fields: ["bull_high", "bull_low", "bear_high", "bear_low"], defaults: { lookbackBars: 100, pivotLeft: 5 } }
-    ];
-    TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"];
-    OPERATORS = ["crosses_above", "crosses_below", "above", "below", "rising", "falling", "turns_up", "turns_down"];
-    FIELDS = [
-      "value",
-      "signal",
-      "histogram",
-      "upper",
-      "middle",
-      "lower",
-      "k",
-      "d",
-      "price",
-      "poc",
-      "vah",
-      "val",
-      "tenkan",
-      "kijun",
-      "span_a",
-      "span_b",
-      "plus",
-      "minus",
-      "swing_high",
-      "swing_low",
-      "or_high",
-      "or_low",
-      "bull_high",
-      "bull_low",
-      "bear_high",
-      "bear_low",
-      "pp",
-      "r1",
-      "r2",
-      "s1",
-      "s2"
-    ];
-    TF_MINUTES2 = {
-      M1: 1,
-      M5: 5,
-      M15: 15,
-      M30: 30,
-      H1: 60,
-      H4: 240,
-      D1: 1440
-    };
-  }
-});
-
 // server/services/strategy-backtest.ts
 var strategy_backtest_exports = {};
 __export(strategy_backtest_exports, {
@@ -63154,7 +63775,7 @@ function buildSeries(spec, bars) {
         break;
       }
       case "ORB": {
-        const p2 = orbSeries(bars, ind.sessionStartHourUtc ?? 14, ind.sessionStartMinuteUtc ?? 30, ind.rangeMinutes ?? 30, TF_MINUTES2[spec.timeframe] * 6e4);
+        const p2 = orbSeries(bars, ind.sessionStartHourUtc ?? 14, ind.sessionStartMinuteUtc ?? 30, ind.rangeMinutes ?? 30, TF_MINUTES[spec.timeframe] * 6e4);
         map.set(key("or_high"), p2.orHigh);
         map.set(key("or_low"), p2.orLow);
         map.set(key("value"), p2.orHigh);
@@ -63252,9 +63873,9 @@ function sessionAllows(spec, barTs) {
   return sf.endHourUtc > sf.startHourUtc ? h >= sf.startHourUtc && h < sf.endHourUtc : h >= sf.startHourUtc || h < sf.endHourUtc;
 }
 function resampleBars(bars, baseTf, htfTf) {
-  const ratio = Math.max(1, Math.round(TF_MINUTES2[htfTf] / TF_MINUTES2[baseTf]));
+  const ratio = Math.max(1, Math.round(TF_MINUTES[htfTf] / TF_MINUTES[baseTf]));
   if (ratio <= 1) return bars.slice();
-  const bucketMs = TF_MINUTES2[htfTf] * 6e4;
+  const bucketMs = TF_MINUTES[htfTf] * 6e4;
   const out = [];
   let cur = null;
   for (const b of bars) {
@@ -63278,7 +63899,7 @@ function buildFilterCtx(spec, bars) {
   return {
     htfSeries: buildSeries(spec, htfBars),
     htfBars,
-    htfMs: TF_MINUTES2[spec.trendFilter.timeframe] * 6e4
+    htfMs: TF_MINUTES[spec.trendFilter.timeframe] * 6e4
   };
 }
 function entryAllowed(spec, ctx, series, bars, i, pipSize2, side) {
@@ -63286,7 +63907,7 @@ function entryAllowed(spec, ctx, series, bars, i, pipSize2, side) {
   if (!spec.trendFilter || !ctx.htfSeries) return true;
   const group = side === "long" ? spec.trendFilter.longGroup : spec.trendFilter.shortGroup;
   if (!group || !group.conditions?.length) return true;
-  const barClose = bars[i].timestamp + TF_MINUTES2[spec.timeframe] * 6e4;
+  const barClose = bars[i].timestamp + TF_MINUTES[spec.timeframe] * 6e4;
   let h = -1;
   for (let k2 = 0; k2 < ctx.htfBars.length; k2++) {
     if (ctx.htfBars[k2].timestamp + ctx.htfMs <= barClose) h = k2;
@@ -65069,127 +65690,6 @@ var init_brain_marketplace = __esm({
     MIN_TRADES_TO_LIST = 10;
     MIN_PRICE_VEDD = 5;
     MAX_PRICE_VEDD = 500;
-  }
-});
-
-// server/services/strategy-marketplace.ts
-var strategy_marketplace_exports = {};
-__export(strategy_marketplace_exports, {
-  clonePurchasedStrategy: () => clonePurchasedStrategy,
-  cloneStrategySpecForBuyer: () => cloneStrategySpecForBuyer,
-  ensureStrategyMarketplaceTable: () => ensureStrategyMarketplaceTable,
-  getStrategyMarketplacePackage: () => getStrategyMarketplacePackage,
-  purchasedStrategyRecord: () => purchasedStrategyRecord,
-  recordStrategyMarketplacePackage: () => recordStrategyMarketplacePackage,
-  strategyShadowDeployability: () => strategyShadowDeployability
-});
-function ensureStrategyMarketplaceTable() {
-  return tableReady4 ??= (async () => {
-    await pool.query(`CREATE TABLE IF NOT EXISTS strategy_marketplace_packages (
-      listing_id INTEGER PRIMARY KEY,
-      seller_id INTEGER NOT NULL,
-      source_strategy_id INTEGER NOT NULL,
-      spec JSONB NOT NULL,
-      proof_type TEXT NOT NULL,
-      proof_stats JSONB,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )`);
-  })().catch((e) => {
-    tableReady4 = null;
-    throw e;
-  });
-}
-async function recordStrategyMarketplacePackage(pkg) {
-  await ensureStrategyMarketplaceTable();
-  await pool.query(
-    `INSERT INTO strategy_marketplace_packages (listing_id, seller_id, source_strategy_id, spec, proof_type, proof_stats)
-     VALUES ($1,$2,$3,$4::jsonb,$5,$6::jsonb)
-     ON CONFLICT (listing_id) DO UPDATE SET seller_id=EXCLUDED.seller_id,
-       source_strategy_id=EXCLUDED.source_strategy_id, spec=EXCLUDED.spec,
-       proof_type=EXCLUDED.proof_type, proof_stats=EXCLUDED.proof_stats`,
-    [
-      pkg.listingId,
-      pkg.sellerId,
-      pkg.sourceStrategyId,
-      JSON.stringify(pkg.spec),
-      pkg.proofType,
-      pkg.proofStats ? JSON.stringify(pkg.proofStats) : null
-    ]
-  );
-}
-async function getStrategyMarketplacePackage(listingId) {
-  await ensureStrategyMarketplaceTable();
-  const { rows } = await pool.query(
-    `SELECT listing_id, seller_id, source_strategy_id, spec, proof_type, proof_stats, created_at
-       FROM strategy_marketplace_packages WHERE listing_id=$1`,
-    [listingId]
-  ).catch(() => ({ rows: [] }));
-  if (!rows.length) return null;
-  const r = rows[0];
-  return {
-    listingId: Number(r.listing_id),
-    sellerId: Number(r.seller_id),
-    sourceStrategyId: Number(r.source_strategy_id),
-    spec: r.spec,
-    proofType: r.proof_type === "live" ? "live" : "shadow",
-    proofStats: r.proof_stats ?? null,
-    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at)
-  };
-}
-function cloneStrategySpecForBuyer(spec, provenance) {
-  const cloned = JSON.parse(JSON.stringify(spec));
-  cloned.marketplace = {
-    purchased: true,
-    source: "marketplace_strategy",
-    listingId: provenance.listingId,
-    sellerId: provenance.sellerId,
-    sourceStrategyId: provenance.sourceStrategyId,
-    proofType: provenance.proofType
-  };
-  return cloned;
-}
-function purchasedStrategyRecord(buyerId, pkg) {
-  const spec = cloneStrategySpecForBuyer(pkg.spec, pkg);
-  return { userId: buyerId, name: spec.name, spec };
-}
-function strategyShadowDeployability(spec) {
-  if (!spec) return { ok: false, reason: "no strategy spec" };
-  if (spec.source === "engine") {
-    return { ok: false, reason: "Engine strategies execute through the FX engine \u2014 there is no per-strategy spec for the shadow runner to evaluate." };
-  }
-  const v = validateStrategySpec(spec);
-  if (!v.ok) return { ok: false, reason: v.error };
-  if (!spec.entryLong?.conditions?.length && !spec.entryShort?.conditions?.length) {
-    return { ok: false, reason: "This strategy has no mechanical entry rules to run." };
-  }
-  return { ok: true, reason: null };
-}
-async function clonePurchasedStrategy(buyerId, listingId) {
-  const pkg = await getStrategyMarketplacePackage(listingId);
-  if (!pkg) throw new Error("This strategy listing has no deployable strategy package.");
-  const record = purchasedStrategyRecord(buyerId, pkg);
-  const deployability = strategyShadowDeployability(record.spec);
-  const strategy = await createWizardStrategy(buyerId, record.spec);
-  return {
-    strategy,
-    provenance: {
-      listingId: pkg.listingId,
-      sellerId: pkg.sellerId,
-      sourceStrategyId: pkg.sourceStrategyId,
-      proofType: pkg.proofType
-    },
-    shadowDeployable: deployability.ok,
-    shadowDeployabilityReason: deployability.reason
-  };
-}
-var tableReady4;
-var init_strategy_marketplace = __esm({
-  "server/services/strategy-marketplace.ts"() {
-    "use strict";
-    init_db();
-    init_wizard_spec_strategies();
-    init_strategy_spec();
-    tableReady4 = null;
   }
 });
 
@@ -73589,6 +74089,39 @@ CREATE TABLE IF NOT EXISTS "brain_data_purchases" (
 );
 
 ALTER TABLE "brain_data_listings" ADD COLUMN IF NOT EXISTS "source_category" text NOT NULL DEFAULT 'forex';
+
+-- Marketplace subscriptions (server/services/marketplace-subscriptions.ts):
+-- optional monthly price on listings + the subscription/charge tables.
+ALTER TABLE "brain_data_listings" ADD COLUMN IF NOT EXISTS "price_vedd_monthly" integer;
+
+CREATE TABLE IF NOT EXISTS "brain_marketplace_subscriptions" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "listing_id" integer NOT NULL REFERENCES "brain_data_listings"("id"),
+  "seller_id" integer NOT NULL REFERENCES "users"("id"),
+  "buyer_id" integer NOT NULL REFERENCES "users"("id"),
+  "price_vedd_monthly" integer NOT NULL,
+  "status" text NOT NULL DEFAULT 'active',
+  "started_at" timestamp NOT NULL DEFAULT now(),
+  "last_charged_at" timestamp,
+  "next_charge_at" timestamp NOT NULL,
+  "paid_through_at" timestamp NOT NULL,
+  "failed_attempts" integer NOT NULL DEFAULT 0,
+  "granted_at" timestamp,
+  "access_revoked_at" timestamp,
+  "cancelled_at" timestamp,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  UNIQUE("listing_id", "buyer_id")
+);
+
+CREATE TABLE IF NOT EXISTS "brain_marketplace_subscription_charges" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "subscription_id" integer NOT NULL REFERENCES "brain_marketplace_subscriptions"("id"),
+  "period_key" text NOT NULL UNIQUE,
+  "amount_vedd" integer NOT NULL,
+  "status" text NOT NULL DEFAULT 'charged',
+  "charged_at" timestamp NOT NULL DEFAULT now()
+);
 `;
   }
 });
@@ -76746,9 +77279,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "c9b7e4f0-dirty";
-var BUILD_BRANCH = "feat/kalshi-panel-refresh";
-var BUILT_AT = "2026-11-13T03:10:52.445Z";
+var BUILD_COMMIT = "a27504f4";
+var BUILD_BRANCH = "feat/marketplace-subscriptions";
+var BUILT_AT = "2026-11-13T03:19:25.338Z";
 
 // server/stripe.ts
 init_db();
@@ -77008,7 +77541,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
     throw error;
   }
 }
-async function cancelSubscription(userId) {
+async function cancelSubscription2(userId) {
   try {
     const stripeClient = await getStripe();
     const [user] = await db.select().from(users).where(eq8(users.id, userId));
@@ -79611,7 +80144,7 @@ router4.post("/biz-builder/:profileId/generate-credit-tasks", async (req, res2) 
     const p2 = profiles[0];
     const today = /* @__PURE__ */ new Date();
     const fmt = (d) => d.toISOString().split("T")[0];
-    const addDays = (n) => {
+    const addDays2 = (n) => {
       const d = new Date(today);
       d.setDate(d.getDate() + n);
       return fmt(d);
@@ -79621,13 +80154,13 @@ router4.post("/biz-builder/:profileId/generate-credit-tasks", async (req, res2) 
       `Generate a 90-day business credit building plan for a ${p2.entityType} in ${p2.state} doing: ${p2.businessIdea}.
 
 Always include these exact tasks (do not skip them):
-1. Register with Dun & Bradstreet (get DUNS number) \u2014 due ${addDays(7)}, url: https://www.dnb.com/duns-number.html
-2. Open Uline Net-30 account \u2014 due ${addDays(14)}, url: https://www.uline.com
-3. Open Quill Net-30 account \u2014 due ${addDays(14)}, url: https://www.quill.com
-4. Open Grainger Net-30 account \u2014 due ${addDays(21)}, url: https://www.grainger.com
-5. Set up Nav.com credit monitoring \u2014 due ${addDays(7)}, url: https://www.nav.com
-6. Register Experian Business profile \u2014 due ${addDays(14)}, url: https://www.experian.com/small-business
-7. Register Equifax Business profile \u2014 due ${addDays(21)}, url: https://www.equifax.com/business
+1. Register with Dun & Bradstreet (get DUNS number) \u2014 due ${addDays2(7)}, url: https://www.dnb.com/duns-number.html
+2. Open Uline Net-30 account \u2014 due ${addDays2(14)}, url: https://www.uline.com
+3. Open Quill Net-30 account \u2014 due ${addDays2(14)}, url: https://www.quill.com
+4. Open Grainger Net-30 account \u2014 due ${addDays2(21)}, url: https://www.grainger.com
+5. Set up Nav.com credit monitoring \u2014 due ${addDays2(7)}, url: https://www.nav.com
+6. Register Experian Business profile \u2014 due ${addDays2(14)}, url: https://www.experian.com/small-business
+7. Register Equifax Business profile \u2014 due ${addDays2(21)}, url: https://www.equifax.com/business
 
 Then add 3-5 additional tasks specific to this business type.
 
@@ -82860,7 +83393,7 @@ Respond ONLY in valid JSON format with these exact keys:
         return res2.status(401).json({ message: "Authentication required" });
       }
       const userId = req.user.id;
-      const result = await cancelSubscription(userId);
+      const result = await cancelSubscription2(userId);
       res2.json(result);
     } catch (error) {
       console.error("Error cancelling subscription:", error);
@@ -97400,6 +97933,13 @@ Respond with ONLY valid JSON:
       if (!strat) return res2.status(404).json({ error: "strategy not found" });
       const spec = strat.spec;
       const isEngine = spec.source === "engine";
+      const mp = spec?.marketplace;
+      if (mp?.purchased && mp?.grantType === "subscription" && Number(mp?.listingId) > 0) {
+        const subsSvc = await Promise.resolve().then(() => (init_marketplace_subscriptions(), marketplace_subscriptions_exports));
+        if (!subsSvc.subscriptionsEnabled() || !await subsSvc.hasMarketplaceSubscriptionAccess(userId, Number(mp.listingId))) {
+          return res2.status(403).json({ error: "This strategy came from a marketplace subscription that is no longer active, so it cannot start new deployments. Re-subscribe to the listing in the Brain Marketplace to run it again." });
+        }
+      }
       if (isEngine && isShadow) {
         return res2.status(400).json({ error: "Engine strategies execute through the FX engine \u2014 there is no per-strategy spec for the shadow runner to evaluate. Shadow deployments are for spec strategies (templates and condition-builder strategies)." });
       }
@@ -97492,6 +98032,15 @@ Respond with ONLY valid JSON:
       const title = String(req.body?.title || `${strat.name} \u2014 ${proofLabel}`);
       const description = String(req.body?.description || `${proofLabel}: the custom strategy "${strat.name}" (${strat.spec.symbol} ${strat.spec.timeframe}), built in the Strategy Studio. ${layer.trades} ${isShadow ? "shadow (virtual)" : "live"} trades, ${layer.winRate != null ? Math.round(layer.winRate * 100) : "\u2014"}% win rate${avgR != null ? `, avg ${avgR >= 0 ? "+" : ""}${Number(avgR).toFixed(2)}R` : ""}. ${strat.spec.source === "engine" ? "Engine-native strategy: buyers receive its outcome record merged into their brain (it has no deployable spec)." : "Buyers receive their own copy of this strategy, ready to deploy to Shadow or to their own accounts."} Backtest results inform the profile but are never the proof.`);
       const price = clampPrice2(Number(req.body?.priceVedd ?? stats.suggestedPriceVedd));
+      const monthlyRaw = req.body?.priceVeddMonthly;
+      let monthlyPrice = null;
+      if (monthlyRaw !== void 0) {
+        const n = Number(monthlyRaw);
+        monthlyPrice = Number.isFinite(n) && n > 0 ? clampPrice2(n) : null;
+      } else if (strat.brainListingId) {
+        const old = await storage.getBrainListing(strat.brainListingId).catch(() => void 0);
+        monthlyPrice = old?.priceVeddMonthly ?? null;
+      }
       if (strat.brainListingId) {
         await storage.deactivateBrainListing(strat.brainListingId).catch(() => {
         });
@@ -97505,6 +98054,7 @@ Respond with ONLY valid JSON:
         title,
         description,
         priceVedd: price,
+        priceVeddMonthly: monthlyPrice,
         suggestedPriceVedd: stats.suggestedPriceVedd,
         snapshotData: rows,
         tradeCount: stats.tradeCount,
@@ -108520,7 +109070,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
-      const { title, description, priceVedd, sourceCategory, symbols, includeManualTrades } = req.body;
+      const { title, description, priceVedd, priceVeddMonthly, sourceCategory, symbols, includeManualTrades } = req.body;
       if (!title) return res2.status(400).json({ error: "title is required" });
       const category = sourceCategory === "tradelocker" ? "tradelocker" : sourceCategory === "kalshi" ? "kalshi" : sourceCategory === "options" ? "options" : sourceCategory === "fx_models" ? "fx_models" : "forex";
       const symbolFilter = Array.isArray(symbols) && symbols.length ? symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean) : null;
@@ -108588,6 +109138,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const finalPrice = clampPrice2(priceVedd ?? stats.suggestedPriceVedd);
       const existing = await storage.getUserActiveBrainListingBySymbols(userId, category, symbolFilter);
       if (existing) await storage.deactivateBrainListing(existing.id);
+      const monthlyPrice = priceVeddMonthly !== void 0 ? Number.isFinite(Number(priceVeddMonthly)) && Number(priceVeddMonthly) > 0 ? clampPrice2(Number(priceVeddMonthly)) : null : existing?.priceVeddMonthly ?? null;
       const listing = await storage.createBrainListing({
         sellerId: userId,
         sourceCategory: category,
@@ -108595,6 +109146,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         includesManualTrades: manualOptIn,
         title,
         description: description || null,
+        priceVeddMonthly: monthlyPrice,
         priceVedd: finalPrice,
         suggestedPriceVedd: stats.suggestedPriceVedd,
         snapshotData: rows,
@@ -108697,15 +109249,25 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const limit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
       const listings = await storage.getActiveBrainListings(limit);
+      const subsSvc = await Promise.resolve().then(() => (init_marketplace_subscriptions(), marketplace_subscriptions_exports));
+      const subsOn = subsSvc.subscriptionsEnabled();
+      const buyerSubs = subsOn ? await subsSvc.listBuyerSubscriptions(userId).catch(() => []) : [];
+      const subByListing = new Map(buyerSubs.map((s) => [s.listingId, s]));
       const enriched = await Promise.all(listings.map(async (l) => {
         const seller = await storage.getUser(l.sellerId);
         const purchase = await storage.getBrainPurchaseByListingAndBuyer(l.id, userId);
         const safe3 = await enrichBrainListingForClient(l);
+        const sub = subByListing.get(l.id);
         return {
           ...safe3,
           sellerUsername: seller?.username || "Unknown",
           alreadyPurchased: !!purchase,
-          isOwnListing: l.sellerId === userId
+          isOwnListing: l.sellerId === userId,
+          // Subscription availability follows the kill switch: when off,
+          // listings don't advertise a monthly price at all.
+          ...subsOn ? {} : { priceVeddMonthly: null },
+          hasActiveSubscription: !!sub && subsSvc.subscriptionAccessActive(sub, /* @__PURE__ */ new Date()),
+          subscriptionStatus: sub?.status ?? null
         };
       }));
       res2.json(enriched);
@@ -108737,6 +109299,131 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       res2.status(500).json({ error: e.message });
     }
   });
+  async function preflightBrainListingGrant(listing, buyerId) {
+    if (listing.sourceCategory !== "wizard_strategy") return {};
+    const sm = await Promise.resolve().then(() => (init_strategy_marketplace(), strategy_marketplace_exports));
+    const strategyPackage = await sm.getStrategyMarketplacePackage(listing.id);
+    if (!strategyPackage) {
+      return { error: "This strategy listing has no deployable strategy package, so it cannot be sold as a strategy. You were not charged." };
+    }
+    const deployability = sm.strategyShadowDeployability(sm.purchasedStrategyRecord(buyerId, strategyPackage).spec);
+    if (!deployability.ok) {
+      return { error: `This strategy can no longer be deployed: ${deployability.reason} You were not charged.` };
+    }
+    return {};
+  }
+  async function grantBrainListingToBuyer(listing, buyerId, grantType) {
+    if (listing.sourceCategory === "kalshi") {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { kalshiBrainOutcomes: kalshiBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      const snap = listing.snapshotData ?? [];
+      const toInsert = snap.map((r) => ({
+        userId: buyerId,
+        coin: r.coin,
+        timeframe: r.timeframe ?? "hourly",
+        strategy: r.strategy ?? "unknown",
+        direction: r.direction ?? "BUY",
+        strikeType: r.strikeType ?? null,
+        entryPriceCents: r.entryPriceCents ?? null,
+        confidence: r.confidence ?? null,
+        edgePct: r.edgePct ?? null,
+        valueScore: r.valueScore ?? null,
+        modelProbPct: r.modelProbPct ?? null,
+        agreement: r.agreement ?? null,
+        hourUtc: r.hourUtc ?? null,
+        holdingMinutes: r.holdingMinutes ?? null,
+        exitReason: r.exitReason ?? null,
+        result: r.result ?? "BREAKEVEN",
+        profitLoss: Number(r.profitLoss ?? 0),
+        source: "purchased_brain",
+        closedAt: r.closedAt ? new Date(r.closedAt) : /* @__PURE__ */ new Date()
+      }));
+      if (toInsert.length) await db2.insert(kalshiBrainOutcomes2).values(toInsert);
+      const { learnFromKalshiTrades: learnFromKalshiTrades2 } = await Promise.resolve().then(() => (init_kalshi_brain(), kalshi_brain_exports));
+      await learnFromKalshiTrades2(buyerId).catch(() => {
+      });
+      return { tradesImported: toInsert.length, strategyClone: null, alreadyGranted: false };
+    }
+    if (listing.sourceCategory === "fx_models") {
+      const fm = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(
+        `SELECT COUNT(*)::int AS n FROM fx_model_decisions
+          WHERE user_id=$1 AND source='purchased_brain'
+            AND context->'marketplace'->>'listingId' = $2`,
+        [buyerId, String(listing.id)]
+      ).catch(() => ({ rows: [{ n: 0 }] }));
+      if (Number(rows[0]?.n ?? 0) > 0) {
+        if (grantType === "purchase") await fm.upgradeFxModelSubscriptionGrants(buyerId, listing.id);
+        return { tradesImported: 0, strategyClone: null, alreadyGranted: true };
+      }
+      const tradesImported2 = await fm.importFxModelSnapshot(
+        buyerId,
+        listing.snapshotData ?? [],
+        { sellerId: listing.sellerId, listingId: listing.id, grantType }
+      );
+      return { tradesImported: tradesImported2, strategyClone: null, alreadyGranted: false };
+    }
+    if (listing.sourceCategory === "wizard_strategy") {
+      const sm = await Promise.resolve().then(() => (init_strategy_marketplace(), strategy_marketplace_exports));
+      const existing = await sm.findMarketplaceCloneStrategies(buyerId, listing.id);
+      if (existing.length) {
+        if (grantType === "purchase") await sm.upgradeMarketplaceCloneGrant(buyerId, listing.id);
+        const { getWizardStrategy: getWizardStrategy2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
+        const strat = await getWizardStrategy2(buyerId, existing[0].strategyId);
+        return {
+          tradesImported: 0,
+          strategyClone: strat ? {
+            strategyId: strat.id,
+            name: strat.name,
+            proofType: strat.spec?.marketplace?.proofType ?? "shadow",
+            shadowDeployable: sm.strategyShadowDeployability(strat.spec).ok
+          } : null,
+          alreadyGranted: true
+        };
+      }
+      const cloned = await sm.clonePurchasedStrategy(buyerId, listing.id, grantType);
+      return {
+        tradesImported: 0,
+        strategyClone: {
+          strategyId: cloned.strategy.id,
+          name: cloned.strategy.name,
+          proofType: cloned.provenance.proofType,
+          shadowDeployable: cloned.shadowDeployable
+        },
+        alreadyGranted: false
+      };
+    }
+    if (listing.sourceCategory === "options") {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { optionsBrainOutcomes: optionsBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      const snap = listing.snapshotData ?? [];
+      const toInsert = snap.map((r) => ({
+        userId: buyerId,
+        underlyingSymbol: r.underlyingSymbol ?? "UNKNOWN",
+        optionType: r.optionType ?? "call",
+        strategy: r.strategy ?? "unknown",
+        direction: r.direction ?? null,
+        entryConfidence: r.entryConfidence ?? null,
+        returnPct: r.returnPct ?? null,
+        hourUtc: r.hourUtc ?? null,
+        holdingMinutes: r.holdingMinutes ?? null,
+        exitReason: r.exitReason ?? null,
+        result: r.result ?? "BREAKEVEN",
+        profitLoss: Number(r.profitLoss ?? 0),
+        contracts: r.contracts ?? null,
+        source: "purchased_brain",
+        closedAt: r.closedAt ? new Date(r.closedAt) : /* @__PURE__ */ new Date()
+      }));
+      if (toInsert.length) await db2.insert(optionsBrainOutcomes2).values(toInsert);
+      const { runOptionsBrainLearning: runOptionsBrainLearning2 } = await Promise.resolve().then(() => (init_options_brain(), options_brain_exports));
+      await runOptionsBrainLearning2(buyerId).catch(() => {
+      });
+      return { tradesImported: toInsert.length, strategyClone: null, alreadyGranted: false };
+    }
+    const tradesImported = await storage.importBrainDataSnapshot(buyerId, listing.snapshotData);
+    return { tradesImported, strategyClone: null, alreadyGranted: false };
+  }
   const brainBuyInFlight = /* @__PURE__ */ new Set();
   app2.post("/api/brain-marketplace/:id/buy", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Not authenticated" });
@@ -108750,18 +109437,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       if (listing.sellerId === buyerId) return res2.status(400).json({ error: "You can't buy your own listing" });
       const existingPurchase = await storage.getBrainPurchaseByListingAndBuyer(listingId, buyerId);
       if (existingPurchase) return res2.status(400).json({ error: "You already purchased this listing" });
-      let strategyPackage = null;
-      if (listing.sourceCategory === "wizard_strategy") {
-        const sm = await Promise.resolve().then(() => (init_strategy_marketplace(), strategy_marketplace_exports));
-        strategyPackage = await sm.getStrategyMarketplacePackage(listingId);
-        if (!strategyPackage) {
-          return res2.status(400).json({ error: "This strategy listing has no deployable strategy package, so it cannot be sold as a strategy. You were not charged." });
-        }
-        const deployability = sm.strategyShadowDeployability(sm.purchasedStrategyRecord(buyerId, strategyPackage).spec);
-        if (!deployability.ok) {
-          return res2.status(400).json({ error: `This strategy can no longer be deployed: ${deployability.reason} You were not charged.` });
-        }
-      }
+      const grantPreflight = await preflightBrainListingGrant(listing, buyerId);
+      if (grantPreflight.error) return res2.status(400).json({ error: grantPreflight.error });
       const buyerWallet = await storage.getInternalWallet(buyerId);
       const buyerBalance = buyerWallet?.veddBalance ?? 0;
       if (buyerBalance < listing.priceVedd) {
@@ -108785,84 +109462,9 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         throw e;
       }
       await storage.addToWalletBalance(listing.sellerId, listing.priceVedd);
-      let tradesImported;
-      let strategyClone = null;
-      if (listing.sourceCategory === "kalshi") {
-        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-        const { kalshiBrainOutcomes: kalshiBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const snap = listing.snapshotData ?? [];
-        const toInsert = snap.map((r) => ({
-          userId: buyerId,
-          coin: r.coin,
-          timeframe: r.timeframe ?? "hourly",
-          strategy: r.strategy ?? "unknown",
-          direction: r.direction ?? "BUY",
-          strikeType: r.strikeType ?? null,
-          entryPriceCents: r.entryPriceCents ?? null,
-          confidence: r.confidence ?? null,
-          edgePct: r.edgePct ?? null,
-          valueScore: r.valueScore ?? null,
-          modelProbPct: r.modelProbPct ?? null,
-          agreement: r.agreement ?? null,
-          hourUtc: r.hourUtc ?? null,
-          holdingMinutes: r.holdingMinutes ?? null,
-          exitReason: r.exitReason ?? null,
-          result: r.result ?? "BREAKEVEN",
-          profitLoss: Number(r.profitLoss ?? 0),
-          source: "purchased_brain",
-          closedAt: r.closedAt ? new Date(r.closedAt) : /* @__PURE__ */ new Date()
-        }));
-        if (toInsert.length) await db2.insert(kalshiBrainOutcomes2).values(toInsert);
-        tradesImported = toInsert.length;
-        const { learnFromKalshiTrades: learnFromKalshiTrades2 } = await Promise.resolve().then(() => (init_kalshi_brain(), kalshi_brain_exports));
-        await learnFromKalshiTrades2(buyerId).catch(() => {
-        });
-      } else if (listing.sourceCategory === "fx_models") {
-        const { importFxModelSnapshot: importFxModelSnapshot2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
-        tradesImported = await importFxModelSnapshot2(
-          buyerId,
-          listing.snapshotData ?? [],
-          { sellerId: listing.sellerId, listingId: listing.id }
-        );
-      } else if (listing.sourceCategory === "wizard_strategy") {
-        const sm = await Promise.resolve().then(() => (init_strategy_marketplace(), strategy_marketplace_exports));
-        const cloned = await sm.clonePurchasedStrategy(buyerId, listingId);
-        strategyClone = {
-          strategyId: cloned.strategy.id,
-          name: cloned.strategy.name,
-          proofType: cloned.provenance.proofType,
-          shadowDeployable: cloned.shadowDeployable
-        };
-        tradesImported = 0;
-      } else if (listing.sourceCategory === "options") {
-        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-        const { optionsBrainOutcomes: optionsBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const snap = listing.snapshotData ?? [];
-        const toInsert = snap.map((r) => ({
-          userId: buyerId,
-          underlyingSymbol: r.underlyingSymbol ?? "UNKNOWN",
-          optionType: r.optionType ?? "call",
-          strategy: r.strategy ?? "unknown",
-          direction: r.direction ?? null,
-          entryConfidence: r.entryConfidence ?? null,
-          returnPct: r.returnPct ?? null,
-          hourUtc: r.hourUtc ?? null,
-          holdingMinutes: r.holdingMinutes ?? null,
-          exitReason: r.exitReason ?? null,
-          result: r.result ?? "BREAKEVEN",
-          profitLoss: Number(r.profitLoss ?? 0),
-          contracts: r.contracts ?? null,
-          source: "purchased_brain",
-          closedAt: r.closedAt ? new Date(r.closedAt) : /* @__PURE__ */ new Date()
-        }));
-        if (toInsert.length) await db2.insert(optionsBrainOutcomes2).values(toInsert);
-        tradesImported = toInsert.length;
-        const { runOptionsBrainLearning: runOptionsBrainLearning2 } = await Promise.resolve().then(() => (init_options_brain(), options_brain_exports));
-        await runOptionsBrainLearning2(buyerId).catch(() => {
-        });
-      } else {
-        tradesImported = await storage.importBrainDataSnapshot(buyerId, listing.snapshotData);
-      }
+      const grant = await grantBrainListingToBuyer(listing, buyerId, "purchase");
+      const tradesImported = grant.tradesImported;
+      const strategyClone = grant.strategyClone;
       await storage.createBrainPurchase({
         listingId,
         sellerId: listing.sellerId,
@@ -108872,6 +109474,106 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       });
       await storage.incrementBrainListingPurchaseCount(listingId);
       res2.json({ success: true, tradesImported, veddCharged: listing.priceVedd, ...strategyClone ? { strategyClone } : {} });
+    } catch (e) {
+      res2.status(500).json({ error: e.message });
+    }
+  });
+  const brainSubscribeInFlight = /* @__PURE__ */ new Set();
+  app2.post("/api/brain-marketplace/:id/subscribe", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Not authenticated" });
+    const buyerId = req.user.id;
+    const listingId = parseInt(req.params.id, 10);
+    if (isNaN(listingId)) return res2.status(400).json({ error: "Invalid listing id" });
+    try {
+      const subsSvc = await Promise.resolve().then(() => (init_marketplace_subscriptions(), marketplace_subscriptions_exports));
+      if (!subsSvc.subscriptionsEnabled()) return res2.status(404).json({ error: "Subscriptions are not available" });
+      const listing = await storage.getBrainListing(listingId);
+      if (!listing) return res2.status(404).json({ error: "Listing not found" });
+      if (!listing.isActive) return res2.status(400).json({ error: "This listing is no longer active" });
+      if (listing.sellerId === buyerId) return res2.status(400).json({ error: "You can't subscribe to your own listing" });
+      const monthlyPrice = Number(listing.priceVeddMonthly ?? 0);
+      if (!(monthlyPrice > 0)) return res2.status(400).json({ error: "This listing doesn't offer a monthly subscription" });
+      const existingPurchase = await storage.getBrainPurchaseByListingAndBuyer(listingId, buyerId);
+      if (existingPurchase) return res2.json({ success: true, alreadyOwned: true });
+      const now = /* @__PURE__ */ new Date();
+      const existingSub = await subsSvc.getSubscriptionByListingAndBuyer(listingId, buyerId);
+      if (existingSub && subsSvc.subscriptionAccessActive(existingSub, now)) {
+        if (existingSub.status === "cancelled") {
+          const resumed = await subsSvc.resumeSubscription(existingSub);
+          return res2.json({ success: true, subscription: resumed, resumed: true });
+        }
+        return res2.json({ success: true, subscription: existingSub, alreadySubscribed: true });
+      }
+      const grantPreflight = await preflightBrainListingGrant(listing, buyerId);
+      if (grantPreflight.error) return res2.status(400).json({ error: grantPreflight.error });
+      const buyerWallet = await storage.getInternalWallet(buyerId);
+      const buyerBalance = buyerWallet?.veddBalance ?? 0;
+      if (buyerBalance < monthlyPrice) {
+        return res2.status(402).json({
+          error: `Insufficient VEDD balance. Need ${monthlyPrice}, have ${buyerBalance.toFixed(1)}.`,
+          required: monthlyPrice,
+          balance: buyerBalance
+        });
+      }
+      const _subKey = `${buyerId}:${listingId}`;
+      if (brainSubscribeInFlight.has(_subKey)) return res2.status(409).json({ error: "This subscription is already being processed" });
+      brainSubscribeInFlight.add(_subKey);
+      res2.on("finish", () => brainSubscribeInFlight.delete(_subKey));
+      res2.on("close", () => brainSubscribeInFlight.delete(_subKey));
+      try {
+        await subsSvc.chargeSubscriptionWallet(buyerId, listing.sellerId, monthlyPrice);
+      } catch (e) {
+        if (e?.name === "InsufficientVeddError") {
+          return res2.status(402).json({ error: `Insufficient VEDD balance. Need ${monthlyPrice}.`, required: monthlyPrice });
+        }
+        throw e;
+      }
+      const sub = existingSub ? await subsSvc.reactivateSubscription(existingSub, monthlyPrice, now) : await subsSvc.createSubscriptionRecord({ listingId, sellerId: listing.sellerId, buyerId, priceVeddMonthly: monthlyPrice, now });
+      let grant = null;
+      if (!sub.grantedAt) {
+        grant = await grantBrainListingToBuyer(listing, buyerId, "subscription");
+        await subsSvc.markSubscriptionGranted(sub, now);
+      }
+      res2.status(201).json({
+        success: true,
+        subscription: sub,
+        veddCharged: monthlyPrice,
+        tradesImported: grant?.tradesImported ?? 0,
+        ...grant?.strategyClone ? { strategyClone: grant.strategyClone } : {}
+      });
+    } catch (e) {
+      res2.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/brain-marketplace/subscriptions/:id/cancel", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Not authenticated" });
+    const buyerId = req.user.id;
+    const subId = parseInt(req.params.id, 10);
+    if (isNaN(subId)) return res2.status(400).json({ error: "Invalid subscription id" });
+    try {
+      const subsSvc = await Promise.resolve().then(() => (init_marketplace_subscriptions(), marketplace_subscriptions_exports));
+      const sub = await subsSvc.cancelSubscription(subId, buyerId);
+      if (!sub) return res2.status(404).json({ error: "Subscription not found" });
+      res2.json({ success: true, subscription: sub });
+    } catch (e) {
+      res2.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/brain-marketplace/my-subscriptions", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    try {
+      const subsSvc = await Promise.resolve().then(() => (init_marketplace_subscriptions(), marketplace_subscriptions_exports));
+      const now = /* @__PURE__ */ new Date();
+      const [asBuyer, asSeller] = await Promise.all([
+        subsSvc.listBuyerSubscriptions(userId),
+        subsSvc.listSellerSubscriptionSummary(userId, now)
+      ]);
+      res2.json({
+        subscriptionsEnabled: subsSvc.subscriptionsEnabled(),
+        asBuyer: asBuyer.map((s) => ({ ...s, accessActive: subsSvc.subscriptionAccessActive(s, now) })),
+        asSeller
+      });
     } catch (e) {
       res2.status(500).json({ error: e.message });
     }
@@ -110665,6 +111367,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     console.error(`[startup] ensureBrainMarketplaceTables import error (non-fatal):`, err?.message ?? err);
   }
   try {
+    const { ensureMarketplaceSubscriptionTables: ensureMarketplaceSubscriptionTables2 } = await Promise.resolve().then(() => (init_marketplace_subscriptions(), marketplace_subscriptions_exports));
+    await ensureMarketplaceSubscriptionTables2();
+  } catch (err) {
+    console.error(`[startup] ensureMarketplaceSubscriptionTables import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
     const { ensureOptionsBrainOutcomesTable: ensureOptionsBrainOutcomesTable2 } = await Promise.resolve().then(() => (init_ensure_options_brain_outcomes_table(), ensure_options_brain_outcomes_table_exports));
     await ensureOptionsBrainOutcomesTable2();
   } catch (err) {
@@ -111786,6 +112494,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startBreakoutMonitor2();
     const { startLeadHunterScheduler: startLeadHunterScheduler2 } = await Promise.resolve().then(() => (init_lead_hunter(), lead_hunter_exports));
     startLeadHunterScheduler2();
+    const { startMarketplaceSubscriptionRunner: startMarketplaceSubscriptionRunner2 } = await Promise.resolve().then(() => (init_marketplace_subscriptions(), marketplace_subscriptions_exports));
+    startMarketplaceSubscriptionRunner2();
     const { startAmbassadorPrimeScheduler: startAmbassadorPrimeScheduler2 } = await Promise.resolve().then(() => (init_ambassador_prime(), ambassador_prime_exports));
     startAmbassadorPrimeScheduler2();
     const { startPersonaContentScheduler: startPersonaContentScheduler2 } = await Promise.resolve().then(() => (init_persona_content_engine(), persona_content_engine_exports));
