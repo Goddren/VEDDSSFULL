@@ -1919,6 +1919,9 @@ export default function StrategyStudio() {
                                 <Badge variant={d.status === 'running' ? 'default' : 'secondary'}>{d.status}</Badge>
                                 <span className="font-medium">{d.accountLabel || d.connectionRef}</span>
                                 <span className="text-muted-foreground capitalize">{d.platform === 'shadow' ? 'Shadow (virtual)' : d.platform}</span>
+                                {d.lessonPaused && (
+                                  <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400" title={d.lessonPauseReason || undefined}>paused by its own lessons</Badge>
+                                )}
                                 {d.lastError && <span className="text-xs text-red-500 truncate max-w-[280px]" title={d.lastError}>{d.lastError}</span>}
                                 {d.status === 'running' && (
                                   <Button size="sm" variant="outline" className="ml-auto" onClick={() => handleStopDeployment(d.id)}>

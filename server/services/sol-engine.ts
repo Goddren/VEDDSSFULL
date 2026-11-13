@@ -1989,7 +1989,13 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
 // (20) in total; no duplicate token within a strategy; 30-min re-entry
 // cooldown per strategy+token. Sized at a nominal SOL_SHADOW_SIZE_SOL (0.25).
 // Kill switches: SOL_PUMP_SHADOW=off (whole lane), SOL_SHADOW_ALL=off (back
-// to Pump Scalp 60 only).
+// to Pump Scalp 60 only), SOL_SHADOW_LESSONS=off (lesson gate below).
+// Lesson gate (2026-11-12): a strategy whose OWN shadow record is proven
+// losing on the platform lesson bar (shadow-lesson-gate.ts: 50+ resolved
+// in the rolling window, avg R ≤ −0.2, win rate ≤ 40%, no winning week)
+// stops taking new shadow entries — per STRATEGY, never per token —
+// until its rolling record clears and entries resume on their own.
+// Every block is audited in shadow_lesson_blocks.
 const _envInt = (n: string, d: number) => { const v = Number(process.env[n]); return Number.isFinite(v) && v > 0 ? Math.floor(v) : d; };
 export const SHADOW_MAX_OPEN = _envInt('SOL_SHADOW_MAX_OPEN', 20);
 export const SHADOW_MAX_PER_STRATEGY = _envInt('SOL_SHADOW_MAX_PER_STRATEGY', 3);
@@ -2021,7 +2027,22 @@ async function evaluateShadowEntries(userId: number, state: SolEngineState, scan
   if (!strategies.length) return;
   const statsMod = await import('./sol-shadow-stats');
   const stats = await statsMod.computeSolShadowStats(userId).catch(() => [] as Awaited<ReturnType<typeof statsMod.computeSolShadowStats>>);
+  // Lesson gate: per-strategy proven-loser verdicts from the shared
+  // ledger's sol_shadow arm (cached ~15 min in shadow-lesson-gate.ts).
+  const gateMod = await import('./shadow-lesson-gate');
+  const lessonVerdicts = gateMod.solShadowLessonsOn()
+    ? await gateMod.getSolShadowLessonVerdicts(userId).catch(() => null)
+    : null;
   for (const strat of strategies) {
+    const lv = lessonVerdicts?.get(strat.id);
+    if (lv?.blocked) {
+      void gateMod.logShadowLessonBlock({
+        lane: 'sol_shadow', userId, strategyKey: strat.id, bucket: 'strategy (all directions)',
+        n: lv.trades, winRate: lv.trades ? lv.wins / lv.trades : null, avgR: lv.avgR,
+        reason: `proven losing on the lesson bar: ${lv.trades} resolved, avg ${lv.avgR.toFixed(2)}R, win ${Math.round((lv.wins / Math.max(1, lv.trades)) * 100)}%, no winning week in the rolling window`,
+      });
+      continue;
+    }
     for (const analysis of scanResult) {
       const openAll = state.shadowPositions.filter(p => p.status === 'open');
       if (openAll.length >= SHADOW_MAX_OPEN) return;
