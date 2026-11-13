@@ -1819,7 +1819,7 @@ const guideSections: GuideSection[] = [
     id: 'engine-learning',
     title: 'How Your Engines Learn: Lessons, Guards & Trails',
     icon: Brain,
-    description: 'The learning panels on the Guards & Trails page — blocked trades scored honestly, your settings at a glance, and turning proven practice lessons into real guards and trail rules',
+    description: 'The learning panels on the Guards & Trails page — blocked trades scored honestly, and turning proven practice lessons into real guards and trail rules',
     content: [
       {
         heading: 'Where to Find Everything',
@@ -1828,7 +1828,7 @@ const guideSections: GuideSection[] = [
           'Engine safeguards: a live feed of every protection that acted — stops kept tight, sizes capped, risky closes refused',
           'Why trades were skipped: the signals the engine wanted but a guard turned away, each with its reason',
           'Guard fire rates: how often each protection fired this week vs last — and what the blocked trades would have done',
-          'Your settings vs standard, Proven lessons, Practice cost check, and the Trail study complete the set — every panel has an info (i) button that slides out a plain-language explainer'
+          'Proven lessons, Practice cost check, and the Trail study complete the set — every panel has an info (i) button that slides out a plain-language explainer'
         ]
       },
       {
@@ -1860,14 +1860,6 @@ const guideSections: GuideSection[] = [
           'A group that gives back too much (Crypto 1R or more on average, Sol 8% or more, over 10+ trades) can be given a Tighten guard — a closer trail for just that group',
           'A group where trailing provably works can get a Lock profile guard, freezing its working trail settings so later global changes can\'t loosen them',
           'Trail guards change exit management only — never entries, never position sizing — and can be retired anytime'
-        ]
-      },
-      {
-        heading: 'Your Settings vs Standard',
-        steps: [
-          'This panel lists the guard settings that matter for the FX, Sol, Kalshi and Crypto engines: the built-in standard beside your live value',
-          'Anything you changed is highlighted, with a count per engine — the fastest way to answer "what did I change?"',
-          'It is read-only by design; change values on each engine\'s own settings page'
         ]
       },
       {

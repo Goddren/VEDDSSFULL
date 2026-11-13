@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ShieldCheck, Settings2, GraduationCap, Receipt, Route, Ban, Activity } from "lucide-react";
+import { ShieldCheck, GraduationCap, Receipt, Route, Ban, Activity } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { InfoExplainer } from "@/components/info-explainer";
 
@@ -192,65 +192,6 @@ export function GuardFireRatesPanel({ className = "" }: { className?: string }) 
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-// Settings overview (Nov 8, 2026): per engine, every guard setting as
-// Standard (the app's built-in default) vs Yours (your live value), with
-// anything you changed highlighted. Read-only — edit settings on each
-// engine's own page.
-export function SettingsOverviewPanel({ className = "" }: { className?: string }) {
-  const { data } = useQuery<{ engines: Array<{ id: string; name: string; available: boolean; changed: number; rows: Array<{ key: string; label: string; fmt: string; standard: unknown; yours: unknown; differs: boolean }> }> }>({
-    queryKey: ["/api/engine/guard-events?view=settings"],
-    refetchInterval: 60000,
-  });
-  const engines = data?.engines || [];
-  const fmtVal = (v: unknown, fmt: string): string => {
-    if (v === null || v === undefined) return "—";
-    if (fmt === "bool") return v ? "On" : "Off";
-    if (fmt === "secs") { const s = Math.round(Number(v) / 1000); return s >= 60 ? `${Math.round(s / 60)}m` : `${s}s`; }
-    if (fmt === "num") { const n = Number(v); return Number.isFinite(n) ? String(Math.round(n * 100) / 100) : String(v); }
-    return String(v);
-  };
-  if (!engines.length) return null;
-  return (
-    <div className={`rounded-md border border-white/10 bg-white/[0.03] p-2 overflow-hidden ${className}`}>
-      <PanelHeader
-        compact
-        icon={<Settings2 className="w-3.5 h-3.5" />}
-        tint="bg-sky-500/15 text-sky-300"
-        title="Your settings vs standard"
-        subtitle="Read-only — change settings on each engine's own page."
-        explainer={<InfoExplainer title="Your settings vs standard">
-          <p>Every guard setting for the FX, Sol, Kalshi and Crypto engines, in one place. <b>Standard</b> is what the app ships with; <b>Yours</b> is what your engine is actually running right now.</p>
-          <p>Anything you have changed is highlighted, and each engine header counts its changes. This panel never changes anything — it exists so a surprise in engine behavior can be traced to the setting that caused it.</p>
-          <p>To change a value, use that engine's own settings page.</p>
-        </InfoExplainer>}
-      />
-      <div className="space-y-2.5">
-        {engines.map((e) => (
-          <div key={e.id}>
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 mb-1">
-              <span className="text-[10px] font-bold text-gray-300">{e.name}</span>
-              {e.available
-                ? <span className={`text-[9px] px-1.5 py-px rounded-full ${e.changed > 0 ? "bg-amber-500/15 text-amber-300" : "bg-white/5 text-gray-500"}`}>{e.changed > 0 ? `${e.changed} changed from standard` : "all standard"}</span>
-                : <span className="text-[9px] px-1.5 py-px rounded-full bg-white/5 text-gray-600">engine off — showing standard</span>}
-            </div>
-            <div className="space-y-0.5">
-              {e.rows.map((r) => (
-                <div key={r.key} className="text-[10px] flex items-baseline gap-2 rounded bg-black/20 px-2 py-1">
-                  <span className="min-w-0 flex-1 break-words text-gray-400">{r.label}</span>
-                  <span className="shrink-0 text-gray-500 tabular-nums">standard {fmtVal(r.standard, r.fmt)}</span>
-                  <span className={`shrink-0 tabular-nums ${r.differs ? "text-amber-300 font-semibold" : "text-gray-300"}`}>
-                    yours {e.available ? fmtVal(r.yours, r.fmt) : fmtVal(r.standard, r.fmt)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
