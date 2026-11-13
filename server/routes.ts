@@ -20774,7 +20774,7 @@ Respond with ONLY valid JSON:
             ? 'engine'
             : 'runner',
         note: isShadow
-          ? 'Shadow deployment: the runner evaluates this strategy on closed bars and trades it VIRTUALLY — fills are simulated from bar prices and no broker order is ever sent. Results build the Shadow (virtual) layer of its brain and feed the shared shadow ledger; they never count toward Brain Marketplace eligibility.'
+          ? 'Shadow deployment: the runner evaluates this strategy on closed bars and trades it VIRTUALLY — fills are simulated from bar prices and no broker order is ever sent. Results build the Shadow (virtual) layer of its brain and feed the shared shadow ledger. A strong shadow record (30+ R-bearing trades, avg +0.2R or better, 40%+ wins, no losing week in the last two) can qualify the strategy for a "Proven in shadow" Marketplace listing.'
           : isEngine
             ? 'Engine strategies run through the FX engine, which trades your auto-enabled accounts as one pool. This deployment binds the strategy to the chosen account for tracking and its brain — it does not re-route the engine.'
             : platform === 'mt5'
@@ -20809,11 +20809,18 @@ Respond with ONLY valid JSON:
     return res.json({ brain: profile });
   });
 
-  // List the strategy's brain on the Brain Marketplace. The snapshot
-  // sold is the strategy's LIVE outcome rows (the marketplace's own
-  // shape: symbol/confirmedAt/tradeOutcome) — backtest data informs the
-  // brain profile but is never sold as experience. Same minimums as
-  // every other brain listing (MIN_TRADES_TO_LIST live trades).
+  // List the strategy on the Brain Marketplace. Two honest proof paths:
+  //   • LIVE — 10+ live trades (the original path, unchanged).
+  //   • SHADOW — the shadow record clears its higher bar (30+ R-bearing
+  //     shadow trades, avg ≥ +0.2R, win rate ≥ 40%, no losing week in
+  //     the last two; STUDIO_MARKETPLACE_SHADOW=off removes this path).
+  // The snapshot sold is the PROVING layer's outcome rows only — live
+  // and shadow evidence are never blended — and the listing is labelled
+  // "Proven in shadow" or "Proven live". For spec strategies the listing
+  // is a strategy listing (category wizard_strategy) and carries a
+  // deployable package: buyers receive their own copy of the strategy.
+  // Engine-native strategies have no clonable spec, so they stay on the
+  // legacy brain-only path (category forex, outcomes merged on purchase).
   app.post("/api/strategy-wizard/spec-strategies/:id/list-brain", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
@@ -20822,41 +20829,54 @@ Respond with ONLY valid JSON:
       const { getWizardStrategy, recordWizardBrain } = await import('./services/wizard-spec-strategies');
       const strat = await getWizardStrategy(userId, strategyId);
       if (!strat) return res.status(404).json({ error: 'strategy not found' });
-      const { buildStrategyBrain } = await import('./services/strategy-brain');
+      const { buildStrategyBrain, STRATEGY_MARKETPLACE_MIN_LIVE_TRADES, STRATEGY_SHADOW_MIN_TRADES } = await import('./services/strategy-brain');
       const brain = await buildStrategyBrain(userId, strategyId);
-      const { MIN_TRADES_TO_LIST, computeListingStats, clampPrice } = await import('./services/brain-marketplace');
-      if (!brain || brain.listableTrades < MIN_TRADES_TO_LIST) {
-        return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST} live trades from this strategy to list its brain (you have ${brain?.listableTrades ?? 0}). Backtest trades don't count — a brain is sold on live evidence.` });
+      const { computeListingStats, clampPrice } = await import('./services/brain-marketplace');
+      const proof = brain?.marketplace;
+      if (!brain || !proof?.listable || !proof.proofType) {
+        const sh = proof?.shadow;
+        return res.status(400).json({ error: `This strategy is not proven yet. List it either with ${STRATEGY_MARKETPLACE_MIN_LIVE_TRADES}+ live trades (you have ${brain?.listableTrades ?? 0}) or with a shadow record of ${STRATEGY_SHADOW_MIN_TRADES}+ R-bearing shadow trades at avg +0.2R or better, a 40%+ win rate and no losing week in the last two (you have ${sh?.trades ?? 0} shadow trades, ${sh?.rTrades ?? 0} with R, avg ${sh?.avgR != null ? `${sh.avgR >= 0 ? '+' : ''}${Number(sh.avgR).toFixed(2)}R` : '—'}, win rate ${sh?.winRate != null ? Math.round(sh.winRate * 100) : '—'}%). Backtest results never count.` });
       }
+      const proofType = proof.proofType;
+      const isShadow = proofType === 'shadow';
       const { listStrategyTrades } = await import('./services/strategy-deployments');
       const trades = await listStrategyTrades(userId, strategyId, 2000);
       const rows = trades
-        // LIVE rows only — shadow (virtual) fills are a separate brain
-        // layer and must never enter a Marketplace snapshot or its
-        // stats (brain.listableTrades above is likewise live-only).
-        .filter((t) => t.status === 'closed' && t.pnl != null && (t as any).mode !== 'shadow')
+        // The PROVING layer only: a shadow-proven listing snapshots
+        // shadow rows, a live-proven listing snapshots live rows. The
+        // other layer never enters this listing's snapshot or stats.
+        .filter((t) => t.status === 'closed' && t.pnl != null && (isShadow ? (t as any).mode === 'shadow' : (t as any).mode !== 'shadow'))
         .map((t) => ({
           symbol: String(t.symbol || '').toUpperCase(),
           direction: t.direction,
           confirmedAt: t.closed_at,
           tradeOutcome: Number(t.pnl) > 0 ? 'WIN' : Number(t.pnl) < 0 ? 'LOSS' : 'BREAKEVEN',
           profitLoss: Number(t.pnl),
+          rMultiple: (t as any).r_multiple ?? null,
+          mode: isShadow ? 'shadow' : 'live',
           exitReason: t.exit_reason ?? null,
           source: 'wizard_strategy',
           strategyName: strat.name,
         }));
       const stats = computeListingStats(rows as any);
-      const title = String(req.body?.title || `${strat.name} — strategy brain`);
+      const layer: any = isShadow ? brain.shadow : brain.live;
+      const rRows = rows.filter((r: any) => r.rMultiple != null && isFinite(Number(r.rMultiple)));
+      const avgR = rRows.length ? rRows.reduce((a: number, r: any) => a + Number(r.rMultiple), 0) / rRows.length : (layer.avgR ?? null);
+      const proofLabel = isShadow ? 'Proven in shadow' : 'Proven live';
+      const title = String(req.body?.title || `${strat.name} — ${proofLabel}`);
       const description = String(req.body?.description ||
-        `Live track record of the custom strategy "${strat.name}" (${strat.spec.symbol} ${strat.spec.timeframe}), built in the Strategy Wizard and run through VEDD deployments. ${brain.live.trades} live trades, ${brain.live.winRate != null ? Math.round(brain.live.winRate * 100) : '—'}% win rate. Backtest data points inform the profile; the snapshot contains live outcomes only.`);
+        `${proofLabel}: the custom strategy "${strat.name}" (${strat.spec.symbol} ${strat.spec.timeframe}), built in the Strategy Studio. ${layer.trades} ${isShadow ? 'shadow (virtual)' : 'live'} trades, ${layer.winRate != null ? Math.round(layer.winRate * 100) : '—'}% win rate${avgR != null ? `, avg ${avgR >= 0 ? '+' : ''}${Number(avgR).toFixed(2)}R` : ''}. ${strat.spec.source === 'engine'
+          ? 'Engine-native strategy: buyers receive its outcome record merged into their brain (it has no deployable spec).'
+          : 'Buyers receive their own copy of this strategy, ready to deploy to Shadow or to their own accounts.'} Backtest results inform the profile but are never the proof.`);
       const price = clampPrice(Number(req.body?.priceVedd ?? stats.suggestedPriceVedd));
-      // One active strategy-brain listing per strategy: retire the old one.
+      // One active strategy listing per strategy: retire the old one.
       if ((strat as any).brainListingId) {
         await storage.deactivateBrainListing((strat as any).brainListingId).catch(() => {});
       }
+      const cloneable = strat.spec.source !== 'engine';
       const listing = await storage.createBrainListing({
         sellerId: userId,
-        sourceCategory: 'forex' as any,
+        sourceCategory: (cloneable ? 'wizard_strategy' : 'forex') as any,
         symbolFilter: [strat.spec.symbol],
         includesManualTrades: false,
         title,
@@ -20871,9 +20891,31 @@ Respond with ONLY valid JSON:
         oldestTradeAt: stats.oldestTradeAt,
         newestTradeAt: stats.newestTradeAt,
       } as any);
+      if (cloneable) {
+        // The deployable package is what makes this a strategy listing
+        // rather than a brain listing. If it cannot be recorded, roll
+        // the listing back — never sell a strategy buyers can't deploy.
+        try {
+          const sm = await import('./services/strategy-marketplace');
+          await sm.recordStrategyMarketplacePackage({
+            listingId: listing.id,
+            sellerId: userId,
+            sourceStrategyId: strategyId,
+            spec: strat.spec,
+            proofType,
+            proofStats: { trades: stats.tradeCount, winRate: stats.winRate, avgR, netR: layer.netR ?? null, netPnl: layer.netPnl ?? null },
+          });
+        } catch (pkgErr: any) {
+          await storage.deactivateBrainListing(listing.id).catch(() => {});
+          throw new Error(`Listing rolled back: the deployable strategy package could not be saved (${pkgErr?.message || pkgErr}).`);
+        }
+      }
       await recordWizardBrain(userId, strategyId, { listingId: listing.id });
       const { snapshotData: _omit, ...safe } = listing as any;
-      return res.status(201).json({ listing: safe, brain });
+      return res.status(201).json({
+        listing: { ...safe, marketplaceProof: { kind: 'strategy', proofType, tradeCount: stats.tradeCount, winRate: stats.winRate, avgR, strategyId } },
+        brain,
+      });
     } catch (err: any) {
       console.error('[strategy-wizard] list-brain failed:', err);
       return res.status(500).json({ error: err?.message || 'listing failed' });
@@ -33850,6 +33892,37 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   // priced in VEDD; buyers get a copy merged into their own learning brain.
   // See shared/schema.ts's brainDataListings comment + server/services/
   // brain-marketplace.ts for the pricing/snapshot design rationale.
+  //
+  // Marketplace completion: FX-model listings carry their current-system
+  // proof (epoch, shadow proof stats, prop sim) and Strategy Studio
+  // listings carry their proof type — computed here from the stored
+  // snapshot/package so browse, my-listings and my-purchases all show
+  // buyers the same honest record without exposing snapshotData.
+
+  const enrichBrainListingForClient = async (listing: any): Promise<any> => {
+    const { snapshotData: _omit, ...safe } = listing || {};
+    let marketplaceProof: any = null;
+    try {
+      if (listing?.sourceCategory === 'fx_models' && Array.isArray(listing.snapshotData)) {
+        const fm = await import('./services/fx-models');
+        marketplaceProof = fm.fxModelListingProof(listing.snapshotData);
+      } else if (listing?.sourceCategory === 'wizard_strategy') {
+        const sm = await import('./services/strategy-marketplace');
+        const pkg = await sm.getStrategyMarketplacePackage(Number(listing.id));
+        if (pkg) {
+          marketplaceProof = {
+            kind: 'strategy',
+            proofType: pkg.proofType,
+            tradeCount: pkg.proofStats?.trades ?? listing.tradeCount,
+            winRate: pkg.proofStats?.winRate ?? listing.winRate ?? null,
+            avgR: pkg.proofStats?.avgR ?? null,
+            strategyId: pkg.sourceStrategyId,
+          };
+        }
+      }
+    } catch { /* proof is display metadata — never fail a listing read over it */ }
+    return { ...safe, marketplaceProof };
+  };
 
   // POST /api/brain-marketplace/list — list (or re-list/update) a brain,
   // optionally scoped to specific pairs. Sellers can have several DISTINCT
@@ -33872,6 +33945,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
       let rows: any[];
       let stats: any;
+      let fxProof: any = null;
       if (category === 'fx_models') {
         // FX Model 1 / Model 2 bundle: resolved model ideas, scoped by pair and
         // optionally model/day type. Only a POSITIVE-expectancy record with
@@ -33885,6 +33959,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           return res.status(400).json({ error: `This scope has no positive edge yet (avg ${r.avgR.toFixed(2)}R over ${r.rows.length} ideas) — only profitable model records can be sold.` });
         }
         rows = r.rows;
+        fxProof = r.proof;
         stats = computeListingStats(fm.fxModelRowsForStats(rows) as any);
         stats.suggestedPriceVedd = clampPrice(stats.suggestedPriceVedd * (1 + r.masteryScore / 100));
       } else if (category === 'kalshi') {
@@ -33959,7 +34034,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       } as any);
 
       const { snapshotData: _omit, ...safeListing } = listing;
-      res.status(201).json(safeListing);
+      res.status(201).json(fxProof ? { ...safeListing, marketplaceProof: fxProof } : safeListing);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -33999,10 +34074,12 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         const r = await fm.getFxModelListingRows(userId, symbols.length ? symbols : null);
         if (r.rows.length < fm.FX_MODEL_MIN_TO_LIST || !(r.avgR > 0)) {
           return res.json({ eligible: false, tradeCount: r.rows.length, minTradesRequired: fm.FX_MODEL_MIN_TO_LIST, avgR: r.avgR, masteryLevel: r.level, masteryScore: r.masteryScore,
-            reason: r.rows.length < fm.FX_MODEL_MIN_TO_LIST ? 'not enough resolved ideas' : 'no positive edge yet' });
+            epoch: r.epoch, marketplaceProof: r.proof, propSim: r.proof.propSim,
+            reason: r.rows.length < fm.FX_MODEL_MIN_TO_LIST ? 'not enough resolved ideas in the current system record' : 'no positive edge yet' });
         }
         const stats = computeListingStats(fm.fxModelRowsForStats(r.rows) as any);
-        return res.json({ eligible: true, ...stats, suggestedPriceVedd: clampPrice(stats.suggestedPriceVedd * (1 + r.masteryScore / 100)), avgR: r.avgR, masteryLevel: r.level, masteryScore: r.masteryScore });
+        return res.json({ eligible: true, ...stats, suggestedPriceVedd: clampPrice(stats.suggestedPriceVedd * (1 + r.masteryScore / 100)), avgR: r.avgR, masteryLevel: r.level, masteryScore: r.masteryScore,
+          epoch: r.epoch, marketplaceProof: r.proof, propSim: r.proof.propSim });
       }
       if (category === 'kalshi') {
         const { db } = await import('./db');
@@ -34043,7 +34120,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const enriched = await Promise.all(listings.map(async (l) => {
         const seller = await storage.getUser(l.sellerId);
         const purchase = await storage.getBrainPurchaseByListingAndBuyer(l.id, userId);
-        const { snapshotData: _omit, ...safe } = l;
+        const safe = await enrichBrainListingForClient(l);
         return {
           ...safe,
           sellerUsername: seller?.username || 'Unknown',
@@ -34063,7 +34140,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const userId = (req.user as User).id;
     try {
       const listings = await storage.getUserBrainListings(userId);
-      const safe = listings.map(({ snapshotData: _omit, ...rest }) => rest);
+      const safe = await Promise.all(listings.map((l) => enrichBrainListingForClient(l)));
       res.json(safe);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -34076,10 +34153,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const userId = (req.user as User).id;
     try {
       const purchases = await storage.getUserBrainPurchases(userId);
-      const safe = purchases.map(p => {
-        const { snapshotData: _omit, ...safeListing } = p.listing;
-        return { ...p, listing: safeListing };
-      });
+      const safe = await Promise.all(purchases.map(async (p) => {
+        return { ...p, listing: await enrichBrainListingForClient(p.listing) };
+      }));
       res.json(safe);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -34102,6 +34178,22 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
       const existingPurchase = await storage.getBrainPurchaseByListingAndBuyer(listingId, buyerId);
       if (existingPurchase) return res.status(400).json({ error: "You already purchased this listing" });
+
+      // Strategy listings promise the buyer a deployable copy of the
+      // strategy — verify that promise BEFORE any VEDD moves. A listing
+      // whose package is missing or no longer deployable is not charged.
+      let strategyPackage: any = null;
+      if (listing.sourceCategory === 'wizard_strategy') {
+        const sm = await import('./services/strategy-marketplace');
+        strategyPackage = await sm.getStrategyMarketplacePackage(listingId);
+        if (!strategyPackage) {
+          return res.status(400).json({ error: "This strategy listing has no deployable strategy package, so it cannot be sold as a strategy. You were not charged." });
+        }
+        const deployability = sm.strategyShadowDeployability(sm.purchasedStrategyRecord(buyerId, strategyPackage).spec);
+        if (!deployability.ok) {
+          return res.status(400).json({ error: `This strategy can no longer be deployed: ${deployability.reason} You were not charged.` });
+        }
+      }
 
       const buyerWallet = await storage.getInternalWallet(buyerId);
       const buyerBalance = buyerWallet?.veddBalance ?? 0;
@@ -34133,6 +34225,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       await storage.addToWalletBalance(listing.sellerId, listing.priceVedd);
 
       let tradesImported: number;
+      let strategyClone: any = null;
       if (listing.sourceCategory === 'kalshi') {
         // Merge into the buyer's Kalshi feature store (tagged purchased_brain so
         // it can't be resold), then relearn so their brain absorbs the edge.
@@ -34154,7 +34247,24 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         await learnFromKalshiTrades(buyerId).catch(() => {});
       } else if (listing.sourceCategory === 'fx_models') {
         const { importFxModelSnapshot } = await import('./services/fx-models');
-        tradesImported = await importFxModelSnapshot(buyerId, (listing.snapshotData as any[]) ?? []);
+        tradesImported = await importFxModelSnapshot(buyerId, (listing.snapshotData as any[]) ?? [],
+          { sellerId: listing.sellerId, listingId: listing.id });
+      } else if (listing.sourceCategory === 'wizard_strategy') {
+        // The buyer receives their OWN copy of the strategy (spec
+        // cloned, owned by the buyer, provenance stamped) — ready to
+        // deploy to Shadow immediately or to their own accounts
+        // through the normal deployment flow. The seller's outcome
+        // rows are the listing's proof, not brain training data, so
+        // nothing is merged into the buyer's learning brain here.
+        const sm = await import('./services/strategy-marketplace');
+        const cloned = await sm.clonePurchasedStrategy(buyerId, listingId);
+        strategyClone = {
+          strategyId: cloned.strategy.id,
+          name: cloned.strategy.name,
+          proofType: cloned.provenance.proofType,
+          shadowDeployable: cloned.shadowDeployable,
+        };
+        tradesImported = 0;
       } else if (listing.sourceCategory === 'options') {
         // Merge into the buyer's options feature store (tagged purchased_brain so
         // it can't be resold and won't pollute their real optionsEngineTrades),
@@ -34182,7 +34292,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       } as any);
       await storage.incrementBrainListingPurchaseCount(listingId);
 
-      res.json({ success: true, tradesImported, veddCharged: listing.priceVedd });
+      res.json({ success: true, tradesImported, veddCharged: listing.priceVedd, ...(strategyClone ? { strategyClone } : {}) });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

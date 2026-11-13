@@ -11,9 +11,9 @@ import { useToast } from '@/hooks/use-toast';
 import { Brain, TrendingUp, Calendar, Target, Check, ShoppingCart } from 'lucide-react';
 import BrainVisualization3D from '@/components/brain-visualization-3d';
 
-type SourceCategory = 'forex' | 'tradelocker' | 'kalshi' | 'options' | 'fx_models';
+type SourceCategory = 'forex' | 'tradelocker' | 'kalshi' | 'options' | 'fx_models' | 'wizard_strategy';
 
-const CATEGORY_LABEL: Record<SourceCategory, string> = { forex: 'Forex / MT5 Brain', tradelocker: 'TradeLocker Brain', kalshi: 'Kalshi Brain', options: 'Options Engine Brain', fx_models: 'FX Models (M1/M2)' };
+const CATEGORY_LABEL: Record<SourceCategory, string> = { forex: 'Forex / MT5 Brain', tradelocker: 'TradeLocker Brain', kalshi: 'Kalshi Brain', options: 'Options Engine Brain', fx_models: 'FX Models (M1/M2)', wizard_strategy: 'Strategy Studio Strategy' };
 
 // FX Models bundles carry their scope as tokens inside symbolFilter
 // ("MODEL:M1", "DAY:RANGE") next to plain pair symbols.
@@ -27,6 +27,25 @@ function formatScope(filter: string[] | null): string {
     if (u.startsWith('DAY:')) return `${u.slice(4).charAt(0)}${u.slice(5).toLowerCase()} days`;
     return u;
   }).join(' / ');
+}
+
+interface PropSimSummary {
+  endBalance: number;
+  totalReturnPct: number;
+  tradesTaken: number;
+  blown: boolean;
+}
+
+interface MarketplaceProof {
+  kind: 'fx_model' | 'strategy';
+  proofType: 'shadow' | 'live';
+  epoch?: number;
+  legacy?: boolean;
+  tradeCount: number;
+  winRate: number | null;
+  avgR: number | null;
+  propSim?: Record<'M1' | 'M2', PropSimSummary>;
+  strategyId?: number;
 }
 
 interface BrainListing {
@@ -48,6 +67,49 @@ interface BrainListing {
   isActive?: boolean;
   alreadyPurchased: boolean;
   isOwnListing: boolean;
+  marketplaceProof?: MarketplaceProof | null;
+}
+
+function formatPropSim(proof?: MarketplaceProof | null): string | null {
+  if (!proof?.propSim) return null;
+  const parts = (['M1', 'M2'] as const)
+    .filter((m) => (proof.propSim?.[m]?.tradesTaken ?? 0) > 0)
+    .map((m) => {
+      const s = proof.propSim![m];
+      return `${m} $${Math.round(s.endBalance).toLocaleString('en-US')} (${s.totalReturnPct >= 0 ? '+' : ''}${s.totalReturnPct.toFixed(1)}%)${s.blown ? ' · BLOWN' : ''}`;
+    });
+  return parts.length ? `Prop sim ($100k): ${parts.join(' · ')}` : null;
+}
+
+function ProofBlock({ listing }: { listing: BrainListing }) {
+  const proof = listing.marketplaceProof;
+  if (!proof) return null;
+  const propSim = formatPropSim(proof);
+  return (
+    <div className="rounded-lg border border-purple-500/25 bg-purple-500/5 p-2.5 text-xs space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-bold text-purple-300">{proof.proofType === 'shadow' ? 'Proven in shadow' : 'Proven live'}</span>
+        {proof.epoch != null && (
+          <span className="text-muted-foreground">{proof.legacy ? 'Earlier record (history)' : `Current system record · epoch ${proof.epoch}`}</span>
+        )}
+      </div>
+      <p className="text-muted-foreground">
+        {proof.tradeCount} {proof.kind === 'fx_model' ? 'current-system ' : ''}trades
+        {proof.winRate != null ? ` · ${(proof.winRate * 100).toFixed(0)}% wins` : ''}
+        {proof.avgR != null ? ` · avg ${proof.avgR >= 0 ? '+' : ''}${proof.avgR.toFixed(2)}R` : ''}
+      </p>
+      {propSim && <p className="text-muted-foreground">{propSim}</p>}
+      {proof.kind === 'strategy' && (
+        <p className="text-muted-foreground">You get your own copy of this strategy — deploy it to Shadow or to your own accounts.</p>
+      )}
+      {proof.kind === 'fx_model' && proof.legacy && (
+        <p className="text-amber-400">This listing predates the current system, so its record cannot qualify live trading.</p>
+      )}
+      {proof.kind === 'fx_model' && !proof.legacy && (
+        <p className="text-muted-foreground">A proven purchased slice can qualify your own new trades — under your live switch, your daily limits, and every safety check.</p>
+      )}
+    </div>
+  );
 }
 
 interface PreviewStats {
@@ -62,6 +124,8 @@ interface PreviewStats {
   masteryLevel?: string;
   masteryScore?: number;
   reason?: string;
+  epoch?: number;
+  marketplaceProof?: MarketplaceProof | null;
 }
 
 export default function BrainDataMarketplacePage() {
@@ -156,7 +220,12 @@ export default function BrainDataMarketplacePage() {
       return res.json();
     },
     onSuccess: (data: any) => {
-      toast({ title: 'Purchase complete', description: `${data.tradesImported} trades merged into your brain.` });
+      toast({
+        title: 'Purchase complete',
+        description: data.strategyClone
+          ? `Your own copy of "${data.strategyClone.name}" is now in Strategy Studio — deploy it to Shadow or to your own accounts.`
+          : `${data.tradesImported} trades merged into your brain.`,
+      });
       queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace'] });
       queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace/my-purchases'] });
       queryClient.invalidateQueries({ queryKey: ['/api/wallet/balance'] });
@@ -227,7 +296,7 @@ export default function BrainDataMarketplacePage() {
             {sellCategory === 'fx_models' && (
               <div className="rounded-lg border p-3 space-y-3">
                 <p className="text-xs text-muted-foreground">
-                  Sell what your Model 1 (range) and Model 2 (trend) have proven: resolved ideas with their outcome, day type, session and reasoning. Only scopes with at least 20 resolved ideas and a positive average R can be listed, and a higher mastery score raises the suggested price. Buyers' copies feed their own models but can't be resold.
+                  Sell what your Model 1 (range) and Model 2 (trend) have proven in the current system: resolved ideas with their outcome, day type, session and reasoning. Only scopes with at least 20 current-system ideas and a positive average R can be listed, and a higher mastery score raises the suggested price. Buyers' copies feed their own models and can't be resold — and a purchased slice that clears the same bar as your own can qualify the buyer's own new trades, under their live switch, their daily limits, and every safety check.
                 </p>
                 <div>
                   <p className="text-xs font-semibold mb-1.5">Engine</p>
@@ -297,7 +366,11 @@ export default function BrainDataMarketplacePage() {
                   <div className="flex flex-wrap items-center gap-2 text-sm">
                     <Badge variant="outline" className="border-purple-500/40 text-purple-400">{preview.masteryLevel}</Badge>
                     <span className="text-muted-foreground">Mastery {preview.masteryScore}/100 · avg {(preview.avgR ?? 0) >= 0 ? '+' : ''}{(preview.avgR ?? 0).toFixed(2)}R per idea</span>
+                    {preview.epoch != null && <span className="text-muted-foreground">· Current system record (epoch {preview.epoch})</span>}
                   </div>
+                )}
+                {sellCategory === 'fx_models' && formatPropSim(preview.marketplaceProof) && (
+                  <p className="text-xs text-muted-foreground">{formatPropSim(preview.marketplaceProof)}</p>
                 )}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
                   <div className="bg-secondary/50 rounded p-2 text-center"><p className="text-muted-foreground">Trades</p><p className="font-bold">{preview.tradeCount}</p></div>
@@ -327,7 +400,7 @@ export default function BrainDataMarketplacePage() {
                     <div className="min-w-0">
                       <p className="font-semibold text-sm truncate">{l.title}</p>
                       <p className="text-xs text-muted-foreground">
-                        {formatScope(l.symbolFilter)} · {l.tradeCount} {l.sourceCategory === 'fx_models' ? 'ideas' : 'trades'}{l.includesManualTrades ? ' (incl. manual)' : ''} · {l.priceVedd} VEDD · {l.purchaseCount} sold ({l.purchaseCount * l.priceVedd} VEDD earned)
+                        {formatScope(l.symbolFilter)} · {l.tradeCount} {l.sourceCategory === 'fx_models' ? 'ideas' : 'trades'}{l.includesManualTrades ? ' (incl. manual)' : ''}{l.marketplaceProof ? ` · ${l.marketplaceProof.proofType === 'shadow' ? 'Proven in shadow' : 'Proven live'}` : ''} · {l.priceVedd} VEDD · {l.purchaseCount} sold ({l.purchaseCount * l.priceVedd} VEDD earned)
                       </p>
                     </div>
                     <Button size="sm" variant="outline" onClick={() => deactivateMutation.mutate(l.id)} disabled={deactivateMutation.isPending}>
@@ -366,6 +439,7 @@ export default function BrainDataMarketplacePage() {
                     {listing.description && <p className="text-sm text-muted-foreground mt-2">{listing.description}</p>}
                   </CardHeader>
                   <CardContent className="space-y-4">
+                    <ProofBlock listing={listing} />
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div className="bg-secondary/50 rounded p-2 flex items-center gap-2">
                         <TrendingUp className="w-4 h-4 text-amber-500" />

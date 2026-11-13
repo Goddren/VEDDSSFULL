@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Layers, TrendingUp, Waves, Award } from "lucide-react";
+import { InfoExplainer } from "@/components/info-explainer";
 
 // FX Model 1 (range) / Model 2 (trend) — shadow-phase brain panel.
 // Reads /api/fx-models/{day-types,mastery,decisions}. Display only.
@@ -14,7 +15,10 @@ interface DayTypeRow {
 interface MasteryRow {
   model: "M1" | "M2"; dayType?: string; symbol?: string; session?: string;
   trades: number; wins: number; winRate: number; avgR: number; totalR: number; masteryScore: number; level: string;
-  epochTrades?: number; wasExcludedPair?: boolean;
+  epochTrades?: number; epochWinRate?: number; epochAvgR?: number; epochLevel?: string; allTimeLevel?: string;
+  wasExcludedPair?: boolean;
+  /** Purchased records only: where the record came from. */
+  source?: string; sellerId?: number | null; listingId?: number | null; legacy?: boolean; recordEpoch?: number | null;
 }
 interface PropSimSummary {
   startBalance: number; endBalance: number; totalReturnPct: number;
@@ -58,12 +62,13 @@ export function FxModelsPanel({ className = "", engine = "fx" }: { className?: s
   const [tab, setTab] = useState<"today" | "mastery" | "ideas">("today");
   const isCrypto = engine === "crypto";
   const dayTypes = useQuery<{ dayTypes: DayTypeRow[] }>({ queryKey: [`/api/fx-models/day-types?engine=${engine}`], refetchInterval: 60000 });
-  const mastery = useQuery<{ models: MasteryRow[]; slices: MasteryRow[]; propSim?: Record<string, PropSimSummary> }>({ queryKey: [`/api/fx-models/mastery?engine=${engine}`], refetchInterval: 120000 });
+  const mastery = useQuery<{ models: MasteryRow[]; slices: MasteryRow[]; importedSlices?: MasteryRow[]; propSim?: Record<string, PropSimSummary> }>({ queryKey: [`/api/fx-models/mastery?engine=${engine}`], refetchInterval: 120000 });
   const decisions = useQuery<{ decisions: DecisionRow[] }>({ queryKey: [`/api/fx-models/decisions?limit=60&engine=${engine}`], refetchInterval: 60000, enabled: tab === "ideas" });
 
   const settingsQ = useQuery<{ settings: { live: boolean; m1DailyCap: number; m2DailyCap: number }; eligible: MasteryRow[] }>({ queryKey: ["/api/fx-models/settings"], refetchInterval: 120000, enabled: !isCrypto });
   const live = !isCrypto && !!settingsQ.data?.settings.live;
   const eligible = settingsQ.data?.eligible || [];
+  const eligiblePurchased = eligible.filter((s) => s.source === "marketplace_model").length;
   const toggleLive = useMutation({
     mutationFn: async (next: boolean) => (await apiRequest("POST", "/api/fx-models/settings", { live: next })).json(),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/fx-models/settings"] }),
@@ -71,7 +76,7 @@ export function FxModelsPanel({ className = "", engine = "fx" }: { className?: s
   const onToggle = () => {
     if (!live) {
       const ok = window.confirm(
-        `Turn Model 1 / Model 2 LIVE trading on?\n\nReal orders will be placed, but only for scopes that are Proficient or Master (${eligible.length} right now), only with the model the day type calls for, max ${settingsQ.data?.settings.m1DailyCap ?? 3} Model 1 and ${settingsQ.data?.settings.m2DailyCap ?? 2} Model 2 trades a day. All engine gates and the risk guard still apply, and the FX engine must be running.`,
+        `Turn Model 1 / Model 2 LIVE trading on?\n\nReal orders will be placed, but only for scopes that are Proficient or Master (${eligible.length} right now${eligiblePurchased ? `, including ${eligiblePurchased} proven purchased scope${eligiblePurchased === 1 ? "" : "s"}` : ""}), only with the model the day type calls for, max ${settingsQ.data?.settings.m1DailyCap ?? 3} Model 1 and ${settingsQ.data?.settings.m2DailyCap ?? 2} Model 2 trades a day. All engine gates and the risk guard still apply, and the FX engine must be running.`,
       );
       if (!ok) return;
     }
@@ -96,7 +101,7 @@ export function FxModelsPanel({ className = "", engine = "fx" }: { className?: s
           </div>
           <p className="text-[10px] text-gray-500 mt-0.5">
             {live
-              ? `Trading only Proficient/Master scopes (${eligible.length} eligible now). Everything else stays in shadow.`
+              ? `Trading only Proficient/Master scopes (${eligible.length} eligible now${eligiblePurchased ? `, ${eligiblePurchased} of them purchased` : ""}). Everything else stays in shadow.`
               : "Recording what each model would trade. No orders are placed."}
           </p>
         </div>
@@ -108,6 +113,17 @@ export function FxModelsPanel({ className = "", engine = "fx" }: { className?: s
         >
           {toggleLive.isPending ? "Saving…" : live ? "Stop live" : "Go live"}
         </button>}
+      </div>
+
+      <div className="flex flex-wrap mb-3 -mt-1">
+        <InfoExplainer title="How this works" accent="border-l-sky-300/60">
+          <p><strong className="text-gray-100">1. Read the day.</strong> For each pair, the app first decides what kind of day it is: moving in one direction, or going side to side.</p>
+          <p><strong className="text-gray-100">2. Pick the model.</strong> Model 1 trades side-to-side days with tighter, quicker targets. Model 2 trades moving days and gives winners more room.</p>
+          <p><strong className="text-gray-100">3. Prove it in shadow.</strong> Before any real money, each model practices with pretend trades priced from the real market. Only a strong practice record — lots of trades, winning often enough, and ahead on average — can ever count.</p>
+          <p><strong className="text-gray-100">4. Check it like a firm account.</strong> The prop sim replays that practice record on a pretend $100,000 firm account, so you can see whether it would have survived firm rules.</p>
+          <p><strong className="text-gray-100">5. Share it, or buy it.</strong> A proven record can be listed in the Marketplace. If you buy one, your own new trades can use that proof — but only with your live switch on, inside your daily limits, and after every normal safety check. Nothing trades just because you bought it.</p>
+          <p><strong className="text-gray-100">Current system record</strong> means results from today's upgraded models — that is the record that counts. <strong className="text-gray-100">Earlier record (history)</strong> is what the older models did; it is kept for context and never counts toward going live or a new listing.</p>
+        </InfoExplainer>
       </div>
 
       {/* Model summary cards */}
@@ -133,6 +149,10 @@ export function FxModelsPanel({ className = "", engine = "fx" }: { className?: s
                     <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full" style={{ color: levelColor(s.level), background: `${levelColor(s.level)}22` }}>{s.level}</span>
                   </div>
                   <MasteryBar score={s.masteryScore} color={meta.color} />
+                  <p className="text-[9px] text-gray-400 mt-1">
+                    Current system record: {s.epochTrades ?? 0} resolved{(s.epochTrades ?? 0) > 0 ? ` · ${((s.epochWinRate ?? 0) * 100).toFixed(0)}% · ${fmtR(s.epochAvgR)}` : ""}
+                    {(s.trades - (s.epochTrades ?? 0)) > 0 ? ` · Earlier record (history): ${s.trades - (s.epochTrades ?? 0)}` : ""}
+                  </p>
                   <PropSimLine sim={mastery.data?.propSim?.[m]} />
                 </>
               ) : (
@@ -160,7 +180,7 @@ export function FxModelsPanel({ className = "", engine = "fx" }: { className?: s
       </div>
 
       {tab === "today" && <DayTypesView rows={dayTypes.data?.dayTypes} loading={dayTypes.isLoading} />}
-      {tab === "mastery" && <MasteryView rows={mastery.data?.slices} loading={mastery.isLoading} />}
+      {tab === "mastery" && <MasteryView rows={mastery.data?.slices} importedRows={mastery.data?.importedSlices} loading={mastery.isLoading} />}
       {tab === "ideas" && <IdeasView rows={decisions.data?.decisions} loading={decisions.isLoading} />}
     </div>
   );
@@ -219,15 +239,15 @@ function DayTypesView({ rows, loading }: { rows?: DayTypeRow[]; loading: boolean
   );
 }
 
-function MasteryView({ rows, loading }: { rows?: MasteryRow[]; loading: boolean }) {
+function MasteryView({ rows, importedRows, loading }: { rows?: MasteryRow[]; importedRows?: MasteryRow[]; loading: boolean }) {
   if (loading) return <Empty text="Loading…" />;
-  if (!rows?.length) return <Empty text="Mastery builds as shadow ideas resolve. Expect the first results within a day." />;
+  if (!rows?.length && !importedRows?.length) return <Empty text="Mastery builds as shadow ideas resolve. Expect the first results within a day." />;
   return (
     <div className="space-y-1">
       <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-2 text-[9px] text-gray-500 px-2 pb-0.5">
         <span>Model · day · pair · session</span><span className="text-right">Trades</span><span className="text-right">WR / avg</span><span className="text-right">Level</span>
       </div>
-      {rows.slice(0, 25).map((r, i) => (
+      {(rows || []).slice(0, 25).map((r, i) => (
         <div key={i} className="grid grid-cols-[1fr_auto_auto_auto] gap-x-2 items-center rounded-lg bg-black/20 px-2 py-1.5 text-[10px]">
           <span className="truncate text-gray-300">
             <span className="font-bold" style={{ color: MODEL_META[r.model].color }}>{r.model}</span> · {r.dayType} · {r.symbol} · {r.session}
@@ -244,6 +264,27 @@ function MasteryView({ rows, loading }: { rows?: MasteryRow[]; loading: boolean 
           </span>
         </div>
       ))}
+      {!!importedRows?.length && (
+        <>
+          <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wide pt-2 px-2">Purchased model records</p>
+          {importedRows.slice(0, 25).map((r, i) => (
+            <div key={`imp-${i}`} className="grid grid-cols-[1fr_auto_auto_auto] gap-x-2 items-center rounded-lg bg-purple-500/5 border border-purple-500/20 px-2 py-1.5 text-[10px]">
+              <span className="truncate text-gray-300">
+                <span className="font-bold" style={{ color: MODEL_META[r.model].color }}>{r.model}</span> · {r.dayType} · {r.symbol} · {r.session}
+                <span className={`ml-1 text-[8px] font-semibold px-1 py-px rounded-full border ${r.legacy ? "bg-gray-500/15 text-gray-400 border-gray-500/30" : "bg-purple-500/15 text-purple-300 border-purple-500/30"}`}>
+                  {r.legacy ? "Earlier record (history) — cannot go live" : `Current system record · listing #${r.listingId ?? "—"}`}
+                </span>
+              </span>
+              <span className="text-right text-gray-400">{r.epochTrades ?? 0}</span>
+              <span className="text-right text-gray-300">{((r.epochWinRate ?? 0) * 100).toFixed(0)}% / {fmtR(r.epochAvgR)}</span>
+              <span className="text-right font-semibold flex items-center gap-1 justify-end" style={{ color: levelColor(r.epochLevel || r.level) }}>
+                {(r.epochLevel || r.level).startsWith("Master") && <Award className="w-3 h-3" />}{r.epochLevel || r.level}
+              </span>
+            </div>
+          ))}
+          <p className="text-[9px] text-gray-600 px-2 pt-1">Purchased records are graded on their current-system trades only. A proven purchased slice can qualify your own new trades — under your live switch, your daily limits, and every safety check.</p>
+        </>
+      )}
     </div>
   );
 }

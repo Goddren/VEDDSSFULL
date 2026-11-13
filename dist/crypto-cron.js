@@ -29426,11 +29426,19 @@ __export(fx_models_exports, {
   d1Summary: () => d1Summary,
   decisionProvenance: () => decisionProvenance,
   ensureFxModelTables: () => ensureFxModelTables,
+  fxModelDailyCap: () => fxModelDailyCap,
+  fxModelDailyCapAllows: () => fxModelDailyCapAllows,
+  fxModelImportEpoch: () => fxModelImportEpoch,
+  fxModelListingProof: () => fxModelListingProof,
+  fxModelMarketplaceLiveOn: () => fxModelMarketplaceLiveOn,
+  fxModelProvenanceForSlice: () => fxModelProvenanceForSlice,
   fxModelRowsForStats: () => fxModelRowsForStats,
   getFxModelListingRows: () => getFxModelListingRows,
   getFxModelSettings: () => getFxModelSettings,
   getModelMastery: () => getModelMastery,
   importFxModelSnapshot: () => importFxModelSnapshot,
+  importedSliceLiveReady: () => importedSliceLiveReady,
+  importedSliceMeetsBar: () => importedSliceMeetsBar,
   isExcludedPair: () => isExcludedPair,
   liftsActive: () => liftsActive,
   liveEligibleSlices: () => liveEligibleSlices,
@@ -29453,7 +29461,8 @@ __export(fx_models_exports, {
   saveFxModelSettings: () => saveFxModelSettings,
   sessionFor: () => sessionFor,
   sliceLiveReady: () => sliceLiveReady,
-  sliceMeetsBar: () => sliceMeetsBar
+  sliceMeetsBar: () => sliceMeetsBar,
+  stampFxModelImportContext: () => stampFxModelImportContext
 });
 function ensureFxModelTables() {
   if (!ensured3) {
@@ -30168,14 +30177,37 @@ function parseFxModelScope(filter) {
   const engine = f.includes("ENGINE:CRYPTO") ? "crypto" : "fx";
   return { model: model === "M1" || model === "M2" ? model : null, dayType: ["range", "trend", "mixed"].includes(dayType || "") ? dayType : null, symbols, engine };
 }
+function fxModelListingProof(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const current = list.filter((r) => Number(r?.epoch) === MODELS_EPOCH);
+  const statRows = fxModelRowsForStats(current);
+  const wins = statRows.filter((r) => r.tradeOutcome === "WIN").length;
+  const tradeCount = current.length;
+  const epochs = list.map((r) => Number(r?.epoch)).filter((n) => Number.isFinite(n) && n > 0);
+  const byModel = { M1: [], M2: [] };
+  for (const r of current) {
+    if (r?.model === "M1" || r?.model === "M2") byModel[r.model].push(r);
+  }
+  return {
+    kind: "fx_model",
+    proofType: "shadow",
+    epoch: current.length === list.length && list.length > 0 ? MODELS_EPOCH : epochs.length ? Math.min(...epochs) : 1,
+    legacy: list.length > 0 && current.length !== list.length,
+    tradeCount,
+    winRate: tradeCount ? wins / tradeCount : null,
+    avgR: tradeCount ? current.reduce((a, r) => a + (Number(r.r_multiple) || 0), 0) / tradeCount : null,
+    propSim: { M1: propSimulate(byModel.M1), M2: propSimulate(byModel.M2) }
+  };
+}
 async function getFxModelListingRows(userId, filter) {
   await ensureFxModelTables();
   const { model, dayType, symbols, engine } = parseFxModelScope(filter);
   const { rows } = await pool.query(
     `SELECT symbol, model, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context,
-            result, r_multiple, pips, exit_price, created_at, resolved_at, engine
+            result, r_multiple, pips, exit_price, created_at, resolved_at, engine, epoch
        FROM fx_model_decisions
       WHERE user_id=$1 AND source='own' AND engine='${engine}' AND result IN ('WIN','LOSS','EXPIRED')
+        AND epoch = ${MODELS_EPOCH}
         AND ($2::text IS NULL OR model=$2) AND ($3::text IS NULL OR day_type=$3)
         AND (cardinality($4::text[]) = 0 OR symbol = ANY($4::text[]))
       ORDER BY created_at DESC LIMIT 3000`,
@@ -30186,7 +30218,7 @@ async function getFxModelListingRows(userId, filter) {
   const avgR = n ? rows.reduce((a, r) => a + (Number(r.r_multiple) || 0), 0) / n : 0;
   const winRate = n ? wins / n : 0;
   const masteryScore = Math.round(Math.min(1, n / 150) * 50 + Math.max(0, Math.min(1, (avgR + 0.5) / 1.5)) * 50);
-  return { rows, avgR, masteryScore, level: masteryLevel(n, winRate, avgR) };
+  return { rows, avgR, masteryScore, level: masteryLevel(n, winRate, avgR), epoch: MODELS_EPOCH, proof: fxModelListingProof(rows) };
 }
 function fxModelRowsForStats(rows) {
   return rows.map((r) => ({
@@ -30195,14 +30227,39 @@ function fxModelRowsForStats(rows) {
     tradeOutcome: r.result === "WIN" || r.result === "EXPIRED" && Number(r.r_multiple) > 0 ? "WIN" : "LOSS"
   }));
 }
-async function importFxModelSnapshot(buyerId, snapshot) {
+function fxModelImportEpoch(row) {
+  return Number(row?.epoch) === MODELS_EPOCH ? MODELS_EPOCH : 1;
+}
+function stampFxModelImportContext(context, row, provenance) {
+  let base = {};
+  if (context && typeof context === "object" && !Array.isArray(context)) base = { ...context };
+  else if (typeof context === "string" && context.trim()) {
+    try {
+      const parsed = JSON.parse(context);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) base = { ...parsed };
+    } catch {
+    }
+  }
+  const listingId = Number(provenance?.listingId);
+  const sellerId = Number(provenance?.sellerId);
+  if (Number.isFinite(listingId) && listingId > 0) {
+    base.marketplace = {
+      source: "marketplace_model",
+      sellerId: Number.isFinite(sellerId) && sellerId > 0 ? sellerId : null,
+      listingId,
+      epoch: fxModelImportEpoch(row)
+    };
+  }
+  return Object.keys(base).length ? base : null;
+}
+async function importFxModelSnapshot(buyerId, snapshot, provenance) {
   await ensureFxModelTables();
   let n = 0;
   for (const r of snapshot || []) {
     await pool.query(
       `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit,
-         confidence, setup, reasoning, context, result, r_multiple, pips, exit_price, resolved_at, created_at, source, engine)
-       VALUES ($1,$2,$3,'purchased',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,'purchased_brain',$20)`,
+         confidence, setup, reasoning, context, result, r_multiple, pips, exit_price, resolved_at, created_at, source, engine, epoch)
+       VALUES ($1,$2,$3,'purchased',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,'purchased_brain',$20,$21)`,
       [
         buyerId,
         r.symbol,
@@ -30216,14 +30273,15 @@ async function importFxModelSnapshot(buyerId, snapshot) {
         r.confidence,
         r.setup,
         r.reasoning,
-        JSON.stringify(r.context ?? null),
+        JSON.stringify(stampFxModelImportContext(r.context, r, provenance)),
         r.result,
         r.r_multiple,
         r.pips,
         r.exit_price,
         r.resolved_at ? new Date(r.resolved_at) : null,
         r.created_at ? new Date(r.created_at) : /* @__PURE__ */ new Date(),
-        r.engine === "crypto" ? "crypto" : "fx"
+        r.engine === "crypto" ? "crypto" : "fx",
+        fxModelImportEpoch(r)
       ]
     ).then(() => {
       n++;
@@ -30281,10 +30339,50 @@ async function sliceLiveReady(userId, s) {
   );
   return rows.every((r) => Number(r.r) >= 0);
 }
+function importedSliceMeetsBar(s) {
+  if (!fxModelMarketplaceLiveOn()) return false;
+  if (!s || s.source !== "marketplace_model" || s.legacy) return false;
+  if (!(Number(s.listingId) > 0)) return false;
+  if (Number(s.recordEpoch ?? s.epoch) !== MODELS_EPOCH) return false;
+  return sliceMeetsBar(s);
+}
+async function importedSliceLiveReady(userId, s) {
+  if (!importedSliceMeetsBar(s)) return false;
+  const { rows } = await pool.query(
+    `SELECT date_trunc('week', created_at) AS wk, SUM(r_multiple)::float AS r
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND engine='fx' AND source='purchased_brain' AND epoch = ${MODELS_EPOCH}
+        AND model=$2 AND day_type=$3 AND symbol=$4 AND session=$5
+        AND context->'marketplace'->>'listingId' = $6
+        AND created_at >= date_trunc('week', now()) - interval '7 days'
+        AND result IN ('WIN','LOSS','EXPIRED')
+      GROUP BY 1`,
+    [userId, s.model, s.dayType, s.symbol, s.session, String(s.listingId)]
+  );
+  return rows.every((r) => Number(r.r) >= 0);
+}
+function fxModelProvenanceForSlice(s) {
+  return {
+    source: "marketplace_model",
+    sellerId: Number(s?.sellerId) > 0 ? Number(s.sellerId) : null,
+    listingId: Number(s?.listingId)
+  };
+}
+function fxModelDailyCap(model, settings) {
+  const raw = model === "M1" ? settings?.m1DailyCap : settings?.m2DailyCap;
+  const n = Math.floor(Number(raw));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+function fxModelDailyCapAllows(claimsToday, model, settings) {
+  return Number(claimsToday) < fxModelDailyCap(model, settings);
+}
 async function liveEligibleSlices(userId) {
   const m = await getModelMastery(userId, { ownOnly: true });
   const out = [];
   for (const s of m.slices) if (await sliceLiveReady(userId, s)) out.push(s);
+  if (fxModelMarketplaceLiveOn()) {
+    for (const s of m.importedSlices) if (await importedSliceLiveReady(userId, s)) out.push(s);
+  }
   return out;
 }
 async function maybeGoLive(userId, idea) {
@@ -30292,9 +30390,20 @@ async function maybeGoLive(userId, idea) {
   if (!settings.live) return;
   if (idea.model !== idea.autoModel) return;
   const mastery = await getModelMastery(userId, { ownOnly: true });
-  const slice = mastery.slices.find((s) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session);
-  if (!slice || !await sliceLiveReady(userId, slice)) return;
-  const cap = idea.model === "M1" ? settings.m1DailyCap : settings.m2DailyCap;
+  const matches = (s) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session;
+  const ownSlice = mastery.slices.find(matches);
+  const ownReady = !!ownSlice && await sliceLiveReady(userId, ownSlice);
+  const importedSlice = ownReady ? null : (mastery.importedSlices || []).find(matches) || null;
+  const importedReady = !!importedSlice && await importedSliceLiveReady(userId, importedSlice);
+  if (!ownReady && !importedReady) return;
+  const slice = ownReady ? ownSlice : importedSlice;
+  const provenance = importedReady ? fxModelProvenanceForSlice(importedSlice) : null;
+  const cap = fxModelDailyCap(idea.model, settings);
+  const { rows: usedRows } = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM fx_model_decisions WHERE user_id=$1 AND model=$2 AND mode IN ('live','live_pending') AND created_at >= date_trunc('day', now())`,
+    [userId, idea.model]
+  ).catch(() => ({ rows: [{ n: 0 }] }));
+  if (!fxModelDailyCapAllows(Number(usedRows[0]?.n) || 0, idea.model, settings)) return;
   const client2 = await pool.connect();
   let claimed = false;
   try {
@@ -30317,6 +30426,7 @@ async function maybeGoLive(userId, idea) {
     client2.release();
   }
   if (!claimed) return;
+  const stats = promotionStats(slice);
   const { submitFxModelTrade: submitFxModelTrade2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
   const placed = await submitFxModelTrade2(userId, {
     model: idea.model,
@@ -30326,10 +30436,17 @@ async function maybeGoLive(userId, idea) {
     entryPrice: idea.entry,
     stopLoss: idea.stopLoss,
     takeProfit: idea.takeProfit,
-    reason: `${idea.model === "M1" ? "Model 1 \xB7 Range" : "Model 2 \xB7 Trend"} [${slice.level}, ${slice.trades} ideas, ${(slice.winRate * 100).toFixed(0)}% WR, ${slice.avgR >= 0 ? "+" : ""}${slice.avgR.toFixed(2)}R] ${idea.setup}: ${idea.reason}`.slice(0, 500)
+    reason: `${idea.model === "M1" ? "Model 1 \xB7 Range" : "Model 2 \xB7 Trend"} [${stats.level}, ${stats.trades} current-system ideas, ${(stats.winRate * 100).toFixed(0)}% WR, ${stats.avgR >= 0 ? "+" : ""}${stats.avgR.toFixed(2)}R]${provenance ? ` [Marketplace model \xB7 listing #${provenance.listingId}${provenance.sellerId ? ` \xB7 seller #${provenance.sellerId}` : ""}]` : ""} ${idea.setup}: ${idea.reason}`.slice(0, 500)
   }).catch(() => false);
   await pool.query(`UPDATE fx_model_decisions SET mode=$2 WHERE id=$1`, [idea.id, placed ? "live" : "shadow"]).catch(() => {
   });
+  if (placed && provenance) {
+    await pool.query(
+      `UPDATE fx_model_decisions SET context = COALESCE(context, '{}'::jsonb) || $2::jsonb WHERE id=$1`,
+      [idea.id, JSON.stringify({ marketplaceProvenance: provenance })]
+    ).catch(() => {
+    });
+  }
 }
 function barTrend(bars) {
   const c = bars.map((b) => Number(b.close));
@@ -30491,6 +30608,36 @@ async function getModelMastery(userId, opts = {}) {
       wasExcludedPair: isExcludedPair(r.model, r.symbol, _eng)
     };
   };
+  const importedAgg = _eng === "fx" ? (await pool.query(
+    `SELECT model, day_type, symbol, session,
+            context->'marketplace'->>'listingId' AS listing_id,
+            context->'marketplace'->>'sellerId' AS seller_id,
+            MIN(epoch)::int AS min_epoch, MAX(epoch)::int AS max_epoch,
+            COUNT(*)::int AS trades,
+            COUNT(*) FILTER (WHERE result='WIN')::int AS wins,
+            COALESCE(AVG(r_multiple),0)::float AS avg_r,
+            COALESCE(SUM(r_multiple),0)::float AS total_r,
+            COUNT(*) FILTER (WHERE epoch = ${MODELS_EPOCH})::int AS epoch_trades,
+            COUNT(*) FILTER (WHERE epoch = ${MODELS_EPOCH} AND result='WIN')::int AS epoch_wins,
+            COALESCE(AVG(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_avg_r,
+            COALESCE(SUM(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_total_r
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND engine='fx' AND result IN ('WIN','LOSS','EXPIRED') AND source='purchased_brain'
+      GROUP BY model, day_type, symbol, session, listing_id, seller_id ORDER BY trades DESC`,
+    [userId]
+  ).catch(() => ({ rows: [] }))).rows : [];
+  const importedSlices = importedAgg.map((r) => {
+    const listingId = Number(r.listing_id) > 0 ? Number(r.listing_id) : null;
+    const recordEpoch = Number(r.min_epoch) === Number(r.max_epoch) ? Number(r.min_epoch) : null;
+    return {
+      ...shape(r),
+      source: "marketplace_model",
+      sellerId: Number(r.seller_id) > 0 ? Number(r.seller_id) : null,
+      listingId,
+      recordEpoch,
+      legacy: !(recordEpoch === MODELS_EPOCH && listingId != null)
+    };
+  });
   const simRows = (await pool.query(
     `SELECT model, day_type, symbol, session, confidence, r_multiple, created_at, resolved_at
        FROM fx_model_decisions
@@ -30506,10 +30653,11 @@ async function getModelMastery(userId, opts = {}) {
   return {
     models: (await agg("model")).map(shape),
     slices: (await agg("model, day_type, symbol, session")).map(shape),
+    importedSlices,
     propSim: { M1: propSimulate(byModel.M1), M2: propSimulate(byModel.M2) }
   };
 }
-var DDL5, ensured3, barsProviders, barsFor, pipSize, modelsEnrichOn, MODELS_EPOCH, modelsEpochOn, modelsLiftsOn, liftsActive, clampNum, round22, d1CtxCache, orbCtxCache, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
+var DDL5, ensured3, barsProviders, barsFor, pipSize, modelsEnrichOn, MODELS_EPOCH, modelsEpochOn, modelsLiftsOn, fxModelMarketplaceLiveOn, liftsActive, clampNum, round22, d1CtxCache, orbCtxCache, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
 var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
@@ -30579,6 +30727,7 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
     MODELS_EPOCH = 2;
     modelsEpochOn = () => process.env.FX_MODELS_EPOCH !== "off";
     modelsLiftsOn = () => process.env.FX_MODELS_LIFTS !== "off";
+    fxModelMarketplaceLiveOn = () => process.env.FX_MODEL_MARKETPLACE_LIVE !== "off";
     liftsActive = () => modelsEnrichOn() && modelsLiftsOn();
     clampNum = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
     round22 = (x) => Math.round(x * 100) / 100;

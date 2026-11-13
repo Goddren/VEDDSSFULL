@@ -28158,11 +28158,19 @@ __export(fx_models_exports, {
   d1Summary: () => d1Summary,
   decisionProvenance: () => decisionProvenance,
   ensureFxModelTables: () => ensureFxModelTables,
+  fxModelDailyCap: () => fxModelDailyCap,
+  fxModelDailyCapAllows: () => fxModelDailyCapAllows,
+  fxModelImportEpoch: () => fxModelImportEpoch,
+  fxModelListingProof: () => fxModelListingProof,
+  fxModelMarketplaceLiveOn: () => fxModelMarketplaceLiveOn,
+  fxModelProvenanceForSlice: () => fxModelProvenanceForSlice,
   fxModelRowsForStats: () => fxModelRowsForStats,
   getFxModelListingRows: () => getFxModelListingRows,
   getFxModelSettings: () => getFxModelSettings,
   getModelMastery: () => getModelMastery,
   importFxModelSnapshot: () => importFxModelSnapshot,
+  importedSliceLiveReady: () => importedSliceLiveReady,
+  importedSliceMeetsBar: () => importedSliceMeetsBar,
   isExcludedPair: () => isExcludedPair,
   liftsActive: () => liftsActive,
   liveEligibleSlices: () => liveEligibleSlices,
@@ -28185,7 +28193,8 @@ __export(fx_models_exports, {
   saveFxModelSettings: () => saveFxModelSettings,
   sessionFor: () => sessionFor,
   sliceLiveReady: () => sliceLiveReady,
-  sliceMeetsBar: () => sliceMeetsBar
+  sliceMeetsBar: () => sliceMeetsBar,
+  stampFxModelImportContext: () => stampFxModelImportContext
 });
 function ensureFxModelTables() {
   if (!ensured3) {
@@ -28900,14 +28909,37 @@ function parseFxModelScope(filter) {
   const engine = f.includes("ENGINE:CRYPTO") ? "crypto" : "fx";
   return { model: model === "M1" || model === "M2" ? model : null, dayType: ["range", "trend", "mixed"].includes(dayType || "") ? dayType : null, symbols, engine };
 }
+function fxModelListingProof(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const current = list.filter((r) => Number(r?.epoch) === MODELS_EPOCH);
+  const statRows = fxModelRowsForStats(current);
+  const wins = statRows.filter((r) => r.tradeOutcome === "WIN").length;
+  const tradeCount = current.length;
+  const epochs = list.map((r) => Number(r?.epoch)).filter((n) => Number.isFinite(n) && n > 0);
+  const byModel = { M1: [], M2: [] };
+  for (const r of current) {
+    if (r?.model === "M1" || r?.model === "M2") byModel[r.model].push(r);
+  }
+  return {
+    kind: "fx_model",
+    proofType: "shadow",
+    epoch: current.length === list.length && list.length > 0 ? MODELS_EPOCH : epochs.length ? Math.min(...epochs) : 1,
+    legacy: list.length > 0 && current.length !== list.length,
+    tradeCount,
+    winRate: tradeCount ? wins / tradeCount : null,
+    avgR: tradeCount ? current.reduce((a, r) => a + (Number(r.r_multiple) || 0), 0) / tradeCount : null,
+    propSim: { M1: propSimulate(byModel.M1), M2: propSimulate(byModel.M2) }
+  };
+}
 async function getFxModelListingRows(userId, filter) {
   await ensureFxModelTables();
   const { model, dayType, symbols, engine } = parseFxModelScope(filter);
   const { rows } = await pool.query(
     `SELECT symbol, model, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context,
-            result, r_multiple, pips, exit_price, created_at, resolved_at, engine
+            result, r_multiple, pips, exit_price, created_at, resolved_at, engine, epoch
        FROM fx_model_decisions
       WHERE user_id=$1 AND source='own' AND engine='${engine}' AND result IN ('WIN','LOSS','EXPIRED')
+        AND epoch = ${MODELS_EPOCH}
         AND ($2::text IS NULL OR model=$2) AND ($3::text IS NULL OR day_type=$3)
         AND (cardinality($4::text[]) = 0 OR symbol = ANY($4::text[]))
       ORDER BY created_at DESC LIMIT 3000`,
@@ -28918,7 +28950,7 @@ async function getFxModelListingRows(userId, filter) {
   const avgR = n ? rows.reduce((a, r) => a + (Number(r.r_multiple) || 0), 0) / n : 0;
   const winRate2 = n ? wins / n : 0;
   const masteryScore = Math.round(Math.min(1, n / 150) * 50 + Math.max(0, Math.min(1, (avgR + 0.5) / 1.5)) * 50);
-  return { rows, avgR, masteryScore, level: masteryLevel(n, winRate2, avgR) };
+  return { rows, avgR, masteryScore, level: masteryLevel(n, winRate2, avgR), epoch: MODELS_EPOCH, proof: fxModelListingProof(rows) };
 }
 function fxModelRowsForStats(rows) {
   return rows.map((r) => ({
@@ -28927,14 +28959,39 @@ function fxModelRowsForStats(rows) {
     tradeOutcome: r.result === "WIN" || r.result === "EXPIRED" && Number(r.r_multiple) > 0 ? "WIN" : "LOSS"
   }));
 }
-async function importFxModelSnapshot(buyerId, snapshot) {
+function fxModelImportEpoch(row) {
+  return Number(row?.epoch) === MODELS_EPOCH ? MODELS_EPOCH : 1;
+}
+function stampFxModelImportContext(context, row, provenance) {
+  let base = {};
+  if (context && typeof context === "object" && !Array.isArray(context)) base = { ...context };
+  else if (typeof context === "string" && context.trim()) {
+    try {
+      const parsed = JSON.parse(context);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) base = { ...parsed };
+    } catch {
+    }
+  }
+  const listingId = Number(provenance?.listingId);
+  const sellerId = Number(provenance?.sellerId);
+  if (Number.isFinite(listingId) && listingId > 0) {
+    base.marketplace = {
+      source: "marketplace_model",
+      sellerId: Number.isFinite(sellerId) && sellerId > 0 ? sellerId : null,
+      listingId,
+      epoch: fxModelImportEpoch(row)
+    };
+  }
+  return Object.keys(base).length ? base : null;
+}
+async function importFxModelSnapshot(buyerId, snapshot, provenance) {
   await ensureFxModelTables();
   let n = 0;
   for (const r of snapshot || []) {
     await pool.query(
       `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit,
-         confidence, setup, reasoning, context, result, r_multiple, pips, exit_price, resolved_at, created_at, source, engine)
-       VALUES ($1,$2,$3,'purchased',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,'purchased_brain',$20)`,
+         confidence, setup, reasoning, context, result, r_multiple, pips, exit_price, resolved_at, created_at, source, engine, epoch)
+       VALUES ($1,$2,$3,'purchased',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,'purchased_brain',$20,$21)`,
       [
         buyerId,
         r.symbol,
@@ -28948,14 +29005,15 @@ async function importFxModelSnapshot(buyerId, snapshot) {
         r.confidence,
         r.setup,
         r.reasoning,
-        JSON.stringify(r.context ?? null),
+        JSON.stringify(stampFxModelImportContext(r.context, r, provenance)),
         r.result,
         r.r_multiple,
         r.pips,
         r.exit_price,
         r.resolved_at ? new Date(r.resolved_at) : null,
         r.created_at ? new Date(r.created_at) : /* @__PURE__ */ new Date(),
-        r.engine === "crypto" ? "crypto" : "fx"
+        r.engine === "crypto" ? "crypto" : "fx",
+        fxModelImportEpoch(r)
       ]
     ).then(() => {
       n++;
@@ -29013,10 +29071,50 @@ async function sliceLiveReady(userId, s) {
   );
   return rows.every((r) => Number(r.r) >= 0);
 }
+function importedSliceMeetsBar(s) {
+  if (!fxModelMarketplaceLiveOn()) return false;
+  if (!s || s.source !== "marketplace_model" || s.legacy) return false;
+  if (!(Number(s.listingId) > 0)) return false;
+  if (Number(s.recordEpoch ?? s.epoch) !== MODELS_EPOCH) return false;
+  return sliceMeetsBar(s);
+}
+async function importedSliceLiveReady(userId, s) {
+  if (!importedSliceMeetsBar(s)) return false;
+  const { rows } = await pool.query(
+    `SELECT date_trunc('week', created_at) AS wk, SUM(r_multiple)::float AS r
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND engine='fx' AND source='purchased_brain' AND epoch = ${MODELS_EPOCH}
+        AND model=$2 AND day_type=$3 AND symbol=$4 AND session=$5
+        AND context->'marketplace'->>'listingId' = $6
+        AND created_at >= date_trunc('week', now()) - interval '7 days'
+        AND result IN ('WIN','LOSS','EXPIRED')
+      GROUP BY 1`,
+    [userId, s.model, s.dayType, s.symbol, s.session, String(s.listingId)]
+  );
+  return rows.every((r) => Number(r.r) >= 0);
+}
+function fxModelProvenanceForSlice(s) {
+  return {
+    source: "marketplace_model",
+    sellerId: Number(s?.sellerId) > 0 ? Number(s.sellerId) : null,
+    listingId: Number(s?.listingId)
+  };
+}
+function fxModelDailyCap(model, settings) {
+  const raw = model === "M1" ? settings?.m1DailyCap : settings?.m2DailyCap;
+  const n = Math.floor(Number(raw));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+function fxModelDailyCapAllows(claimsToday, model, settings) {
+  return Number(claimsToday) < fxModelDailyCap(model, settings);
+}
 async function liveEligibleSlices(userId) {
   const m = await getModelMastery(userId, { ownOnly: true });
   const out = [];
   for (const s of m.slices) if (await sliceLiveReady(userId, s)) out.push(s);
+  if (fxModelMarketplaceLiveOn()) {
+    for (const s of m.importedSlices) if (await importedSliceLiveReady(userId, s)) out.push(s);
+  }
   return out;
 }
 async function maybeGoLive(userId, idea) {
@@ -29024,9 +29122,20 @@ async function maybeGoLive(userId, idea) {
   if (!settings.live) return;
   if (idea.model !== idea.autoModel) return;
   const mastery2 = await getModelMastery(userId, { ownOnly: true });
-  const slice = mastery2.slices.find((s) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session);
-  if (!slice || !await sliceLiveReady(userId, slice)) return;
-  const cap = idea.model === "M1" ? settings.m1DailyCap : settings.m2DailyCap;
+  const matches = (s) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session;
+  const ownSlice = mastery2.slices.find(matches);
+  const ownReady = !!ownSlice && await sliceLiveReady(userId, ownSlice);
+  const importedSlice = ownReady ? null : (mastery2.importedSlices || []).find(matches) || null;
+  const importedReady = !!importedSlice && await importedSliceLiveReady(userId, importedSlice);
+  if (!ownReady && !importedReady) return;
+  const slice = ownReady ? ownSlice : importedSlice;
+  const provenance = importedReady ? fxModelProvenanceForSlice(importedSlice) : null;
+  const cap = fxModelDailyCap(idea.model, settings);
+  const { rows: usedRows } = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM fx_model_decisions WHERE user_id=$1 AND model=$2 AND mode IN ('live','live_pending') AND created_at >= date_trunc('day', now())`,
+    [userId, idea.model]
+  ).catch(() => ({ rows: [{ n: 0 }] }));
+  if (!fxModelDailyCapAllows(Number(usedRows[0]?.n) || 0, idea.model, settings)) return;
   const client2 = await pool.connect();
   let claimed = false;
   try {
@@ -29049,6 +29158,7 @@ async function maybeGoLive(userId, idea) {
     client2.release();
   }
   if (!claimed) return;
+  const stats = promotionStats(slice);
   const { submitFxModelTrade: submitFxModelTrade2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
   const placed = await submitFxModelTrade2(userId, {
     model: idea.model,
@@ -29058,10 +29168,17 @@ async function maybeGoLive(userId, idea) {
     entryPrice: idea.entry,
     stopLoss: idea.stopLoss,
     takeProfit: idea.takeProfit,
-    reason: `${idea.model === "M1" ? "Model 1 \xB7 Range" : "Model 2 \xB7 Trend"} [${slice.level}, ${slice.trades} ideas, ${(slice.winRate * 100).toFixed(0)}% WR, ${slice.avgR >= 0 ? "+" : ""}${slice.avgR.toFixed(2)}R] ${idea.setup}: ${idea.reason}`.slice(0, 500)
+    reason: `${idea.model === "M1" ? "Model 1 \xB7 Range" : "Model 2 \xB7 Trend"} [${stats.level}, ${stats.trades} current-system ideas, ${(stats.winRate * 100).toFixed(0)}% WR, ${stats.avgR >= 0 ? "+" : ""}${stats.avgR.toFixed(2)}R]${provenance ? ` [Marketplace model \xB7 listing #${provenance.listingId}${provenance.sellerId ? ` \xB7 seller #${provenance.sellerId}` : ""}]` : ""} ${idea.setup}: ${idea.reason}`.slice(0, 500)
   }).catch(() => false);
   await pool.query(`UPDATE fx_model_decisions SET mode=$2 WHERE id=$1`, [idea.id, placed ? "live" : "shadow"]).catch(() => {
   });
+  if (placed && provenance) {
+    await pool.query(
+      `UPDATE fx_model_decisions SET context = COALESCE(context, '{}'::jsonb) || $2::jsonb WHERE id=$1`,
+      [idea.id, JSON.stringify({ marketplaceProvenance: provenance })]
+    ).catch(() => {
+    });
+  }
 }
 function barTrend(bars) {
   const c = bars.map((b) => Number(b.close));
@@ -29223,6 +29340,36 @@ async function getModelMastery(userId, opts = {}) {
       wasExcludedPair: isExcludedPair(r.model, r.symbol, _eng)
     };
   };
+  const importedAgg = _eng === "fx" ? (await pool.query(
+    `SELECT model, day_type, symbol, session,
+            context->'marketplace'->>'listingId' AS listing_id,
+            context->'marketplace'->>'sellerId' AS seller_id,
+            MIN(epoch)::int AS min_epoch, MAX(epoch)::int AS max_epoch,
+            COUNT(*)::int AS trades,
+            COUNT(*) FILTER (WHERE result='WIN')::int AS wins,
+            COALESCE(AVG(r_multiple),0)::float AS avg_r,
+            COALESCE(SUM(r_multiple),0)::float AS total_r,
+            COUNT(*) FILTER (WHERE epoch = ${MODELS_EPOCH})::int AS epoch_trades,
+            COUNT(*) FILTER (WHERE epoch = ${MODELS_EPOCH} AND result='WIN')::int AS epoch_wins,
+            COALESCE(AVG(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_avg_r,
+            COALESCE(SUM(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_total_r
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND engine='fx' AND result IN ('WIN','LOSS','EXPIRED') AND source='purchased_brain'
+      GROUP BY model, day_type, symbol, session, listing_id, seller_id ORDER BY trades DESC`,
+    [userId]
+  ).catch(() => ({ rows: [] }))).rows : [];
+  const importedSlices = importedAgg.map((r) => {
+    const listingId = Number(r.listing_id) > 0 ? Number(r.listing_id) : null;
+    const recordEpoch = Number(r.min_epoch) === Number(r.max_epoch) ? Number(r.min_epoch) : null;
+    return {
+      ...shape(r),
+      source: "marketplace_model",
+      sellerId: Number(r.seller_id) > 0 ? Number(r.seller_id) : null,
+      listingId,
+      recordEpoch,
+      legacy: !(recordEpoch === MODELS_EPOCH && listingId != null)
+    };
+  });
   const simRows = (await pool.query(
     `SELECT model, day_type, symbol, session, confidence, r_multiple, created_at, resolved_at
        FROM fx_model_decisions
@@ -29238,10 +29385,11 @@ async function getModelMastery(userId, opts = {}) {
   return {
     models: (await agg("model")).map(shape),
     slices: (await agg("model, day_type, symbol, session")).map(shape),
+    importedSlices,
     propSim: { M1: propSimulate(byModel.M1), M2: propSimulate(byModel.M2) }
   };
 }
-var DDL3, ensured3, barsProviders, barsFor, pipSize, modelsEnrichOn, MODELS_EPOCH, modelsEpochOn, modelsLiftsOn, liftsActive, clampNum, round22, d1CtxCache, orbCtxCache, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
+var DDL3, ensured3, barsProviders, barsFor, pipSize, modelsEnrichOn, MODELS_EPOCH, modelsEpochOn, modelsLiftsOn, fxModelMarketplaceLiveOn, liftsActive, clampNum, round22, d1CtxCache, orbCtxCache, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
 var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
@@ -29311,6 +29459,7 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
     MODELS_EPOCH = 2;
     modelsEpochOn = () => process.env.FX_MODELS_EPOCH !== "off";
     modelsLiftsOn = () => process.env.FX_MODELS_LIFTS !== "off";
+    fxModelMarketplaceLiveOn = () => process.env.FX_MODEL_MARKETPLACE_LIVE !== "off";
     liftsActive = () => modelsEnrichOn() && modelsLiftsOn();
     clampNum = (x, lo2, hi2) => Math.max(lo2, Math.min(hi2, x));
     round22 = (x) => Math.round(x * 100) / 100;
@@ -64722,21 +64871,49 @@ var init_spec_ea_generator = __esm({
 // server/services/strategy-brain.ts
 var strategy_brain_exports = {};
 __export(strategy_brain_exports, {
+  STRATEGY_MARKETPLACE_MIN_LIVE_TRADES: () => STRATEGY_MARKETPLACE_MIN_LIVE_TRADES,
+  STRATEGY_SHADOW_MIN_AVG_R: () => STRATEGY_SHADOW_MIN_AVG_R,
+  STRATEGY_SHADOW_MIN_TRADES: () => STRATEGY_SHADOW_MIN_TRADES,
+  STRATEGY_SHADOW_MIN_WIN_RATE: () => STRATEGY_SHADOW_MIN_WIN_RATE,
   buildStrategyBrain: () => buildStrategyBrain,
+  strategyMarketplaceProof: () => strategyMarketplaceProof,
+  strategyShadowProofEligible: () => strategyShadowProofEligible,
+  studioMarketplaceShadowOn: () => studioMarketplaceShadowOn,
   summarizeStrategyTrades: () => summarizeStrategyTrades
 });
-function summarizeLayer(rows) {
+function weekStartUtc(d) {
+  const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dow = (x.getUTCDay() + 6) % 7;
+  x.setUTCDate(x.getUTCDate() - dow);
+  return x.toISOString().slice(0, 10);
+}
+function summarizeLayer(rows, now = /* @__PURE__ */ new Date()) {
   const closed = rows.filter((t) => t.status === "closed" && t.pnl != null);
   const bySymbol = {};
   const exitReasons = {};
+  const recentFrom = (() => {
+    const d = /* @__PURE__ */ new Date(`${weekStartUtc(now)}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 7);
+    return d.getTime();
+  })();
+  const weekly = /* @__PURE__ */ new Map();
   let wins = 0, netPnl = 0, netR = 0, rCount = 0;
   for (const t of closed) {
     const pnl = Number(t.pnl) || 0;
     netPnl += pnl;
     if (pnl > 0) wins++;
     if (t.r_multiple != null && isFinite(Number(t.r_multiple))) {
-      netR += Number(t.r_multiple);
+      const r = Number(t.r_multiple);
+      netR += r;
       rCount++;
+      const closedAt = new Date(t.closed_at).getTime();
+      if (isFinite(closedAt) && closedAt >= recentFrom) {
+        const wk = weekStartUtc(new Date(closedAt));
+        const w = weekly.get(wk) || { trades: 0, r: 0 };
+        w.trades++;
+        w.r += r;
+        weekly.set(wk, w);
+      }
     }
     const sym2 = String(t.symbol || "").toUpperCase();
     bySymbol[sym2] = bySymbol[sym2] || { trades: 0, wins: 0, netPnl: 0 };
@@ -64754,6 +64931,9 @@ function summarizeLayer(rows) {
     winRate: closed.length ? wins / closed.length : null,
     netPnl: Math.round(netPnl * 100) / 100,
     netR: rCount ? Math.round(netR * 1e3) / 1e3 : null,
+    rTrades: rCount,
+    avgR: rCount ? Math.round(netR / rCount * 1e3) / 1e3 : null,
+    recentWeeklyR: Array.from(weekly.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([weekStart2, w]) => ({ weekStart: weekStart2, trades: w.trades, r: Math.round(w.r * 1e3) / 1e3 })),
     openTrades: rows.filter((t) => t.status === "open").length,
     bySymbol,
     exitReasons,
@@ -64761,10 +64941,38 @@ function summarizeLayer(rows) {
     lastTradeAt: times.length ? new Date(Math.max(...times)).toISOString() : null
   };
 }
-function summarizeStrategyTrades(trades) {
-  const live = summarizeLayer(trades.filter((t) => (t.mode ?? "live") !== "shadow"));
-  const shadow = summarizeLayer(trades.filter((t) => t.mode === "shadow"));
+function summarizeStrategyTrades(trades, now = /* @__PURE__ */ new Date()) {
+  const live = summarizeLayer(trades.filter((t) => (t.mode ?? "live") !== "shadow"), now);
+  const shadow = summarizeLayer(trades.filter((t) => t.mode === "shadow"), now);
   return { live, shadow, listableTrades: live.trades };
+}
+function strategyShadowProofEligible(shadow, opts = {}) {
+  if (opts.shadowOn === false || opts.shadowOn === void 0 && !studioMarketplaceShadowOn()) return false;
+  if (!shadow) return false;
+  if ((Number(shadow.trades) || 0) < STRATEGY_SHADOW_MIN_TRADES) return false;
+  if ((Number(shadow.rTrades) || 0) < STRATEGY_SHADOW_MIN_TRADES) return false;
+  if (shadow.avgR == null || Number(shadow.avgR) < STRATEGY_SHADOW_MIN_AVG_R) return false;
+  if (shadow.winRate == null || Number(shadow.winRate) < STRATEGY_SHADOW_MIN_WIN_RATE) return false;
+  return (shadow.recentWeeklyR || []).every((w) => Number(w.r) >= 0);
+}
+function strategyMarketplaceProof(live, shadow, opts = {}) {
+  const liveEligible = (Number(live?.trades) || 0) >= STRATEGY_MARKETPLACE_MIN_LIVE_TRADES;
+  const shadowEligible = strategyShadowProofEligible(shadow, opts);
+  return {
+    listable: liveEligible || shadowEligible,
+    proofType: liveEligible ? "live" : shadowEligible ? "shadow" : null,
+    liveEligible,
+    shadowEligible,
+    shadow: {
+      trades: Number(shadow?.trades) || 0,
+      rTrades: Number(shadow?.rTrades) || 0,
+      avgR: shadow?.avgR ?? null,
+      winRate: shadow?.winRate ?? null,
+      minTrades: STRATEGY_SHADOW_MIN_TRADES,
+      minAvgR: STRATEGY_SHADOW_MIN_AVG_R,
+      minWinRate: STRATEGY_SHADOW_MIN_WIN_RATE
+    }
+  };
 }
 async function buildStrategyBrain(userId, strategyId) {
   const strat = await getWizardStrategy(userId, strategyId);
@@ -64800,29 +65008,25 @@ async function buildStrategyBrain(userId, strategyId) {
       firstTradeAt: live.firstTradeAt,
       lastTradeAt: live.lastTradeAt
     },
-    shadow: {
-      trades: shadow.trades,
-      wins: shadow.wins,
-      losses: shadow.losses,
-      winRate: shadow.winRate,
-      netPnl: shadow.netPnl,
-      netR: shadow.netR,
-      openTrades: shadow.openTrades,
-      exitReasons: shadow.exitReasons,
-      firstTradeAt: shadow.firstTradeAt,
-      lastTradeAt: shadow.lastTradeAt
-    },
+    shadow,
     deployments: deployments.map((d) => ({ id: d.id, platform: d.platform, accountLabel: d.accountLabel, status: d.status })),
-    listableTrades
+    listableTrades,
+    marketplace: strategyMarketplaceProof(live, shadow)
   };
   await recordWizardBrain(userId, strategyId, { profile });
   return profile;
 }
+var STRATEGY_MARKETPLACE_MIN_LIVE_TRADES, STRATEGY_SHADOW_MIN_TRADES, STRATEGY_SHADOW_MIN_AVG_R, STRATEGY_SHADOW_MIN_WIN_RATE, studioMarketplaceShadowOn;
 var init_strategy_brain = __esm({
   "server/services/strategy-brain.ts"() {
     "use strict";
     init_wizard_spec_strategies();
     init_strategy_deployments();
+    STRATEGY_MARKETPLACE_MIN_LIVE_TRADES = 10;
+    STRATEGY_SHADOW_MIN_TRADES = 30;
+    STRATEGY_SHADOW_MIN_AVG_R = 0.2;
+    STRATEGY_SHADOW_MIN_WIN_RATE = 0.4;
+    studioMarketplaceShadowOn = () => process.env.STUDIO_MARKETPLACE_SHADOW !== "off";
   }
 });
 
@@ -64865,6 +65069,127 @@ var init_brain_marketplace = __esm({
     MIN_TRADES_TO_LIST = 10;
     MIN_PRICE_VEDD = 5;
     MAX_PRICE_VEDD = 500;
+  }
+});
+
+// server/services/strategy-marketplace.ts
+var strategy_marketplace_exports = {};
+__export(strategy_marketplace_exports, {
+  clonePurchasedStrategy: () => clonePurchasedStrategy,
+  cloneStrategySpecForBuyer: () => cloneStrategySpecForBuyer,
+  ensureStrategyMarketplaceTable: () => ensureStrategyMarketplaceTable,
+  getStrategyMarketplacePackage: () => getStrategyMarketplacePackage,
+  purchasedStrategyRecord: () => purchasedStrategyRecord,
+  recordStrategyMarketplacePackage: () => recordStrategyMarketplacePackage,
+  strategyShadowDeployability: () => strategyShadowDeployability
+});
+function ensureStrategyMarketplaceTable() {
+  return tableReady4 ??= (async () => {
+    await pool.query(`CREATE TABLE IF NOT EXISTS strategy_marketplace_packages (
+      listing_id INTEGER PRIMARY KEY,
+      seller_id INTEGER NOT NULL,
+      source_strategy_id INTEGER NOT NULL,
+      spec JSONB NOT NULL,
+      proof_type TEXT NOT NULL,
+      proof_stats JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+  })().catch((e) => {
+    tableReady4 = null;
+    throw e;
+  });
+}
+async function recordStrategyMarketplacePackage(pkg) {
+  await ensureStrategyMarketplaceTable();
+  await pool.query(
+    `INSERT INTO strategy_marketplace_packages (listing_id, seller_id, source_strategy_id, spec, proof_type, proof_stats)
+     VALUES ($1,$2,$3,$4::jsonb,$5,$6::jsonb)
+     ON CONFLICT (listing_id) DO UPDATE SET seller_id=EXCLUDED.seller_id,
+       source_strategy_id=EXCLUDED.source_strategy_id, spec=EXCLUDED.spec,
+       proof_type=EXCLUDED.proof_type, proof_stats=EXCLUDED.proof_stats`,
+    [
+      pkg.listingId,
+      pkg.sellerId,
+      pkg.sourceStrategyId,
+      JSON.stringify(pkg.spec),
+      pkg.proofType,
+      pkg.proofStats ? JSON.stringify(pkg.proofStats) : null
+    ]
+  );
+}
+async function getStrategyMarketplacePackage(listingId) {
+  await ensureStrategyMarketplaceTable();
+  const { rows } = await pool.query(
+    `SELECT listing_id, seller_id, source_strategy_id, spec, proof_type, proof_stats, created_at
+       FROM strategy_marketplace_packages WHERE listing_id=$1`,
+    [listingId]
+  ).catch(() => ({ rows: [] }));
+  if (!rows.length) return null;
+  const r = rows[0];
+  return {
+    listingId: Number(r.listing_id),
+    sellerId: Number(r.seller_id),
+    sourceStrategyId: Number(r.source_strategy_id),
+    spec: r.spec,
+    proofType: r.proof_type === "live" ? "live" : "shadow",
+    proofStats: r.proof_stats ?? null,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at)
+  };
+}
+function cloneStrategySpecForBuyer(spec, provenance) {
+  const cloned = JSON.parse(JSON.stringify(spec));
+  cloned.marketplace = {
+    purchased: true,
+    source: "marketplace_strategy",
+    listingId: provenance.listingId,
+    sellerId: provenance.sellerId,
+    sourceStrategyId: provenance.sourceStrategyId,
+    proofType: provenance.proofType
+  };
+  return cloned;
+}
+function purchasedStrategyRecord(buyerId, pkg) {
+  const spec = cloneStrategySpecForBuyer(pkg.spec, pkg);
+  return { userId: buyerId, name: spec.name, spec };
+}
+function strategyShadowDeployability(spec) {
+  if (!spec) return { ok: false, reason: "no strategy spec" };
+  if (spec.source === "engine") {
+    return { ok: false, reason: "Engine strategies execute through the FX engine \u2014 there is no per-strategy spec for the shadow runner to evaluate." };
+  }
+  const v = validateStrategySpec(spec);
+  if (!v.ok) return { ok: false, reason: v.error };
+  if (!spec.entryLong?.conditions?.length && !spec.entryShort?.conditions?.length) {
+    return { ok: false, reason: "This strategy has no mechanical entry rules to run." };
+  }
+  return { ok: true, reason: null };
+}
+async function clonePurchasedStrategy(buyerId, listingId) {
+  const pkg = await getStrategyMarketplacePackage(listingId);
+  if (!pkg) throw new Error("This strategy listing has no deployable strategy package.");
+  const record = purchasedStrategyRecord(buyerId, pkg);
+  const deployability = strategyShadowDeployability(record.spec);
+  const strategy = await createWizardStrategy(buyerId, record.spec);
+  return {
+    strategy,
+    provenance: {
+      listingId: pkg.listingId,
+      sellerId: pkg.sellerId,
+      sourceStrategyId: pkg.sourceStrategyId,
+      proofType: pkg.proofType
+    },
+    shadowDeployable: deployability.ok,
+    shadowDeployabilityReason: deployability.reason
+  };
+}
+var tableReady4;
+var init_strategy_marketplace = __esm({
+  "server/services/strategy-marketplace.ts"() {
+    "use strict";
+    init_db();
+    init_wizard_spec_strategies();
+    init_strategy_spec();
+    tableReady4 = null;
   }
 });
 
@@ -68545,7 +68870,7 @@ import fs14 from "fs";
 import os2 from "os";
 import path14 from "path";
 function ensureJobTable() {
-  return tableReady4 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_video_jobs (
+  return tableReady5 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_video_jobs (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL,
       kind TEXT NOT NULL DEFAULT 'explainer',
@@ -68561,7 +68886,7 @@ function ensureJobTable() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`).then(() => void 0).catch((e) => {
-    tableReady4 = null;
+    tableReady5 = null;
     throw e;
   });
 }
@@ -68882,7 +69207,7 @@ async function assembleFiles(files, aspect, dir, charts = [], screens = []) {
     return fs14.readFileSync(out);
   }
 }
-var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, DEFAULT_PRESENTER, DEFAULT_SETTING, tableReady4, SCENE_NEGATIVE_PROMPT;
+var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, DEFAULT_PRESENTER, DEFAULT_SETTING, tableReady5, SCENE_NEGATIVE_PROMPT;
 var init_explainer_video = __esm({
   "server/services/explainer-video.ts"() {
     "use strict";
@@ -68900,7 +69225,7 @@ var init_explainer_video = __esm({
     MAX_WAIT_MS = 8 * 60 * 1e3;
     DEFAULT_PRESENTER = "a young Black man in his mid-20s with short twists, wearing a black hoodie, a thin gold chain and a fitted cap";
     DEFAULT_SETTING = "a city rooftop at golden hour with brick buildings, fire escapes and the skyline behind him";
-    tableReady4 = null;
+    tableReady5 = null;
     SCENE_NEGATIVE_PROMPT = "subtitles, captions, on-screen text, watermark, logo, distorted hands, extra fingers, office, corporate suit, business attire, different person";
   }
 });
@@ -69412,14 +69737,14 @@ __export(presenters_exports, {
   presenterAbsoluteUrl: () => presenterAbsoluteUrl
 });
 function ensureTable6() {
-  return tableReady5 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_presenters (
+  return tableReady6 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_presenters (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL,
       name TEXT NOT NULL,
       image_url TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`).then(() => void 0).catch((e) => {
-    tableReady5 = null;
+    tableReady6 = null;
     throw e;
   });
 }
@@ -69465,12 +69790,12 @@ function presenterAbsoluteUrl(req, imageUrl) {
   if (!host) return imageUrl;
   return `${req.protocol || "https"}://${host}${imageUrl}`;
 }
-var tableReady5;
+var tableReady6;
 var init_presenters = __esm({
   "server/services/presenters.ts"() {
     "use strict";
     init_db();
-    tableReady5 = null;
+    tableReady6 = null;
   }
 });
 
@@ -76421,9 +76746,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "536f0da4-dirty";
-var BUILD_BRANCH = "feat/guards-trails-page";
-var BUILT_AT = "2026-11-13T02:43:34.922Z";
+var BUILD_COMMIT = "04f2bc3a";
+var BUILD_BRANCH = "feat/marketplace-models-strategies";
+var BUILT_AT = "2026-11-13T02:51:34.756Z";
 
 // server/stripe.ts
 init_db();
@@ -97103,7 +97428,7 @@ Respond with ONLY valid JSON:
       return res2.status(201).json({
         deployment: dep,
         execution: isShadow ? "shadow" : isEngine ? "engine" : "runner",
-        note: isShadow ? "Shadow deployment: the runner evaluates this strategy on closed bars and trades it VIRTUALLY \u2014 fills are simulated from bar prices and no broker order is ever sent. Results build the Shadow (virtual) layer of its brain and feed the shared shadow ledger; they never count toward Brain Marketplace eligibility." : isEngine ? "Engine strategies run through the FX engine, which trades your auto-enabled accounts as one pool. This deployment binds the strategy to the chosen account for tracking and its brain \u2014 it does not re-route the engine." : platform === "mt5" ? "The runner sends this strategy's signals to the chosen MT5 terminal only (its receive-signals flag is now exclusive). The EA on that terminal executes them." : "The runner evaluates this strategy on closed bars and trades only the chosen account."
+        note: isShadow ? 'Shadow deployment: the runner evaluates this strategy on closed bars and trades it VIRTUALLY \u2014 fills are simulated from bar prices and no broker order is ever sent. Results build the Shadow (virtual) layer of its brain and feed the shared shadow ledger. A strong shadow record (30+ R-bearing trades, avg +0.2R or better, 40%+ wins, no losing week in the last two) can qualify the strategy for a "Proven in shadow" Marketplace listing.' : isEngine ? "Engine strategies run through the FX engine, which trades your auto-enabled accounts as one pool. This deployment binds the strategy to the chosen account for tracking and its brain \u2014 it does not re-route the engine." : platform === "mt5" ? "The runner sends this strategy's signals to the chosen MT5 terminal only (its receive-signals flag is now exclusive). The EA on that terminal executes them." : "The runner evaluates this strategy on closed bars and trades only the chosen account."
       });
     } catch (err) {
       console.error("[strategy-wizard] deploy failed:", err);
@@ -97135,35 +97460,46 @@ Respond with ONLY valid JSON:
       const { getWizardStrategy: getWizardStrategy2, recordWizardBrain: recordWizardBrain2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
       const strat = await getWizardStrategy2(userId, strategyId);
       if (!strat) return res2.status(404).json({ error: "strategy not found" });
-      const { buildStrategyBrain: buildStrategyBrain2 } = await Promise.resolve().then(() => (init_strategy_brain(), strategy_brain_exports));
+      const { buildStrategyBrain: buildStrategyBrain2, STRATEGY_MARKETPLACE_MIN_LIVE_TRADES: STRATEGY_MARKETPLACE_MIN_LIVE_TRADES2, STRATEGY_SHADOW_MIN_TRADES: STRATEGY_SHADOW_MIN_TRADES2 } = await Promise.resolve().then(() => (init_strategy_brain(), strategy_brain_exports));
       const brain = await buildStrategyBrain2(userId, strategyId);
-      const { MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2, computeListingStats: computeListingStats2, clampPrice: clampPrice2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
-      if (!brain || brain.listableTrades < MIN_TRADES_TO_LIST2) {
-        return res2.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST2} live trades from this strategy to list its brain (you have ${brain?.listableTrades ?? 0}). Backtest trades don't count \u2014 a brain is sold on live evidence.` });
+      const { computeListingStats: computeListingStats2, clampPrice: clampPrice2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
+      const proof = brain?.marketplace;
+      if (!brain || !proof?.listable || !proof.proofType) {
+        const sh = proof?.shadow;
+        return res2.status(400).json({ error: `This strategy is not proven yet. List it either with ${STRATEGY_MARKETPLACE_MIN_LIVE_TRADES2}+ live trades (you have ${brain?.listableTrades ?? 0}) or with a shadow record of ${STRATEGY_SHADOW_MIN_TRADES2}+ R-bearing shadow trades at avg +0.2R or better, a 40%+ win rate and no losing week in the last two (you have ${sh?.trades ?? 0} shadow trades, ${sh?.rTrades ?? 0} with R, avg ${sh?.avgR != null ? `${sh.avgR >= 0 ? "+" : ""}${Number(sh.avgR).toFixed(2)}R` : "\u2014"}, win rate ${sh?.winRate != null ? Math.round(sh.winRate * 100) : "\u2014"}%). Backtest results never count.` });
       }
+      const proofType = proof.proofType;
+      const isShadow = proofType === "shadow";
       const { listStrategyTrades: listStrategyTrades2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
       const trades = await listStrategyTrades2(userId, strategyId, 2e3);
-      const rows = trades.filter((t) => t.status === "closed" && t.pnl != null && t.mode !== "shadow").map((t) => ({
+      const rows = trades.filter((t) => t.status === "closed" && t.pnl != null && (isShadow ? t.mode === "shadow" : t.mode !== "shadow")).map((t) => ({
         symbol: String(t.symbol || "").toUpperCase(),
         direction: t.direction,
         confirmedAt: t.closed_at,
         tradeOutcome: Number(t.pnl) > 0 ? "WIN" : Number(t.pnl) < 0 ? "LOSS" : "BREAKEVEN",
         profitLoss: Number(t.pnl),
+        rMultiple: t.r_multiple ?? null,
+        mode: isShadow ? "shadow" : "live",
         exitReason: t.exit_reason ?? null,
         source: "wizard_strategy",
         strategyName: strat.name
       }));
       const stats = computeListingStats2(rows);
-      const title = String(req.body?.title || `${strat.name} \u2014 strategy brain`);
-      const description = String(req.body?.description || `Live track record of the custom strategy "${strat.name}" (${strat.spec.symbol} ${strat.spec.timeframe}), built in the Strategy Wizard and run through VEDD deployments. ${brain.live.trades} live trades, ${brain.live.winRate != null ? Math.round(brain.live.winRate * 100) : "\u2014"}% win rate. Backtest data points inform the profile; the snapshot contains live outcomes only.`);
+      const layer = isShadow ? brain.shadow : brain.live;
+      const rRows = rows.filter((r) => r.rMultiple != null && isFinite(Number(r.rMultiple)));
+      const avgR = rRows.length ? rRows.reduce((a, r) => a + Number(r.rMultiple), 0) / rRows.length : layer.avgR ?? null;
+      const proofLabel = isShadow ? "Proven in shadow" : "Proven live";
+      const title = String(req.body?.title || `${strat.name} \u2014 ${proofLabel}`);
+      const description = String(req.body?.description || `${proofLabel}: the custom strategy "${strat.name}" (${strat.spec.symbol} ${strat.spec.timeframe}), built in the Strategy Studio. ${layer.trades} ${isShadow ? "shadow (virtual)" : "live"} trades, ${layer.winRate != null ? Math.round(layer.winRate * 100) : "\u2014"}% win rate${avgR != null ? `, avg ${avgR >= 0 ? "+" : ""}${Number(avgR).toFixed(2)}R` : ""}. ${strat.spec.source === "engine" ? "Engine-native strategy: buyers receive its outcome record merged into their brain (it has no deployable spec)." : "Buyers receive their own copy of this strategy, ready to deploy to Shadow or to their own accounts."} Backtest results inform the profile but are never the proof.`);
       const price = clampPrice2(Number(req.body?.priceVedd ?? stats.suggestedPriceVedd));
       if (strat.brainListingId) {
         await storage.deactivateBrainListing(strat.brainListingId).catch(() => {
         });
       }
+      const cloneable = strat.spec.source !== "engine";
       const listing = await storage.createBrainListing({
         sellerId: userId,
-        sourceCategory: "forex",
+        sourceCategory: cloneable ? "wizard_strategy" : "forex",
         symbolFilter: [strat.spec.symbol],
         includesManualTrades: false,
         title,
@@ -97178,9 +97514,29 @@ Respond with ONLY valid JSON:
         oldestTradeAt: stats.oldestTradeAt,
         newestTradeAt: stats.newestTradeAt
       });
+      if (cloneable) {
+        try {
+          const sm = await Promise.resolve().then(() => (init_strategy_marketplace(), strategy_marketplace_exports));
+          await sm.recordStrategyMarketplacePackage({
+            listingId: listing.id,
+            sellerId: userId,
+            sourceStrategyId: strategyId,
+            spec: strat.spec,
+            proofType,
+            proofStats: { trades: stats.tradeCount, winRate: stats.winRate, avgR, netR: layer.netR ?? null, netPnl: layer.netPnl ?? null }
+          });
+        } catch (pkgErr) {
+          await storage.deactivateBrainListing(listing.id).catch(() => {
+          });
+          throw new Error(`Listing rolled back: the deployable strategy package could not be saved (${pkgErr?.message || pkgErr}).`);
+        }
+      }
       await recordWizardBrain2(userId, strategyId, { listingId: listing.id });
       const { snapshotData: _omit, ...safe3 } = listing;
-      return res2.status(201).json({ listing: safe3, brain });
+      return res2.status(201).json({
+        listing: { ...safe3, marketplaceProof: { kind: "strategy", proofType, tradeCount: stats.tradeCount, winRate: stats.winRate, avgR, strategyId } },
+        brain
+      });
     } catch (err) {
       console.error("[strategy-wizard] list-brain failed:", err);
       return res2.status(500).json({ error: err?.message || "listing failed" });
@@ -108135,6 +108491,31 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       res2.status(500).json({ error: e.message });
     }
   });
+  const enrichBrainListingForClient = async (listing) => {
+    const { snapshotData: _omit, ...safe3 } = listing || {};
+    let marketplaceProof = null;
+    try {
+      if (listing?.sourceCategory === "fx_models" && Array.isArray(listing.snapshotData)) {
+        const fm = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
+        marketplaceProof = fm.fxModelListingProof(listing.snapshotData);
+      } else if (listing?.sourceCategory === "wizard_strategy") {
+        const sm = await Promise.resolve().then(() => (init_strategy_marketplace(), strategy_marketplace_exports));
+        const pkg = await sm.getStrategyMarketplacePackage(Number(listing.id));
+        if (pkg) {
+          marketplaceProof = {
+            kind: "strategy",
+            proofType: pkg.proofType,
+            tradeCount: pkg.proofStats?.trades ?? listing.tradeCount,
+            winRate: pkg.proofStats?.winRate ?? listing.winRate ?? null,
+            avgR: pkg.proofStats?.avgR ?? null,
+            strategyId: pkg.sourceStrategyId
+          };
+        }
+      }
+    } catch {
+    }
+    return { ...safe3, marketplaceProof };
+  };
   app2.post("/api/brain-marketplace/list", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
@@ -108147,6 +108528,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const { computeListingStats: computeListingStats2, clampPrice: clampPrice2, MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
       let rows;
       let stats;
+      let fxProof = null;
       if (category === "fx_models") {
         const fm = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
         const r = await fm.getFxModelListingRows(userId, symbolFilter);
@@ -108157,6 +108539,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
           return res2.status(400).json({ error: `This scope has no positive edge yet (avg ${r.avgR.toFixed(2)}R over ${r.rows.length} ideas) \u2014 only profitable model records can be sold.` });
         }
         rows = r.rows;
+        fxProof = r.proof;
         stats = computeListingStats2(fm.fxModelRowsForStats(rows));
         stats.suggestedPriceVedd = clampPrice2(stats.suggestedPriceVedd * (1 + r.masteryScore / 100));
       } else if (category === "kalshi") {
@@ -108223,7 +108606,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         newestTradeAt: stats.newestTradeAt
       });
       const { snapshotData: _omit, ...safeListing } = listing;
-      res2.status(201).json(safeListing);
+      res2.status(201).json(fxProof ? { ...safeListing, marketplaceProof: fxProof } : safeListing);
     } catch (e) {
       res2.status(500).json({ error: e.message });
     }
@@ -108263,11 +108646,24 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
             avgR: r.avgR,
             masteryLevel: r.level,
             masteryScore: r.masteryScore,
-            reason: r.rows.length < fm.FX_MODEL_MIN_TO_LIST ? "not enough resolved ideas" : "no positive edge yet"
+            epoch: r.epoch,
+            marketplaceProof: r.proof,
+            propSim: r.proof.propSim,
+            reason: r.rows.length < fm.FX_MODEL_MIN_TO_LIST ? "not enough resolved ideas in the current system record" : "no positive edge yet"
           });
         }
         const stats2 = computeListingStats2(fm.fxModelRowsForStats(r.rows));
-        return res2.json({ eligible: true, ...stats2, suggestedPriceVedd: clampPrice2(stats2.suggestedPriceVedd * (1 + r.masteryScore / 100)), avgR: r.avgR, masteryLevel: r.level, masteryScore: r.masteryScore });
+        return res2.json({
+          eligible: true,
+          ...stats2,
+          suggestedPriceVedd: clampPrice2(stats2.suggestedPriceVedd * (1 + r.masteryScore / 100)),
+          avgR: r.avgR,
+          masteryLevel: r.level,
+          masteryScore: r.masteryScore,
+          epoch: r.epoch,
+          marketplaceProof: r.proof,
+          propSim: r.proof.propSim
+        });
       }
       if (category === "kalshi") {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
@@ -108304,7 +108700,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const enriched = await Promise.all(listings.map(async (l) => {
         const seller = await storage.getUser(l.sellerId);
         const purchase = await storage.getBrainPurchaseByListingAndBuyer(l.id, userId);
-        const { snapshotData: _omit, ...safe3 } = l;
+        const safe3 = await enrichBrainListingForClient(l);
         return {
           ...safe3,
           sellerUsername: seller?.username || "Unknown",
@@ -108322,7 +108718,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     const userId = req.user.id;
     try {
       const listings = await storage.getUserBrainListings(userId);
-      const safe3 = listings.map(({ snapshotData: _omit, ...rest }) => rest);
+      const safe3 = await Promise.all(listings.map((l) => enrichBrainListingForClient(l)));
       res2.json(safe3);
     } catch (e) {
       res2.status(500).json({ error: e.message });
@@ -108333,10 +108729,9 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     const userId = req.user.id;
     try {
       const purchases = await storage.getUserBrainPurchases(userId);
-      const safe3 = purchases.map((p2) => {
-        const { snapshotData: _omit, ...safeListing } = p2.listing;
-        return { ...p2, listing: safeListing };
-      });
+      const safe3 = await Promise.all(purchases.map(async (p2) => {
+        return { ...p2, listing: await enrichBrainListingForClient(p2.listing) };
+      }));
       res2.json(safe3);
     } catch (e) {
       res2.status(500).json({ error: e.message });
@@ -108355,6 +108750,18 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       if (listing.sellerId === buyerId) return res2.status(400).json({ error: "You can't buy your own listing" });
       const existingPurchase = await storage.getBrainPurchaseByListingAndBuyer(listingId, buyerId);
       if (existingPurchase) return res2.status(400).json({ error: "You already purchased this listing" });
+      let strategyPackage = null;
+      if (listing.sourceCategory === "wizard_strategy") {
+        const sm = await Promise.resolve().then(() => (init_strategy_marketplace(), strategy_marketplace_exports));
+        strategyPackage = await sm.getStrategyMarketplacePackage(listingId);
+        if (!strategyPackage) {
+          return res2.status(400).json({ error: "This strategy listing has no deployable strategy package, so it cannot be sold as a strategy. You were not charged." });
+        }
+        const deployability = sm.strategyShadowDeployability(sm.purchasedStrategyRecord(buyerId, strategyPackage).spec);
+        if (!deployability.ok) {
+          return res2.status(400).json({ error: `This strategy can no longer be deployed: ${deployability.reason} You were not charged.` });
+        }
+      }
       const buyerWallet = await storage.getInternalWallet(buyerId);
       const buyerBalance = buyerWallet?.veddBalance ?? 0;
       if (buyerBalance < listing.priceVedd) {
@@ -108379,6 +108786,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       }
       await storage.addToWalletBalance(listing.sellerId, listing.priceVedd);
       let tradesImported;
+      let strategyClone = null;
       if (listing.sourceCategory === "kalshi") {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { kalshiBrainOutcomes: kalshiBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
@@ -108411,7 +108819,21 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         });
       } else if (listing.sourceCategory === "fx_models") {
         const { importFxModelSnapshot: importFxModelSnapshot2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
-        tradesImported = await importFxModelSnapshot2(buyerId, listing.snapshotData ?? []);
+        tradesImported = await importFxModelSnapshot2(
+          buyerId,
+          listing.snapshotData ?? [],
+          { sellerId: listing.sellerId, listingId: listing.id }
+        );
+      } else if (listing.sourceCategory === "wizard_strategy") {
+        const sm = await Promise.resolve().then(() => (init_strategy_marketplace(), strategy_marketplace_exports));
+        const cloned = await sm.clonePurchasedStrategy(buyerId, listingId);
+        strategyClone = {
+          strategyId: cloned.strategy.id,
+          name: cloned.strategy.name,
+          proofType: cloned.provenance.proofType,
+          shadowDeployable: cloned.shadowDeployable
+        };
+        tradesImported = 0;
       } else if (listing.sourceCategory === "options") {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { optionsBrainOutcomes: optionsBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
@@ -108449,7 +108871,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         tradesImported
       });
       await storage.incrementBrainListingPurchaseCount(listingId);
-      res2.json({ success: true, tradesImported, veddCharged: listing.priceVedd });
+      res2.json({ success: true, tradesImported, veddCharged: listing.priceVedd, ...strategyClone ? { strategyClone } : {} });
     } catch (e) {
       res2.status(500).json({ error: e.message });
     }

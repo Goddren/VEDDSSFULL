@@ -1139,7 +1139,7 @@ export default function StrategyStudio() {
       if (!res.ok) throw new Error(data?.error || 'Listing failed');
       setListedBrain(true);
       setBrainProfile(data.brain || brainProfile);
-      toast({ title: 'Brain listed on the Marketplace', description: `"${data.listing?.title}" is live at ${data.listing?.priceVedd} VEDD.` });
+      toast({ title: 'Listed on the Marketplace', description: `"${data.listing?.title}" is live at ${data.listing?.priceVedd} VEDD${data.listing?.marketplaceProof?.proofType ? ` — ${data.listing.marketplaceProof.proofType === 'shadow' ? 'Proven in shadow' : 'Proven live'}` : ''}.` });
     } catch (error: any) {
       toast({ title: 'Cannot list yet', description: errText(error), variant: 'destructive' });
     } finally {
@@ -1938,7 +1938,7 @@ export default function StrategyStudio() {
                             </Button>
                             <Button size="sm" onClick={handleListBrain} disabled={brainBusy || listedBrain}>
                               <Store className="h-4 w-4 mr-2" />
-                              {listedBrain ? 'Listed on Marketplace' : 'List Brain on Marketplace'}
+                              {listedBrain ? 'Listed on Marketplace' : 'List on Marketplace'}
                             </Button>
                           </div>
                           {brainProfile ? (
@@ -1954,9 +1954,9 @@ export default function StrategyStudio() {
                                 <div className="text-muted-foreground text-xs">Shadow (virtual) trades</div>
                                 <div className="font-semibold">{brainProfile.shadow?.trades ?? 0}</div>
                                 <div className="text-xs text-muted-foreground">
-                                  win {brainProfile.shadow?.winRate != null ? Math.round(brainProfile.shadow.winRate * 100) : '—'}% · net ${Number(brainProfile.shadow?.netPnl ?? 0).toFixed(2)} · {brainProfile.shadow?.netR != null ? `${Number(brainProfile.shadow.netR) > 0 ? '+' : ''}${Number(brainProfile.shadow.netR).toFixed(2)}R` : 'no R yet'}
+                                  win {brainProfile.shadow?.winRate != null ? Math.round(brainProfile.shadow.winRate * 100) : '—'}% · net ${Number(brainProfile.shadow?.netPnl ?? 0).toFixed(2)} · {brainProfile.shadow?.netR != null ? `${Number(brainProfile.shadow.netR) > 0 ? '+' : ''}${Number(brainProfile.shadow.netR).toFixed(2)}R` : 'no R yet'}{brainProfile.shadow?.avgR != null ? ` · avg ${Number(brainProfile.shadow.avgR) >= 0 ? '+' : ''}${Number(brainProfile.shadow.avgR).toFixed(2)}R` : ''}
                                 </div>
-                                <div className="text-xs text-muted-foreground">forward proof — never counts toward Marketplace</div>
+                                <div className="text-xs text-muted-foreground">forward proof — a strong record can qualify a “Proven in shadow” listing</div>
                               </div>
                               <div className="rounded-md border p-3">
                                 <div className="text-muted-foreground text-xs">Live trades</div>
@@ -1972,12 +1972,25 @@ export default function StrategyStudio() {
                               </div>
                               <div className="rounded-md border p-3">
                                 <div className="text-muted-foreground text-xs">Marketplace ready</div>
-                                <div className="font-semibold">{brainProfile.listableTrades ?? 0} / 10 live trades</div>
-                                <div className="text-xs text-muted-foreground">only live trades count — backtests and shadow results are never sold as experience</div>
+                                <div className="font-semibold">
+                                  {brainProfile.marketplace?.listable
+                                    ? (brainProfile.marketplace.proofType === 'live' ? 'Proven live' : 'Proven in shadow')
+                                    : 'Not proven yet'}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  Live: {brainProfile.listableTrades ?? 0} / 10 trades · Shadow: {brainProfile.shadow?.rTrades ?? 0} / 30 with R
+                                  {brainProfile.shadow?.avgR != null ? ` · avg ${Number(brainProfile.shadow.avgR) >= 0 ? '+' : ''}${Number(brainProfile.shadow.avgR).toFixed(2)}R` : ''}
+                                  {brainProfile.shadow?.winRate != null ? ` · ${Math.round(brainProfile.shadow.winRate * 100)}% wins` : ''}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {spec?.source === 'engine'
+                                    ? 'Engine-native strategies list as a brain record only — they have no deployable spec to copy.'
+                                    : 'Backtests never count. Buyers get their own copy of the strategy to deploy.'}
+                                </div>
                               </div>
                             </div>
                           ) : (
-                            <p className="text-sm text-muted-foreground">No brain yet. Build one to fuse this strategy's backtest data points with its shadow (virtual) and live results — 10+ live trades makes it listable on the Brain Marketplace.</p>
+                            <p className="text-sm text-muted-foreground">No brain yet. Build one to fuse this strategy's backtest data points with its shadow (virtual) and live results. It becomes listable with 10+ live trades, or with a strong shadow record: 30+ trades carrying an R, average +0.2R or better, at least 40% wins, and no losing week in the last two.</p>
                           )}
                         </div>
                       </>

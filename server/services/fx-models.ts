@@ -51,6 +51,16 @@
 //     or lower, scaled by confidence and slice accuracy; 2.5% daily
 //     loss cap; 6% max loss = blown). A reporting tool only — it is
 //     wired into getModelMastery as `propSim`, never into a live path.
+//
+// Marketplace completion (Nov 12, 2026, user directive):
+//   • New model listings snapshot ONLY the current (epoch-2) record and
+//     carry its proof + prop-sim summary, so a buyer can see which
+//     system produced the record before paying.
+//   • A purchased epoch-2 slice can qualify the BUYER's own new shadow
+//     idea for the same live hand-off, under the buyer's own live
+//     toggle, the buyer's shared M1/M2 daily caps, and every normal
+//     engine guard. Pre-epoch-2 snapshots are legacy and never qualify.
+//     Kill switch FX_MODEL_MARKETPLACE_LIVE=off restores own-only.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { pool } from '../db';
@@ -187,6 +197,10 @@ export const modelsEpochOn = (): boolean => process.env.FX_MODELS_EPOCH !== 'off
 // ── Lifts (formerly blocked pairs/sessions trade in shadow again) ────────
 /** Kill switch FX_MODELS_LIFTS=off → pair vetoes + M2 session veto return. */
 export const modelsLiftsOn = (): boolean => process.env.FX_MODELS_LIFTS !== 'off';
+
+/** Kill switch FX_MODEL_MARKETPLACE_LIVE=off → purchased model records
+ *  inform the buyer's models again but can never unlock live trading. */
+export const fxModelMarketplaceLiveOn = (): boolean => process.env.FX_MODEL_MARKETPLACE_LIVE !== 'off';
 
 /**
  * The lifts apply to the ENRICHED (epoch-2) models only: with
@@ -1011,15 +1025,58 @@ export function parseFxModelScope(filter: string[] | null | undefined) {
   return { model: model === 'M1' || model === 'M2' ? model : null, dayType: ['range', 'trend', 'mixed'].includes(dayType || '') ? dayType : null, symbols, engine };
 }
 
+export interface FxModelListingProof {
+  kind: 'fx_model';
+  /** Model ideas are forward SHADOW decisions resolved against real prices. */
+  proofType: 'shadow';
+  /** The record's system epoch. New listings are always MODELS_EPOCH. */
+  epoch: number;
+  /** True when a stored snapshot contains any pre-current-system rows. */
+  legacy: boolean;
+  tradeCount: number;
+  winRate: number | null;
+  avgR: number | null;
+  propSim: Record<'M1' | 'M2', PropSimResult>;
+}
+
+/**
+ * Proof summary for a model snapshot, graded ONLY on current-system
+ * (epoch-2) rows. Pure and exported so listing cards, the listing route,
+ * and the check script all read the same numbers. Snapshots frozen
+ * before the epoch existed have no epoch on their rows: they report
+ * epoch 1 / legacy and contribute no current-system trades.
+ */
+export function fxModelListingProof(rows: any[]): FxModelListingProof {
+  const list = Array.isArray(rows) ? rows : [];
+  const current = list.filter((r: any) => Number(r?.epoch) === MODELS_EPOCH);
+  const statRows = fxModelRowsForStats(current);
+  const wins = statRows.filter((r: any) => r.tradeOutcome === 'WIN').length;
+  const tradeCount = current.length;
+  const epochs = list.map((r: any) => Number(r?.epoch)).filter((n: number) => Number.isFinite(n) && n > 0);
+  const byModel: Record<'M1' | 'M2', any[]> = { M1: [], M2: [] };
+  for (const r of current) { if (r?.model === 'M1' || r?.model === 'M2') byModel[r.model as 'M1' | 'M2'].push(r); }
+  return {
+    kind: 'fx_model',
+    proofType: 'shadow',
+    epoch: current.length === list.length && list.length > 0 ? MODELS_EPOCH : (epochs.length ? Math.min(...epochs) : 1),
+    legacy: list.length > 0 && current.length !== list.length,
+    tradeCount,
+    winRate: tradeCount ? wins / tradeCount : null,
+    avgR: tradeCount ? current.reduce((a: number, r: any) => a + (Number(r.r_multiple) || 0), 0) / tradeCount : null,
+    propSim: { M1: propSimulate(byModel.M1), M2: propSimulate(byModel.M2) },
+  };
+}
+
 /** Seller's own resolved ideas for a bundle scope + the stats the marketplace needs. */
-export async function getFxModelListingRows(userId: number, filter: string[] | null | undefined): Promise<{ rows: any[]; avgR: number; masteryScore: number; level: string }> {
+export async function getFxModelListingRows(userId: number, filter: string[] | null | undefined): Promise<{ rows: any[]; avgR: number; masteryScore: number; level: string; epoch: number; proof: FxModelListingProof }> {
   await ensureFxModelTables();
   const { model, dayType, symbols, engine } = parseFxModelScope(filter);
   const { rows } = await pool.query(
     `SELECT symbol, model, day_type, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context,
-            result, r_multiple, pips, exit_price, created_at, resolved_at, engine
+            result, r_multiple, pips, exit_price, created_at, resolved_at, engine, epoch
        FROM fx_model_decisions
       WHERE user_id=$1 AND source='own' AND engine='${engine}' AND result IN ('WIN','LOSS','EXPIRED')
+        AND epoch = ${MODELS_EPOCH}
         AND ($2::text IS NULL OR model=$2) AND ($3::text IS NULL OR day_type=$3)
         AND (cardinality($4::text[]) = 0 OR symbol = ANY($4::text[]))
       ORDER BY created_at DESC LIMIT 3000`,
@@ -1030,7 +1087,7 @@ export async function getFxModelListingRows(userId: number, filter: string[] | n
   const avgR = n ? rows.reduce((a: number, r: any) => a + (Number(r.r_multiple) || 0), 0) / n : 0;
   const winRate = n ? wins / n : 0;
   const masteryScore = Math.round(Math.min(1, n / 150) * 50 + Math.max(0, Math.min(1, (avgR + 0.5) / 1.5)) * 50);
-  return { rows, avgR, masteryScore, level: masteryLevel(n, winRate, avgR) };
+  return { rows, avgR, masteryScore, level: masteryLevel(n, winRate, avgR), epoch: MODELS_EPOCH, proof: fxModelListingProof(rows) };
 }
 
 /** Marketplace stat shape: EXPIRED counts as a win only if it closed in profit. */
@@ -1041,18 +1098,54 @@ export function fxModelRowsForStats(rows: any[]) {
   }));
 }
 
+export interface FxModelImportProvenance {
+  sellerId?: number | null;
+  listingId?: number | null;
+}
+
+/** The epoch an imported row keeps: current-system rows stay epoch 2;
+ *  anything older (or unstamped) is imported as legacy epoch 1. */
+export function fxModelImportEpoch(row: any): number {
+  return Number(row?.epoch) === MODELS_EPOCH ? MODELS_EPOCH : 1;
+}
+
+/**
+ * Stamp marketplace provenance onto an imported row's context. Pure —
+ * the check script pins the exact shape the live-eligibility queries
+ * read back (`context.marketplace.listingId`).
+ */
+export function stampFxModelImportContext(context: any, row: any, provenance?: FxModelImportProvenance): Record<string, any> | null {
+  let base: Record<string, any> = {};
+  if (context && typeof context === 'object' && !Array.isArray(context)) base = { ...context };
+  else if (typeof context === 'string' && context.trim()) {
+    try { const parsed = JSON.parse(context); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) base = { ...parsed }; } catch { /* keep the row importable */ }
+  }
+  const listingId = Number(provenance?.listingId);
+  const sellerId = Number(provenance?.sellerId);
+  if (Number.isFinite(listingId) && listingId > 0) {
+    base.marketplace = {
+      source: 'marketplace_model',
+      sellerId: Number.isFinite(sellerId) && sellerId > 0 ? sellerId : null,
+      listingId,
+      epoch: fxModelImportEpoch(row),
+    };
+  }
+  return Object.keys(base).length ? base : null;
+}
+
 /** Merge a purchased bundle into the buyer's model history (never resellable). */
-export async function importFxModelSnapshot(buyerId: number, snapshot: any[]): Promise<number> {
+export async function importFxModelSnapshot(buyerId: number, snapshot: any[], provenance?: FxModelImportProvenance): Promise<number> {
   await ensureFxModelTables();
   let n = 0;
   for (const r of snapshot || []) {
     await pool.query(
       `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, day_type, session, direction, entry_price, stop_loss, take_profit,
-         confidence, setup, reasoning, context, result, r_multiple, pips, exit_price, resolved_at, created_at, source, engine)
-       VALUES ($1,$2,$3,'purchased',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,'purchased_brain',$20)`,
+         confidence, setup, reasoning, context, result, r_multiple, pips, exit_price, resolved_at, created_at, source, engine, epoch)
+       VALUES ($1,$2,$3,'purchased',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,'purchased_brain',$20,$21)`,
       [buyerId, r.symbol, r.model, r.day_type, r.session, r.direction, r.entry_price, r.stop_loss, r.take_profit, r.confidence,
-        r.setup, r.reasoning, JSON.stringify(r.context ?? null), r.result, r.r_multiple, r.pips, r.exit_price,
-        r.resolved_at ? new Date(r.resolved_at) : null, r.created_at ? new Date(r.created_at) : new Date(), r.engine === 'crypto' ? 'crypto' : 'fx'],
+        r.setup, r.reasoning, JSON.stringify(stampFxModelImportContext(r.context, r, provenance)), r.result, r.r_multiple, r.pips, r.exit_price,
+        r.resolved_at ? new Date(r.resolved_at) : null, r.created_at ? new Date(r.created_at) : new Date(), r.engine === 'crypto' ? 'crypto' : 'fx',
+        fxModelImportEpoch(r)],
     ).then(() => { n++; }).catch(() => {});
   }
   return n;
@@ -1064,8 +1157,12 @@ export async function importFxModelSnapshot(buyerId: number, snapshot: any[]): P
 //   • it is the model the day type calls for (range → M1, trend → M2)
 //   • that exact slice (model × day type × pair × session) is Proficient or
 //     Master AND clears the go-live bar (sliceLiveReady): 50+ resolved
-//     ideas, avg R ≥ +0.2, win rate ≥ 40%, no losing week in the last two
-//   • the model's live daily cap isn't used up (M1: 3, M2: 2 by default)
+//     ideas, avg R ≥ +0.2, win rate ≥ 40%, no losing week in the last two.
+//     The proving record may be the user's own — or, since the marketplace
+//     completion, a purchased epoch-2 record for the same slice
+//     (importedSliceLiveReady; FX_MODEL_MARKETPLACE_LIVE=off disables).
+//   • the model's live daily cap isn't used up (M1: 3, M2: 2 by default),
+//     shared across own-proven and marketplace-proven hand-offs
 // It then goes through the engine's normal processDecision path, so the
 // confidence floor, cooldowns, daily caps, MTF rule (M2), news/session
 // gates, risk guard, lot caps, leader check and logging all still apply.
@@ -1136,11 +1233,70 @@ export async function sliceLiveReady(userId: number, s: any): Promise<boolean> {
   return rows.every((r: any) => Number(r.r) >= 0);
 }
 
+/**
+ * The non-DB half of the PURCHASED-slice bar: exactly the own-slice bar
+ * (sliceMeetsBar, graded on the imported record's epoch stats), plus
+ * marketplace provenance — the slice must come from a known listing,
+ * must be a current-system (epoch-2) record, and the marketplace live
+ * path must not be killed. Pure and exported for the check script.
+ */
+export function importedSliceMeetsBar(s: any): boolean {
+  if (!fxModelMarketplaceLiveOn()) return false;
+  if (!s || s.source !== 'marketplace_model' || s.legacy) return false;
+  if (!(Number(s.listingId) > 0)) return false;
+  if (Number(s.recordEpoch ?? s.epoch) !== MODELS_EPOCH) return false;
+  return sliceMeetsBar(s);
+}
+
+/** Full purchased-slice readiness: the bar above + no losing week in
+ *  the last two calendar weeks, graded on the imported rows of THIS
+ *  listing only (mirrors sliceLiveReady's window for own slices). */
+export async function importedSliceLiveReady(userId: number, s: any): Promise<boolean> {
+  if (!importedSliceMeetsBar(s)) return false;
+  const { rows } = await pool.query(
+    `SELECT date_trunc('week', created_at) AS wk, SUM(r_multiple)::float AS r
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND engine='fx' AND source='purchased_brain' AND epoch = ${MODELS_EPOCH}
+        AND model=$2 AND day_type=$3 AND symbol=$4 AND session=$5
+        AND context->'marketplace'->>'listingId' = $6
+        AND created_at >= date_trunc('week', now()) - interval '7 days'
+        AND result IN ('WIN','LOSS','EXPIRED')
+      GROUP BY 1`,
+    [userId, s.model, s.dayType, s.symbol, s.session, String(s.listingId)],
+  );
+  return rows.every((r: any) => Number(r.r) >= 0);
+}
+
+/** Provenance recorded on a live trade that a purchased slice unlocked. */
+export function fxModelProvenanceForSlice(s: any): { source: 'marketplace_model'; sellerId: number | null; listingId: number } {
+  return {
+    source: 'marketplace_model',
+    sellerId: Number(s?.sellerId) > 0 ? Number(s.sellerId) : null,
+    listingId: Number(s?.listingId),
+  };
+}
+
+/** The buyer's per-model daily cap (M1 3 / M2 2 by default). One cap is
+ *  shared by own-proven and marketplace-proven hand-offs alike: the
+ *  count maybeGoLive claims against is every live/live_pending model
+ *  decision the buyer has today, whichever record unlocked it. */
+export function fxModelDailyCap(model: ModelId, settings: FxModelSettings): number {
+  const raw = model === 'M1' ? settings?.m1DailyCap : settings?.m2DailyCap;
+  const n = Math.floor(Number(raw));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+export function fxModelDailyCapAllows(claimsToday: number, model: ModelId, settings: FxModelSettings): boolean {
+  return Number(claimsToday) < fxModelDailyCap(model, settings);
+}
+
 /** Which live-eligible slices exist right now (for the panel). */
 export async function liveEligibleSlices(userId: number): Promise<any[]> {
   const m = await getModelMastery(userId, { ownOnly: true });
   const out: any[] = [];
   for (const s of m.slices) if (await sliceLiveReady(userId, s)) out.push(s);
+  if (fxModelMarketplaceLiveOn()) {
+    for (const s of m.importedSlices) if (await importedSliceLiveReady(userId, s)) out.push(s);
+  }
   return out;
 }
 
@@ -1151,12 +1307,31 @@ export async function maybeGoLive(userId: number, idea: {
   const settings = await getFxModelSettings(userId);
   if (!settings.live) return;
   if (idea.model !== idea.autoModel) return; // only the model the day type calls for
-  // Live eligibility counts ONLY the user's own record — purchased bundles
-  // inform the models but can never unlock real-money trading.
+  // Live eligibility: the user's OWN record first (as always). Since the
+  // marketplace completion, a PURCHASED current-system slice that clears
+  // the same bar can also qualify the buyer's own new idea — the idea
+  // itself is always the buyer's, made now, and it still passes every
+  // gate below and in the engine. Kill switch FX_MODEL_MARKETPLACE_LIVE
+  // =off restores the own-only rule exactly.
   const mastery = await getModelMastery(userId, { ownOnly: true });
-  const slice = mastery.slices.find((s: any) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session);
-  if (!slice || !(await sliceLiveReady(userId, slice))) return;
-  const cap = idea.model === 'M1' ? settings.m1DailyCap : settings.m2DailyCap;
+  const matches = (s: any) => s.model === idea.model && s.dayType === idea.dayType && s.symbol === idea.symbol && s.session === idea.session;
+  const ownSlice = mastery.slices.find(matches);
+  const ownReady = !!ownSlice && await sliceLiveReady(userId, ownSlice);
+  const importedSlice = ownReady ? null : (mastery.importedSlices || []).find(matches) || null;
+  const importedReady = !!importedSlice && await importedSliceLiveReady(userId, importedSlice);
+  if (!ownReady && !importedReady) return;
+  const slice: any = ownReady ? ownSlice : importedSlice;
+  const provenance = importedReady ? fxModelProvenanceForSlice(importedSlice) : null;
+  const cap = fxModelDailyCap(idea.model, settings);
+  // Shared-cap precheck (the atomic claim below is the authority): the
+  // count is ALL of today's live/live_pending decisions for this model,
+  // own-proven and marketplace-proven alike — neither path gets its own
+  // allowance.
+  const { rows: usedRows } = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM fx_model_decisions WHERE user_id=$1 AND model=$2 AND mode IN ('live','live_pending') AND created_at >= date_trunc('day', now())`,
+    [userId, idea.model],
+  ).catch(() => ({ rows: [{ n: 0 }] as any[] }));
+  if (!fxModelDailyCapAllows(Number(usedRows[0]?.n) || 0, idea.model, settings)) return;
   // Claim a cap slot atomically (per-user advisory lock serialises claims).
   const client = await pool.connect();
   let claimed = false;
@@ -1177,14 +1352,24 @@ export async function maybeGoLive(userId: number, idea: {
     throw e;
   } finally { client.release(); }
   if (!claimed) return;
+  const stats = promotionStats(slice);
   const { submitFxModelTrade } = await import('./live-trading-engine');
   const placed = await submitFxModelTrade(userId, {
     model: idea.model, symbol: idea.symbol, direction: idea.direction, confidence: idea.confidence,
     entryPrice: idea.entry, stopLoss: idea.stopLoss, takeProfit: idea.takeProfit,
-    reason: `${idea.model === 'M1' ? 'Model 1 · Range' : 'Model 2 · Trend'} [${slice.level}, ${slice.trades} ideas, ${(slice.winRate * 100).toFixed(0)}% WR, ${slice.avgR >= 0 ? '+' : ''}${slice.avgR.toFixed(2)}R] ${idea.setup}: ${idea.reason}`.slice(0, 500),
+    reason: `${idea.model === 'M1' ? 'Model 1 · Range' : 'Model 2 · Trend'} [${stats.level}, ${stats.trades} current-system ideas, ${(stats.winRate * 100).toFixed(0)}% WR, ${stats.avgR >= 0 ? '+' : ''}${stats.avgR.toFixed(2)}R]${provenance ? ` [Marketplace model · listing #${provenance.listingId}${provenance.sellerId ? ` · seller #${provenance.sellerId}` : ''}]` : ''} ${idea.setup}: ${idea.reason}`.slice(0, 500),
   }).catch(() => false);
   // Only a trade the engine actually placed uses the cap; otherwise release it.
   await pool.query(`UPDATE fx_model_decisions SET mode=$2 WHERE id=$1`, [idea.id, placed ? 'live' : 'shadow']).catch(() => {});
+  // A placed marketplace-proven trade carries its provenance on the
+  // decision record itself, so the journal/ABBA can always answer
+  // "which purchased record unlocked this trade?"
+  if (placed && provenance) {
+    await pool.query(
+      `UPDATE fx_model_decisions SET context = COALESCE(context, '{}'::jsonb) || $2::jsonb WHERE id=$1`,
+      [idea.id, JSON.stringify({ marketplaceProvenance: provenance })],
+    ).catch(() => {});
+  }
 }
 
 // ── Crypto engine cycle (shadow only) ─────────────────────────────────────
@@ -1294,7 +1479,7 @@ export function masteryLevel(trades: number, winRate: number, avgR: number): str
 }
 
 /** Per model × day type × pair × session: data volume, accuracy, expectancy, level. */
-export async function getModelMastery(userId: number, opts: { ownOnly?: boolean; engine?: ModelEngine } = {}): Promise<{ models: any[]; slices: any[]; propSim: Record<'M1' | 'M2', PropSimResult> }> {
+export async function getModelMastery(userId: number, opts: { ownOnly?: boolean; engine?: ModelEngine } = {}): Promise<{ models: any[]; slices: any[]; importedSlices: any[]; propSim: Record<'M1' | 'M2', PropSimResult> }> {
   const _eng = opts.engine === 'crypto' ? 'crypto' : 'fx';
   await ensureFxModelTables();
   const agg = async (group: string) => (await pool.query(
@@ -1332,6 +1517,39 @@ export async function getModelMastery(userId: number, opts: { ownOnly?: boolean;
       wasExcludedPair: isExcludedPair(r.model, r.symbol, _eng),
     };
   };
+  // Purchased model records, grouped by the listing they came from —
+  // one seller's snapshot is graded as its own slice set, never blended
+  // with another purchase. Rows whose snapshot predates the current
+  // system (epoch < 2) or carries no listing provenance are `legacy`
+  // and can never qualify a buyer for live trading.
+  const importedAgg = _eng === 'fx' ? (await pool.query(
+    `SELECT model, day_type, symbol, session,
+            context->'marketplace'->>'listingId' AS listing_id,
+            context->'marketplace'->>'sellerId' AS seller_id,
+            MIN(epoch)::int AS min_epoch, MAX(epoch)::int AS max_epoch,
+            COUNT(*)::int AS trades,
+            COUNT(*) FILTER (WHERE result='WIN')::int AS wins,
+            COALESCE(AVG(r_multiple),0)::float AS avg_r,
+            COALESCE(SUM(r_multiple),0)::float AS total_r,
+            COUNT(*) FILTER (WHERE epoch = ${MODELS_EPOCH})::int AS epoch_trades,
+            COUNT(*) FILTER (WHERE epoch = ${MODELS_EPOCH} AND result='WIN')::int AS epoch_wins,
+            COALESCE(AVG(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_avg_r,
+            COALESCE(SUM(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_total_r
+       FROM fx_model_decisions
+      WHERE user_id=$1 AND engine='fx' AND result IN ('WIN','LOSS','EXPIRED') AND source='purchased_brain'
+      GROUP BY model, day_type, symbol, session, listing_id, seller_id ORDER BY trades DESC`, [userId]).catch(() => ({ rows: [] as any[] }))).rows : [];
+  const importedSlices = importedAgg.map((r: any) => {
+    const listingId = Number(r.listing_id) > 0 ? Number(r.listing_id) : null;
+    const recordEpoch = Number(r.min_epoch) === Number(r.max_epoch) ? Number(r.min_epoch) : null;
+    return {
+      ...shape(r),
+      source: 'marketplace_model',
+      sellerId: Number(r.seller_id) > 0 ? Number(r.seller_id) : null,
+      listingId,
+      recordEpoch,
+      legacy: !(recordEpoch === MODELS_EPOCH && listingId != null),
+    };
+  });
   // Prop-firm simulation over the CURRENT system's own resolved record
   // (epoch-filtered while the epoch is on; all-time when it is off).
   // Formerly blocked pairs/sessions are included — it is a report on the
@@ -1347,6 +1565,7 @@ export async function getModelMastery(userId: number, opts: { ownOnly?: boolean;
   return {
     models: (await agg('model')).map(shape),
     slices: (await agg('model, day_type, symbol, session')).map(shape),
+    importedSlices,
     propSim: { M1: propSimulate(byModel.M1), M2: propSimulate(byModel.M2) },
   };
 }
