@@ -356,6 +356,7 @@ const Header: React.FC = () => {
     { name: '7-8 Profit Paths', path: '/seven-eight', active: location === '/seven-eight', icon: <Star className="h-4 w-4 mr-2" /> },
     { name: 'Strategy Wizard', path: '/strategy-wizard', active: location === '/strategy-wizard', icon: <Wand2 className="h-4 w-4 mr-2" /> },
     { name: 'Strategy Studio', path: '/strategy-studio', active: location === '/strategy-studio', icon: <Rocket className="h-4 w-4 mr-2" /> },
+    { name: 'Guards & Trails', path: '/guards-trails', active: location === '/guards-trails', icon: <Shield className="h-4 w-4 mr-2" /> },
     { name: 'Market Insights', path: '/market-insights', active: location === '/market-insights', icon: <Newspaper className="h-4 w-4 mr-2" /> },
     { name: 'Market Sentiment', path: '/market-sentiment', active: location === '/market-sentiment', icon: <TrendingUp className="h-4 w-4 mr-2" /> },
     { name: 'Market Mood', path: '/market-mood', active: location === '/market-mood', icon: <Activity className="h-4 w-4 mr-2" /> },
@@ -410,6 +411,7 @@ const Header: React.FC = () => {
     ]},
     { title: 'Risk & Accounts', items: [
       { name: 'Ruin Cone', path: '/ruin-cone', Icon: Activity, color: '#ef4444' },
+      { name: 'Guards & Trails', path: '/guards-trails', Icon: Shield, color: '#22c55e' },
       { name: 'Prop Firm', path: '/prop-firm-challenge', Icon: Shield, color: '#7c3aed' },
       { name: 'Live Monitor', path: '/live-monitor', Icon: Radio, color: '#22c55e' },
       { name: 'My EAs', path: '/my-eas', Icon: Briefcase, color: '#f59e0b' },

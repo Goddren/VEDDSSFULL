@@ -92,7 +92,7 @@ export function SkippedTradesPanel({ className = "" }: { className?: string }) {
         icon={<Ban className="w-4 h-4" />}
         tint="bg-amber-500/15 text-amber-300"
         title="Why trades were skipped"
-        subtitle="Signals the engine wanted to take but deliberately didn't — and why."
+        subtitle="Trades the guards turned away — and what they would have done."
         explainer={<InfoExplainer title="Why trades were skipped" accent="border-l-amber-300/60">
           <p>These are signals the engine <b>wanted</b> to trade but deliberately passed on — a guard or quality check said no. Each row names the reason: chasing a moved price, fighting the higher-timeframe trend, a range-bound day, a stale entry, and so on.</p>
           <p>Skips are the system working as designed, not missed chances by default. If one guard seems to skip everything, check its would-be results in Guard fire rates — blocked trades are scored later against real prices.</p>
@@ -152,7 +152,7 @@ export function GuardFireRatesPanel({ className = "" }: { className?: string }) 
         icon={<Activity className="w-4 h-4" />}
         tint="bg-sky-500/15 text-sky-300"
         title="Guard fire rates"
-        subtitle="How often each protection fired — last 7 days vs the 7 before. Guards at the top are shaping your results most."
+        subtitle="How often each protection had to step in — last 7 days vs the 7 before. The ones at the top are shaping your results most."
         explainer={<InfoExplainer title="Guard fire rates & would-be results">
           <p>This counts how often each protection fired in the last 7 days versus the 7 before, so you can see which guards are shaping your results most.</p>
           <p><b>Would-be results</b> are the important part: when a guard blocks a trade that had a full plan (entry, stop, target), the system keeps watching that plan against real prices and scores it later — win or loss — exactly as if the trade had been taken. That turns "the guard blocked me" into evidence:</p>
@@ -285,7 +285,7 @@ export function PromotedRulesPanel({ className = "" }: { className?: string }) {
         icon={<GraduationCap className="w-3.5 h-3.5" />}
         tint="bg-violet-500/15 text-violet-300"
         title="Proven lessons → real guards"
-        subtitle="Bar: 50+ practice trades · avg R ≤ −0.2 · ≤40% wins · no winning week."
+        subtitle="Lessons from practice trading that you can turn into real guards. The proof bar: 50+ practice trades, losing 0.2R or more on average, winning 40% or less, and no winning week."
         explainer={<InfoExplainer title="Proven lessons → real guards" accent="border-l-violet-300/60">
           <p>Your engines practice constantly in shadow mode — every signal is scored against real prices without risking money. Patterns in those results become <b>lessons</b>.</p>
           <p>Most lessons stay advice. But a pattern that has proven itself a loser — 50 or more practice trades, losing at least 0.2R on average, winning 40% or less, and not one winning week in the last 30 days — can be promoted into a <b>real guard</b>: the FX engine will refuse live trades matching it.</p>
@@ -393,6 +393,22 @@ export function PracticeCostPanel({ className = "" }: { className?: string }) {
 
 type TrailGroupT = { key: string; trades: number; winRate: number | null; avgFinal: number | null; avgPeak: number | null; avgGiveback: number | null; trailExitShare: number | null; verdict: string | null };
 
+// Plain-words takeaway for a trail-study block, derived ONLY from the same
+// group numbers rendered below it: among groups with a verdict-grade sample
+// (8+ trades, the study's own bar), the one whose winners gave back the
+// least is where the trail fits best; the one that gave back the most is
+// the round-trip problem. Returns null when there isn't enough scored data
+// to say either honestly — the block then shows nothing extra.
+function trailTakeaway(groups: TrailGroupT[], unit: string): string | null {
+  const scored = groups.filter((g) => g.trades >= 8 && g.avgGiveback != null);
+  if (scored.length < 2) return null;
+  const sorted = [...scored].sort((a, b) => (a.avgGiveback as number) - (b.avgGiveback as number));
+  const best = sorted[0];
+  const worst = sorted[sorted.length - 1];
+  if (best.key === worst.key || best.avgGiveback === worst.avgGiveback) return null;
+  return `Trails fit best: ${best.key} (winners gave back only ${best.avgGiveback}${unit} on average). Biggest giveback: ${worst.key} (${worst.avgGiveback}${unit} handed back on average).`;
+}
+
 function TrailGroupRows({ groups, unit }: { groups: TrailGroupT[]; unit: string }) {
   if (!groups.length) return null;
   return (
@@ -435,7 +451,7 @@ export function TrailStudyPanel({ className = "" }: { className?: string }) {
         icon={<Route className="w-3.5 h-3.5" />}
         tint="bg-sky-500/15 text-sky-300"
         title="Trail study — which trail fits which pair & strategy"
-        subtitle={`Last ${data.days} days.`}
+        subtitle={`Which trailing-stop style fits which pair and strategy, measured by how much of a winner's peak was given back before it closed. Last ${data.days} days.`}
         explainer={<InfoExplainer title="Trail study & trail guards">
           <p>A trailing stop follows a winning trade's peak and locks in a floor behind it. The key number in this study is <b>giveback</b>: how much of the peak gain a trade handed back before it closed. Small giveback with frequent trail exits means the trail fits; large giveback means winners are round-tripping.</p>
           <p>Crypto is measured in <b>R</b> (multiples of the trade's planned risk) on live trades; Sol is measured in <b>%</b> on paper and shadow trades. Results are grouped by strategy and by pair/token so you can see which trail fits where.</p>
@@ -446,6 +462,7 @@ export function TrailStudyPanel({ className = "" }: { className?: string }) {
       <div className="text-[10px] font-semibold text-gray-300 mt-1 mb-1 break-words">Crypto engine {cs ? <span className="text-gray-500 font-normal">— your trail now: {cs.method}, arms at {cs.activationR}R, fixed {cs.fixedR}R / step {cs.stepR}R / locks {cs.profitLockPct}%</span> : <span className="text-gray-500 font-normal">— no saved trail settings</span>}</div>
       {data.crypto.overall ? (
         <>
+          {(() => { const t = trailTakeaway([...data.crypto.byStrategy, ...data.crypto.bySymbol], "R"); return t ? <div className="text-[10px] text-gray-300 rounded bg-sky-500/5 border border-sky-500/15 px-2 py-1 mb-1.5 break-words">{t}</div> : null; })()}
           <div className="text-[10px] text-gray-400 mb-1">By strategy</div>
           <TrailGroupRows groups={data.crypto.byStrategy} unit="R" />
           <div className="text-[10px] text-gray-400 mt-1.5 mb-1">By pair</div>
@@ -459,6 +476,7 @@ export function TrailStudyPanel({ className = "" }: { className?: string }) {
       <div className="text-[10px] font-semibold text-gray-300 mt-2.5 mb-1 break-words">Sol engine <span className="text-gray-500 font-normal">— learned rules {ss.learnedRulesOn ? "on" : "off"}: breakeven at +{ss.breakevenAtPct}%, half off at +{ss.partialAtPct}%, trail {ss.trailDistPct}% under the peak. {ss.stagedTrail}</span></div>
       {data.sol.overall ? (
         <>
+          {(() => { const t = trailTakeaway([...data.sol.byStrategy, ...data.sol.bySymbol], "%"); return t ? <div className="text-[10px] text-gray-300 rounded bg-sky-500/5 border border-sky-500/15 px-2 py-1 mb-1.5 break-words">{t}</div> : null; })()}
           <div className="text-[10px] text-gray-400 mb-1">By strategy</div>
           <TrailGroupRows groups={data.sol.byStrategy} unit="%" />
           <div className="text-[10px] text-gray-400 mt-1.5 mb-1">By token</div>
@@ -512,6 +530,7 @@ function TrailGuardsSection() {
           >{showCandidates ? "Hide" : `Review ${fresh.length} candidate${fresh.length === 1 ? "" : "s"}`}</button>
         )}
       </div>
+      <div className="text-[9px] text-gray-500 mb-1">When a trail pattern has proven itself in the study above, you can freeze it in or tighten it as a standing rule here — it only changes how trades exit, never whether they open.</div>
       {!showCandidates && fresh.length > 0 && (
         <div className="text-[9px] text-gray-500 mb-1">{fresh.length} proven lesson{fresh.length === 1 ? "" : "s"} can become a guard — tap Review to see them.{active.length > 0 ? ` ${active.length} guard${active.length === 1 ? "" : "s"} active below.` : ""}</div>
       )}
