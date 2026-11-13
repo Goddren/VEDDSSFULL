@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Layers, TrendingUp, Waves, Award } from "lucide-react";
+import { Layers, TrendingUp, Waves, Award, Landmark } from "lucide-react";
 import { InfoExplainer } from "@/components/info-explainer";
 
 // FX Model 1 (range) / Model 2 (trend) — shadow-phase brain panel.
@@ -43,6 +43,9 @@ const LEVEL_COLORS: Record<string, string> = {
 };
 const levelColor = (l: string) => LEVEL_COLORS[l.split(" ")[0]] || "#9ca3af";
 
+function fmtMoney(x: number) {
+  return `$${Math.round(x).toLocaleString("en-US")}`;
+}
 function fmtR(r: number | null | undefined) {
   if (r == null || !Number.isFinite(r)) return "—";
   return `${r >= 0 ? "+" : ""}${r.toFixed(2)}R`;
@@ -186,20 +189,105 @@ export function FxModelsPanel({ className = "", engine = "fx" }: { className?: s
   );
 }
 
+const PROP_SIM_TITLE = "Prop-firm simulation of this model's current-system shadow record: $100k account, 0.5% risk per trade or less, 2.5% daily loss cap, 6% max loss";
+
 function PropSimLine({ sim }: { sim?: PropSimSummary }) {
-  if (!sim || sim.tradesTaken === 0) return null;
-  const money = (x: number) => `$${Math.round(x).toLocaleString("en-US")}`;
+  if (!sim || sim.tradesTaken === 0) {
+    return (
+      <p className="text-[11px] text-gray-400 mt-1" title={PROP_SIM_TITLE}>
+        Prop sim ($100k): no trades yet
+      </p>
+    );
+  }
   if (sim.blown) {
     return (
-      <p className="text-[9px] mt-1 font-bold" style={{ color: "#f87171" }} title="Prop-firm simulation of this model's current-system shadow record: $100k account, 0.5% risk per trade or less, 2.5% daily loss cap, 6% max loss">
-        Prop sim ($100k): BLOWN {sim.blownAt ?? ""} · {money(sim.endBalance)} · {sim.tradesTaken} trades
+      <p className="text-[11px] mt-1 font-bold" style={{ color: "#f87171" }} title={PROP_SIM_TITLE}>
+        Prop sim ($100k): BLOWN {sim.blownAt ?? ""} · {fmtMoney(sim.endBalance)} · {sim.tradesTaken} trades
       </p>
     );
   }
   return (
-    <p className="text-[9px] text-gray-500 mt-1" title="Prop-firm simulation of this model's current-system shadow record: $100k account, 0.5% risk per trade or less, 2.5% daily loss cap, 6% max loss">
-      Prop sim ($100k): {money(sim.endBalance)} ({sim.totalReturnPct >= 0 ? "+" : ""}{sim.totalReturnPct.toFixed(1)}%) · {sim.tradesTaken} trades · worst day {sim.worstDayPct.toFixed(1)}%
+    <p className="text-[11px] text-gray-300 mt-1" title={PROP_SIM_TITLE}>
+      Prop sim ($100k): {fmtMoney(sim.endBalance)} ({sim.totalReturnPct >= 0 ? "+" : ""}{sim.totalReturnPct.toFixed(1)}%) · {sim.tradesTaken} trades · worst day {sim.worstDayPct.toFixed(1)}%
     </p>
+  );
+}
+
+// ── Prop Firm Sim card — standalone, always-visible version of the prop sim.
+// Rendered on Weekly Strategy OUTSIDE the Self-Learning Brain card so the
+// $100k prop-firm replay can always be found: it renders in every state
+// (loading, error, no trades yet, blown) instead of disappearing. Shares the
+// panel's mastery query (same queryKey — react-query dedupes the fetch).
+export function PropSimCard({ className = "" }: { className?: string }) {
+  const mastery = useQuery<{ models: MasteryRow[]; slices: MasteryRow[]; importedSlices?: MasteryRow[]; propSim?: Record<string, PropSimSummary> }>({
+    queryKey: [`/api/fx-models/mastery?engine=fx`],
+    refetchInterval: 120000,
+  });
+
+  return (
+    <div className={`rounded-2xl p-4 ${className}`} style={{ background: "rgba(17,24,39,0.5)", border: "1.5px solid rgba(251,191,36,0.35)" }} data-testid="prop-sim-card">
+      <div className="flex items-center gap-2">
+        <Landmark className="w-5 h-5 text-amber-300 shrink-0" />
+        <h3 className="text-base font-bold text-gray-100">Prop Firm Sim — $100,000</h3>
+      </div>
+      <p className="text-[11px] text-gray-400 mt-1">
+        Model 1 and Model 2's shadow record, replayed as if it were a $100k prop-firm account: up to 0.5% risk per trade, 2.5% daily loss cap, blown at −6%.
+      </p>
+
+      {mastery.isError ? (
+        <p className="text-[11px] text-gray-400 mt-3">Couldn't load the prop sim right now</p>
+      ) : mastery.isLoading && !mastery.data ? (
+        <p className="text-[11px] text-gray-500 mt-3">Loading…</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+          {(["M1", "M2"] as const).map((m) => (
+            <PropSimModelBlock key={m} model={m} sim={mastery.data?.propSim?.[m]} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PropSimModelBlock({ model, sim }: { model: "M1" | "M2"; sim?: PropSimSummary }) {
+  const meta = MODEL_META[model];
+  const Icon = meta.icon;
+  const blown = !!sim?.blown;
+  return (
+    <div
+      className="rounded-xl p-3 min-w-0"
+      style={{ background: blown ? "rgba(248,113,113,0.08)" : meta.bg, border: `1px solid ${blown ? "rgba(248,113,113,0.4)" : meta.border}` }}
+      data-testid={`prop-sim-block-${model}`}
+      title={PROP_SIM_TITLE}
+    >
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <Icon className="w-4 h-4 shrink-0" style={{ color: meta.color }} />
+        <span className="text-xs font-bold truncate" style={{ color: meta.color }}>{meta.name}</span>
+      </div>
+      {!sim || sim.tradesTaken === 0 ? (
+        <>
+          <p className="text-sm font-bold text-gray-300">No prop-sim trades yet</p>
+          <p className="text-[10px] text-gray-500 mt-1">The sim starts counting when the current models' shadow trades resolve.</p>
+        </>
+      ) : blown ? (
+        <>
+          <p className="text-2xl font-black" style={{ color: "#f87171" }}>BLOWN{sim.blownAt ? ` · ${sim.blownAt}` : ""}</p>
+          <p className="text-[11px] text-gray-300 mt-1">
+            Ended at <span className="font-bold text-gray-100">{fmtMoney(sim.endBalance)}</span> ({sim.totalReturnPct >= 0 ? "+" : ""}{sim.totalReturnPct.toFixed(1)}%) · {sim.tradesTaken} trades · worst day {sim.worstDayPct.toFixed(1)}%
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="text-2xl font-black text-gray-100">{fmtMoney(sim.endBalance)}</p>
+          <p className="text-[11px] mt-0.5">
+            <span className="font-bold" style={{ color: sim.totalReturnPct >= 0 ? "#34d399" : "#f87171" }}>
+              {sim.totalReturnPct >= 0 ? "+" : ""}{sim.totalReturnPct.toFixed(1)}%
+            </span>
+            <span className="text-gray-400"> · {sim.tradesTaken} trades · worst day {sim.worstDayPct.toFixed(1)}%</span>
+          </p>
+        </>
+      )}
+    </div>
   );
 }
 
