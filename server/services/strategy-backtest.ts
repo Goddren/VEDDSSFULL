@@ -276,7 +276,7 @@ function ichimokuParts(bars: BacktestBar[], tenkanP: number, kijunP: number, sen
   return { tenkan, kijun, spanA, spanB };
 }
 
-function volumeProfileSeries(bars: BacktestBar[], lookback: number, vaPct: number): { poc: Series; vah: Series; val: Series } {
+export function volumeProfileSeries(bars: BacktestBar[], lookback: number, vaPct: number): { poc: Series; vah: Series; val: Series } {
   const n = bars.length;
   const poc: Series = new Array(n).fill(null);
   const vah: Series = new Array(n).fill(null);

@@ -32,6 +32,15 @@ export function ensureKalshiPerpShadowTables(): Promise<void> {
       earnings_within_48h boolean, corporate_action_pending boolean, live_gate_blocked boolean,
       leverage_estimate double precision, tags text[], advice_at_entry text,
       closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision, funding_paid_usd double precision)`))
+      // Perp-brain build (2026-11-12): entry-time volume-profile context on
+      // each trade (POC / value-area high / value-area low / price position),
+      // so the bucket stats can learn VP-specific lessons from here forward.
+      // Rows written before this build simply carry NULLs and contribute no
+      // 'vp' bucket — no backfill is possible or attempted.
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_poc double precision`))
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_vah double precision`))
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_val double precision`))
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_position text`))
       .then(() => undefined)
       .catch((e) => { _ensured = null; throw e; });
   }
