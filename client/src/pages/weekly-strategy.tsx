@@ -34,7 +34,7 @@ import ConnectedAccountPicker, {
   type ConnectedAccount,
 } from "@/components/connected-account-picker";
 import { TradePerformanceCard, TodayReviewPanel } from "@/components/trade-performance-card";
-import { FxModelsPanel } from "@/components/fx-models-panel";
+import { FxModelsPanel, PropSimCard } from "@/components/fx-models-panel";
 import { PracticeCostPanel } from "@/components/engine-safeguards-panel";
 
 const POPULAR_PAIRS = [
@@ -5011,6 +5011,8 @@ export default function WeeklyStrategyPage() {
             </CardContent>
           </Card>
         )}
+
+        <PropSimCard className="mt-3" />
 
         {/* ═══════════════════════════════════════════════════════
             SELF-LEARNING BRAIN — collapsible
