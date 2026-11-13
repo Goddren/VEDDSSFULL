@@ -1714,6 +1714,14 @@ var init_schema = __esm({
       closedAt: timestamp("closed_at"),
       peakRMultiple: doublePrecision("peak_r_multiple").notNull().default(0),
       trailArmed: boolean("trail_armed").notNull().default(false),
+      // Trail-guard attribution (2026-11-13): stamped when a promoted trail
+      // guard's profile governed this trade's exit evaluation, so closes
+      // under a guard are countable by the guard's self-evaluation loop.
+      // NULL on every unguarded trade. Lazily added in prod by
+      // ensureTrailGuardStampColumns() (trail-guards.ts).
+      trailGuardId: text("trail_guard_id"),
+      trailGuardAction: text("trail_guard_action"),
+      trailGuardProfile: jsonb("trail_guard_profile"),
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -18309,7 +18317,7 @@ function logDecisionShadow(r) {
     _seen.set(k2, Date.now());
     if (_seen.size > 5e3) _seen.clear();
   }
-  const num10 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  const num11 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
   void ensureDecisionShadowTable().then(() => pool.query(
     `INSERT INTO fx_decision_shadow (user_id, scan_id, symbol, session, hour_utc, lane, mode, acted, picked, ai_status,
        direction, score, terms, entry, sl, tp, gate_result)
@@ -18326,11 +18334,11 @@ function logDecisionShadow(r) {
       !!r.picked,
       r.aiStatus ?? null,
       r.direction ?? null,
-      num10(r.score),
+      num11(r.score),
       r.terms == null ? null : JSON.stringify(r.terms),
-      num10(r.entry),
-      num10(r.sl),
-      num10(r.tp),
+      num11(r.entry),
+      num11(r.sl),
+      num11(r.tp),
       r.gateResult ?? null
     ]
   )).catch(() => {
@@ -41998,12 +42006,16 @@ var init_trail_study = __esm({
 // server/services/trail-guards.ts
 var trail_guards_exports = {};
 __export(trail_guards_exports, {
+  cryptoTrailGuardFor: () => cryptoTrailGuardFor,
   cryptoTrailProfileFor: () => cryptoTrailProfileFor,
+  ensureTrailGuardStampColumns: () => ensureTrailGuardStampColumns,
   getTrailGuardCandidates: () => getTrailGuardCandidates,
   getTrailGuards: () => getTrailGuards,
   promoteTrailGuard: () => promoteTrailGuard,
   retireTrailGuard: () => retireTrailGuard,
+  solTrailGuardFor: () => solTrailGuardFor,
   solTrailOverridesFor: () => solTrailOverridesFor,
+  stampCryptoTradeTrailGuard: () => stampCryptoTradeTrailGuard,
   trailGuardsOn: () => trailGuardsOn
 });
 function trailGuardsOn() {
@@ -42153,12 +42165,14 @@ async function promoteTrailGuard(userId, sel) {
   await storeGuards(userId, [...guards, guard]);
   return { ok: true, guard };
 }
-async function retireTrailGuard(userId, id) {
+async function retireTrailGuard(userId, id, retiredBy = "user", retireReason) {
   const guards = await getTrailGuards(userId);
   const g = guards.find((x) => x.id === id);
   if (!g) return { ok: false, status: 404, error: "Guard not found." };
   g.active = false;
   g.retiredAt = (/* @__PURE__ */ new Date()).toISOString();
+  g.retiredBy = retiredBy;
+  if (retireReason) g.retireReason = retireReason;
   await storeGuards(userId, guards);
   return { ok: true, guard: g };
 }
@@ -42170,24 +42184,58 @@ function matchGuard(guards, engine, strategy, symbol) {
   return strat ?? sym2 ?? null;
 }
 async function cryptoTrailProfileFor(userId, strategy, symbol) {
-  if (!trailGuardsOn()) return null;
-  try {
-    const g = matchGuard(await getTrailGuards(userId), "crypto", strategy, symbol);
-    return g ? g.profile : null;
-  } catch {
-    return null;
-  }
+  const g = await cryptoTrailGuardFor(userId, strategy, symbol);
+  return g ? g.profile : null;
 }
 async function solTrailOverridesFor(userId, strategyId, symbol) {
+  const g = await solTrailGuardFor(userId, strategyId, symbol);
+  return g ? g.profile : null;
+}
+async function cryptoTrailGuardFor(userId, strategy, symbol) {
   if (!trailGuardsOn()) return null;
   try {
-    const g = matchGuard(await getTrailGuards(userId), "sol", strategyId, symbol);
-    return g ? g.profile : null;
+    return matchGuard(await getTrailGuards(userId), "crypto", strategy, symbol);
   } catch {
     return null;
   }
 }
-var SCOPE2, MIN_TRADES6, CRYPTO_GIVEBACK_R, SOL_GIVEBACK_PCT, _cache4, CACHE_MS2;
+async function solTrailGuardFor(userId, strategyId, symbol) {
+  if (!trailGuardsOn()) return null;
+  try {
+    return matchGuard(await getTrailGuards(userId), "sol", strategyId, symbol);
+  } catch {
+    return null;
+  }
+}
+function ensureTrailGuardStampColumns() {
+  if (!_colsEnsured) {
+    _colsEnsured = pool.query(`ALTER TABLE cryptocom_engine_trades
+        ADD COLUMN IF NOT EXISTS trail_guard_id text,
+        ADD COLUMN IF NOT EXISTS trail_guard_action text,
+        ADD COLUMN IF NOT EXISTS trail_guard_profile jsonb`).then(() => void 0).catch((e) => {
+      _colsEnsured = null;
+      throw e;
+    });
+  }
+  return _colsEnsured;
+}
+async function stampCryptoTradeTrailGuard(userId, tradeId, guard) {
+  const memoKey = `${userId}:${tradeId}`;
+  const stampKey = `${guard.id}:${guard.action}`;
+  if (_stamped.get(memoKey) === stampKey) return;
+  try {
+    await ensureTrailGuardStampColumns();
+    await pool.query(
+      `UPDATE cryptocom_engine_trades SET trail_guard_id = $2, trail_guard_action = $3, trail_guard_profile = $4::jsonb
+        WHERE id = $1 AND user_id = $5`,
+      [tradeId, guard.id, guard.action, JSON.stringify(guard.profile), userId]
+    );
+    _stamped.set(memoKey, stampKey);
+  } catch (e) {
+    console.error("[trail-guards] stamp failed (non-fatal):", e?.message || e);
+  }
+}
+var SCOPE2, MIN_TRADES6, CRYPTO_GIVEBACK_R, SOL_GIVEBACK_PCT, _cache4, CACHE_MS2, _colsEnsured, _stamped;
 var init_trail_guards = __esm({
   "server/services/trail-guards.ts"() {
     "use strict";
@@ -42201,6 +42249,8 @@ var init_trail_guards = __esm({
     SOL_GIVEBACK_PCT = 8;
     _cache4 = /* @__PURE__ */ new Map();
     CACHE_MS2 = 3e4;
+    _colsEnsured = null;
+    _stamped = /* @__PURE__ */ new Map();
   }
 });
 
@@ -42233,7 +42283,10 @@ function ensureSolShadowContextTable() {
       entry_price double precision, size_sol double precision, cost_pct double precision,
       opened_at timestamptz NOT NULL DEFAULT now(),
       closed_at timestamptz, exit_reason text, hold_minutes double precision,
-      gross_pct double precision, net_pct double precision, peak_gain_pct double precision)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS sol_shadow_context_user_closed ON sol_shadow_context (user_id, closed_at)`)).then(() => void 0).catch((e) => {
+      gross_pct double precision, net_pct double precision, peak_gain_pct double precision)`).then(() => pool.query(`ALTER TABLE sol_shadow_context
+          ADD COLUMN IF NOT EXISTS trail_guard_id text,
+          ADD COLUMN IF NOT EXISTS trail_guard_action text,
+          ADD COLUMN IF NOT EXISTS trail_guard_profile jsonb`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS sol_shadow_context_user_closed ON sol_shadow_context (user_id, closed_at)`)).then(() => void 0).catch((e) => {
       _ensured7 = null;
       throw e;
     });
@@ -42355,9 +42408,21 @@ async function recordSolShadowClose(o) {
   try {
     await ensureSolShadowContextTable();
     await pool.query(
-      `UPDATE sol_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, gross_pct=$4, net_pct=$5, peak_gain_pct=$6
+      `UPDATE sol_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, gross_pct=$4, net_pct=$5, peak_gain_pct=$6,
+              trail_guard_id=COALESCE($7, trail_guard_id), trail_guard_action=COALESCE($8, trail_guard_action),
+              trail_guard_profile=COALESCE($9::jsonb, trail_guard_profile)
         WHERE position_id=$1 AND closed_at IS NULL`,
-      [o.positionId, o.exitReason, o.holdMinutes, o.grossPct, o.netPct, o.peakGainPct]
+      [
+        o.positionId,
+        o.exitReason,
+        o.holdMinutes,
+        o.grossPct,
+        o.netPct,
+        o.peakGainPct,
+        o.trailGuardId ?? null,
+        o.trailGuardAction ?? null,
+        o.trailGuardProfile != null ? JSON.stringify(o.trailGuardProfile) : null
+      ]
     );
   } catch (e) {
     console.error("[sol-shadow-stats] close write failed (non-fatal):", e?.message ?? e);
@@ -43583,7 +43648,13 @@ async function monitorPaperPositions(userId, state) {
     const isLoss = gainPct <= -pos.slPct;
     let lrBreakeven = false;
     if (solLearnedRulesOn()) {
-      const step = learnedExitStep(pos, currentPrice, await solTrailOverridesFor(userId, pos.strategyId, pos.symbol) ?? void 0);
+      const tgGuard = await solTrailGuardFor(userId, pos.strategyId, pos.symbol);
+      if (tgGuard) {
+        pos.trailGuardId = tgGuard.id;
+        pos.trailGuardAction = tgGuard.action;
+        pos.trailGuardProfile = tgGuard.profile;
+      }
+      const step = learnedExitStep(pos, currentPrice, tgGuard ? tgGuard.profile : void 0);
       if (step.action === "exit") {
         isTrailHit = true;
         lrBreakeven = step.reason === "breakeven";
@@ -43841,7 +43912,13 @@ async function monitorShadowPositions(userId, state) {
     const isLoss = rawGainPct <= -pos.slPct;
     let lrReason = null;
     if (solLearnedRulesOn() && !isWin && !isLoss && !isMaxHold) {
-      const step = learnedExitStep(pos, currentPrice, await solTrailOverridesFor(userId, pos.strategyId, pos.symbol) ?? void 0);
+      const tgGuard = await solTrailGuardFor(userId, pos.strategyId, pos.symbol);
+      if (tgGuard) {
+        pos.trailGuardId = tgGuard.id;
+        pos.trailGuardAction = tgGuard.action;
+        pos.trailGuardProfile = tgGuard.profile;
+      }
+      const step = learnedExitStep(pos, currentPrice, tgGuard ? tgGuard.profile : void 0);
       if (step.action === "exit") lrReason = step.reason;
       else {
         if (step.breakevenJustSet) pos.breakevenActive = true;
@@ -43863,7 +43940,10 @@ async function monitorShadowPositions(userId, state) {
         holdMinutes: (Date.now() - new Date(pos.openedAt).getTime()) / 6e4,
         grossPct: unpriced ? null : gainPct,
         netPct: pos.closePnlPct ?? null,
-        peakGainPct: pos.peakPrice && pos.entryPrice > 0 ? (pos.peakPrice - pos.entryPrice) / pos.entryPrice * 100 : null
+        peakGainPct: pos.peakPrice && pos.entryPrice > 0 ? (pos.peakPrice - pos.entryPrice) / pos.entryPrice * 100 : null,
+        trailGuardId: pos.trailGuardId ?? null,
+        trailGuardAction: pos.trailGuardAction ?? null,
+        trailGuardProfile: pos.trailGuardProfile ?? null
       })).catch(() => {
       });
       state.closedShadowPositions.unshift(pos);
@@ -48092,12 +48172,12 @@ function linregSlope(values) {
   const xs = values.map((_, i) => i);
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = values.reduce((a, b) => a + b, 0) / n;
-  let num10 = 0, den = 0;
+  let num11 = 0, den = 0;
   for (let i = 0; i < n; i++) {
-    num10 += (xs[i] - mx) * (values[i] - my);
+    num11 += (xs[i] - mx) * (values[i] - my);
     den += (xs[i] - mx) ** 2;
   }
-  return den === 0 ? 0 : num10 / den;
+  return den === 0 ? 0 : num11 / den;
 }
 function ensembleSignal(candles) {
   const price = candles[candles.length - 1].close;
@@ -54196,8 +54276,8 @@ async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilen
         analysis.takeProfit,
         ...supportResistanceLevels
       ].map((p2) => {
-        const num10 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
-        return isNaN(num10) ? 0 : num10;
+        const num11 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
+        return isNaN(num11) ? 0 : num11;
       }).filter((p2) => p2 > 0);
       if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
       const minPrice = Math.min(...prices);
@@ -58631,6 +58711,244 @@ var init_engine_consensus = __esm({
   }
 });
 
+// server/services/trail-guard-learning.ts
+var trail_guard_learning_exports = {};
+__export(trail_guard_learning_exports, {
+  evaluateGuardPerformance: () => evaluateGuardPerformance,
+  evaluateTrailGuardsForUser: () => evaluateTrailGuardsForUser,
+  getTrailGuardEvaluations: () => getTrailGuardEvaluations,
+  harmDelta: () => harmDelta,
+  startTrailGuardLearning: () => startTrailGuardLearning,
+  trailGuardLearningOn: () => trailGuardLearningOn
+});
+function trailGuardLearningOn() {
+  return process.env.TRAIL_GUARD_LEARNING !== "off";
+}
+function harmDelta(engine) {
+  return engine === "crypto" ? 0.15 : 1.5;
+}
+function evaluateGuardPerformance(guarded, baseline, opts) {
+  const { minTrades, delta, unit } = opts;
+  if (guarded.trades < minTrades) {
+    return { verdict: "unproven", reason: `watching \u2014 ${guarded.trades}/${minTrades} trades closed under this guard so far` };
+  }
+  if (!baseline || baseline.avgFinal == null) {
+    return { verdict: "unproven", reason: "no usable pre-guard baseline to judge against yet" };
+  }
+  if (guarded.avgFinal == null) {
+    return { verdict: "unproven", reason: "guarded closes carry no measurable result yet" };
+  }
+  const fmt = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}${unit}`;
+  if (guarded.avgFinal <= baseline.avgFinal - delta) {
+    return {
+      verdict: "hurting",
+      reason: `closes under this guard average ${fmt(guarded.avgFinal)} vs ${fmt(baseline.avgFinal)} before it \u2014 worse by ${Math.abs(guarded.avgFinal - baseline.avgFinal).toFixed(2)}${unit} over ${guarded.trades} trades`
+    };
+  }
+  if (baseline.avgGiveback != null && guarded.avgGiveback != null && guarded.avgGiveback >= baseline.avgGiveback && guarded.avgFinal < 0) {
+    return {
+      verdict: "hurting",
+      reason: `giveback did not improve (${guarded.avgGiveback.toFixed(2)}${unit} under the guard vs ${baseline.avgGiveback.toFixed(2)}${unit} before) and closes average ${fmt(guarded.avgFinal)} over ${guarded.trades} trades`
+    };
+  }
+  if (baseline.avgGiveback != null && guarded.avgGiveback != null && guarded.avgGiveback < baseline.avgGiveback && guarded.avgFinal >= baseline.avgFinal) {
+    return {
+      verdict: "helping",
+      reason: `giveback ${guarded.avgGiveback.toFixed(2)}${unit} vs ${baseline.avgGiveback.toFixed(2)}${unit} before, closes ${fmt(guarded.avgFinal)} vs ${fmt(baseline.avgFinal)} \u2014 the guard is earning its keep`
+    };
+  }
+  return { verdict: "unproven", reason: "mixed evidence so far \u2014 no clear verdict yet" };
+}
+async function guardedStats(userId, guard) {
+  if (guard.engine === "crypto") {
+    await ensureTrailGuardStampColumns();
+    const { rows: rows2 } = await pool.query(
+      `SELECT COUNT(*)::int AS trades,
+              COUNT(*) FILTER (WHERE realized_pnl > 0)::int AS wins,
+              AVG(${FINAL_R2}) AS avg_final,
+              AVG(CASE WHEN peak_r_multiple > 0 THEN peak_r_multiple - ${FINAL_R2} END) AS avg_giveback
+         FROM cryptocom_engine_trades t
+        WHERE user_id = $1 AND trail_guard_id = $2 AND status = 'closed'
+          AND closed_at >= now() - ($3 || ' days')::interval AND closed_at >= $4`,
+      [userId, guard.id, String(WINDOW_DAYS), guard.promotedAt]
+    );
+    const r3 = rows2[0] ?? {};
+    return { trades: Number(r3.trades) || 0, wins: Number(r3.wins) || 0, avgFinal: num6(r3.avg_final), avgGiveback: num6(r3.avg_giveback) };
+  }
+  await ensureSolShadowContextTable();
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS trades,
+            COUNT(*) FILTER (WHERE net_pct > 0)::int AS wins,
+            AVG(net_pct) AS avg_final,
+            AVG(CASE WHEN peak_gain_pct IS NOT NULL AND gross_pct IS NOT NULL THEN peak_gain_pct - gross_pct END) AS avg_giveback
+       FROM sol_shadow_context
+      WHERE user_id = $1 AND trail_guard_id = $2 AND closed_at IS NOT NULL
+        AND closed_at >= now() - ($3 || ' days')::interval AND closed_at >= $4`,
+    [userId, guard.id, String(WINDOW_DAYS), guard.promotedAt]
+  );
+  const r = rows[0] ?? {};
+  return { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgFinal: num6(r.avg_final), avgGiveback: num6(r.avg_giveback) };
+}
+async function computedBaseline(userId, guard) {
+  const groupCol = guard.dimension === "strategy" ? guard.engine === "crypto" ? "strategy" : "strategy_id" : "symbol";
+  if (guard.engine === "crypto") {
+    await ensureTrailGuardStampColumns();
+    const { rows: rows2 } = await pool.query(
+      `SELECT COUNT(*)::int AS trades,
+              COUNT(*) FILTER (WHERE realized_pnl > 0)::int AS wins,
+              AVG(${FINAL_R2}) AS avg_final,
+              AVG(CASE WHEN peak_r_multiple > 0 THEN peak_r_multiple - ${FINAL_R2} END) AS avg_giveback
+         FROM cryptocom_engine_trades t
+        WHERE user_id = $1 AND ${groupCol} = $2 AND status = 'closed'
+          AND closed_at < $3 AND closed_at >= $3::timestamptz - ($4 || ' days')::interval`,
+      [userId, guard.key, guard.promotedAt, String(WINDOW_DAYS)]
+    );
+    const r3 = rows2[0] ?? {};
+    if ((Number(r3.trades) || 0) < 5) return null;
+    return { trades: Number(r3.trades) || 0, wins: Number(r3.wins) || 0, avgFinal: num6(r3.avg_final), avgGiveback: num6(r3.avg_giveback) };
+  }
+  await ensureSolShadowContextTable();
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS trades,
+            COUNT(*) FILTER (WHERE net_pct > 0)::int AS wins,
+            AVG(net_pct) AS avg_final,
+            AVG(CASE WHEN peak_gain_pct IS NOT NULL AND gross_pct IS NOT NULL THEN peak_gain_pct - gross_pct END) AS avg_giveback
+       FROM sol_shadow_context
+      WHERE user_id = $1 AND ${groupCol} = $2 AND closed_at IS NOT NULL
+        AND closed_at < $3 AND closed_at >= $3::timestamptz - ($4 || ' days')::interval`,
+    [userId, guard.key, guard.promotedAt, String(WINDOW_DAYS)]
+  );
+  const r = rows[0] ?? {};
+  if ((Number(r.trades) || 0) < 5) return null;
+  return { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgFinal: num6(r.avg_final), avgGiveback: num6(r.avg_giveback) };
+}
+async function baselineFor(userId, guard) {
+  if (guard.avgFinal != null) {
+    return { trades: guard.trades, wins: 0, avgFinal: guard.avgFinal, avgGiveback: guard.avgGiveback };
+  }
+  return computedBaseline(userId, guard);
+}
+async function getTrailGuardEvaluations(userId) {
+  try {
+    const v = await getRuntimeStateStrict(EVAL_SCOPE, String(userId));
+    return v && typeof v === "object" ? v : {};
+  } catch {
+    return {};
+  }
+}
+async function evaluateTrailGuardsForUser(userId, force = false) {
+  if (!trailGuardLearningOn()) return;
+  const last2 = _lastEval.get(userId) ?? 0;
+  if (!force && Date.now() - last2 < THROTTLE_MS) return;
+  _lastEval.set(userId, Date.now());
+  try {
+    const guards = (await getTrailGuards(userId)).filter((g) => g.active);
+    if (!guards.length) return;
+    const evals = await getTrailGuardEvaluations(userId);
+    let changed = false;
+    for (const guard of guards) {
+      try {
+        const [guarded, baseline] = await Promise.all([
+          guardedStats(userId, guard),
+          baselineFor(userId, guard)
+        ]);
+        const unit = guard.engine === "crypto" ? "R" : "%";
+        const { verdict, reason } = evaluateGuardPerformance(guarded, baseline, {
+          minTrades: MIN_GUARDED(),
+          delta: harmDelta(guard.engine),
+          unit
+        });
+        evals[guard.id] = {
+          guardId: guard.id,
+          verdict,
+          reason,
+          guardedTrades: guarded.trades,
+          minTrades: MIN_GUARDED(),
+          guardedAvgFinal: guarded.avgFinal,
+          guardedAvgGiveback: guarded.avgGiveback,
+          baselineAvgFinal: baseline?.avgFinal ?? null,
+          baselineAvgGiveback: baseline?.avgGiveback ?? null,
+          evaluatedAt: (/* @__PURE__ */ new Date()).toISOString()
+        };
+        changed = true;
+        if (verdict === "hurting") {
+          const out = await retireTrailGuard(userId, guard.id, "lessons", reason);
+          if (out.ok) {
+            await logShadowLessonBlock({
+              lane: "trail_guard",
+              userId,
+              strategyKey: guard.id,
+              bucket: `${guard.engine} \xB7 ${guard.dimension} \xB7 ${guard.key} \xB7 ${guard.action}`,
+              n: guarded.trades,
+              winRate: guarded.trades ? guarded.wins / guarded.trades : null,
+              avgR: guard.engine === "crypto" ? guarded.avgFinal : null,
+              medianPct: guard.engine === "sol" ? guarded.avgFinal : null,
+              reason: `Trail guard auto-retired by its own record: ${reason}`
+            });
+            console.log(`[trail-guard-learning] user ${userId}: guard ${guard.id} (${guard.engine} ${guard.dimension} ${guard.key}) auto-retired \u2014 ${reason}`);
+          }
+        }
+      } catch (e) {
+        console.error(`[trail-guard-learning] eval failed for guard ${guard.id} (non-fatal):`, e?.message || e);
+      }
+    }
+    if (changed) saveRuntimeState(EVAL_SCOPE, String(userId), evals);
+  } catch (e) {
+    console.error("[trail-guard-learning] user eval failed (non-fatal):", e?.message || e);
+  }
+}
+function startTrailGuardLearning() {
+  if (_started2) return;
+  _started2 = true;
+  const sweep = async () => {
+    if (!trailGuardLearningOn()) return;
+    try {
+      const rows = await loadRuntimeState("trail_guards");
+      for (const row of rows) {
+        const userId = Number(row.key);
+        if (!Number.isFinite(userId)) continue;
+        if (Array.isArray(row.value) && row.value.some((g) => g && g.active)) {
+          await evaluateTrailGuardsForUser(userId);
+        }
+      }
+    } catch (e) {
+      console.error("[trail-guard-learning] sweep failed (non-fatal):", e?.message || e);
+    }
+  };
+  setTimeout(() => {
+    void sweep();
+  }, 6 * 6e4).unref?.();
+  setInterval(() => {
+    void sweep();
+  }, THROTTLE_MS).unref?.();
+  console.log("[trail-guard-learning] started \u2014 trail guards judged against their own record every 30 min.");
+}
+var MIN_GUARDED, WINDOW_DAYS, EVAL_SCOPE, THROTTLE_MS, FINAL_R2, num6, _lastEval, _started2;
+var init_trail_guard_learning = __esm({
+  "server/services/trail-guard-learning.ts"() {
+    "use strict";
+    init_db();
+    init_runtime_state();
+    init_trail_guards();
+    init_sol_shadow_stats();
+    init_shadow_lesson_gate();
+    MIN_GUARDED = () => Math.max(1, Math.floor(Number(process.env.TRAIL_GUARD_LEARN_MIN_TRADES ?? 10) || 10));
+    WINDOW_DAYS = 90;
+    EVAL_SCOPE = "trail_guard_evals";
+    THROTTLE_MS = 30 * 6e4;
+    FINAL_R2 = `
+  CASE WHEN t.stop_loss IS NULL OR t.exit_price IS NULL THEN NULL
+       WHEN lower(t.direction) IN ('long','buy') AND t.entry_price > t.stop_loss
+         THEN (t.exit_price - t.entry_price) / (t.entry_price - t.stop_loss)
+       WHEN lower(t.direction) IN ('short','sell') AND t.stop_loss > t.entry_price
+         THEN (t.entry_price - t.exit_price) / (t.stop_loss - t.entry_price)
+       ELSE NULL END`;
+    num6 = (v) => v == null || isNaN(Number(v)) ? null : Math.round(Number(v) * 100) / 100;
+    _lastEval = /* @__PURE__ */ new Map();
+    _started2 = false;
+  }
+});
+
 // server/services/kalshi-perps.ts
 var kalshi_perps_exports = {};
 __export(kalshi_perps_exports, {
@@ -58683,17 +59001,17 @@ async function getPerpMarkets() {
         underlying: underlyingOfPerpTicker(String(m.ticker || "")) || "",
         title: String(m.title || ""),
         status: String(m.status || ""),
-        bid: num6(m.bid),
-        ask: num6(m.ask),
-        price: num6(m.price),
-        contractSize: num6(m.contract_size),
-        leverageEstimate: num6(m.leverage_estimate),
-        volume24hContracts: num6(m.volume_24h),
-        volume24hNotionalUsd: num6(m.volume_24h_notional_value_dollars),
-        openInterest: num6(m.open_interest),
-        openInterestNotionalUsd: num6(m.open_interest_notional_value_dollars),
-        tickSize: num6(m.tick_size),
-        fundingCap: num6(m.funding_cap),
+        bid: num7(m.bid),
+        ask: num7(m.ask),
+        price: num7(m.price),
+        contractSize: num7(m.contract_size),
+        leverageEstimate: num7(m.leverage_estimate),
+        volume24hContracts: num7(m.volume_24h),
+        volume24hNotionalUsd: num7(m.volume_24h_notional_value_dollars),
+        openInterest: num7(m.open_interest),
+        openInterestNotionalUsd: num7(m.open_interest_notional_value_dollars),
+        tickSize: num7(m.tick_size),
+        fundingCap: num7(m.funding_cap),
         scheduleOpen: m.schedule?.is_open !== false,
         haltSources: Array.isArray(m.halt_sources) ? m.halt_sources.map(String) : []
       });
@@ -58719,22 +59037,22 @@ async function getPerpRiskParams() {
   const src = data?.risk_parameters ?? data ?? {};
   for (const [ticker, v] of Object.entries(src)) {
     map.set(ticker, {
-      initialMarginMultiplier: v?.initial_margin_multiplier != null ? num6(v.initial_margin_multiplier) : null,
-      liquidationThreshold: v?.liquidation_margin_ratio_threshold != null ? num6(v.liquidation_margin_ratio_threshold) : null
+      initialMarginMultiplier: v?.initial_margin_multiplier != null ? num7(v.initial_margin_multiplier) : null,
+      liquidationThreshold: v?.liquidation_margin_ratio_threshold != null ? num7(v.liquidation_margin_ratio_threshold) : null
     });
   }
   _riskCache = { at: Date.now(), map };
   return map;
 }
 function dist(d) {
-  const f = (x) => x == null || x === "" ? null : num6(x);
+  const f = (x) => x == null || x === "" ? null : num7(x);
   return { o: f(d?.open), h: f(d?.high), l: f(d?.low), c: f(d?.close) };
 }
 function toBar(raw, intervalMin) {
   const endTs = Number(raw?.end_period_ts);
   if (!Number.isFinite(endTs) || endTs <= 0) return null;
   const bid = dist(raw.bid), ask = dist(raw.ask), px = dist(raw.price);
-  const prev = raw.price?.previous != null && raw.price.previous !== "" ? num6(raw.price.previous) : null;
+  const prev = raw.price?.previous != null && raw.price.previous !== "" ? num7(raw.price.previous) : null;
   const mid = bid.c != null && ask.c != null ? (bid.c + ask.c) / 2 : bid.c ?? ask.c;
   const c = px.c ?? prev ?? mid;
   if (c == null || !(c > 0)) return null;
@@ -58748,10 +59066,10 @@ function toBar(raw, intervalMin) {
     h,
     l,
     c,
-    v: num6(raw.volume),
+    v: num7(raw.volume),
     bid: { o: bid.o ?? c, h: bid.h ?? c, l: bid.l ?? c, c: bid.c ?? c },
     ask: { o: ask.o ?? c, h: ask.h ?? c, l: ask.l ?? c, c: ask.c ?? c },
-    openInterest: num6(raw.open_interest)
+    openInterest: num7(raw.open_interest)
   };
 }
 async function getPerpCandles(ticker, intervalMin, minutesBack) {
@@ -58819,9 +59137,9 @@ async function getPerpTouch(ticker) {
     const data = await getJson(`/margin/markets/${encodeURIComponent(ticker)}/orderbook`);
     const bids = data?.orderbook?.bids ?? [];
     const asks = data?.orderbook?.asks ?? [];
-    const bid = bids.reduce((mx, lvl2) => Math.max(mx, num6(lvl2?.[0])), 0);
+    const bid = bids.reduce((mx, lvl2) => Math.max(mx, num7(lvl2?.[0])), 0);
     const ask = asks.reduce((mn, lvl2) => {
-      const p2 = num6(lvl2?.[0]);
+      const p2 = num7(lvl2?.[0]);
       return p2 > 0 && (mn === 0 || p2 < mn) ? p2 : mn;
     }, 0);
     return bid > 0 && ask > bid ? { bid, ask } : null;
@@ -58831,13 +59149,13 @@ async function getPerpTouch(ticker) {
 }
 async function getPerpFundingHistory(ticker) {
   const data = await getJson(`/margin/funding_rates/historical?ticker=${encodeURIComponent(ticker)}`);
-  return (data?.funding_rates ?? []).map((r) => ({ fundingTimeMs: new Date(r.funding_time).getTime(), rate: num6(r.funding_rate), markPrice: num6(r.mark_price) })).filter((r) => Number.isFinite(r.fundingTimeMs) && r.fundingTimeMs > 0).sort((a, b) => a.fundingTimeMs - b.fundingTimeMs);
+  return (data?.funding_rates ?? []).map((r) => ({ fundingTimeMs: new Date(r.funding_time).getTime(), rate: num7(r.funding_rate), markPrice: num7(r.mark_price) })).filter((r) => Number.isFinite(r.fundingTimeMs) && r.fundingTimeMs > 0).sort((a, b) => a.fundingTimeMs - b.fundingTimeMs);
 }
 async function getPerpFundingEstimate(ticker) {
   try {
     const data = await getJson(`/margin/funding_rates/estimate?ticker=${encodeURIComponent(ticker)}`);
     const next = new Date(data?.next_funding_time).getTime();
-    return { rate: num6(data?.funding_rate), nextFundingTimeMs: Number.isFinite(next) ? next : 0 };
+    return { rate: num7(data?.funding_rate), nextFundingTimeMs: Number.isFinite(next) ? next : 0 };
   } catch {
     return null;
   }
@@ -58860,13 +59178,13 @@ async function getPerpCorporateActions() {
   _caCache = { at: Date.now(), actions };
   return actions;
 }
-var PROD_HOST, DEMO_HOST, num6, DEFAULT_INDEX_EXCLUDE, _marketsCache, MARKETS_TTL_MS, _riskCache, _candleCache, CANDLE_TTL_MS, TF_MINUTES2, _caCache;
+var PROD_HOST, DEMO_HOST, num7, DEFAULT_INDEX_EXCLUDE, _marketsCache, MARKETS_TTL_MS, _riskCache, _candleCache, CANDLE_TTL_MS, TF_MINUTES2, _caCache;
 var init_kalshi_perps = __esm({
   "server/services/kalshi-perps.ts"() {
     "use strict";
     PROD_HOST = "https://external-api.kalshi.com/trade-api/v2";
     DEMO_HOST = "https://external-api.demo.kalshi.co/trade-api/v2";
-    num6 = (v) => {
+    num7 = (v) => {
       const n = typeof v === "string" ? parseFloat(v) : Number(v);
       return Number.isFinite(n) ? n : 0;
     };
@@ -61416,7 +61734,9 @@ async function monitorOpenPositions(userId, cfg) {
       if (riskDistance <= 0) continue;
       const currentR = isLong ? (currentPrice - trade.entryPrice) / riskDistance : (trade.entryPrice - currentPrice) / riskDistance;
       const peakR = Math.max(trade.peakRMultiple, currentR);
-      const tgProfile = await cryptoTrailProfileFor(userId, trade.strategy, trade.symbol);
+      const tgGuard = await cryptoTrailGuardFor(userId, trade.strategy, trade.symbol);
+      const tgProfile = tgGuard ? tgGuard.profile : null;
+      if (tgGuard) void stampCryptoTradeTrailGuard(userId, trade.id, tgGuard);
       const tCfg = tgProfile ? { ...cfg, trailMethod: tgProfile.method, trailActivationR: tgProfile.activationR, trailFixedR: tgProfile.fixedR, trailStepR: tgProfile.stepR, trailProfitLockPct: tgProfile.profitLockPct, trailSarInitialAF: tgProfile.sarInitialAF, trailSarMaxAF: tgProfile.sarMaxAF, breakevenBufferR: tgProfile.breakevenBufferR } : cfg;
       const armed = trade.trailArmed || peakR >= tCfg.trailActivationR;
       if (currentR <= -1) {
@@ -65208,7 +65528,7 @@ function aggregateKalshiStats(rows) {
       (g.get(k2) ?? g.set(k2, []).get(k2)).push(v);
     }
   }
-  const minN = num7("KALSHI_STOCK_SHADOW_STATS_MIN_N", 15), fav = num7("KALSHI_STOCK_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num7("KALSHI_STOCK_SHADOW_AVOID_MEDIAN_PCT", 1);
+  const minN = num8("KALSHI_STOCK_SHADOW_STATS_MIN_N", 15), fav = num8("KALSHI_STOCK_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num8("KALSHI_STOCK_SHADOW_AVOID_MEDIAN_PCT", 1);
   return Array.from(g.entries()).map(([k2, v]) => {
     const [strategy, dim, bucket] = k2.split("|");
     const s = v.slice().sort((a, b) => a - b);
@@ -65835,8 +66155,8 @@ async function resolveOwnerUserId() {
   return _ownerId;
 }
 function startKalshiStockShadow() {
-  if (_started2) return;
-  _started2 = true;
+  if (_started3) return;
+  _started3 = true;
   if (!stockShadowEnabled()) {
     console.log("[kalshi-stock-shadow] disabled (KALSHI_STOCK_SHADOW=off).");
     return;
@@ -65853,7 +66173,7 @@ function startKalshiStockShadow() {
   setInterval(tick3, 5 * 6e4).unref?.();
   console.log("[kalshi-stock-shadow] started \u2014 SHADOW lane on public Kalshi perp data (no credentials, no orders).");
 }
-var stockOrbEnabled, num7, stockShadowEnabled, accountSimEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started2;
+var stockOrbEnabled, num8, stockShadowEnabled, accountSimEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started3;
 var init_kalshi_stock_shadow = __esm({
   "server/services/kalshi-stock-shadow.ts"() {
     "use strict";
@@ -65863,23 +66183,23 @@ var init_kalshi_stock_shadow = __esm({
     init_kalshi_orb();
     init_kalshi_perp_brain();
     stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== "off";
-    num7 = (n, d) => {
+    num8 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
     stockShadowEnabled = () => process.env.KALSHI_STOCK_SHADOW !== "off";
     accountSimEnabled = () => process.env.KALSHI_ACCOUNT_SIM !== "off";
-    MAX_OPEN2 = () => Math.floor(num7("KALSHI_STOCK_SHADOW_MAX_OPEN", 30));
-    MAX_PER_STRAT2 = () => Math.floor(num7("KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY", 3));
-    COOLDOWN_MS2 = () => num7("KALSHI_STOCK_SHADOW_COOLDOWN_MIN", 60) * 6e4;
-    EVERY_MS2 = () => num7("KALSHI_STOCK_SHADOW_EVERY_MIN", 10) * 6e4;
-    NOTIONAL2 = () => num7("KALSHI_STOCK_SHADOW_NOTIONAL_USD", 250);
-    MIN_CONF = () => num7("KALSHI_STOCK_SHADOW_MIN_CONFIDENCE", 70);
-    FEE_BPS = () => num7("KALSHI_STOCK_SHADOW_FEE_BPS", 20);
-    SL_LO = () => num7("KALSHI_STOCK_SHADOW_SL_MIN_PCT", 0.8);
-    SL_HI = () => num7("KALSHI_STOCK_SHADOW_SL_MAX_PCT", 4);
-    ATR_MULT2 = () => num7("KALSHI_STOCK_SHADOW_SL_ATR_MULT", 1.5);
-    RR = () => num7("KALSHI_STOCK_SHADOW_RR", 2);
+    MAX_OPEN2 = () => Math.floor(num8("KALSHI_STOCK_SHADOW_MAX_OPEN", 30));
+    MAX_PER_STRAT2 = () => Math.floor(num8("KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY", 3));
+    COOLDOWN_MS2 = () => num8("KALSHI_STOCK_SHADOW_COOLDOWN_MIN", 60) * 6e4;
+    EVERY_MS2 = () => num8("KALSHI_STOCK_SHADOW_EVERY_MIN", 10) * 6e4;
+    NOTIONAL2 = () => num8("KALSHI_STOCK_SHADOW_NOTIONAL_USD", 250);
+    MIN_CONF = () => num8("KALSHI_STOCK_SHADOW_MIN_CONFIDENCE", 70);
+    FEE_BPS = () => num8("KALSHI_STOCK_SHADOW_FEE_BPS", 20);
+    SL_LO = () => num8("KALSHI_STOCK_SHADOW_SL_MIN_PCT", 0.8);
+    SL_HI = () => num8("KALSHI_STOCK_SHADOW_SL_MAX_PCT", 4);
+    ATR_MULT2 = () => num8("KALSHI_STOCK_SHADOW_SL_ATR_MULT", 1.5);
+    RR = () => num8("KALSHI_STOCK_SHADOW_RR", 2);
     CRYPTO_PORTS = ["breakout", "trend_following", "structure", "divergence", "order_flow", "volume_profile"];
     OPTIONS_PORTS = ["orb", "volume_profile", "breakout", "momentum", "order_flow"];
     etFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit", weekday: "short" });
@@ -65919,7 +66239,7 @@ var init_kalshi_stock_shadow = __esm({
     };
     _lastEntryRun = /* @__PURE__ */ new Map();
     _ownerId = null;
-    _started2 = false;
+    _started3 = false;
   }
 });
 
@@ -67108,12 +67428,12 @@ async function getSettingsOverview(userId) {
   }
   return { engines };
 }
-var num8, bool, text2, secs, ENGINES;
+var num9, bool, text2, secs, ENGINES;
 var init_settings_overview = __esm({
   "server/services/settings-overview.ts"() {
     "use strict";
     init_db();
-    num8 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
+    num9 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
     bool = (key, label, standard, from) => ({ key, from, label, standard, fmt: "bool" });
     text2 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "text" });
     secs = (key, label, standard, from) => ({ key, from, label, standard, fmt: "secs" });
@@ -67123,24 +67443,24 @@ var init_settings_overview = __esm({
         name: "FX Engine",
         // Standards: getDefaultConfig() literal in live-trading-engine.ts.
         fields: [
-          num8("minConfidence", "Minimum confidence to trade", 70),
+          num9("minConfidence", "Minimum confidence to trade", 70),
           text2("strategyMode", "Strategy mode", "aggressive"),
-          num8("maxOpenTrades", "Max open trades at once", 5),
-          num8("riskPerTrade", "Risk per trade (%)", 1),
-          num8("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
-          num8("maxDailyLossPct", "Daily loss breaker (%)", 4),
-          num8("dailyLossLimit", "Daily loss limit (%)", 5),
-          num8("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
-          num8("drawdownShieldThreshold", "Drawdown shield (%)", 3),
-          num8("maxLotSize", "Max lot size", 0.1),
-          num8("maxLot", "Absolute lot ceiling (0 = none)", 0),
-          num8("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num8("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
+          num9("maxOpenTrades", "Max open trades at once", 5),
+          num9("riskPerTrade", "Risk per trade (%)", 1),
+          num9("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
+          num9("maxDailyLossPct", "Daily loss breaker (%)", 4),
+          num9("dailyLossLimit", "Daily loss limit (%)", 5),
+          num9("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
+          num9("drawdownShieldThreshold", "Drawdown shield (%)", 3),
+          num9("maxLotSize", "Max lot size", 0.1),
+          num9("maxLot", "Absolute lot ceiling (0 = none)", 0),
+          num9("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num9("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
           bool("trailingStopEnabled", "Trailing stops", true),
           bool("profitLockEnabled", "Profit lock from +1R", true),
-          num8("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
+          num9("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
           bool("propFirmMode", "Prop firm mode", false),
-          num8("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
+          num9("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
           bool("autoFlattenOnBreach", "Close trades when a breaker trips", false),
           bool("brainLearningMode", "Brain learning", true),
           bool("brainShadowEnabled", "Practice results feed the brain", true),
@@ -67157,12 +67477,12 @@ var init_settings_overview = __esm({
         name: "Sol Engine",
         // Standards: DEFAULT_CONFIG in sol-engine.ts.
         fields: [
-          num8("minConfidence", "Minimum confidence to trade", 65),
-          num8("riskPerTradePct", "Risk per trade (%)", 1),
-          num8("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num8("maxTokens", "Max tokens tracked at once", 10),
+          num9("minConfidence", "Minimum confidence to trade", 65),
+          num9("riskPerTradePct", "Risk per trade (%)", 1),
+          num9("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num9("maxTokens", "Max tokens tracked at once", 10),
           bool("shieldEnabled", "Loss shield", true),
-          num8("shieldThreshold", "Shield trips at drawdown (%)", 10),
+          num9("shieldThreshold", "Shield trips at drawdown (%)", 10),
           bool("useKelly", "Kelly position sizing", false),
           text2("directionFilter", "Direction filter", "buy_only"),
           bool("stopOrdersEnabled", "Stop orders", false),
@@ -67181,22 +67501,22 @@ var init_settings_overview = __esm({
         name: "Kalshi Engine",
         // Standards: DEFAULT_CONFIG in kalshi-engine.ts.
         fields: [
-          num8("minConfidence", "Minimum confidence to trade", 70),
-          num8("maxOpenTrades", "Max open trades at once", 3),
-          num8("maxTradesPerDay", "Max trades per day", 10),
-          num8("contractsPerTrade", "Contracts per trade", 5),
-          num8("riskPctPerTrade", "Risk per trade (%)", 5),
-          num8("takeProfitCents", "Take profit (%)", 50),
-          num8("stopLossCents", "Stop loss (%)", 40),
-          num8("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
+          num9("minConfidence", "Minimum confidence to trade", 70),
+          num9("maxOpenTrades", "Max open trades at once", 3),
+          num9("maxTradesPerDay", "Max trades per day", 10),
+          num9("contractsPerTrade", "Contracts per trade", 5),
+          num9("riskPctPerTrade", "Risk per trade (%)", 5),
+          num9("takeProfitCents", "Take profit (%)", 50),
+          num9("stopLossCents", "Stop loss (%)", 40),
+          num9("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
           bool("requireConfluence", "Requires confluence", true),
           bool("ruinGuardEnabled", "Ruin guard (bad-day halt)", true),
-          num8("dailyLossLimitPct", "Daily loss limit (%)", 5),
-          num8("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
+          num9("dailyLossLimitPct", "Daily loss limit (%)", 5),
+          num9("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
           bool("kalshiBrainGating", "Brain can hard-block setups", true),
           bool("brainLearningMode", "Brain learning", true),
           bool("weatherEnabled", "Weather engine", false),
-          num8("cooldownMinutes", "Cooldown between trades (min)", 20)
+          num9("cooldownMinutes", "Cooldown between trades (min)", 20)
         ],
         load: async (userId) => {
           const { getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
@@ -67208,17 +67528,17 @@ var init_settings_overview = __esm({
         name: "Crypto Engine",
         // Standards: column defaults in ensure-cryptocom-engine-tables.ts.
         fields: [
-          num8("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
-          num8("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
-          num8("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
-          num8("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
-          num8("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
-          num8("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
-          num8("leverage", "Leverage", 3, "leverage"),
+          num9("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
+          num9("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
+          num9("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
+          num9("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
+          num9("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
+          num9("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
+          num9("leverage", "Leverage", 3, "leverage"),
           text2("directionFilter", "Direction filter", "both", "direction_filter"),
           bool("brainLearning", "Brain learning", true, "brain_learning_mode"),
           bool("cryptoBrain", "Crypto brain", true, "crypto_brain_enabled"),
-          num8("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
+          num9("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
           bool("autoExecution", "Auto execution", false, "enable_auto_execution"),
           bool("kelly", "Kelly position sizing", false, "use_kelly_criterion"),
           secs("scanInterval", "Scan interval", 12e4, "scan_interval_ms"),
@@ -67246,13 +67566,13 @@ __export(practice_costs_report_exports, {
 });
 function costModelConstants() {
   return {
-    cryptoFeeBps: num9("CRYPTO_PAPER_FEE_BPS", 30),
-    cryptoFeeDeepBps: num9("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
-    cryptoFloorMult: num9("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
-    solSlippagePct: num9("SOL_PAPER_SLIPPAGE_PCT", 0.5),
-    solFeePumpfunPct: num9("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
-    solFeeDefaultPct: num9("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
-    solImpactFallbackPct: num9("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
+    cryptoFeeBps: num10("CRYPTO_PAPER_FEE_BPS", 30),
+    cryptoFeeDeepBps: num10("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
+    cryptoFloorMult: num10("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
+    solSlippagePct: num10("SOL_PAPER_SLIPPAGE_PCT", 0.5),
+    solFeePumpfunPct: num10("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
+    solFeeDefaultPct: num10("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
+    solImpactFallbackPct: num10("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
   };
 }
 async function practiceCostReport(userId, days = 90) {
@@ -67286,12 +67606,12 @@ async function practiceCostReport(userId, days = 90) {
   }
   return out;
 }
-var num9, BANDS;
+var num10, BANDS;
 var init_practice_costs_report = __esm({
   "server/services/practice-costs-report.ts"() {
     "use strict";
     init_db();
-    num9 = (name, dflt) => {
+    num10 = (name, dflt) => {
       const v = Number(process.env[name]);
       return Number.isFinite(v) && v >= 0 ? v : dflt;
     };
@@ -78488,9 +78808,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "dc8553f3-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-13T06:03:59.592Z";
+var BUILD_COMMIT = "835153a5-dirty";
+var BUILD_BRANCH = "feat/trail-guard-learning";
+var BUILT_AT = "2026-11-13T06:17:21.566Z";
 
 // server/stripe.ts
 init_db();
@@ -96404,8 +96724,19 @@ Rules:
   app2.get("/api/engine/trail-guards", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     try {
+      const userId = req.user.id;
       const { getTrailGuardCandidates: getTrailGuardCandidates2 } = await Promise.resolve().then(() => (init_trail_guards(), trail_guards_exports));
-      res2.json(await getTrailGuardCandidates2(req.user.id));
+      const out = await getTrailGuardCandidates2(userId);
+      try {
+        const learning = await Promise.resolve().then(() => (init_trail_guard_learning(), trail_guard_learning_exports));
+        await learning.evaluateTrailGuardsForUser(userId);
+        out.evaluations = await learning.getTrailGuardEvaluations(userId);
+        if (out.evaluations && Object.keys(out.evaluations).length) {
+          out.guards = await (await Promise.resolve().then(() => (init_trail_guards(), trail_guards_exports))).getTrailGuards(userId);
+        }
+      } catch {
+      }
+      res2.json(out);
     } catch (err) {
       res2.status(500).json({ error: err.message });
     }
@@ -101030,16 +101361,16 @@ Respond with ONLY valid JSON:
     try {
       const { runRuinConeSimulation: runRuinConeSimulation2 } = await Promise.resolve().then(() => (init_ruin_cone(), ruin_cone_exports));
       const q = req.query;
-      const num10 = (v) => v != null && v !== "" ? Number(v) : void 0;
+      const num11 = (v) => v != null && v !== "" ? Number(v) : void 0;
       const result = await runRuinConeSimulation2(userId, {
-        numSimulations: num10(q.numSimulations),
-        numTrades: num10(q.numTrades),
-        startingEquity: num10(q.startingEquity),
-        dailyLossLimit: num10(q.dailyLossLimit),
-        maxDrawdownLimit: num10(q.maxDrawdownLimit),
-        consistencyRuleThreshold: num10(q.consistencyRuleThreshold),
-        profitTarget: num10(q.profitTarget),
-        sourceLimit: num10(q.sourceLimit),
+        numSimulations: num11(q.numSimulations),
+        numTrades: num11(q.numTrades),
+        startingEquity: num11(q.startingEquity),
+        dailyLossLimit: num11(q.dailyLossLimit),
+        maxDrawdownLimit: num11(q.maxDrawdownLimit),
+        consistencyRuleThreshold: num11(q.consistencyRuleThreshold),
+        profitTarget: num11(q.profitTarget),
+        sourceLimit: num11(q.sourceLimit),
         source: q.source ? String(q.source) : void 0,
         noCache: q.nocache === "1" || q.noCache === "true"
       });
@@ -113762,6 +114093,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startFxPaperMonitor2();
     const { startEngineWatchdog: startEngineWatchdog2 } = await Promise.resolve().then(() => (init_engine_watchdog(), engine_watchdog_exports));
     startEngineWatchdog2();
+    const { startTrailGuardLearning: startTrailGuardLearning2 } = await Promise.resolve().then(() => (init_trail_guard_learning(), trail_guard_learning_exports));
+    startTrailGuardLearning2();
     const { startKalshiStockShadow: startKalshiStockShadow2 } = await Promise.resolve().then(() => (init_kalshi_stock_shadow(), kalshi_stock_shadow_exports));
     startKalshiStockShadow2();
     try {

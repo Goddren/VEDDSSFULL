@@ -17527,8 +17527,21 @@ Rules:
   app.get("/api/engine/trail-guards", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {
+      const userId = (req.user as User).id;
       const { getTrailGuardCandidates } = await import('./services/trail-guards');
-      res.json(await getTrailGuardCandidates((req.user as User).id));
+      const out: any = await getTrailGuardCandidates(userId);
+      // Trail-guard self-learning: refresh verdicts (throttled to one real
+      // evaluation per 30 min per user; fail-open) and attach each guard's
+      // latest self-evaluation for the panel.
+      try {
+        const learning = await import('./services/trail-guard-learning');
+        await learning.evaluateTrailGuardsForUser(userId);
+        out.evaluations = await learning.getTrailGuardEvaluations(userId);
+        if (out.evaluations && Object.keys(out.evaluations).length) {
+          out.guards = (await (await import('./services/trail-guards')).getTrailGuards(userId));
+        }
+      } catch { /* evaluations are additive; never block the panel */ }
+      res.json(out);
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
   app.post("/api/engine/trail-guards", async (req: Request, res: Response) => {

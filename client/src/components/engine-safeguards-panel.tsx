@@ -433,11 +433,12 @@ export function TrailStudyPanel({ className = "" }: { className?: string }) {
 }
 
 type TrailCandidateT = { engine: "crypto" | "sol"; dimension: "strategy" | "symbol"; key: string; action: "tighten" | "lock_profile"; trades: number; reason: string; alreadyGuarded: boolean };
-type TrailGuardT = { id: string; engine: "crypto" | "sol"; dimension: "strategy" | "symbol"; key: string; action: "tighten" | "lock_profile"; trades: number; profileSummary: string; active: boolean };
+type TrailGuardT = { id: string; engine: "crypto" | "sol"; dimension: "strategy" | "symbol"; key: string; action: "tighten" | "lock_profile"; trades: number; profileSummary: string; active: boolean; retiredAt?: string; retiredBy?: "user" | "lessons"; retireReason?: string };
+type TrailGuardEvalT = { guardId: string; verdict: "helping" | "hurting" | "unproven"; reason: string; guardedTrades: number; minTrades: number; guardedAvgFinal: number | null; guardedAvgGiveback: number | null; baselineAvgFinal: number | null; baselineAvgGiveback: number | null; evaluatedAt: string };
 
 function TrailGuardsSection() {
   const qc = useQueryClient();
-  const { data } = useQuery<{ candidates: TrailCandidateT[]; guards: TrailGuardT[] }>({
+  const { data } = useQuery<{ candidates: TrailCandidateT[]; guards: TrailGuardT[]; evaluations?: Record<string, TrailGuardEvalT> }>({
     queryKey: ["/api/engine/trail-guards"],
     refetchInterval: 60000,
   });
@@ -458,8 +459,11 @@ function TrailGuardsSection() {
   if (!data) return null;
   const fresh = data.candidates.filter((c) => !c.alreadyGuarded);
   const active = data.guards.filter((g) => g.active);
-  if (!fresh.length && !active.length) return null;
+  const retiredByLessons = data.guards.filter((g) => !g.active && g.retiredBy === "lessons");
+  if (!fresh.length && !active.length && !retiredByLessons.length) return null;
   const eng = (e: string) => (e === "crypto" ? "Crypto" : "Sol");
+  const unit = (e: string) => (e === "crypto" ? "R" : "%");
+  const fmtN = (v: number | null | undefined, e: string) => (v == null ? "—" : `${v.toFixed(2)}${unit(e)}`);
   return (
     <div className="mt-2.5 border-t border-white/10 pt-2">
       <div className="flex items-baseline gap-2 mb-1">
@@ -498,7 +502,9 @@ function TrailGuardsSection() {
       ))}
       </div>
       )}
-      {active.map((g) => (
+      {active.map((g) => {
+        const ev = data.evaluations?.[g.id];
+        return (
         <div key={g.id} className="rounded bg-sky-500/10 border border-sky-500/25 px-2 py-1.5 mb-0.5">
           <div className="text-[10px] flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
             <span className="min-w-0 break-words text-sky-200 font-medium">🛡️ {eng(g.engine)} · {g.dimension} · {g.key}</span>
@@ -509,9 +515,29 @@ function TrailGuardsSection() {
               onClick={() => { if (window.confirm(`Retire this trail guard for ${eng(g.engine)} ${g.dimension} "${g.key}"? Exits for this group go back to the global trail settings.`)) retire.mutate(g.id); }}
             >Retire</button>
           </div>
+          {ev && (
+            <div className="text-[9px] text-gray-400 mt-0.5 break-words">
+              {ev.verdict === "helping"
+                ? <>Self-check: {ev.guardedTrades} trades under this guard · giveback {fmtN(ev.guardedAvgGiveback, g.engine)} vs {fmtN(ev.baselineAvgGiveback, g.engine)} before · <span className="text-emerald-300">helping</span></>
+                : ev.guardedTrades < ev.minTrades
+                  ? <>Self-check: watching ({ev.guardedTrades}/{ev.minTrades} trades under this guard)</>
+                  : <>Self-check: {ev.reason}</>}
+            </div>
+          )}
         </div>
-      ))}
-      <div className="text-[9px] text-gray-600 mt-1">Guards change exit management only — never entries or sizing. Evidence bar: 10+ closed trades with a clear giveback problem (tighten) or a proven trail record (lock in).</div>
+        );
+      })}
+      {retiredByLessons.length > 0 && (
+        <div className="mt-1">
+          <div className="text-[9px] font-semibold text-gray-400">Retired by their own record</div>
+          {retiredByLessons.map((g) => (
+            <div key={g.id} className="text-[9px] text-gray-500 break-words">
+              {eng(g.engine)} · {g.dimension} · {g.key} — retired{g.retiredAt ? ` ${new Date(g.retiredAt).toLocaleDateString()}` : ""}{g.retireReason ? `: ${g.retireReason}` : ""}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="text-[9px] text-gray-600 mt-1">Guards change exit management only — never entries or sizing. Evidence bar: 10+ closed trades with a clear giveback problem (tighten) or a proven trail record (lock in). Guards also judge themselves against their own record — one that proves harmful retires itself and is listed above.</div>
     </div>
   );
 }

@@ -43,6 +43,10 @@ export function ensureSolShadowContextTable(): Promise<void> {
       opened_at timestamptz NOT NULL DEFAULT now(),
       closed_at timestamptz, exit_reason text, hold_minutes double precision,
       gross_pct double precision, net_pct double precision, peak_gain_pct double precision)`)
+      .then(() => pool.query(`ALTER TABLE sol_shadow_context
+          ADD COLUMN IF NOT EXISTS trail_guard_id text,
+          ADD COLUMN IF NOT EXISTS trail_guard_action text,
+          ADD COLUMN IF NOT EXISTS trail_guard_profile jsonb`))
       .then(() => pool.query(`CREATE INDEX IF NOT EXISTS sol_shadow_context_user_closed ON sol_shadow_context (user_id, closed_at)`))
       .then(() => undefined)
       .catch((e) => { _ensured = null; throw e; });
@@ -150,13 +154,21 @@ export async function recordSolShadowEntry(c: SolShadowEntryContext, adviceAtEnt
   } catch (e: any) { console.error('[sol-shadow-stats] entry write failed (non-fatal):', e?.message ?? e); }
 }
 
-export async function recordSolShadowClose(o: { positionId: string; exitReason: string; holdMinutes: number; grossPct: number | null; netPct: number | null; peakGainPct: number | null }): Promise<void> {
+export async function recordSolShadowClose(o: { positionId: string; exitReason: string; holdMinutes: number; grossPct: number | null; netPct: number | null; peakGainPct: number | null; trailGuardId?: string | null; trailGuardAction?: string | null; trailGuardProfile?: unknown }): Promise<void> {
   try {
     await ensureSolShadowContextTable();
+    // Trail-guard attribution (2026-11-13): when a promoted trail guard's
+    // profile governed this position's learned exit step, the close is
+    // stamped with the guard's identity so the guard's own record is
+    // countable (trail-guard-learning.ts). Unguarded closes pass nothing
+    // and stay NULL.
     await pool.query(
-      `UPDATE sol_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, gross_pct=$4, net_pct=$5, peak_gain_pct=$6
+      `UPDATE sol_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, gross_pct=$4, net_pct=$5, peak_gain_pct=$6,
+              trail_guard_id=COALESCE($7, trail_guard_id), trail_guard_action=COALESCE($8, trail_guard_action),
+              trail_guard_profile=COALESCE($9::jsonb, trail_guard_profile)
         WHERE position_id=$1 AND closed_at IS NULL`,
-      [o.positionId, o.exitReason, o.holdMinutes, o.grossPct, o.netPct, o.peakGainPct]);
+      [o.positionId, o.exitReason, o.holdMinutes, o.grossPct, o.netPct, o.peakGainPct,
+       o.trailGuardId ?? null, o.trailGuardAction ?? null, o.trailGuardProfile != null ? JSON.stringify(o.trailGuardProfile) : null]);
   } catch (e: any) { console.error('[sol-shadow-stats] close write failed (non-fatal):', e?.message ?? e); }
 }
 

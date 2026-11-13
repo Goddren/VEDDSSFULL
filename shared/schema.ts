@@ -1017,6 +1017,14 @@ export const cryptocomEngineTrades = pgTable("cryptocom_engine_trades", {
   closedAt: timestamp("closed_at"),
   peakRMultiple: doublePrecision("peak_r_multiple").notNull().default(0),
   trailArmed: boolean("trail_armed").notNull().default(false),
+  // Trail-guard attribution (2026-11-13): stamped when a promoted trail
+  // guard's profile governed this trade's exit evaluation, so closes
+  // under a guard are countable by the guard's self-evaluation loop.
+  // NULL on every unguarded trade. Lazily added in prod by
+  // ensureTrailGuardStampColumns() (trail-guards.ts).
+  trailGuardId: text("trail_guard_id"),
+  trailGuardAction: text("trail_guard_action"),
+  trailGuardProfile: jsonb("trail_guard_profile"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
