@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { Brain, TrendingUp, Calendar, Target, Check, ShoppingCart } from 'lucide-react';
+import { Brain, TrendingUp, Calendar, Target, Check, ShoppingCart, RefreshCw, XCircle } from 'lucide-react';
 import BrainVisualization3D from '@/components/brain-visualization-3d';
 
 type SourceCategory = 'forex' | 'tradelocker' | 'kalshi' | 'options' | 'fx_models' | 'wizard_strategy';
@@ -58,6 +58,7 @@ interface BrainListing {
   title: string;
   description: string | null;
   priceVedd: number;
+  priceVeddMonthly?: number | null;
   suggestedPriceVedd: number;
   tradeCount: number;
   distinctPairs: number;
@@ -67,7 +68,46 @@ interface BrainListing {
   isActive?: boolean;
   alreadyPurchased: boolean;
   isOwnListing: boolean;
+  hasActiveSubscription?: boolean;
+  subscriptionStatus?: string | null;
   marketplaceProof?: MarketplaceProof | null;
+}
+
+interface MySubscription {
+  id: number;
+  listingId: number;
+  listingTitle: string;
+  sourceCategory: string;
+  priceVeddMonthly: number;
+  status: 'active' | 'past_due' | 'lapsed' | 'cancelled';
+  nextChargeAt: string;
+  paidThroughAt: string;
+  accessActive: boolean;
+}
+
+interface SellerSubscriptionSummary {
+  listingId: number;
+  listingTitle: string;
+  activeSubscribers: number;
+  monthlyVedd: number;
+}
+
+interface MySubscriptionsResponse {
+  subscriptionsEnabled: boolean;
+  asBuyer: MySubscription[];
+  asSeller: SellerSubscriptionSummary[];
+}
+
+const SUBSCRIPTION_STATUS_LABEL: Record<string, string> = {
+  active: 'Active',
+  past_due: 'Payment retrying',
+  lapsed: 'Ended — payment failed',
+  cancelled: 'Cancelled',
+};
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function formatPropSim(proof?: MarketplaceProof | null): string | null {
@@ -133,6 +173,7 @@ export default function BrainDataMarketplacePage() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [customPrice, setCustomPrice] = useState('');
+  const [monthlyPrice, setMonthlyPrice] = useState('');
   const [symbolsInput, setSymbolsInput] = useState('');
   // Manually-logged (discretionary) trades live in a separate table from
   // AI-confirmed trades and are excluded by default — opt-in only, and only
@@ -158,6 +199,7 @@ export default function BrainDataMarketplacePage() {
   const { data: wallet } = useQuery<{ veddBalance: number }>({ queryKey: ['/api/wallet/balance'] });
   const { data: listings = [], isLoading } = useQuery<BrainListing[]>({ queryKey: ['/api/brain-marketplace'] });
   const { data: myListings = [] } = useQuery<BrainListing[]>({ queryKey: ['/api/brain-marketplace/my-listings'] });
+  const { data: mySubscriptions } = useQuery<MySubscriptionsResponse>({ queryKey: ['/api/brain-marketplace/my-subscriptions'] });
   const manualOptInActive = includeManualTrades && sellCategory === 'forex';
 
   const { data: preview } = useQuery<PreviewStats>({
@@ -179,6 +221,7 @@ export default function BrainDataMarketplacePage() {
         title,
         description: description || undefined,
         priceVedd: customPrice ? parseInt(customPrice, 10) : undefined,
+        priceVeddMonthly: monthlyPrice ? parseInt(monthlyPrice, 10) : undefined,
         sourceCategory: sellCategory,
         symbols: symbols.length ? symbols : undefined,
         includeManualTrades: manualOptInActive,
@@ -190,6 +233,7 @@ export default function BrainDataMarketplacePage() {
       setTitle('');
       setDescription('');
       setCustomPrice('');
+      setMonthlyPrice('');
       setSymbolsInput('');
       setFxModel('');
       setFxDay('');
@@ -232,6 +276,47 @@ export default function BrainDataMarketplacePage() {
     },
     onError: (error: Error) => {
       toast({ title: 'Purchase failed', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const subscribeMutation = useMutation({
+    mutationFn: async (listingId: number) => {
+      const res = await apiRequest('POST', `/api/brain-marketplace/${listingId}/subscribe`, {});
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: data.alreadyOwned ? 'Already owned' : data.resumed ? 'Subscription resumed' : 'Subscribed',
+        description: data.alreadyOwned
+          ? 'You already own this listing outright — no subscription needed.'
+          : data.strategyClone
+            ? `Your own copy of "${data.strategyClone.name}" is now in Strategy Studio — deploy it to Shadow or to your own accounts.`
+            : data.resumed
+              ? 'Renewals are back on. Your access continues without a gap.'
+              : 'First month charged. It renews every 30 days until you cancel.',
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace/my-subscriptions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace/my-purchases'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/wallet/balance'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Subscription failed', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const cancelSubscriptionMutation = useMutation({
+    mutationFn: async (subscriptionId: number) => {
+      const res = await apiRequest('POST', `/api/brain-marketplace/subscriptions/${subscriptionId}/cancel`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: 'Subscription cancelled', description: 'No more charges. Your access runs to the end of the period you already paid for.' });
+      queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace/my-subscriptions'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Could not cancel', description: error.message, variant: 'destructive' });
     },
   });
 
@@ -386,6 +471,17 @@ export default function BrainDataMarketplacePage() {
                   value={customPrice}
                   onChange={e => setCustomPrice(e.target.value)}
                 />
+                <div>
+                  <Input
+                    placeholder="Optional: monthly subscription price in VEDD (leave blank for one-time sales only)"
+                    type="number"
+                    value={monthlyPrice}
+                    onChange={e => setMonthlyPrice(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Subscribers pay this every 30 days and get the same copy a buyer gets. The full amount goes to you — the marketplace takes no cut. Changing the price later only affects new subscribers; existing subscribers keep the price they signed up at.
+                  </p>
+                </div>
                 <Button onClick={() => listMutation.mutate()} disabled={!title || listMutation.isPending}>
                   {listMutation.isPending ? 'Saving…' : editingExisting ? 'Update This Brain' : 'List My Data'}
                 </Button>
@@ -400,7 +496,7 @@ export default function BrainDataMarketplacePage() {
                     <div className="min-w-0">
                       <p className="font-semibold text-sm truncate">{l.title}</p>
                       <p className="text-xs text-muted-foreground">
-                        {formatScope(l.symbolFilter)} · {l.tradeCount} {l.sourceCategory === 'fx_models' ? 'ideas' : 'trades'}{l.includesManualTrades ? ' (incl. manual)' : ''}{l.marketplaceProof ? ` · ${l.marketplaceProof.proofType === 'shadow' ? 'Proven in shadow' : 'Proven live'}` : ''} · {l.priceVedd} VEDD · {l.purchaseCount} sold ({l.purchaseCount * l.priceVedd} VEDD earned)
+                        {formatScope(l.symbolFilter)} · {l.tradeCount} {l.sourceCategory === 'fx_models' ? 'ideas' : 'trades'}{l.includesManualTrades ? ' (incl. manual)' : ''}{l.marketplaceProof ? ` · ${l.marketplaceProof.proofType === 'shadow' ? 'Proven in shadow' : 'Proven live'}` : ''} · {l.priceVedd} VEDD{l.priceVeddMonthly ? ` · or ${l.priceVeddMonthly} VEDD/month` : ''} · {l.purchaseCount} sold ({l.purchaseCount * l.priceVedd} VEDD earned)
                       </p>
                     </div>
                     <Button size="sm" variant="outline" onClick={() => deactivateMutation.mutate(l.id)} disabled={deactivateMutation.isPending}>
@@ -412,6 +508,58 @@ export default function BrainDataMarketplacePage() {
             )}
           </CardContent>
         </Card>
+
+        {/* My subscriptions */}
+        {mySubscriptions && mySubscriptions.subscriptionsEnabled && (mySubscriptions.asBuyer.length > 0 || mySubscriptions.asSeller.length > 0) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><RefreshCw className="w-5 h-5 text-purple-500" /> My Subscriptions</CardTitle>
+              <CardDescription>
+                Subscriptions charge your VEDD wallet every 30 days and pay the seller the full amount — the marketplace takes no cut.
+                Cancel any time; your access runs to the end of the period you already paid for. If a payment fails, we retry daily for 3 days before the subscription ends.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {mySubscriptions.asBuyer.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">You're subscribed to</p>
+                  {mySubscriptions.asBuyer.map(s => (
+                    <div key={s.id} className="rounded-lg border p-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm truncate">{s.listingTitle}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {s.priceVeddMonthly} VEDD/month · {SUBSCRIPTION_STATUS_LABEL[s.status] ?? s.status}
+                          {s.status === 'active' && <> · next charge {formatDate(s.nextChargeAt)}</>}
+                          {s.status === 'past_due' && <> · retrying daily · access until {formatDate(s.paidThroughAt)}</>}
+                          {s.status === 'cancelled' && <> · access until {formatDate(s.paidThroughAt)}</>}
+                          {s.status === 'lapsed' && <> · ended {formatDate(s.paidThroughAt)}</>}
+                        </p>
+                      </div>
+                      {(s.status === 'active' || s.status === 'past_due') && (
+                        <Button size="sm" variant="outline" onClick={() => cancelSubscriptionMutation.mutate(s.id)} disabled={cancelSubscriptionMutation.isPending}>
+                          <XCircle className="w-4 h-4 mr-1" /> Cancel
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {mySubscriptions.asSeller.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Subscribers to your listings</p>
+                  {mySubscriptions.asSeller.map(s => (
+                    <div key={s.listingId} className="rounded-lg border p-3 flex items-center justify-between gap-3">
+                      <p className="font-semibold text-sm truncate">{s.listingTitle}</p>
+                      <p className="text-sm text-muted-foreground whitespace-nowrap">
+                        {s.activeSubscribers} subscriber{s.activeSubscribers === 1 ? '' : 's'} · {s.monthlyVedd} VEDD/month
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Browse */}
         <div>
@@ -474,6 +622,23 @@ export default function BrainDataMarketplacePage() {
                         <><ShoppingCart className="w-4 h-4 mr-2" /> Buy for {listing.priceVedd} VEDD</>
                       )}
                     </Button>
+                    {!!listing.priceVeddMonthly && listing.priceVeddMonthly > 0 && !listing.alreadyPurchased && (
+                      listing.hasActiveSubscription ? (
+                        <p className="text-xs text-center text-purple-300 flex items-center justify-center gap-1.5">
+                          <RefreshCw className="w-3.5 h-3.5" /> Subscribed — {listing.priceVeddMonthly} VEDD/month
+                        </p>
+                      ) : (
+                        <Button
+                          className="w-full"
+                          variant="outline"
+                          onClick={() => subscribeMutation.mutate(listing.id)}
+                          disabled={subscribeMutation.isPending || myBalance < listing.priceVeddMonthly}
+                          title={myBalance < listing.priceVeddMonthly ? 'Insufficient VEDD balance' : undefined}
+                        >
+                          <RefreshCw className="w-4 h-4 mr-2" /> or {listing.priceVeddMonthly} VEDD/month — Subscribe
+                        </Button>
+                      )
+                    )}
                   </CardContent>
                 </Card>
               ))}

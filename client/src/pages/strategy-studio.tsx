@@ -1044,6 +1044,7 @@ export default function StrategyStudio() {
   const [brainProfile, setBrainProfile] = useState<any | null>(null);
   const [brainBusy, setBrainBusy] = useState(false);
   const [listedBrain, setListedBrain] = useState(false);
+  const [listMonthlyPrice, setListMonthlyPrice] = useState('');
 
   const loadDeployData = async (sid: number) => {
     try {
@@ -1134,12 +1135,14 @@ export default function StrategyStudio() {
     if (!savedId) return;
     setBrainBusy(true);
     try {
-      const res = await apiRequest('POST', `/api/strategy-wizard/spec-strategies/${savedId}/list-brain`, {});
+      const res = await apiRequest('POST', `/api/strategy-wizard/spec-strategies/${savedId}/list-brain`, {
+        priceVeddMonthly: listMonthlyPrice ? parseInt(listMonthlyPrice, 10) : undefined,
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Listing failed');
       setListedBrain(true);
       setBrainProfile(data.brain || brainProfile);
-      toast({ title: 'Listed on the Marketplace', description: `"${data.listing?.title}" is live at ${data.listing?.priceVedd} VEDD${data.listing?.marketplaceProof?.proofType ? ` — ${data.listing.marketplaceProof.proofType === 'shadow' ? 'Proven in shadow' : 'Proven live'}` : ''}.` });
+      toast({ title: 'Listed on the Marketplace', description: `"${data.listing?.title}" is live at ${data.listing?.priceVedd} VEDD${data.listing?.priceVeddMonthly ? ` or ${data.listing.priceVeddMonthly} VEDD/month` : ''}${data.listing?.marketplaceProof?.proofType ? ` — ${data.listing.marketplaceProof.proofType === 'shadow' ? 'Proven in shadow' : 'Proven live'}` : ''}.` });
     } catch (error: any) {
       toast({ title: 'Cannot list yet', description: errText(error), variant: 'destructive' });
     } finally {
@@ -1940,6 +1943,16 @@ export default function StrategyStudio() {
                               <Store className="h-4 w-4 mr-2" />
                               {listedBrain ? 'Listed on Marketplace' : 'List on Marketplace'}
                             </Button>
+                            {!listedBrain && (
+                              <Input
+                                className="h-8 w-44 text-xs"
+                                type="number"
+                                placeholder="Optional: VEDD/month"
+                                value={listMonthlyPrice}
+                                onChange={(e) => setListMonthlyPrice(e.target.value)}
+                                title="Optional monthly subscription price — subscribers get their own copy of the strategy and pay this every 30 days until they cancel."
+                              />
+                            )}
                           </div>
                           {brainProfile ? (
                             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 text-sm">

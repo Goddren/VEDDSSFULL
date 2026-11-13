@@ -2810,6 +2810,12 @@ export const brainDataListings = pgTable("brain_data_listings", {
   title: text("title").notNull(),
   description: text("description"),
   priceVedd: integer("price_vedd").notNull(),
+  // Optional MONTHLY subscription price in VEDD (marketplace subscriptions,
+  // server/services/marketplace-subscriptions.ts). Null = no subscription
+  // offered, one-time purchase only. A seller changing this only affects
+  // FUTURE subscribers — an existing subscription keeps the price locked
+  // at its subscribe time until it lapses or is cancelled.
+  priceVeddMonthly: integer("price_vedd_monthly"),
   suggestedPriceVedd: integer("suggested_price_vedd").notNull(),
   snapshotData: jsonb("snapshot_data").notNull(), // frozen array of outcome rows at listing time — re-listing the SAME category+symbolFilter combo replaces this with a fresh, updated snapshot
   tradeCount: integer("trade_count").notNull(),
@@ -2837,6 +2843,55 @@ export const brainDataPurchases = pgTable("brain_data_purchases", {
     uniquePurchase: unique().on(table.listingId, table.buyerId),
   };
 });
+
+// ── Brain Marketplace Subscriptions ─────────────────────────────────────────
+// A recurring alternative to the one-time purchase above: the buyer pays
+// priceVeddMonthly (locked at subscribe time) every 30 days from their
+// internal VEDD wallet; the seller is credited the FULL amount (the
+// marketplace charges no platform fee, same as one-time buys). Access to
+// the granted content follows the subscription state machine in
+// server/services/marketplace-subscriptions.ts: active / past_due (retry
+// grace) / cancelled (access until paid_through_at) / lapsed (access ends).
+// One row per buyer+listing — a lapsed row is reactivated in place.
+export const brainMarketplaceSubscriptions = pgTable("brain_marketplace_subscriptions", {
+  id: serial("id").primaryKey(),
+  listingId: integer("listing_id").references(() => brainDataListings.id).notNull(),
+  sellerId: integer("seller_id").references(() => users.id).notNull(),
+  buyerId: integer("buyer_id").references(() => users.id).notNull(),
+  priceVeddMonthly: integer("price_vedd_monthly").notNull(), // locked at subscribe time
+  status: text("status").default('active').notNull(), // active|past_due|lapsed|cancelled
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  lastChargedAt: timestamp("last_charged_at"),
+  nextChargeAt: timestamp("next_charge_at").notNull(),
+  paidThroughAt: timestamp("paid_through_at").notNull(),
+  failedAttempts: integer("failed_attempts").default(0).notNull(),
+  grantedAt: timestamp("granted_at"), // when the buy-equivalent grant was applied (once)
+  accessRevokedAt: timestamp("access_revoked_at"), // when lapse/cancel end-of-access was enforced
+  cancelledAt: timestamp("cancelled_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => {
+  return {
+    uniqueSubscription: unique().on(table.listingId, table.buyerId),
+  };
+});
+
+// Append-only audit of subscription charges. periodKey is unique per
+// subscription period ("<subId>:<period-start-date>") so a period can be
+// recorded exactly once — the renewal runner claims a period on the
+// subscription row before moving any VEDD (see marketplace-subscriptions.ts),
+// and this ledger is the receipt.
+export const brainMarketplaceSubscriptionCharges = pgTable("brain_marketplace_subscription_charges", {
+  id: serial("id").primaryKey(),
+  subscriptionId: integer("subscription_id").references(() => brainMarketplaceSubscriptions.id).notNull(),
+  periodKey: text("period_key").notNull().unique(),
+  amountVedd: integer("amount_vedd").notNull(),
+  status: text("status").default('charged').notNull(), // charged|failed
+  chargedAt: timestamp("charged_at").defaultNow().notNull(),
+});
+
+export type BrainMarketplaceSubscription = typeof brainMarketplaceSubscriptions.$inferSelect;
+export type BrainMarketplaceSubscriptionCharge = typeof brainMarketplaceSubscriptionCharges.$inferSelect;
 
 export const insertBrainDataListingSchema = createInsertSchema(brainDataListings).omit({
   id: true, purchaseCount: true, createdAt: true, updatedAt: true,

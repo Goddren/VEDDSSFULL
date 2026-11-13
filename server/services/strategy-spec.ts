@@ -141,6 +141,10 @@ export interface StrategySpec {
     sellerId: number;
     sourceStrategyId: number;
     proofType: 'shadow' | 'live';
+    /** 'purchase' (default, permanent) or 'subscription' — a
+     *  subscription clone loses deployment access when the buyer's
+     *  subscription to the listing lapses (marketplace-subscriptions). */
+    grantType?: 'purchase' | 'subscription';
   };
 }
 
