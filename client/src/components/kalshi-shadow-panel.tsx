@@ -75,6 +75,28 @@ interface KalshiShadowRecentClose {
   closed_at: string;
 }
 
+interface KalshiPerpBrainTopBlock {
+  strategy: string;
+  underlying: string | null;
+  ticker: string;
+  direction: string | null;
+  dim: string;
+  bucket: string;
+  blocks: number;
+  medianNetPct: number | null;
+  bucketN: number | null;
+}
+
+interface KalshiPerpBrain {
+  enabled: boolean;
+  vpEnabled: boolean;
+  blocksInWindow: number;
+  vpSkipsInWindow: number;
+  favorBuckets: number;
+  avoidBuckets: number;
+  topBlocks: KalshiPerpBrainTopBlock[];
+}
+
 interface KalshiShadowReport {
   days: number;
   summary: KalshiShadowSummary;
@@ -82,6 +104,7 @@ interface KalshiShadowReport {
   openPositions: KalshiShadowOpenPosition[];
   recentCloses: KalshiShadowRecentClose[];
   accountSim?: KalshiAccountSim;
+  perpBrain?: KalshiPerpBrain;
 }
 
 const DAY_OPTIONS = [7, 30, 90] as const;
@@ -158,6 +181,30 @@ function strategyLabel(key: string): string {
   const prefixed = key.replace(/^fx_/, "FX ").replace(/^opt_/, "Options ");
   const words = prefixed.replace(/_/g, " ").trim();
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : key;
+}
+
+// Plain words for the perp brain's bucket dimensions and values, so a block
+// line reads like a sentence instead of a database row.
+const BUCKET_DIM_LABELS: Record<string, string> = {
+  hourEt: "time of day",
+  session: "session",
+  ticker: "ticker",
+  side: "direction",
+  spread: "spread",
+  volatility: "volatility",
+  funding: "funding",
+  htf: "trend alignment",
+  vp: "volume-profile position",
+  all: "overall record",
+};
+
+function bucketDimLabel(dim: string): string {
+  return BUCKET_DIM_LABELS[dim] || dim;
+}
+
+function bucketValueLabel(dim: string, bucket: string): string {
+  if (dim === "hourEt") return bucket.replace(/^(\d+)-(\d+)ET$/, "$1–$2 ET");
+  return bucket.replace(/_/g, " ");
 }
 
 function exitReasonLabel(reason: string | null | undefined): string {
@@ -256,6 +303,7 @@ export function KalshiShadowPanel({ className = "" }: { className?: string }) {
           <p><b>Funding</b> is a daily charge that keeps the perp's price tied to the stock. It lands once a day at <b>4:00 PM ET</b>: when the funding rate is positive, longs pay and shorts receive; when it is negative, that flips. Funding totals are shown signed — positive means the position collected funding overall, negative means it paid.</p>
           <p><b>Why real prices?</b> Kalshi also offers demo prices, but those are simulated and can drift from the real market — proof built on them would prove nothing. This lane reads the live production feed only.</p>
           <p><b>The $100 account.</b> Percentages are hard to feel, so the panel also replays the closed trades on a pretend $100 account: it starts at $100 and applies each trade's real net result, in the order the trades closed. Each strategy gets its own $100 replay in the by-strategy list. The live lane can hold several trades at once, so read it as a clear illustration of what these results add up to — not an exact account history.</p>
+          <p><b>The perp brain.</b> The lane keeps score of its own closed trades by setup — ticker, direction, session, time of day, and where price sat in the day's volume profile (the range where most trading happened). When a setup's record proves it loses — 15 or more trades and a clearly negative typical result — the brain blocks new shadow trades in that setup and logs what it stopped. Blocks are not permanent: the score only looks back 60 days, so a setup earns its way back as old losses age out. The brain also skips one volume-profile trap: buying right at the top, or selling right at the bottom, of the day's accepted value range.</p>
           <p><b>What happens if a strategy proves out?</b> Nothing automatic. A strategy first has to clear a promotion bar on this shadow record, and any live step after that is a separate, explicit decision — shadow results never turn into real orders on their own.</p>
           <p>Open positions show the price the position could close at right now when Kalshi is reachable — the bid for a long and the ask for a short — and what the net result would be at that price, with funding and costs included.</p>
         </InfoExplainer>
@@ -324,6 +372,51 @@ export function KalshiShadowPanel({ className = "" }: { className?: string }) {
                 <p className="mt-1 text-[10px] leading-snug text-gray-400">
                   No closed trades yet in this window — the $100 result starts counting with the first close.
                 </p>
+              )}
+            </div>
+          ) : null}
+
+          {data.perpBrain ? (
+            <div className="mt-2 rounded-lg bg-black/20 px-3 py-2.5">
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <h3 className="text-[11px] font-bold text-gray-100">Perp brain</h3>
+                <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">
+                  {data.perpBrain.enabled ? "acting on the lane's own lessons" : "switched off"}
+                </span>
+              </div>
+              {data.perpBrain.enabled ? (
+                <>
+                  <p className="mt-1 text-[10px] leading-snug text-gray-400">
+                    The brain blocks new shadow trades in setups its own record proves lose; blocks lift on their own as old results age out of the 60-day window.
+                  </p>
+                  <div className="mt-1 flex flex-wrap gap-x-2.5 gap-y-0.5 text-[10px] tabular-nums text-gray-400">
+                    <span>Blocked in the last {data.days} days: <b className="text-gray-200">{data.perpBrain.blocksInWindow}</b></span>
+                    {data.perpBrain.vpEnabled ? (
+                      <span>Volume-profile edge skips: <b className="text-gray-200">{data.perpBrain.vpSkipsInWindow}</b></span>
+                    ) : null}
+                    <span>Setups currently rated: <span className="text-emerald-300">{data.perpBrain.favorBuckets} favor</span> · <span className="text-red-300">{data.perpBrain.avoidBuckets} avoid</span></span>
+                  </div>
+                  {data.perpBrain.topBlocks.length ? (
+                    <div className="mt-1.5 space-y-0.5">
+                      {data.perpBrain.topBlocks.map((b, i) => (
+                        <p key={i} className="text-[10px] leading-snug text-gray-400">
+                          <span className="font-semibold text-gray-200">{strategyLabel(b.strategy)}</span>
+                          {" · "}{b.underlying || b.ticker}
+                          {b.direction ? <> · {b.direction}</> : null}
+                          {" — "}{bucketDimLabel(b.dim)}: {bucketValueLabel(b.dim, b.bucket)}
+                          {b.medianNetPct != null && b.bucketN != null ? (
+                            <> · median {fmtPctPoints(b.medianNetPct)} over {b.bucketN} trades</>
+                          ) : null}
+                          {" · "}stopped {b.blocks}×
+                        </p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-[10px] leading-snug text-gray-500">Nothing blocked in this window — no setup has a proven-losing record yet, or the ones that did have aged out.</p>
+                  )}
+                </>
+              ) : (
+                <p className="mt-1 text-[10px] leading-snug text-gray-500">The perp brain is off right now, so no shadow trades are being blocked by it. The lane still records its results and advice as usual.</p>
               )}
             </div>
           ) : null}

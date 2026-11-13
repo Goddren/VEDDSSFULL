@@ -58,6 +58,17 @@
 // KALSHI_STOCK_SHADOW=off. Runs for the owner account only
 // (KALSHI_STOCK_SHADOW_USER_ID, else first admin) — per-user by design so
 // the shared shadow_ledger can carry the rows.
+//
+// Perp brain + volume-profile filter (2026-11-12): the bucket stats below
+// now ACT — a candidate whose buckets include an 'avoid' verdict is
+// hard-blocked before it opens, every block is audit-logged, and blocks
+// lift on their own as the 60-day stats window rolls (kalshi-perp-brain.ts;
+// kill switch KALSHI_PERP_BRAIN=off). Each candidate also gets an
+// entry-time volume profile (the spec path's own volumeProfileSeries over
+// today's ET-session 15m bars): price position is recorded on the context
+// row and learned as a 'vp' bucket dimension, and ONE conservative veto
+// skips entries pressing into the far value-area edge from inside value
+// (kill switch KALSHI_PERP_VP=off).
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
 import { ensureKalshiPerpShadowTables } from './ensure-kalshi-perp-shadow-tables';
@@ -66,6 +77,10 @@ import {
   getPerpCorporateActions, getPerpBars, aggregateBars, type PerpBar, type PerpMarket,
 } from './kalshi-perps';
 import { computeKalshiOrbState, orbEntryDirection, orbAlreadyFiredToday } from './kalshi-orb';
+import {
+  perpBrainEnabled, perpVpEnabled, evaluatePerpBrainGate, logPerpBrainBlocks,
+  getPerpBrainBlockSummary, classifyVpPosition, vpValueEdgeBlock, type VpPosition,
+} from './kalshi-perp-brain';
 
 export const stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== 'off';
 
@@ -130,6 +145,7 @@ function atrOf(bars: Array<{ h: number; l: number; c: number }>, n = 14): number
 export function kalshiBucketsOf(c: {
   session_et?: string | null; ticker?: string | null; spread_bps?: number | null; atr_pct?: number | null;
   funding_rate_at_entry?: number | null; htf_aligned?: boolean | null; direction?: string | null; hour_et?: number | null;
+  vp_position?: string | null;
 }): Record<string, string> {
   const b: Record<string, string> = {};
   if (c.session_et) b.session = c.session_et;
@@ -140,6 +156,10 @@ export function kalshiBucketsOf(c: {
   if (c.funding_rate_at_entry != null) b.funding = c.funding_rate_at_entry < 0 ? 'negative' : c.funding_rate_at_entry > 0 ? 'positive' : 'zero';
   if (c.htf_aligned != null) b.htf = c.htf_aligned ? 'aligned' : 'against';
   if (c.hour_et != null) { const s = Math.floor(c.hour_et / 4) * 4; b.hourEt = `${String(s).padStart(2, '0')}-${String(s + 4).padStart(2, '0')}ET`; }
+  // Volume-profile position at entry (perp-brain build). Rows written
+  // before the build have no vp_position and contribute no 'vp' bucket —
+  // the dimension only learns from this build forward.
+  if (c.vp_position) b.vp = c.vp_position;
   return b;
 }
 export interface KalshiBucketStat { strategy: string; dim: string; bucket: string; n: number; medianNet: number; winRate: number; verdict: 'favor' | 'avoid' | 'learning' }
@@ -165,7 +185,7 @@ export async function computeKalshiStockShadowStats(userId: number, force = fals
   if (!force && hit && Date.now() - hit.at < 15 * 60_000) return hit.stats;
   await ensureKalshiPerpShadowTables();
   const { rows } = await pool.query(
-    `SELECT c.strategy, c.ticker, c.direction, c.session_et, c.spread_bps, c.atr_pct, c.funding_rate_at_entry, c.htf_aligned, c.hour_et, c.net_pct
+    `SELECT c.strategy, c.ticker, c.direction, c.session_et, c.spread_bps, c.atr_pct, c.funding_rate_at_entry, c.htf_aligned, c.hour_et, c.vp_position, c.net_pct
        FROM kalshi_perp_shadow_context c JOIN kalshi_perp_shadow_trades t ON t.id = c.trade_id
       WHERE c.user_id=$1 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL AND t.exclude_from_stats IS NOT TRUE
         AND c.closed_at >= now() - interval '60 days'`, [userId]);
@@ -237,6 +257,30 @@ export interface KalshiStockShadowRecentClose {
   closed_at: string;
 }
 
+export interface KalshiPerpBrainPanelReport {
+  enabled: boolean;
+  vpEnabled: boolean;
+  /** Brain 'avoid'-verdict blocks logged in the selected window. */
+  blocksInWindow: number;
+  /** Volume-profile value-edge skips logged in the selected window. */
+  vpSkipsInWindow: number;
+  /** Current 60-day verdict map: setup buckets (the per-strategy 'all' row
+   *  excluded) carrying a favor / avoid verdict right now. */
+  favorBuckets: number;
+  avoidBuckets: number;
+  topBlocks: Array<{
+    strategy: string;
+    underlying: string | null;
+    ticker: string;
+    direction: string | null;
+    dim: string;
+    bucket: string;
+    blocks: number;
+    medianNetPct: number | null;
+    bucketN: number | null;
+  }>;
+}
+
 export interface KalshiStockShadowReport {
   days: number;
   summary: KalshiStockShadowSummary;
@@ -246,6 +290,9 @@ export interface KalshiStockShadowReport {
   // $100-account illustration over the window's closes. Absent when
   // KALSHI_ACCOUNT_SIM=off (the client then hides the block).
   accountSim?: KalshiAccountSimResult;
+  // Perp-brain audit summary: what the brain blocked in the window and how
+  // the current verdict map stands (kalshi-perp-brain.ts).
+  perpBrain: KalshiPerpBrainPanelReport;
 }
 
 export interface KalshiAccountSimResult {
@@ -450,9 +497,34 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
     grouped.forEach((list, strategy) => perStrategySim.set(strategy, accountReplay(list)));
   }
 
+  // Perp-brain audit summary for the panel: what the brain stopped in this
+  // window, and how the current 60-day verdict map stands. Fail-soft — the
+  // panel must render even if the block log or stats are unreachable.
+  const brainBlockSummary = await getPerpBrainBlockSummary(userId, windowDays).catch(() => null);
+  let favorBuckets = 0;
+  let avoidBuckets = 0;
+  try {
+    const statsNow = await computeKalshiStockShadowStats(userId);
+    for (const s of statsNow) {
+      if (s.dim === 'all') continue; // the strategy-overall row is not a setup bucket
+      if (s.verdict === 'favor') favorBuckets++;
+      else if (s.verdict === 'avoid') avoidBuckets++;
+    }
+  } catch { /* verdict counts are panel decoration; the gate itself re-reads stats in the lane */ }
+  const perpBrain: KalshiPerpBrainPanelReport = {
+    enabled: perpBrainEnabled(),
+    vpEnabled: perpVpEnabled(),
+    blocksInWindow: brainBlockSummary?.brainBlocks ?? 0,
+    vpSkipsInWindow: brainBlockSummary?.vpSkips ?? 0,
+    favorBuckets,
+    avoidBuckets,
+    topBlocks: brainBlockSummary?.topBlocks ?? [],
+  };
+
   return {
     days: windowDays,
     ...(accountSim ? { accountSim } : {}),
+    perpBrain,
     summary: {
       openCount: Number(s.open_count) || 0,
       closedCount: Number(s.closed_count) || 0,
@@ -670,7 +742,7 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
   if (Date.now() - (_lastEntryRun.get(userId) || 0) < EVERY_MS()) return { opened: 0, closed };
   _lastEntryRun.set(userId, Date.now());
 
-  const [{ STRATEGY_RUNNERS }, { OPTIONS_STRATEGY_RUNNERS }, { evaluateSpecSignals }, { paperMaxHoursFor }, { assessPriceAnomaly }] = await Promise.all([
+  const [{ STRATEGY_RUNNERS }, { OPTIONS_STRATEGY_RUNNERS }, { evaluateSpecSignals, volumeProfileSeries }, { paperMaxHoursFor }, { assessPriceAnomaly }] = await Promise.all([
     import('./cryptocom-scanner'), import('./options-scanner'), import('./strategy-backtest'), import('./crypto-paper'), import('../utils/corporateActionGuard'),
   ]);
   const stats = await computeKalshiStockShadowStats(userId).catch(() => [] as KalshiBucketStat[]);
@@ -781,6 +853,28 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
     const now = Date.now();
     const et = etParts(now);
 
+    // Entry-time volume profile for this ticker (perp-brain build): the
+    // spec path's own volumeProfileSeries (24 bins, 70% value area) over
+    // today's ET-session 15m bars — falling back to the trailing ~24h of
+    // bars when the session is too young to define a profile. Computed
+    // once per ticker per cycle; each candidate below is placed against
+    // it. Fail-soft: no usable profile → no VP context and no VP veto.
+    let vpProfile: { poc: number; vah: number; val: number } | null = null;
+    if (perpVpEnabled()) {
+      const rawVp = await getPerpBars(mkt.ticker, '15m', 120).catch(() => [] as Array<{ t: number; o: number; h: number; l: number; c: number; v: number }>);
+      const etMidnightMs = now - ((et.hour * 60 + et.minute) * 60_000 + (now % 60_000));
+      let vpWindow = rawVp.filter((b) => b.t >= etMidnightMs);
+      if (vpWindow.length < 24) vpWindow = rawVp.slice(-96);
+      if (vpWindow.length >= 24) {
+        const vpSeries = volumeProfileSeries(
+          vpWindow.map((b) => ({ timestamp: b.t, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v })),
+          vpWindow.length, 70);
+        const li = vpWindow.length - 1;
+        const poc = vpSeries.poc[li], vah = vpSeries.vah[li], val = vpSeries.val[li];
+        if (poc != null && vah != null && val != null && vah > val) vpProfile = { poc, vah, val };
+      }
+    }
+
     for (const sig of signals) {
       if (open.length >= MAX_OPEN()) break;
       if (open.filter((o) => o.strategy === sig.strategy).length >= MAX_PER_STRAT()) continue;
@@ -794,9 +888,14 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
       const notional = contracts * entry;
       const aligned = h4Trend == null ? null : short ? h4Trend === 'BEARISH' : h4Trend === 'BULLISH';
       const agreeing = signals.filter((s) => s.direction === sig.direction).length;
+      // This candidate's volume-profile position (null when no profile
+      // could be built or the VP filter is off) — recorded on the context
+      // row and learned as the 'vp' bucket dimension from here forward.
+      const vpPos: VpPosition | null = vpProfile ? classifyVpPosition(entry, vpProfile.vah, vpProfile.val) : null;
       const ctx = {
         session_et: sessionEt(now), ticker: mkt.ticker, spread_bps: spreadBps, atr_pct: atrPct,
         funding_rate_at_entry: fundEst?.rate ?? null, htf_aligned: aligned, direction: sig.direction, hour_et: et.hour,
+        vp_position: vpPos,
       };
       const tags: string[] = [];
       if (aligned === false) tags.push('against_htf');
@@ -804,6 +903,35 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
       if (agreeing < 2) tags.push('single_runner_no_confluence');
       if (spreadBps > 25) tags.push('wide_spread');
       if (ctx.session_et === 'overnight') tags.push('overnight_session');
+      // ── Perp brain gate (kalshi-perp-brain.ts): the lane's own bucket
+      // verdicts now ACT. Any matching 'avoid' bucket hard-blocks this
+      // entry, audit-logged per bucket BEFORE the skip; 'favor' matches
+      // only tag the trade (fixed-notional shadow sizing has nothing to
+      // boost). Verdicts roll with the 60-day stats window, so a block
+      // lifts by itself when the bucket's record improves past the bar —
+      // rehabilitation is automatic and needs no human action.
+      if (perpBrainEnabled()) {
+        const gate = evaluatePerpBrainGate(stats, sig.strategy, kalshiBucketsOf(ctx));
+        if (gate.blocked) {
+          await logPerpBrainBlocks(userId, gate.avoid.map((s) => ({
+            strategy: sig.strategy, ticker: mkt.ticker, underlying: mkt.underlying, direction: sig.direction,
+            reason: 'brain_avoid' as const, bucketDim: s.dim, bucketValue: s.bucket, medianNetPct: s.medianNet, bucketN: s.n,
+          })));
+          continue;
+        }
+        if (gate.favor.length) tags.push('brain_favor');
+      }
+      // ── Volume-profile value-edge veto (ONE conservative rule): no long
+      // pressing into VAH from inside value, no short pressing into VAL.
+      // Breakouts already outside value and retests from outside are NOT
+      // blocked. Skips are audit-logged as 'vp_edge'; no trade row opens.
+      if (perpVpEnabled() && vpProfile && vpValueEdgeBlock(sig.direction, entry, vpProfile, atr)) {
+        await logPerpBrainBlocks(userId, [{
+          strategy: sig.strategy, ticker: mkt.ticker, underlying: mkt.underlying, direction: sig.direction,
+          reason: 'vp_edge' as const, bucketDim: 'vp', bucketValue: vpPos, medianNetPct: null, bucketN: null,
+        }]);
+        continue;
+      }
       const ins = await pool.query(
         `INSERT INTO kalshi_perp_shadow_trades (user_id, strategy, ticker, underlying, direction, entry_price, entry_bid, entry_ask,
            stop_loss, take_profit, sl_pct, contracts, notional_usd, cost_bps, cost_model, score, max_hours)
@@ -814,11 +942,13 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
       await pool.query(
         `INSERT INTO kalshi_perp_shadow_context (trade_id, user_id, strategy, ticker, direction, spread_bps, volume_24h_usd, open_interest,
            atr_pct, h1_trend, h4_trend, htf_aligned, funding_rate_at_entry, session_et, hour_utc, hour_et, day_of_week,
-           earnings_within_48h, corporate_action_pending, live_gate_blocked, leverage_estimate, tags, advice_at_entry)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (trade_id) DO NOTHING`,
+           earnings_within_48h, corporate_action_pending, live_gate_blocked, leverage_estimate, tags, advice_at_entry,
+           vp_poc, vp_vah, vp_val, vp_position)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27) ON CONFLICT (trade_id) DO NOTHING`,
         [id, userId, sig.strategy, mkt.ticker, sig.direction, spreadBps, mkt.volume24hNotionalUsd, mkt.openInterest,
          atrPct, h1Trend, h4Trend, aligned, fundEst?.rate ?? null, ctx.session_et, new Date(now).getUTCHours(), et.hour, et.dow,
-         null, pendingCa.has(mkt.ticker), agreeing < 2, mkt.leverageEstimate, tags, adviceFor(stats, sig.strategy, ctx)]).catch(() => {});
+         null, pendingCa.has(mkt.ticker), agreeing < 2, mkt.leverageEstimate, tags, adviceFor(stats, sig.strategy, ctx),
+         vpProfile?.poc ?? null, vpProfile?.vah ?? null, vpProfile?.val ?? null, vpPos]).catch(() => {});
       open.push({ strategy: sig.strategy, underlying: mkt.underlying });
       opened++;
     }

@@ -18915,7 +18915,7 @@ function ensureKalshiPerpShadowTables() {
       funding_rate_at_entry double precision, session_et text, hour_utc int, hour_et int, day_of_week int,
       earnings_within_48h boolean, corporate_action_pending boolean, live_gate_blocked boolean,
       leverage_estimate double precision, tags text[], advice_at_entry text,
-      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision, funding_paid_usd double precision)`)).then(() => void 0).catch((e) => {
+      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision, funding_paid_usd double precision)`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_poc double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_vah double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_val double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_position text`)).then(() => void 0).catch((e) => {
       _ensured3 = null;
       throw e;
     });
@@ -58704,6 +58704,121 @@ var init_kalshi_orb = __esm({
   }
 });
 
+// server/services/kalshi-perp-brain.ts
+function evaluatePerpBrainGate(stats, strategy, buckets) {
+  const hits = (stats || []).filter(
+    (s) => s.strategy === strategy && s.verdict !== "learning" && buckets[s.dim] === s.bucket
+  );
+  const avoid = hits.filter((s) => s.verdict === "avoid");
+  const favor = hits.filter((s) => s.verdict === "favor");
+  return { blocked: avoid.length > 0, avoid, favor };
+}
+function classifyVpPosition(price, vah, val) {
+  if (price > vah) return "above_value";
+  if (price < val) return "below_value";
+  return "inside_value";
+}
+function vpValueEdgeBlock(direction, entry, profile, atr3) {
+  if (!(entry > 0) || !(atr3 > 0) || !(profile.vah > profile.val)) return false;
+  if (classifyVpPosition(entry, profile.vah, profile.val) !== "inside_value") return false;
+  const tol = VP_EDGE_TOL_ATR_MULT * atr3;
+  return direction === "short" ? entry - profile.val <= tol : profile.vah - entry <= tol;
+}
+function ensurePerpBrainTables() {
+  if (!_ensured7) {
+    _ensured7 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_brain_blocks (
+      id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, ticker text NOT NULL, underlying text,
+      direction text, reason text NOT NULL, bucket_dim text, bucket_value text,
+      median_net_pct double precision, bucket_n int,
+      created_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_brain_blocks_user_created ON kalshi_perp_brain_blocks (user_id, created_at)`)).then(() => void 0).catch((e) => {
+      _ensured7 = null;
+      throw e;
+    });
+  }
+  return _ensured7;
+}
+async function logPerpBrainBlocks(userId, rows) {
+  if (!rows.length) return;
+  try {
+    await ensurePerpBrainTables();
+    for (const r of rows) {
+      await pool.query(
+        `INSERT INTO kalshi_perp_brain_blocks (user_id, strategy, ticker, underlying, direction, reason, bucket_dim, bucket_value, median_net_pct, bucket_n)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [
+          userId,
+          r.strategy,
+          r.ticker,
+          r.underlying ?? null,
+          r.direction ?? null,
+          r.reason,
+          r.bucketDim ?? null,
+          r.bucketValue ?? null,
+          r.medianNetPct ?? null,
+          r.bucketN ?? null
+        ]
+      );
+    }
+  } catch (e) {
+    console.error("[kalshi-perp-brain] block log write failed (non-fatal):", e?.message ?? e);
+  }
+}
+async function getPerpBrainBlockSummary(userId, days) {
+  const windowDays = Number.isFinite(days) ? Math.max(1, Math.min(365, Math.floor(days))) : 30;
+  await ensurePerpBrainTables();
+  const [countsRes, topRes] = await Promise.all([
+    pool.query(
+      `SELECT reason, count(*)::int AS n FROM kalshi_perp_brain_blocks
+        WHERE user_id=$1 AND created_at >= now() - ($2::int * interval '1 day')
+        GROUP BY reason`,
+      [userId, windowDays]
+    ),
+    pool.query(
+      `SELECT strategy,
+          (array_agg(underlying ORDER BY created_at DESC))[1] AS underlying,
+          (array_agg(ticker ORDER BY created_at DESC))[1] AS ticker,
+          (array_agg(direction ORDER BY created_at DESC))[1] AS direction,
+          bucket_dim, bucket_value, count(*)::int AS blocks,
+          (array_agg(median_net_pct ORDER BY created_at DESC))[1] AS median_net_pct,
+          (array_agg(bucket_n ORDER BY created_at DESC))[1] AS bucket_n
+       FROM kalshi_perp_brain_blocks
+       WHERE user_id=$1 AND reason='brain_avoid' AND bucket_dim IS NOT NULL
+         AND created_at >= now() - ($2::int * interval '1 day')
+       GROUP BY strategy, bucket_dim, bucket_value
+       ORDER BY blocks DESC, strategy ASC
+       LIMIT 5`,
+      [userId, windowDays]
+    )
+  ]);
+  const counts = new Map((countsRes.rows || []).map((r) => [String(r.reason), Number(r.n) || 0]));
+  return {
+    brainBlocks: counts.get("brain_avoid") || 0,
+    vpSkips: counts.get("vp_edge") || 0,
+    topBlocks: (topRes.rows || []).map((r) => ({
+      strategy: String(r.strategy),
+      underlying: r.underlying == null ? null : String(r.underlying),
+      ticker: String(r.ticker),
+      direction: r.direction == null ? null : String(r.direction),
+      dim: String(r.bucket_dim),
+      bucket: String(r.bucket_value),
+      blocks: Number(r.blocks) || 0,
+      medianNetPct: r.median_net_pct == null ? null : Number(r.median_net_pct),
+      bucketN: r.bucket_n == null ? null : Number(r.bucket_n)
+    }))
+  };
+}
+var perpBrainEnabled, perpVpEnabled, VP_EDGE_TOL_ATR_MULT, _ensured7;
+var init_kalshi_perp_brain = __esm({
+  "server/services/kalshi-perp-brain.ts"() {
+    "use strict";
+    init_db();
+    perpBrainEnabled = () => process.env.KALSHI_PERP_BRAIN !== "off";
+    perpVpEnabled = () => process.env.KALSHI_PERP_VP !== "off";
+    VP_EDGE_TOL_ATR_MULT = 0.25;
+    _ensured7 = null;
+  }
+});
+
 // server/services/process-fingerprint.ts
 var PROCESS_BOOT_ID;
 var init_process_fingerprint = __esm({
@@ -63865,7 +63980,8 @@ var strategy_backtest_exports = {};
 __export(strategy_backtest_exports, {
   evaluateSpecSignals: () => evaluateSpecSignals,
   resampleBars: () => resampleBars,
-  runBacktest: () => runBacktest
+  runBacktest: () => runBacktest,
+  volumeProfileSeries: () => volumeProfileSeries
 });
 function contractSize(symbol) {
   return CONTRACT_SIZE[symbol.replace(/[^A-Z]/g, "")] ?? 1e5;
@@ -64829,6 +64945,7 @@ function kalshiBucketsOf(c) {
     const s = Math.floor(c.hour_et / 4) * 4;
     b.hourEt = `${String(s).padStart(2, "0")}-${String(s + 4).padStart(2, "0")}ET`;
   }
+  if (c.vp_position) b.vp = c.vp_position;
   return b;
 }
 function quantile3(s, q) {
@@ -64860,7 +64977,7 @@ async function computeKalshiStockShadowStats(userId, force = false) {
   if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.stats;
   await ensureKalshiPerpShadowTables();
   const { rows } = await pool.query(
-    `SELECT c.strategy, c.ticker, c.direction, c.session_et, c.spread_bps, c.atr_pct, c.funding_rate_at_entry, c.htf_aligned, c.hour_et, c.net_pct
+    `SELECT c.strategy, c.ticker, c.direction, c.session_et, c.spread_bps, c.atr_pct, c.funding_rate_at_entry, c.htf_aligned, c.hour_et, c.vp_position, c.net_pct
        FROM kalshi_perp_shadow_context c JOIN kalshi_perp_shadow_trades t ON t.id = c.trade_id
       WHERE c.user_id=$1 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL AND t.exclude_from_stats IS NOT TRUE
         AND c.closed_at >= now() - interval '60 days'`,
@@ -65016,9 +65133,31 @@ async function getKalshiStockShadowReport(userId, days = 30) {
     }
     grouped.forEach((list, strategy) => perStrategySim.set(strategy, accountReplay(list)));
   }
+  const brainBlockSummary = await getPerpBrainBlockSummary(userId, windowDays).catch(() => null);
+  let favorBuckets = 0;
+  let avoidBuckets = 0;
+  try {
+    const statsNow = await computeKalshiStockShadowStats(userId);
+    for (const s2 of statsNow) {
+      if (s2.dim === "all") continue;
+      if (s2.verdict === "favor") favorBuckets++;
+      else if (s2.verdict === "avoid") avoidBuckets++;
+    }
+  } catch {
+  }
+  const perpBrain = {
+    enabled: perpBrainEnabled(),
+    vpEnabled: perpVpEnabled(),
+    blocksInWindow: brainBlockSummary?.brainBlocks ?? 0,
+    vpSkipsInWindow: brainBlockSummary?.vpSkips ?? 0,
+    favorBuckets,
+    avoidBuckets,
+    topBlocks: brainBlockSummary?.topBlocks ?? []
+  };
   return {
     days: windowDays,
     ...accountSim ? { accountSim } : {},
+    perpBrain,
     summary: {
       openCount: Number(s.open_count) || 0,
       closedCount: Number(s.closed_count) || 0,
@@ -65208,7 +65347,7 @@ async function runKalshiStockShadowCycle(userId) {
   });
   if (Date.now() - (_lastEntryRun.get(userId) || 0) < EVERY_MS2()) return { opened: 0, closed };
   _lastEntryRun.set(userId, Date.now());
-  const [{ STRATEGY_RUNNERS: STRATEGY_RUNNERS3 }, { OPTIONS_STRATEGY_RUNNERS: OPTIONS_STRATEGY_RUNNERS2 }, { evaluateSpecSignals: evaluateSpecSignals2 }, { paperMaxHoursFor: paperMaxHoursFor2 }, { assessPriceAnomaly: assessPriceAnomaly2 }] = await Promise.all([
+  const [{ STRATEGY_RUNNERS: STRATEGY_RUNNERS3 }, { OPTIONS_STRATEGY_RUNNERS: OPTIONS_STRATEGY_RUNNERS2 }, { evaluateSpecSignals: evaluateSpecSignals2, volumeProfileSeries: volumeProfileSeries2 }, { paperMaxHoursFor: paperMaxHoursFor2 }, { assessPriceAnomaly: assessPriceAnomaly2 }] = await Promise.all([
     Promise.resolve().then(() => (init_cryptocom_scanner(), cryptocom_scanner_exports)),
     Promise.resolve().then(() => (init_options_scanner(), options_scanner_exports)),
     Promise.resolve().then(() => (init_strategy_backtest(), strategy_backtest_exports)),
@@ -65304,6 +65443,23 @@ async function runKalshiStockShadowCycle(userId) {
     if (slPct < 3 * (costBps / 100)) continue;
     const now = Date.now();
     const et = etParts(now);
+    let vpProfile = null;
+    if (perpVpEnabled()) {
+      const rawVp = await getPerpBars(mkt.ticker, "15m", 120).catch(() => []);
+      const etMidnightMs = now - ((et.hour * 60 + et.minute) * 6e4 + now % 6e4);
+      let vpWindow = rawVp.filter((b) => b.t >= etMidnightMs);
+      if (vpWindow.length < 24) vpWindow = rawVp.slice(-96);
+      if (vpWindow.length >= 24) {
+        const vpSeries = volumeProfileSeries2(
+          vpWindow.map((b) => ({ timestamp: b.t, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v })),
+          vpWindow.length,
+          70
+        );
+        const li = vpWindow.length - 1;
+        const poc = vpSeries.poc[li], vah = vpSeries.vah[li], val = vpSeries.val[li];
+        if (poc != null && vah != null && val != null && vah > val) vpProfile = { poc, vah, val };
+      }
+    }
     for (const sig of signals) {
       if (open.length >= MAX_OPEN2()) break;
       if (open.filter((o) => o.strategy === sig.strategy).length >= MAX_PER_STRAT2()) continue;
@@ -65317,6 +65473,7 @@ async function runKalshiStockShadowCycle(userId) {
       const notional = contracts * entry;
       const aligned = h4Trend == null ? null : short ? h4Trend === "BEARISH" : h4Trend === "BULLISH";
       const agreeing = signals.filter((s) => s.direction === sig.direction).length;
+      const vpPos = vpProfile ? classifyVpPosition(entry, vpProfile.vah, vpProfile.val) : null;
       const ctx = {
         session_et: sessionEt(now),
         ticker: mkt.ticker,
@@ -65325,7 +65482,8 @@ async function runKalshiStockShadowCycle(userId) {
         funding_rate_at_entry: fundEst?.rate ?? null,
         htf_aligned: aligned,
         direction: sig.direction,
-        hour_et: et.hour
+        hour_et: et.hour,
+        vp_position: vpPos
       };
       const tags = [];
       if (aligned === false) tags.push("against_htf");
@@ -65333,6 +65491,38 @@ async function runKalshiStockShadowCycle(userId) {
       if (agreeing < 2) tags.push("single_runner_no_confluence");
       if (spreadBps > 25) tags.push("wide_spread");
       if (ctx.session_et === "overnight") tags.push("overnight_session");
+      if (perpBrainEnabled()) {
+        const gate = evaluatePerpBrainGate(stats, sig.strategy, kalshiBucketsOf(ctx));
+        if (gate.blocked) {
+          await logPerpBrainBlocks(userId, gate.avoid.map((s) => ({
+            strategy: sig.strategy,
+            ticker: mkt.ticker,
+            underlying: mkt.underlying,
+            direction: sig.direction,
+            reason: "brain_avoid",
+            bucketDim: s.dim,
+            bucketValue: s.bucket,
+            medianNetPct: s.medianNet,
+            bucketN: s.n
+          })));
+          continue;
+        }
+        if (gate.favor.length) tags.push("brain_favor");
+      }
+      if (perpVpEnabled() && vpProfile && vpValueEdgeBlock(sig.direction, entry, vpProfile, atr3)) {
+        await logPerpBrainBlocks(userId, [{
+          strategy: sig.strategy,
+          ticker: mkt.ticker,
+          underlying: mkt.underlying,
+          direction: sig.direction,
+          reason: "vp_edge",
+          bucketDim: "vp",
+          bucketValue: vpPos,
+          medianNetPct: null,
+          bucketN: null
+        }]);
+        continue;
+      }
       const ins = await pool.query(
         `INSERT INTO kalshi_perp_shadow_trades (user_id, strategy, ticker, underlying, direction, entry_price, entry_bid, entry_ask,
            stop_loss, take_profit, sl_pct, contracts, notional_usd, cost_bps, cost_model, score, max_hours)
@@ -65344,8 +65534,9 @@ async function runKalshiStockShadowCycle(userId) {
       await pool.query(
         `INSERT INTO kalshi_perp_shadow_context (trade_id, user_id, strategy, ticker, direction, spread_bps, volume_24h_usd, open_interest,
            atr_pct, h1_trend, h4_trend, htf_aligned, funding_rate_at_entry, session_et, hour_utc, hour_et, day_of_week,
-           earnings_within_48h, corporate_action_pending, live_gate_blocked, leverage_estimate, tags, advice_at_entry)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (trade_id) DO NOTHING`,
+           earnings_within_48h, corporate_action_pending, live_gate_blocked, leverage_estimate, tags, advice_at_entry,
+           vp_poc, vp_vah, vp_val, vp_position)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27) ON CONFLICT (trade_id) DO NOTHING`,
         [
           id,
           userId,
@@ -65369,7 +65560,11 @@ async function runKalshiStockShadowCycle(userId) {
           agreeing < 2,
           mkt.leverageEstimate,
           tags,
-          adviceFor3(stats, sig.strategy, ctx)
+          adviceFor3(stats, sig.strategy, ctx),
+          vpProfile?.poc ?? null,
+          vpProfile?.vah ?? null,
+          vpProfile?.val ?? null,
+          vpPos
         ]
       ).catch(() => {
       });
@@ -65421,6 +65616,7 @@ var init_kalshi_stock_shadow = __esm({
     init_ensure_kalshi_perp_shadow_tables();
     init_kalshi_perps();
     init_kalshi_orb();
+    init_kalshi_perp_brain();
     stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== "off";
     num7 = (n, d) => {
       const v = Number(process.env[n]);
@@ -77993,9 +78189,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "27dde9a1-dirty";
-var BUILD_BRANCH = "feat/kalshi-100-account";
-var BUILT_AT = "2026-11-13T05:35:14.199Z";
+var BUILD_COMMIT = "f7a1f7fd-dirty";
+var BUILD_BRANCH = "feat/kalshi-perp-brain";
+var BUILT_AT = "2026-11-13T05:50:18.464Z";
 
 // server/stripe.ts
 init_db();
