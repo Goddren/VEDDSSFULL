@@ -76421,9 +76421,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "a6d8593a-dirty";
-var BUILD_BRANCH = "feat/fx-models-epoch-probation-propsim";
-var BUILT_AT = "2026-11-13T02:27:27.708Z";
+var BUILD_COMMIT = "536f0da4-dirty";
+var BUILD_BRANCH = "feat/guards-trails-page";
+var BUILT_AT = "2026-11-13T02:43:34.922Z";
 
 // server/stripe.ts
 init_db();

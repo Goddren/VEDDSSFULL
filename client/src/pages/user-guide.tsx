@@ -1819,12 +1819,12 @@ const guideSections: GuideSection[] = [
     id: 'engine-learning',
     title: 'How Your Engines Learn: Lessons, Guards & Trails',
     icon: Brain,
-    description: 'The learning panels on the Weekly Strategy page — blocked trades scored honestly, your settings at a glance, and turning proven practice lessons into real guards and trail rules',
+    description: 'The learning panels on the Guards & Trails page — blocked trades scored honestly, your settings at a glance, and turning proven practice lessons into real guards and trail rules',
     content: [
       {
         heading: 'Where to Find Everything',
         steps: [
-          'Open the Weekly Strategy page and scroll to the engine panels below your engine controls',
+          'Open the Guards & Trails page from the main menu (the Weekly Strategy page also has a Guards & Trails summary card that links straight there)',
           'Engine safeguards: a live feed of every protection that acted — stops kept tight, sizes capped, risky closes refused',
           'Why trades were skipped: the signals the engine wanted but a guard turned away, each with its reason',
           'Guard fire rates: how often each protection fired this week vs last — and what the blocked trades would have done',

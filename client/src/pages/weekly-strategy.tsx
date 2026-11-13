@@ -35,7 +35,7 @@ import ConnectedAccountPicker, {
 } from "@/components/connected-account-picker";
 import { TradePerformanceCard, TodayReviewPanel } from "@/components/trade-performance-card";
 import { FxModelsPanel } from "@/components/fx-models-panel";
-import { EngineSafeguardsPanel, SkippedTradesPanel, GuardFireRatesPanel, SettingsOverviewPanel, PromotedRulesPanel, PracticeCostPanel, TrailStudyPanel } from "@/components/engine-safeguards-panel";
+import { SettingsOverviewPanel, PracticeCostPanel } from "@/components/engine-safeguards-panel";
 import { KalshiShadowPanel } from "@/components/kalshi-shadow-panel";
 
 const POPULAR_PAIRS = [
@@ -860,6 +860,45 @@ function SetupChecklist({ growthPlan, profitTarget, selectedPairs, liveEngineSta
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Guards & Trails summary card ───────────────────────────────────────────
+// The full guard/trail panels moved to their own page (/guards-trails,
+// Nov 12, 2026) — this page keeps one compact card with the headline counts
+// from the same endpoints the panels use, plus the link over.
+function GuardsTrailsSummaryCard({ className = "" }: { className?: string }) {
+  const { data: guardFeed } = useQuery<{ summary: Array<{ kind: string; n: number; last: string }> }>({
+    queryKey: ["/api/engine/guard-events?limit=40"],
+    refetchInterval: 60000,
+  });
+  const { data: promoted } = useQuery<{ rules: Array<{ active: boolean }> }>({
+    queryKey: ["/api/engine/promoted-rules"],
+    refetchInterval: 60000,
+  });
+  const { data: trailGuardData } = useQuery<{ guards: Array<{ active: boolean }> }>({
+    queryKey: ["/api/engine/trail-guards"],
+    refetchInterval: 60000,
+  });
+  const guardActions = (guardFeed?.summary || []).reduce((sum, s) => sum + (s.n || 0), 0);
+  const activeLessons = (promoted?.rules || []).filter((r) => r.active).length;
+  const activeTrails = (trailGuardData?.guards || []).filter((g) => g.active).length;
+  return (
+    <div className={`rounded-2xl p-4 overflow-hidden ${className}`} style={{ background: "rgba(17,24,39,0.5)", border: "1.5px solid rgba(75,85,99,0.5)" }} data-testid="guards-trails-summary-card">
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+        <span className="shrink-0 inline-flex items-center justify-center rounded-lg w-7 h-7 bg-emerald-500/15 text-emerald-300" aria-hidden="true"><Shield className="w-4 h-4" /></span>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-bold text-gray-100 leading-tight">Engine Guards &amp; Trails</div>
+          <div className="text-[10px] leading-snug text-gray-500 mt-0.5 tabular-nums">
+            {guardActions} guard action{guardActions === 1 ? "" : "s"} in the last 7 days · {activeLessons} lesson guard{activeLessons === 1 ? "" : "s"} on · {activeTrails} trail guard{activeTrails === 1 ? "" : "s"} on
+          </div>
+        </div>
+        <Link href="/guards-trails">
+          <button className="shrink-0 text-[11px] px-3 py-1.5 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 hover:bg-emerald-500/30 transition-colors">Open Guards &amp; Trails →</button>
+        </Link>
+      </div>
+      <p className="text-[10px] text-gray-500 mt-2">What the protections did, which trades they turned away, and the trail evidence — the full detail now lives on its own page.</p>
     </div>
   );
 }
@@ -5058,14 +5097,10 @@ export default function WeeklyStrategyPage() {
                   <TradePerformanceCard />
                   <TodayReviewPanel className="mt-3" />
                   <FxModelsPanel className="mt-3" />
-                  <SkippedTradesPanel className="mt-3" />
-                  <EngineSafeguardsPanel className="mt-3" />
-                  <GuardFireRatesPanel className="mt-3" />
+                  <GuardsTrailsSummaryCard className="mt-3" />
                   <SettingsOverviewPanel className="mt-3" />
-                  <PromotedRulesPanel className="mt-3" />
                   <KalshiShadowPanel className="mt-3" />
                   <PracticeCostPanel className="mt-3" />
-                  <TrailStudyPanel className="mt-3" />
                   {brainStatus.learningInsights?.length > 0 && (
                     <div className="space-y-1">
                       <p className="text-xs text-gray-400 font-semibold">Brain Insights:</p>
