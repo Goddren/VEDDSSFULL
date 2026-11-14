@@ -586,3 +586,116 @@ export function EngineSafeguardsPanel({ className = "" }: { className?: string }
     </div>
   );
 }
+
+// ── Gate calibration (feat/gate-calibration) ────────────────────────────────
+// Measures what the FX engine's confidence floor and the R:R gate's
+// high-confidence exception SHOULD be per pair × session, from the user's
+// own taken trades (fx_brain_outcomes) and the scored would-be results of
+// blocked trades. Nothing applies itself: each recommendation carries an
+// Apply button, applied slices show ACTIVE with a Revert. Rendered ONLY on
+// the Guards & Trails page.
+type GcBandT = { band: string; n: number; winRate: number | null; avgR: number | null };
+type GcRecT = { confidenceFloor: number | null; rrHighConfThreshold: number | null; reasons: string[] };
+type GcSliceT = {
+  key: string; symbol: string; session: string | null;
+  takenN: number; takenWinRate: number | null; takenAvgR: number | null;
+  blockedN: number; bands: GcBandT[]; rrSub12N: number; rrSub12SumR: number;
+  recommendation: GcRecT | null;
+};
+type GcOverrideT = { confidenceFloor: number | null; rrHighConfThreshold: number | null; appliedAt: string };
+type GcPayloadT = {
+  enabled: boolean; computedAt: string | null; windowDays: number;
+  slices: GcSliceT[]; thinSlices: number; overrides: Record<string, GcOverrideT>;
+};
+
+export function GateCalibrationPanel({ className = "" }: { className?: string }) {
+  const qc = useQueryClient();
+  const { data } = useQuery<GcPayloadT>({ queryKey: ["/api/engine/gate-calibration"], refetchInterval: 300000 });
+  const apply = useMutation({
+    mutationFn: (s: GcSliceT) => apiRequest("POST", "/api/engine/gate-calibration/apply", { symbol: s.symbol, session: s.session }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/engine/gate-calibration"] }); },
+  });
+  const revert = useMutation({
+    mutationFn: (s: GcSliceT) => apiRequest("POST", "/api/engine/gate-calibration/revert", { symbol: s.symbol, session: s.session }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/engine/gate-calibration"] }); },
+  });
+  if (!data) return null;
+  const fmtR = (v: number | null | undefined) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(2)}R`);
+  const floorLabel = (v: number | null) => (v == null ? "default" : `${v}%`);
+  const dominantBand = (s: GcSliceT) => s.bands.filter((b) => b.n > 0).sort((a, b) => b.n - a.n)[0];
+  return (
+    <div className={`rounded-2xl p-4 overflow-hidden ${className}`} style={{ background: "rgba(17,24,39,0.5)", border: "1.5px solid rgba(75,85,99,0.5)" }} data-testid="gate-calibration-panel">
+      <PanelHeader
+        icon={<Activity className="w-4 h-4" />}
+        tint="bg-violet-500/15 text-violet-300"
+        title="Gate calibration"
+        subtitle="What your confidence floor and R:R exception should be, per pair and session — measured from your own trades and from what the blocked trades would have done. Nothing changes until you tap Apply."
+        explainer={<InfoExplainer title="Gate calibration" accent="border-l-violet-300/60">
+          <p>Two of the engine's gates use one-size-fits-all numbers: a trade needs at least ~74% confidence, and a trade paying less than 1:2 needs 88%+. This panel checks those numbers against your real record, pair by pair and session by session.</p>
+          <p><b>How a recommendation earns its place:</b> a slice needs at least 30 taken trades and 30 blocked trades that were scored later against real prices. The floor recommendation is the lowest confidence band that actually wins half its trades with positive expectancy. The sub-1:2 recommendation comes from what the turned-away sub-1:2 trades would have done at each confidence level.</p>
+          <p><b>Applying is per slice and reversible.</b> An applied value replaces the global default for that pair (and session) only. The hard safety limits — daily-loss halt, drawdown breakers, risk caps, news blackout — are never touched by this.</p>
+        </InfoExplainer>}
+      />
+      {!data.enabled ? (
+        <div className="text-[10px] text-gray-500">Gate calibration is switched off right now — the engine is running on the standard gate numbers.</div>
+      ) : data.slices.length === 0 ? (
+        <div className="text-[10px] text-gray-500">No slices have enough scored trades yet — this fills in as trades close and blocked trades get scored.</div>
+      ) : (
+        <div>
+          {data.slices.map((s) => {
+            const ovr = data.overrides[s.key];
+            const band = dominantBand(s);
+            const label = `${s.symbol} · ${s.session ?? "all sessions"}`;
+            return (
+              <div key={s.key} className={`rounded px-2 py-1.5 mb-0.5 ${ovr ? "bg-violet-500/10 border border-violet-500/25" : "bg-black/20"}`}>
+                <div className="text-[10px] flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                  <span className="min-w-0 break-words text-gray-200 font-medium">{label}</span>
+                  {ovr ? (
+                    <>
+                      <span className="shrink-0 px-1.5 py-px rounded-full bg-violet-500/15 text-violet-300">ACTIVE · floor {floorLabel(ovr.confidenceFloor)} · sub-1:2 needs {floorLabel(ovr.rrHighConfThreshold)}</span>
+                      <button
+                        className="ml-auto shrink-0 text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-gray-300 border border-white/15 disabled:opacity-50"
+                        disabled={revert.isPending}
+                        onClick={() => { if (window.confirm(`Revert ${label} to the standard gate numbers?`)) revert.mutate(s); }}
+                      >Revert</button>
+                    </>
+                  ) : s.recommendation ? (
+                    <button
+                      className="ml-auto shrink-0 text-[10px] px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-200 border border-violet-500/40 disabled:opacity-50"
+                      disabled={apply.isPending}
+                      onClick={() => {
+                        const msg = `Apply the calibrated gates for ${label}? Confidence floor becomes ${floorLabel(s.recommendation!.confidenceFloor)} and sub-1:2 trades need ${floorLabel(s.recommendation!.rrHighConfThreshold)} — for this pair${s.session ? ` in the ${s.session} session` : ""} only. Every other pair keeps the standard numbers, the hard safety limits do not change, and you can revert anytime.`;
+                        if (window.confirm(msg)) apply.mutate(s);
+                      }}
+                    >Apply</button>
+                  ) : null}
+                </div>
+                <div className="text-[9px] text-gray-400 mt-0.5 break-words">
+                  {band ? <>At {band.band}% confidence it actually wins {band.winRate != null ? `${Math.round(band.winRate * 100)}%` : "—"} (n={band.n}, avg {fmtR(band.avgR)} per trade). </> : null}
+                  Taken: {s.takenN} trades, {s.takenWinRate != null ? `${Math.round(s.takenWinRate * 100)}%` : "—"} wins, avg {fmtR(s.takenAvgR)}.
+                  {s.rrSub12N > 0 ? <> Blocked sub-1:2 trades would have netted {fmtR(s.rrSub12SumR)} (n={s.rrSub12N}).</> : null}
+                </div>
+                {s.recommendation ? (
+                  <div className="text-[9px] text-violet-200/90 mt-0.5 break-words">
+                    Recommendation: floor {floorLabel(s.recommendation.confidenceFloor)} · sub-1:2 needs {floorLabel(s.recommendation.rrHighConfThreshold)}.
+                    {s.recommendation.reasons.length ? <span className="text-gray-400"> {s.recommendation.reasons[0]}</span> : null}
+                  </div>
+                ) : !ovr ? (
+                  <div className="text-[9px] text-gray-500 mt-0.5 break-words">
+                    Not enough scored evidence yet — a recommendation needs 30 taken + 30 blocked-and-scored trades in this slice (has {s.takenN} + {s.blockedN}).
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+          {data.thinSlices > 0 && (
+            <div className="text-[9px] text-gray-600 mt-1">{data.thinSlices} more pair/session slice{data.thinSlices === 1 ? " is" : "s are"} still collecting evidence (under 10 taken and 10 blocked trades).</div>
+          )}
+          {data.computedAt && (
+            <div className="text-[9px] text-gray-600 mt-1">Measured over the last {data.windowDays} days · updated {new Date(data.computedAt).toLocaleString()} · refreshes about every 6 hours.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
