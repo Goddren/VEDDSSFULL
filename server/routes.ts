@@ -20730,6 +20730,51 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // ── Strategy Builder Hub: ABBA co-pilot ────────────────────────────
+  // Advisory only. GET reports the kill switch so the Studio can hide
+  // the panel; POST reviews the CURRENT draft (spec + the client's
+  // deterministic health findings) through ABBA's AI plumbing and
+  // returns suggestions. A suggestion's optional action is vetted
+  // server-side against the Studio validator (services/studio-copilot)
+  // and applied ONLY by the user's Apply click in the Studio — this
+  // route writes nothing: no save, no deployment, no broker path.
+  app.get("/api/strategy-studio/copilot", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { studioCopilotEnabled } = await import('./services/studio-copilot');
+    return res.json({ enabled: studioCopilotEnabled() });
+  });
+
+  app.post("/api/strategy-studio/copilot", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { studioCopilotEnabled, reviewStrategyDraft } = await import('./services/studio-copilot');
+      if (!studioCopilotEnabled()) return res.status(404).json({ error: 'The Studio co-pilot is off right now. The builder still works as before.' });
+      const { validateStrategySpec } = await import('./services/strategy-spec');
+      const v = validateStrategySpec(req.body?.spec);
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      if (v.spec.entryLong.conditions.length + v.spec.entryShort.conditions.length === 0) {
+        return res.status(400).json({ error: 'This draft has no mechanical rules for ABBA to review yet — add an entry rule first.' });
+      }
+      const findings = Array.isArray(req.body?.findings)
+        ? req.body.findings.map((f: any) => String(f ?? '').slice(0, 400)).filter(Boolean).slice(0, 12)
+        : [];
+      const { shouldDeferLowPriorityAi, aiBudgetDeferReason } = await import('./services/ai-budget-guard');
+      if (shouldDeferLowPriorityAi()) {
+        return res.status(503).json({ error: `ABBA is resting while the AI budget recovers (${aiBudgetDeferReason()}). The health findings above still apply — try the Ask again shortly.` });
+      }
+      const { getUniversalAIClientForUser } = await import('./openai');
+      const client: any = await getUniversalAIClientForUser(userId).catch(() => null);
+      if (!client) return res.status(400).json({ error: 'No AI key configured. Add one in AI API Keys to enable the co-pilot.' });
+      const ai = { client, model: (client as any).defaultModel || 'gpt-4o' };
+      const suggestions = await reviewStrategyDraft(ai, v.spec, findings);
+      return res.json({ suggestions });
+    } catch (err: any) {
+      console.error('[studio-copilot] review failed:', err);
+      return res.status(500).json({ error: err?.message || 'Co-pilot review failed' });
+    }
+  });
+
   // Compile the spec into a downloadable MT5 EA — same structure as the
   // app's existing EA generator, but the signal core is the wizard spec's
   // own rules, so the EA trades exactly what the backtester replayed.
