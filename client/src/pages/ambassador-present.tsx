@@ -60,6 +60,24 @@ const PITCH_DECKS: Deck[] = [
     ],
   },
   {
+    id: "studio-shadow", name: "Strategy Studio & Shadow Mode", tag: "Build your own", minutes: 7, accent: VEDD_RED, kind: "pitch",
+    summary: "For traders with their own ideas: build a strategy, backtest it, prove it in Shadow, then trade it or sell it.",
+    slides: [
+      { title: "Build your own strategy", bullets: ["The Strategy Studio builder — no code", "Advanced blocks: volume profile, ICT, ORB, VWAP", "ADX, CCI, Ichimoku, Supertrend, Donchian + session filters", "13 presets to start from"],
+        notes: "Aim this at the trader who says 'I have my own system.' They assemble it from serious blocks — their rules, their filters, their exits. Nobody writes code and nobody pays a developer.",
+        link: { label: "Open the Strategy Studio", href: "/strategy-studio" } },
+      { title: "Backtest it before anything is at risk", bullets: ["Replay the strategy over historical prices", "See the trades, win rate, and drawdown", "A good backtest earns a live-price test — nothing more"],
+        notes: "Be straight: a backtest is a filter, not a promise. It tells you the idea survived history. What it earns is a Shadow run, not live money. That honesty is the pitch.",
+        link: { label: "Open the Strategy Studio", href: "/strategy-studio" } },
+      { title: "Prove it in Shadow", bullets: ["Virtual trades on live prices", "Virtual money — a real record of every decision", "Trade count, win rate, average R, week by week"],
+        notes: "Shadow mode is paper trading with receipts: live prices, virtual money, and a record nobody can cherry-pick. Say it plainly — Shadow results are virtual results, never live earnings. Prospects trust you more for saying it first.",
+        link: { label: "Open the Strategy Studio", href: "/strategy-studio" } },
+      { title: "Trade it — or sell it", bullets: ["Deploy live on your own broker account", "Or list it in the Brain Marketplace", "Shadow-proven listings carry the 'Proven in shadow' label", "Charge a one-time price or a monthly subscription"],
+        notes: "Close on the loop: Build it → Backtest it → Prove it in Shadow → Trade it or sell it. A builder's strategy becomes a product other traders deploy the same way — Shadow first, or live on their own account.",
+        link: { label: "Open the Brain Marketplace", href: "/brain-marketplace" } },
+    ],
+  },
+  {
     id: "propfirm", name: "The Prop Firm Path", tag: "Funded trading", minutes: 9, accent: VEDD_RED, kind: "pitch",
     summary: "How VEDD helps traders pass challenges and stay funded.",
     slides: [

@@ -5,7 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Copy, Check, RefreshCw, Sparkles, Video, Download, FileText, ExternalLink, Loader2, Layers } from "lucide-react";
+import { Copy, Check, RefreshCw, Sparkles, Video, Download, FileText, ExternalLink, Loader2, Layers, Wrench } from "lucide-react";
 import { ExplainerCarousel, type ExplainerSlide } from "@/components/content-studio/explainer-carousel";
 import { useExplainerJob, JobProgress } from "@/components/content-studio/explainer-maker";
 
@@ -189,6 +189,23 @@ export default function AmbassadorAgentPage({ embedded = false }: { embedded?: b
           ))}
         </div>
       )}
+
+      <Card>
+        <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Wrench className="h-4 w-4" />Seller focus — pitch the builder</CardTitle></CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p className="text-muted-foreground">
+            Whatever today's lesson is, weave in the build-your-own loop: traders build their own strategies in the{" "}
+            <span className="text-foreground font-medium">Strategy Studio</span> (volume profile, ICT, ORB, VWAP, Ichimoku and more — no code),{" "}
+            <span className="text-foreground font-medium">backtest</span> them on history, then prove them in{" "}
+            <span className="text-foreground font-medium">Shadow</span> mode — virtual trades on live prices that build a real record — before
+            deploying live on their own broker or listing the strategy in the Brain Marketplace as{" "}
+            <span className="text-foreground font-medium">"Proven in shadow."</span> Shadow results are virtual/paper — never pitch them as live earnings.
+          </p>
+          <Button size="sm" variant="outline" onClick={() => copyText("Got a strategy idea of your own? Build it in VEDD's Strategy Studio — volume profile, ICT, ORB, VWAP and more, no code. Backtest it on history, then prove it in Shadow mode: virtual trades on live prices that build a real record (paper results, not live earnings). If the record holds up, trade it live on your own broker — or list it in the Brain Marketplace with the 'Proven in shadow' label at a one-time price or a monthly subscription. Build it → Backtest it → Prove it in Shadow → Trade it or sell it.", "Studio + Shadow pitch")}>
+            <Copy className="h-4 w-4 mr-1" />Copy the pitch
+          </Button>
+        </CardContent>
+      </Card>
 
       {isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : posts.length === 0 ? (
         <Card><CardContent className="p-6 text-center space-y-3">

@@ -335,6 +335,27 @@ export default function AmbassadorPrimePage() {
           <KpiCard icon={CheckCircle} label="Referral Links"  value={kpis?.referralLinksIncluded ?? 0}              color="text-green-400" />
         </div>
 
+        {/* Seller focus — Strategy Studio & Shadow Mode */}
+        <Card className="bg-slate-900 border-slate-700 mb-8">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm text-slate-300 flex items-center justify-between">
+              <span>Seller Focus — Strategy Studio &amp; Shadow Mode</span>
+              <CopyBtn text={"Got a strategy idea of your own? Build it in VEDD's Strategy Studio — volume profile, ICT, ORB, VWAP and more, no code. Backtest it on history, then prove it in Shadow mode: virtual trades on live prices that build a real record (paper results, not live earnings). If the record holds up, trade it live on your own broker — or list it in the Brain Marketplace with the 'Proven in shadow' label at a one-time price or a monthly subscription. Build it → Backtest it → Prove it in Shadow → Trade it or sell it."} />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-slate-400 leading-relaxed">
+              Every seller conversation should include the build-your-own loop: traders build their own strategies in the{" "}
+              <span className="text-slate-200 font-medium">Strategy Studio</span> (advanced blocks + 13 presets),{" "}
+              <span className="text-slate-200 font-medium">backtest</span> them on history, deploy to{" "}
+              <span className="text-slate-200 font-medium">Shadow</span> (virtual) mode to build a real record on live prices with virtual money,
+              then deploy live on their own broker account — or list the strategy in the Brain Marketplace, where shadow-proven strategies are
+              labeled <span className="text-slate-200 font-medium">"Proven in shadow"</span> and can be sold one-time or by monthly subscription.
+              Always describe Shadow results as virtual/paper — never as live earnings. Copy the ready-to-post version with the button above.
+            </p>
+          </CardContent>
+        </Card>
+
         {/* Main tabs */}
         <Tabs defaultValue="today">
           <TabsList className="bg-slate-800 mb-6">

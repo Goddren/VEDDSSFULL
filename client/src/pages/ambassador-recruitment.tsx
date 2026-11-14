@@ -194,6 +194,17 @@ const TRAINING_MODULES = [
       "Follow up consistently — most conversions happen on day 3–7 after signup",
     ],
   },
+  {
+    id: 7, title: "Strategy Studio & Shadow Mode", category: "Product",
+    desc: "The build-your-own pitch for traders who already have a system or an idea: build it in the Strategy Studio, backtest it, prove it in Shadow, then trade it or sell it.",
+    steps: [
+      "Build: the Strategy Studio builder assembles a strategy from advanced blocks — volume profile, ICT, ORB, VWAP, ADX/CCI/Ichimoku/Supertrend/Donchian, session filters, breakeven — 13 presets, no code",
+      "Backtest: replay the strategy over history and read the trades, win rate, and drawdown before any money is involved",
+      "Prove: deploy to Shadow (virtual) mode — live prices, virtual money, a real record of every decision builds up trade by trade",
+      "Trade or sell: deploy live on their own broker account, or list it in the Brain Marketplace ('Proven in shadow') at a one-time price or monthly subscription",
+      "Honesty rule: Shadow results are virtual/paper results — never describe them as live earnings or promise a strategy will profit",
+    ],
+  },
 ];
 
 // Default DM response templates for first-time setup
@@ -828,6 +839,19 @@ The part I love is Brain Mode — it does two rounds of AI analysis before confi
 
 You can try it free, no card. Want me to send the link?"`,
                 use: "Quick intro to anyone who asks what you do"
+              },
+              {
+                title: "Strategy Studio & Shadow Mode — Build It, Prove It",
+                script: `"Quick one for the traders who already have their own system — VEDD isn't only signals.
+
+There's a Strategy Studio where you build your own strategy — volume profile, ICT, ORB, VWAP, the advanced blocks — no code. You backtest it on history first.
+
+Then you deploy it to Shadow mode: it trades live prices with virtual money and builds a real record. Shadow is paper trading, so I'll never call it earnings — it's proof of how your idea actually behaves.
+
+If the record proves out, you deploy it live on your own broker — or list it in the Brain Marketplace with a 'Proven in shadow' label and charge one-time or monthly. Other traders deploy it the same way.
+
+Build it → Backtest it → Prove it in Shadow → Trade it or sell it. Want me to walk you through building yours?"`,
+                use: "Prospects who trade their own system or strategy idea"
               },
               {
                 title: "Social Media Caption Formula",
