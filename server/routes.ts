@@ -17568,6 +17568,35 @@ Rules:
       res.json(out);
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
+  app.get("/api/engine/gate-calibration", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getGateCalibrationPanel } = await import('./services/gate-calibration');
+      res.json(await getGateCalibrationPanel((req.user as User).id));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  app.post("/api/engine/gate-calibration/apply", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { applyGateCalibration } = await import('./services/gate-calibration');
+      const { symbol, session } = req.body || {};
+      if (!symbol) return res.status(400).json({ error: "symbol is required" });
+      const out = await applyGateCalibration((req.user as User).id, String(symbol), session ? String(session) : null);
+      if (!out.ok) return res.status(out.status).json({ error: out.error });
+      res.json(out);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  app.post("/api/engine/gate-calibration/revert", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { revertGateCalibration } = await import('./services/gate-calibration');
+      const { symbol, session } = req.body || {};
+      if (!symbol) return res.status(400).json({ error: "symbol is required" });
+      const out = await revertGateCalibration((req.user as User).id, String(symbol), session ? String(session) : null);
+      if (!out.ok) return res.status(out.status).json({ error: out.error });
+      res.json(out);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
   app.get("/api/shadow-ledger", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {

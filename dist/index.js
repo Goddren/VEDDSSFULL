@@ -13210,6 +13210,410 @@ var init_pair_key = __esm({
   }
 });
 
+// server/services/gate-calibration.ts
+var gate_calibration_exports = {};
+__export(gate_calibration_exports, {
+  CONF_BANDS: () => CONF_BANDS,
+  GC_FLOOR_CLAMP: () => GC_FLOOR_CLAMP,
+  GC_MIN_BAND_N: () => GC_MIN_BAND_N,
+  GC_MIN_BLOCKED: () => GC_MIN_BLOCKED,
+  GC_MIN_TAKEN: () => GC_MIN_TAKEN,
+  GC_RR_CLAMP: () => GC_RR_CLAMP,
+  GC_WINDOW_DAYS: () => GC_WINDOW_DAYS,
+  aggregateSlices: () => aggregateSlices,
+  applyGateCalibration: () => applyGateCalibration,
+  bandIndexFor: () => bandIndexFor,
+  computeGateCalibration: () => computeGateCalibration,
+  gateCalibrationOn: () => gateCalibrationOn,
+  getGateCalibrationOverridesFor: () => getGateCalibrationOverridesFor,
+  getGateCalibrationPanel: () => getGateCalibrationPanel,
+  recommendForSlice: () => recommendForSlice,
+  resolveGateThresholds: () => resolveGateThresholds,
+  revertGateCalibration: () => revertGateCalibration,
+  sliceKey: () => sliceKey
+});
+function gateCalibrationOn() {
+  return process.env.GATE_CALIBRATION !== "off";
+}
+function bandIndexFor(confidence2) {
+  for (let i = 0; i < CONF_BANDS.length; i++) {
+    const b = CONF_BANDS[i];
+    if (confidence2 >= b.lo && (b.hi == null || confidence2 < b.hi)) return i;
+  }
+  return CONF_BANDS.length - 1;
+}
+function emptyBands() {
+  return CONF_BANDS.map((b) => ({ band: b.key, n: 0, wins: 0, winRate: null, sumR: 0, avgR: null }));
+}
+function addToBand(bands, confidence2, win, r) {
+  if (confidence2 == null || !Number.isFinite(confidence2) || r == null || !Number.isFinite(r)) return;
+  const s = bands[bandIndexFor(confidence2)];
+  s.n++;
+  if (win) s.wins++;
+  s.sumR += r;
+}
+function finishBands(bands) {
+  for (const s of bands) {
+    s.winRate = s.n > 0 ? s.wins / s.n : null;
+    s.avgR = s.n > 0 ? s.sumR / s.n : null;
+    s.sumR = Math.round(s.sumR * 1e3) / 1e3;
+    if (s.avgR != null) s.avgR = Math.round(s.avgR * 1e3) / 1e3;
+    if (s.winRate != null) s.winRate = Math.round(s.winRate * 1e3) / 1e3;
+  }
+  return bands;
+}
+function sliceKey(symbol, session3) {
+  return `${symbol}|${session3 ?? "*"}`;
+}
+function aggregateSlices(taken, blocked) {
+  const map = /* @__PURE__ */ new Map();
+  const get = (symbol, session3) => {
+    const key = sliceKey(symbol, session3);
+    let s = map.get(key);
+    if (!s) {
+      s = {
+        key,
+        symbol,
+        session: session3,
+        takenN: 0,
+        takenWins: 0,
+        takenWinRate: null,
+        takenSumR: 0,
+        takenAvgR: null,
+        bands: emptyBands(),
+        blockedN: 0,
+        blockedSumR: 0,
+        guardYields: [],
+        rrSub12N: 0,
+        rrSub12SumR: 0,
+        rrSub12Bands: emptyBands(),
+        _guards: /* @__PURE__ */ new Map()
+      };
+      map.set(key, s);
+    }
+    return s;
+  };
+  const targets = (symbol, session3) => session3 ? [get(symbol, session3), get(symbol, null)] : [get(symbol, null)];
+  for (const t of taken) {
+    if (t.confidence == null || !Number.isFinite(t.confidence) || t.r == null || !Number.isFinite(t.r)) continue;
+    for (const s of targets(t.symbol, t.session)) {
+      s.takenN++;
+      if (t.win) s.takenWins++;
+      s.takenSumR += t.r;
+      addToBand(s.bands, t.confidence, t.win, t.r);
+    }
+  }
+  for (const b of blocked) {
+    if (!b.resolved || b.r == null || !Number.isFinite(b.r)) continue;
+    for (const s of targets(b.symbol, b.session)) {
+      s.blockedN++;
+      s.blockedSumR += b.r;
+      const g = s._guards.get(b.guard) ?? { n: 0, sumR: 0 };
+      g.n++;
+      g.sumR += b.r;
+      s._guards.set(b.guard, g);
+      if (b.guard === "rr_gate_skip" && b.plannedRR != null && b.plannedRR >= 1.5 && b.plannedRR < 2) {
+        s.rrSub12N++;
+        s.rrSub12SumR += b.r;
+        addToBand(s.rrSub12Bands, b.confidence, b.win, b.r);
+      }
+    }
+  }
+  const out = [];
+  for (const s of Array.from(map.values())) {
+    s.takenWinRate = s.takenN > 0 ? Math.round(s.takenWins / s.takenN * 1e3) / 1e3 : null;
+    s.takenAvgR = s.takenN > 0 ? Math.round(s.takenSumR / s.takenN * 1e3) / 1e3 : null;
+    s.takenSumR = Math.round(s.takenSumR * 1e3) / 1e3;
+    s.blockedSumR = Math.round(s.blockedSumR * 1e3) / 1e3;
+    s.rrSub12SumR = Math.round(s.rrSub12SumR * 1e3) / 1e3;
+    finishBands(s.bands);
+    finishBands(s.rrSub12Bands);
+    s.guardYields = Array.from(s._guards.entries()).map(([guard, v]) => ({ guard, n: v.n, sumR: Math.round(v.sumR * 1e3) / 1e3, avgR: v.n > 0 ? Math.round(v.sumR / v.n * 1e3) / 1e3 : null })).sort((a, b2) => b2.n - a.n);
+    const { _guards, ...pub } = s;
+    out.push(pub);
+  }
+  return out.sort((a, b) => b.takenN + b.blockedN - (a.takenN + a.blockedN));
+}
+function recommendForSlice(s) {
+  if (s.takenN < GC_MIN_TAKEN || s.blockedN < GC_MIN_BLOCKED) return null;
+  const reasons = [];
+  let confidenceFloor = null;
+  for (let i = 0; i < CONF_BANDS.length; i++) {
+    const b = s.bands[i];
+    if (b.n >= GC_MIN_BAND_N && b.winRate != null && b.winRate >= 0.5 && b.avgR != null && b.avgR > 0) {
+      confidenceFloor = clamp(CONF_BANDS[i].edge, GC_FLOOR_CLAMP);
+      reasons.push(`At ${b.band}% confidence this slice wins ${(b.winRate * 100).toFixed(0)}% (n=${b.n}, avg ${b.avgR >= 0 ? "+" : ""}${b.avgR.toFixed(2)}R) \u2014 the lowest band that wins half its trades with positive expectancy.`);
+      break;
+    }
+  }
+  if (confidenceFloor == null) reasons.push("No confidence band wins half its trades with positive expectancy \u2014 no floor recommendation.");
+  let rrHighConfThreshold = null;
+  const bands = s.rrSub12Bands;
+  const aggBelow = (t) => {
+    let n = 0, sumR = 0;
+    for (let i = 0; i < bands.length; i++) {
+      const top = CONF_BANDS[i].hi ?? Number.POSITIVE_INFINITY;
+      if (top <= t) {
+        n += bands[i].n;
+        sumR += bands[i].sumR;
+      }
+    }
+    return { n, avgR: n > 0 ? sumR / n : null };
+  };
+  const aggAtAbove = (t) => {
+    let n = 0, sumR = 0;
+    for (let i = 0; i < bands.length; i++) {
+      const top = CONF_BANDS[i].hi ?? Number.POSITIVE_INFINITY;
+      if (top > t) {
+        n += bands[i].n;
+        sumR += bands[i].sumR;
+      }
+    }
+    return { n, avgR: n > 0 ? sumR / n : null };
+  };
+  if (s.rrSub12N >= GC_MIN_BAND_N) {
+    for (const t of [80, 88, 95]) {
+      const below = aggBelow(t), above = aggAtAbove(t);
+      if (below.n >= GC_MIN_BAND_N && below.avgR != null && below.avgR < 0 && (above.n < GC_MIN_BAND_N || above.avgR != null && above.avgR >= 0)) {
+        rrHighConfThreshold = clamp(t, GC_RR_CLAMP);
+        reasons.push(`Sub-1:2 trades the R:R gate turned away below ${t}% confidence would have lost money (avg ${below.avgR.toFixed(2)}R, n=${below.n}) \u2014 keep the exception at ${t}% or higher.`);
+        break;
+      }
+    }
+    if (rrHighConfThreshold == null) {
+      const below80 = aggBelow(80);
+      const below95 = aggBelow(95), above95 = aggAtAbove(95);
+      if (below80.n >= GC_MIN_BAND_N && below80.avgR != null && below80.avgR >= 0) {
+        rrHighConfThreshold = GC_RR_CLAMP[0];
+        reasons.push(`Even the sub-1:2 trades turned away below 80% confidence would have made money (avg +${below80.avgR.toFixed(2)}R, n=${below80.n}) \u2014 the exception can loosen to 80%.`);
+      } else if (below95.n >= GC_MIN_BAND_N && below95.avgR != null && below95.avgR < 0 && above95.n >= GC_MIN_BAND_N && above95.avgR != null && above95.avgR < 0) {
+        rrHighConfThreshold = GC_RR_CLAMP[1];
+        reasons.push("Sub-1:2 trades lost money at every confidence level scored \u2014 only the very highest confidence (95%) should ever take them.");
+      }
+    }
+  }
+  if (rrHighConfThreshold == null && s.rrSub12N >= GC_MIN_BAND_N) {
+    reasons.push("Sub-1:2 counterfactual evidence is mixed \u2014 no threshold recommendation.");
+  }
+  if (confidenceFloor == null && rrHighConfThreshold == null) return null;
+  return { confidenceFloor, rrHighConfThreshold, reasons };
+}
+function resolveGateThresholds(exact, pair, defaults) {
+  return {
+    confidenceFloor: exact?.confidenceFloor ?? pair?.confidenceFloor ?? defaults.confidenceFloor,
+    rrHighConfThreshold: exact?.rrHighConfThreshold ?? pair?.rrHighConfThreshold ?? defaults.rrHighConfThreshold
+  };
+}
+async function loadOverrides(userId) {
+  const hit = _ovrCache.get(userId);
+  if (hit && Date.now() - hit.at < OVR_CACHE_MS) return hit.state;
+  let state = { slices: {}, history: [] };
+  try {
+    const v = await getRuntimeStateStrict(OVR_SCOPE, String(userId));
+    if (v && typeof v === "object" && v.slices && typeof v.slices === "object") {
+      state = { slices: v.slices, history: Array.isArray(v.history) ? v.history : [] };
+    }
+  } catch {
+  }
+  _ovrCache.set(userId, { at: Date.now(), state });
+  return state;
+}
+function storeOverrides(userId, state) {
+  _ovrCache.set(userId, { at: Date.now(), state });
+  saveRuntimeState(OVR_SCOPE, String(userId), state);
+}
+async function getGateCalibrationOverridesFor(userId, symbol, session3) {
+  if (!gateCalibrationOn()) return { exact: null, pair: null };
+  try {
+    const state = await loadOverrides(userId);
+    const pick3 = (o) => o ? { confidenceFloor: o.confidenceFloor ?? null, rrHighConfThreshold: o.rrHighConfThreshold ?? null } : null;
+    return {
+      exact: session3 ? pick3(state.slices[sliceKey(symbol, session3)]) : null,
+      pair: pick3(state.slices[sliceKey(symbol, null)])
+    };
+  } catch {
+    return { exact: null, pair: null };
+  }
+}
+async function fetchEvidence(userId) {
+  const [takenRes, blockedRes] = await Promise.all([
+    pool.query(
+      `SELECT symbol, session, hour_utc, ai_confidence, realised_rr, result
+         FROM fx_brain_outcomes
+        WHERE user_id = $1 AND closed_at > now() - ($2 || ' days')::interval`,
+      [userId, String(GC_WINDOW_DAYS)]
+    ).catch(() => ({ rows: [] })),
+    pool.query(
+      `SELECT symbol, session, created_at, confidence, entry_price, stop_loss, take_profit,
+              result, r_multiple, context->>'guard' AS guard
+         FROM fx_model_decisions
+        WHERE user_id = $1 AND source = 'guard_block' AND mode = 'blocked'
+          AND created_at > now() - ($2 || ' days')::interval`,
+      [userId, String(GC_WINDOW_DAYS)]
+    ).catch(() => ({ rows: [] }))
+  ]);
+  const taken = takenRes.rows.map((r) => ({
+    symbol: String(r.symbol),
+    session: canonSession(r.session, r.hour_utc != null ? Number(r.hour_utc) : null),
+    confidence: r.ai_confidence != null ? Number(r.ai_confidence) : null,
+    r: r.realised_rr != null ? Number(r.realised_rr) : null,
+    win: String(r.result).toUpperCase() === "WIN"
+  }));
+  const blocked = blockedRes.rows.map((r) => {
+    const entry = Number(r.entry_price), sl = Number(r.stop_loss), tp = Number(r.take_profit);
+    const plannedRR = entry > 0 && sl > 0 && tp > 0 && Math.abs(entry - sl) > 0 ? Math.abs(tp - entry) / Math.abs(entry - sl) : null;
+    const created = r.created_at ? new Date(r.created_at) : null;
+    return {
+      symbol: String(r.symbol),
+      session: canonSession(r.session, created ? created.getUTCHours() : null),
+      guard: String(r.guard ?? "unknown"),
+      confidence: r.confidence != null ? Number(r.confidence) : null,
+      plannedRR,
+      r: r.r_multiple != null ? Number(r.r_multiple) : null,
+      win: String(r.result ?? "").toUpperCase() === "WIN",
+      resolved: ["WIN", "LOSS", "EXPIRED"].includes(String(r.result ?? "").toUpperCase())
+    };
+  });
+  return { taken, blocked };
+}
+async function computeGateCalibration(userId) {
+  if (!gateCalibrationOn()) return null;
+  try {
+    const { taken, blocked } = await fetchEvidence(userId);
+    const slices = aggregateSlices(taken, blocked);
+    const byGuard = /* @__PURE__ */ new Map();
+    for (const b of blocked) {
+      if (!b.resolved || b.r == null) continue;
+      const g = byGuard.get(b.guard) ?? { n: 0, sumR: 0 };
+      g.n++;
+      g.sumR += b.r;
+      byGuard.set(b.guard, g);
+    }
+    const payload2 = {
+      enabled: true,
+      computedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      windowDays: GC_WINDOW_DAYS,
+      slices: slices.map((s) => ({ ...s, recommendation: recommendForSlice(s) })),
+      thinSlices: 0,
+      guardYields: Array.from(byGuard.entries()).map(([guard, v]) => ({ guard, n: v.n, sumR: Math.round(v.sumR * 1e3) / 1e3, avgR: v.n > 0 ? Math.round(v.sumR / v.n * 1e3) / 1e3 : null })).sort((a, b) => b.n - a.n),
+      overrides: {}
+    };
+    payload2.thinSlices = payload2.slices.filter((s) => s.takenN < 10 && s.blockedN < 10).length;
+    payload2.slices = payload2.slices.filter((s) => s.takenN >= 10 || s.blockedN >= 10);
+    const state = await loadOverrides(userId);
+    payload2.overrides = state.slices;
+    saveRuntimeState(CAL_SCOPE, String(userId), payload2);
+    return payload2;
+  } catch (e) {
+    console.error("[gate-calibration] compute failed (non-fatal):", e?.message || e);
+    return null;
+  }
+}
+async function getGateCalibrationPanel(userId) {
+  const overrides = (await loadOverrides(userId)).slices;
+  if (!gateCalibrationOn()) {
+    return { enabled: false, computedAt: null, windowDays: GC_WINDOW_DAYS, slices: [], thinSlices: 0, guardYields: [], overrides };
+  }
+  let stored = null;
+  try {
+    const v = await getRuntimeStateStrict(CAL_SCOPE, String(userId));
+    if (v && typeof v === "object" && Array.isArray(v.slices)) stored = v;
+  } catch {
+  }
+  const stale = !stored?.computedAt || Date.now() - new Date(stored.computedAt).getTime() > COMPUTE_TTL_MS;
+  if (stored && !stale) return { ...stored, overrides };
+  const fresh = await computeGateCalibration(userId);
+  if (fresh) return fresh;
+  if (stored) return { ...stored, overrides };
+  return { enabled: true, computedAt: null, windowDays: GC_WINDOW_DAYS, slices: [], thinSlices: 0, guardYields: [], overrides };
+}
+async function applyGateCalibration(userId, symbol, session3) {
+  if (!gateCalibrationOn()) return { ok: false, status: 409, error: "Gate calibration is off (GATE_CALIBRATION=off)." };
+  const panel = await getGateCalibrationPanel(userId);
+  const key = sliceKey(symbol, session3);
+  const slice = panel.slices.find((s) => s.key === key);
+  if (!slice?.recommendation) {
+    return { ok: false, status: 404, error: `No current recommendation for ${symbol} \xB7 ${session3 ?? "all sessions"} \u2014 not enough scored evidence yet.` };
+  }
+  const state = await loadOverrides(userId);
+  const override = {
+    confidenceFloor: slice.recommendation.confidenceFloor,
+    rrHighConfThreshold: slice.recommendation.rrHighConfThreshold,
+    appliedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    statsSnapshot: {
+      computedAt: panel.computedAt,
+      takenN: slice.takenN,
+      blockedN: slice.blockedN,
+      takenWinRate: slice.takenWinRate,
+      takenAvgR: slice.takenAvgR,
+      reasons: slice.recommendation.reasons
+    }
+  };
+  state.slices[key] = override;
+  state.history = [...state.history ?? [], { at: override.appliedAt, action: "apply", key }].slice(-50);
+  storeOverrides(userId, state);
+  await logShadowLessonBlock({
+    lane: "gate_calibration",
+    userId,
+    strategyKey: key,
+    bucket: "apply",
+    n: slice.takenN,
+    winRate: slice.takenWinRate,
+    avgR: slice.takenAvgR,
+    reason: `User applied gate calibration for ${symbol} \xB7 ${session3 ?? "all sessions"}: confidence floor ${override.confidenceFloor ?? "default"}, sub-1:2 needs ${override.rrHighConfThreshold ?? "default"}% (was global defaults).`
+  });
+  return { ok: true, status: 200, overrides: state.slices };
+}
+async function revertGateCalibration(userId, symbol, session3) {
+  const key = sliceKey(symbol, session3);
+  const state = await loadOverrides(userId);
+  const existing = state.slices[key];
+  if (!existing) return { ok: false, status: 404, error: `No applied override for ${symbol} \xB7 ${session3 ?? "all sessions"}.` };
+  delete state.slices[key];
+  state.history = [...state.history ?? [], { at: (/* @__PURE__ */ new Date()).toISOString(), action: "revert", key }].slice(-50);
+  storeOverrides(userId, state);
+  await logShadowLessonBlock({
+    lane: "gate_calibration",
+    userId,
+    strategyKey: key,
+    bucket: "revert",
+    n: null,
+    winRate: null,
+    avgR: null,
+    reason: `User reverted gate calibration for ${symbol} \xB7 ${session3 ?? "all sessions"} (floor ${existing.confidenceFloor ?? "default"}, sub-1:2 ${existing.rrHighConfThreshold ?? "default"}%) \u2014 slice is back on the global defaults.`
+  });
+  return { ok: true, status: 200, overrides: state.slices };
+}
+var GC_WINDOW_DAYS, GC_MIN_TAKEN, GC_MIN_BLOCKED, GC_MIN_BAND_N, GC_FLOOR_CLAMP, GC_RR_CLAMP, COMPUTE_TTL_MS, CAL_SCOPE, OVR_SCOPE, CONF_BANDS, clamp, _ovrCache, OVR_CACHE_MS;
+var init_gate_calibration = __esm({
+  "server/services/gate-calibration.ts"() {
+    "use strict";
+    init_db();
+    init_session();
+    init_runtime_state();
+    init_shadow_lesson_gate();
+    GC_WINDOW_DAYS = 90;
+    GC_MIN_TAKEN = 30;
+    GC_MIN_BLOCKED = 30;
+    GC_MIN_BAND_N = 10;
+    GC_FLOOR_CLAMP = [60, 90];
+    GC_RR_CLAMP = [80, 95];
+    COMPUTE_TTL_MS = 6 * 60 * 6e4;
+    CAL_SCOPE = "gate_calibration";
+    OVR_SCOPE = "gate_overrides";
+    CONF_BANDS = [
+      { key: "<70", lo: 0, hi: 70, edge: 60 },
+      { key: "70-80", lo: 70, hi: 80, edge: 70 },
+      { key: "80-88", lo: 80, hi: 88, edge: 80 },
+      { key: "88-95", lo: 88, hi: 95, edge: 88 },
+      { key: "95+", lo: 95, hi: null, edge: 95 }
+    ];
+    clamp = (v, [lo2, hi2]) => Math.max(lo2, Math.min(hi2, v));
+    _ovrCache = /* @__PURE__ */ new Map();
+    OVR_CACHE_MS = 3e4;
+  }
+});
+
 // server/services/brain-shadow.ts
 async function ensureTable2() {
   const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
@@ -21088,7 +21492,7 @@ __export(composite_signal_exports, {
   ALIGNMENT_LABELS: () => ALIGNMENT_LABELS,
   getCompositeEdgeSignal: () => getCompositeEdgeSignal
 });
-function clamp(value, min, max) {
+function clamp2(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 function alignmentLabel(markovAdj, polyAdj) {
@@ -21107,10 +21511,10 @@ function alignmentLabel(markovAdj, polyAdj) {
 }
 function compositeEdgeScore(markovBullP, polyBullScore) {
   if (polyBullScore === null) {
-    return clamp(Math.round(markovBullP), 0, 100);
+    return clamp2(Math.round(markovBullP), 0, 100);
   }
   const blended = (markovBullP + polyBullScore) / 2;
-  return clamp(Math.round(blended), 0, 100);
+  return clamp2(Math.round(blended), 0, 100);
 }
 async function getCompositeEdgeSignal(symbol, direction, candles) {
   let markovSignal2 = null;
@@ -21149,7 +21553,7 @@ async function getCompositeEdgeSignal(symbol, direction, candles) {
       finalAdjustment = markovAdj + (polyAdj ?? 0);
     }
   }
-  finalAdjustment = clamp(finalAdjustment, -15, 15);
+  finalAdjustment = clamp2(finalAdjustment, -15, 15);
   const align = alignmentLabel(markovAdj, polyAdj);
   const edgeScore = compositeEdgeScore(markovBullP, polyBullScore);
   const adjText = finalAdjustment > 0 ? `+${finalAdjustment}%` : `${finalAdjustment}%`;
@@ -25572,6 +25976,7 @@ async function processDecision(userId, decision, newsCtx) {
             symbol: decision.symbol,
             message: `\u{1F9E0} CONFIDENCE FLOOR: Session win rate ${(mind.sessionWinRate * 100).toFixed(0)}% \u2014 engine raised minimum to ${adaptedFloor}%. Signal at ${confidence2}% rejected.`
           });
+          recordBlockedTrade(userId, "confidence_floor_skip", decision.symbol, { direction: decision.direction, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: confidence2, model: decision.fxModel || decision.model, setup: decision.setup, session: sessionForHour((/* @__PURE__ */ new Date()).getUTCHours()) }, `adapted floor ${adaptedFloor}%`);
           state.signalsGenerated++;
           return;
         }
@@ -25884,7 +26289,13 @@ async function processDecision(userId, decision, newsCtx) {
     decision._brainLotMultiplier = postEnforcement.adjustedLotMultiplier;
     decision._brainTrailPips = postEnforcement.recommendedTrailPips;
     const HARD_CONFIDENCE_FLOOR = 74;
-    const effectiveMinConf2 = Math.max(config.minConfidence, HARD_CONFIDENCE_FLOOR);
+    const _gateSession = sessionForHour((/* @__PURE__ */ new Date()).getUTCHours());
+    const _gcOverrides = await getGateCalibrationOverridesFor(userId, decision.symbol, _gateSession);
+    const _gcThresholds = resolveGateThresholds(_gcOverrides.exact, _gcOverrides.pair, {
+      confidenceFloor: Math.max(config.minConfidence, HARD_CONFIDENCE_FLOOR),
+      rrHighConfThreshold: 88
+    });
+    const effectiveMinConf2 = _gcThresholds.confidenceFloor;
     if (adjustedConfidence < effectiveMinConf2) {
       addActivity(userId, {
         type: "signal",
@@ -25893,6 +26304,7 @@ async function processDecision(userId, decision, newsCtx) {
         confidence: adjustedConfidence,
         message: `Signal skipped (${adjustedConfidence}% < ${effectiveMinConf2}% min [hard floor: ${HARD_CONFIDENCE_FLOOR}%]): ${decision.reason}`
       });
+      recordBlockedTrade(userId, "confidence_floor_skip", decision.symbol, { direction: decision.direction, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: adjustedConfidence, model: decision.fxModel || decision.model, setup: decision.setup, session: _gateSession }, `${adjustedConfidence}% < ${effectiveMinConf2}% floor`);
       state.signalsGenerated++;
       return;
     }
@@ -26318,6 +26730,7 @@ async function processDecision(userId, decision, newsCtx) {
       const rewardDist = Math.abs(takeProfit - entryPrice);
       if (riskDist > 0) {
         const rr = rewardDist / riskDist;
+        const _rrHiConf = _gcThresholds.rrHighConfThreshold;
         if (rr < 1.5) {
           addActivity(userId, {
             type: "signal",
@@ -26326,17 +26739,19 @@ async function processDecision(userId, decision, newsCtx) {
             confidence: adjustedConfidence,
             message: `\u274C R:R GATE REJECT: ${decision.symbol} ${decision.direction} R:R=${rr.toFixed(2)} < 1.5 minimum. Adjust TP or skip this setup.`
           });
+          recordBlockedTrade(userId, "rr_gate_skip", decision.symbol, { direction: decision.direction, entryPrice, stopLoss, takeProfit, confidence: adjustedConfidence, model: decision.fxModel || decision.model, setup: decision.setup, session: _gateSession }, `R:R ${rr.toFixed(2)} < 1.5`);
           state.signalsGenerated++;
           return;
         }
-        if (rr < 2 && adjustedConfidence < 88) {
+        if (rr < 2 && adjustedConfidence < _rrHiConf) {
           addActivity(userId, {
             type: "signal",
             symbol: decision.symbol,
             direction: decision.direction,
             confidence: adjustedConfidence,
-            message: `\u274C R:R GATE REJECT: ${decision.symbol} ${decision.direction} R:R=${rr.toFixed(2)} \u2014 below 1:2 minimum. Requires 88%+ confidence to allow sub-2:1 setups (current: ${adjustedConfidence}%).`
+            message: `\u274C R:R GATE REJECT: ${decision.symbol} ${decision.direction} R:R=${rr.toFixed(2)} \u2014 below 1:2 minimum. Requires ${_rrHiConf}%+ confidence to allow sub-2:1 setups (current: ${adjustedConfidence}%).`
           });
+          recordBlockedTrade(userId, "rr_gate_skip", decision.symbol, { direction: decision.direction, entryPrice, stopLoss, takeProfit, confidence: adjustedConfidence, model: decision.fxModel || decision.model, setup: decision.setup, session: _gateSession }, `R:R ${rr.toFixed(2)} sub-1:2 at ${adjustedConfidence}% < ${_rrHiConf}%`);
           state.signalsGenerated++;
           return;
         }
@@ -26344,7 +26759,7 @@ async function processDecision(userId, decision, newsCtx) {
           addActivity(userId, {
             type: "info",
             symbol: decision.symbol,
-            message: `\u26A0\uFE0F R:R note: ${decision.symbol} R:R=${rr.toFixed(2)} allowed on ${adjustedConfidence}% confidence (88%+ exception). Monitor closely.`
+            message: `\u26A0\uFE0F R:R note: ${decision.symbol} R:R=${rr.toFixed(2)} allowed on ${adjustedConfidence}% confidence (${_rrHiConf}%+ exception). Monitor closely.`
           });
         }
       }
@@ -28766,6 +29181,7 @@ var init_live_trading_engine = __esm({
     init_pair_key();
     init_service();
     init_guard_events();
+    init_gate_calibration();
     init_brain_shadow();
     init_goal_pace();
     init_ai_level();
@@ -29837,15 +30253,15 @@ function propSimulate(decisions, opts = {}) {
       dayPnl = 0;
     }
     const r = Number(d?.r_multiple ?? d?.rMultiple);
-    const sliceKey = `${d?.model || ""}|${d?.day_type ?? d?.dayType ?? ""}|${String(d?.symbol || "").toUpperCase()}|${d?.session || ""}`;
+    const sliceKey2 = `${d?.model || ""}|${d?.day_type ?? d?.dayType ?? ""}|${String(d?.symbol || "").toUpperCase()}|${d?.session || ""}`;
     const confRaw = Number(d?.confidence);
     const confidence2 = Number.isFinite(confRaw) ? confRaw : null;
     if (dayPnl <= -(dailyCapPct / 100) * dayStartBalance + 1e-9) {
       skippedByDailyCap++;
-      if (opts.includeDetail) detail.push({ at: new Date(ts).toISOString(), day, sliceKey, confidence: confidence2, riskPct: 0, riskDollars: 0, r, pnl: 0, balanceAfter: balance, skipped: true, skipReason: "daily loss cap" });
+      if (opts.includeDetail) detail.push({ at: new Date(ts).toISOString(), day, sliceKey: sliceKey2, confidence: confidence2, riskPct: 0, riskDollars: 0, r, pnl: 0, balanceAfter: balance, skipped: true, skipReason: "daily loss cap" });
       continue;
     }
-    const prior = slicePrior.get(sliceKey) || { n: 0, wins: 0 };
+    const prior = slicePrior.get(sliceKey2) || { n: 0, wins: 0 };
     const confFactor = clampNum((confidence2 ?? 50) / 100, 0.4, 1);
     const accFactor = prior.n >= 10 ? clampNum(prior.wins / prior.n, 0.5, 1) : 0.75;
     const riskPct = clampNum(baseRiskPct * confFactor * accFactor, minRiskPct, maxRiskPct);
@@ -29857,12 +30273,12 @@ function propSimulate(decisions, opts = {}) {
     activeDays.add(day);
     prior.n++;
     if (r > 0) prior.wins++;
-    slicePrior.set(sliceKey, prior);
+    slicePrior.set(sliceKey2, prior);
     if (opts.includeDetail) {
       detail.push({
         at: new Date(ts).toISOString(),
         day,
-        sliceKey,
+        sliceKey: sliceKey2,
         confidence: confidence2,
         riskPct: Math.round(riskPct * 1e6) / 1e6,
         riskDollars: round22(riskDollars),
@@ -31245,13 +31661,17 @@ function recordBlockedTrade(userId, kind, symbol, plan, detail) {
       const { ensureFxModelTables: ensureFxModelTables2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
       await ensureFxModelTables2();
       const conf = Number(plan.confidence);
+      const plannedRR = Math.abs(tp - entry) / Math.abs(entry - sl);
+      const { canonSession: canonSession2 } = await Promise.resolve().then(() => (init_session(), session_exports));
+      const session3 = plan.session ? canonSession2(plan.session, (/* @__PURE__ */ new Date()).getUTCHours()) : null;
       await pool.query(
-        `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, source, engine)
-         VALUES ($1,$2,$3,'blocked',$4,$5,$6,$7,$8,$9,$10,$11::jsonb,'guard_block','fx')`,
+        `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, source, engine)
+         VALUES ($1,$2,$3,'blocked',$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,'guard_block','fx')`,
         [
           userId,
           symbol,
           String(plan.model ?? "engine").slice(0, 60),
+          session3,
           dir,
           entry,
           sl,
@@ -31259,7 +31679,7 @@ function recordBlockedTrade(userId, kind, symbol, plan, detail) {
           Number.isFinite(conf) ? Math.round(conf) : null,
           plan.setup ? String(plan.setup).slice(0, 120) : null,
           `Blocked by ${kind}${detail ? `: ${String(detail).slice(0, 300)}` : ""}`.slice(0, 500),
-          JSON.stringify({ guard: kind })
+          JSON.stringify({ guard: kind, plannedRR: Math.round(plannedRR * 1e3) / 1e3, ...Number.isFinite(conf) ? { confidence: conf } : {} })
         ]
       );
     } catch {
@@ -45379,7 +45799,7 @@ __export(abba_setup_exports, {
 function sanitizeProposal(p2) {
   if (!p2 || typeof p2 !== "object") return null;
   const out = { title: String(p2.title || "Next week plan").slice(0, 120), rationale: String(p2.rationale || "").slice(0, 1500) };
-  const wt = clamp2(p2.weeklyTarget, 0, 1e7);
+  const wt = clamp3(p2.weeklyTarget, 0, 1e7);
   if (wt) out.weeklyTarget = Math.round(wt);
   if (p2.fx && typeof p2.fx === "object") {
     const f = p2.fx;
@@ -45387,10 +45807,10 @@ function sanitizeProposal(p2) {
     out.fx = {
       run: f.run !== false,
       pairs: Array.isArray(f.pairs) ? f.pairs.map(sym).filter((s) => s.length >= 3 && s.length <= 12).slice(0, 15) : void 0,
-      riskPerTrade: clamp2(f.riskPerTrade, 0.1, MAX_RISK_PCT),
-      maxOpenTrades: clamp2(f.maxOpenTrades, 1, 10),
-      minConfidence: clamp2(f.minConfidence, 55, 95),
-      maxDailyTrades: clamp2(f.maxDailyTrades, 1, 30),
+      riskPerTrade: clamp3(f.riskPerTrade, 0.1, MAX_RISK_PCT),
+      maxOpenTrades: clamp3(f.maxOpenTrades, 1, 10),
+      minConfidence: clamp3(f.minConfidence, 55, 95),
+      maxDailyTrades: clamp3(f.maxDailyTrades, 1, 30),
       directionFilter: DIRS.includes(f.directionFilter) ? f.directionFilter : void 0,
       pairDirectionOverrides: pdo && Object.keys(pdo).length ? pdo : void 0
     };
@@ -45401,18 +45821,18 @@ function sanitizeProposal(p2) {
     out.crypto = {
       run: c.run !== false,
       symbols: Array.isArray(c.symbols) ? c.symbols.map(sym).filter(Boolean).slice(0, 10) : void 0,
-      riskPerTrade: clamp2(c.riskPerTrade, 0.1, MAX_RISK_PCT),
-      minConfidence: clamp2(c.minConfidence, 55, 95),
-      maxDailyTrades: clamp2(c.maxDailyTrades, 1, 30),
+      riskPerTrade: clamp3(c.riskPerTrade, 0.1, MAX_RISK_PCT),
+      minConfidence: clamp3(c.minConfidence, 55, 95),
+      maxDailyTrades: clamp3(c.maxDailyTrades, 1, 30),
       directionFilter: ["long_only", "short_only", "both"].includes(c.directionFilter) ? c.directionFilter : void 0
     };
     if (out.crypto.symbols && !out.crypto.symbols.length) delete out.crypto.symbols;
   }
   if (p2.sol && typeof p2.sol === "object") {
-    out.sol = { run: p2.sol.run !== false, riskPerTradePct: clamp2(p2.sol.riskPerTradePct, 0.1, MAX_RISK_PCT), minConfidence: clamp2(p2.sol.minConfidence, 55, 95), maxDailyTrades: clamp2(p2.sol.maxDailyTrades, 1, 50) };
+    out.sol = { run: p2.sol.run !== false, riskPerTradePct: clamp3(p2.sol.riskPerTradePct, 0.1, MAX_RISK_PCT), minConfidence: clamp3(p2.sol.minConfidence, 55, 95), maxDailyTrades: clamp3(p2.sol.maxDailyTrades, 1, 50) };
   }
   if (p2.models && typeof p2.models === "object") {
-    out.models = { m1DailyCap: clamp2(p2.models.m1DailyCap, 0, 10), m2DailyCap: clamp2(p2.models.m2DailyCap, 0, 10) };
+    out.models = { m1DailyCap: clamp3(p2.models.m1DailyCap, 0, 10), m2DailyCap: clamp3(p2.models.m2DailyCap, 0, 10) };
   }
   return out.fx || out.crypto || out.sol || out.models ? out : null;
 }
@@ -45602,7 +46022,7 @@ async function applySetup(userId, p2) {
   }
   return { ok: errors.length === 0, applied, errors, review };
 }
-var clamp2, sym, DIRS, MAX_RISK_PCT, show;
+var clamp3, sym, DIRS, MAX_RISK_PCT, show;
 var init_abba_setup = __esm({
   "server/services/abba-setup.ts"() {
     "use strict";
@@ -45612,7 +46032,7 @@ var init_abba_setup = __esm({
     init_fx_models();
     init_ai_budget_guard();
     init_weekly_review();
-    clamp2 = (v, lo2, hi2) => {
+    clamp3 = (v, lo2, hi2) => {
       const n = Number(v);
       return Number.isFinite(n) ? Math.min(hi2, Math.max(lo2, n)) : void 0;
     };
@@ -48069,7 +48489,7 @@ function volumeProfileSignal(candles) {
   for (const c of window) {
     const tp = (c.high + c.low + c.close) / 3;
     let idx = Math.floor((tp - lo2) / binSize);
-    idx = clamp3(idx, 0, bins - 1);
+    idx = clamp4(idx, 0, bins - 1);
     vol[idx] += c.volume;
   }
   const totalVol = vol.reduce((a, b) => a + b, 0) || 1;
@@ -48100,12 +48520,12 @@ function volumeProfileSignal(candles) {
   if (price > VAH && volConfirm) {
     direction = "BUY";
     const dist2 = (price - VAH) / binSize;
-    confidence2 = clamp3(Math.round(60 + dist2 * 8), 55, 90);
+    confidence2 = clamp4(Math.round(60 + dist2 * 8), 55, 90);
     reason = `VP breakout: price $${price.toFixed(0)} above value-area-high $${VAH.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
   } else if (price < VAL && volConfirm) {
     direction = "SELL";
     const dist2 = (VAL - price) / binSize;
-    confidence2 = clamp3(Math.round(60 + dist2 * 8), 55, 90);
+    confidence2 = clamp4(Math.round(60 + dist2 * 8), 55, 90);
     reason = `VP breakdown: price $${price.toFixed(0)} below value-area-low $${VAL.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
   } else if (price > VAH || price < VAL) {
     direction = "NEUTRAL";
@@ -48142,13 +48562,13 @@ function markovSignal(candles) {
   const enoughSamples = rowSum >= 8;
   if (enoughSamples && pU >= MIN_PROB && pU - pD >= MIN_MARGIN) {
     direction = "BUY";
-    confidence2 = clamp3(Math.round(pU * 100), 55, 92);
+    confidence2 = clamp4(Math.round(pU * 100), 55, 92);
   } else if (enoughSamples && pD >= MIN_PROB && pD - pU >= MIN_MARGIN) {
     direction = "SELL";
-    confidence2 = clamp3(Math.round(pD * 100), 55, 92);
+    confidence2 = clamp4(Math.round(pD * 100), 55, 92);
   } else {
     direction = "NEUTRAL";
-    confidence2 = clamp3(Math.round(Math.max(pU, pD) * 100), 40, 54);
+    confidence2 = clamp4(Math.round(Math.max(pU, pD) * 100), 40, 54);
   }
   const reason = `Markov from '${cur}' state: P(up)=${(pU * 100).toFixed(0)}%, P(down)=${(pD * 100).toFixed(0)}% (${rowSum} samples)`;
   return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "markov" };
@@ -48282,13 +48702,13 @@ function ensembleSignal(candles) {
   let confidence2 = 50;
   if (bull >= 4 && bull > bear) {
     direction = "BUY";
-    confidence2 = clamp3(60 + bull * 6, 60, 92);
+    confidence2 = clamp4(60 + bull * 6, 60, 92);
   } else if (bear >= 4 && bear > bull) {
     direction = "SELL";
-    confidence2 = clamp3(60 + bear * 6, 60, 92);
+    confidence2 = clamp4(60 + bear * 6, 60, 92);
   } else {
     direction = "NEUTRAL";
-    confidence2 = clamp3(45 + Math.max(bull, bear) * 3, 40, 58);
+    confidence2 = clamp4(45 + Math.max(bull, bear) * 3, 40, 58);
   }
   const reason = `Ensemble ${direction}: ${Math.max(bull, bear)}/5 factors agree (${notes.join(", ")}). Trending regime confirmed.`;
   return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "ensemble" };
@@ -48386,13 +48806,13 @@ async function getKalshiConsensus(coin = "BTC") {
   const reasons = signals.map((s) => `${s.strategy}: ${s.direction} ${s.confidence}%`);
   return { direction, confidence: confidence2, agreement, currentPrice: price, priceChange1h, signals, reasons };
 }
-var clamp3;
+var clamp4;
 var init_kalshi_strategies = __esm({
   "server/services/kalshi-strategies.ts"() {
     "use strict";
     init_btc_5min_predictor();
     init_orderflow_strategy();
-    clamp3 = (n, lo2, hi2) => Math.max(lo2, Math.min(hi2, n));
+    clamp4 = (n, lo2, hi2) => Math.max(lo2, Math.min(hi2, n));
   }
 });
 
@@ -78862,9 +79282,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "12e3135a-dirty";
-var BUILD_BRANCH = "feat/fix-trail-guard-columns";
-var BUILT_AT = "2026-11-14T01:33:23.156Z";
+var BUILD_COMMIT = "3c511ce8-dirty";
+var BUILD_BRANCH = "main";
+var BUILT_AT = "2026-11-14T03:06:45.956Z";
 
 // server/stripe.ts
 init_db();
@@ -96817,6 +97237,41 @@ Rules:
       const { id } = req.body || {};
       if (!id) return res2.status(400).json({ error: "id is required" });
       const out = await retireTrailGuard2(req.user.id, String(id));
+      if (!out.ok) return res2.status(out.status).json({ error: out.error });
+      res2.json(out);
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/engine/gate-calibration", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { getGateCalibrationPanel: getGateCalibrationPanel2 } = await Promise.resolve().then(() => (init_gate_calibration(), gate_calibration_exports));
+      res2.json(await getGateCalibrationPanel2(req.user.id));
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/engine/gate-calibration/apply", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { applyGateCalibration: applyGateCalibration2 } = await Promise.resolve().then(() => (init_gate_calibration(), gate_calibration_exports));
+      const { symbol, session: session3 } = req.body || {};
+      if (!symbol) return res2.status(400).json({ error: "symbol is required" });
+      const out = await applyGateCalibration2(req.user.id, String(symbol), session3 ? String(session3) : null);
+      if (!out.ok) return res2.status(out.status).json({ error: out.error });
+      res2.json(out);
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/engine/gate-calibration/revert", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { revertGateCalibration: revertGateCalibration2 } = await Promise.resolve().then(() => (init_gate_calibration(), gate_calibration_exports));
+      const { symbol, session: session3 } = req.body || {};
+      if (!symbol) return res2.status(400).json({ error: "symbol is required" });
+      const out = await revertGateCalibration2(req.user.id, String(symbol), session3 ? String(session3) : null);
       if (!out.ok) return res2.status(out.status).json({ error: out.error });
       res2.json(out);
     } catch (err) {
