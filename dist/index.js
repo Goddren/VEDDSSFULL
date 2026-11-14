@@ -18841,7 +18841,7 @@ function logDecisionShadow(r) {
     _seen.set(k2, Date.now());
     if (_seen.size > 5e3) _seen.clear();
   }
-  const num11 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  const num13 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
   void ensureDecisionShadowTable().then(() => pool.query(
     `INSERT INTO fx_decision_shadow (user_id, scan_id, symbol, session, hour_utc, lane, mode, acted, picked, ai_status,
        direction, score, terms, entry, sl, tp, gate_result)
@@ -18858,11 +18858,11 @@ function logDecisionShadow(r) {
       !!r.picked,
       r.aiStatus ?? null,
       r.direction ?? null,
-      num11(r.score),
+      num13(r.score),
       r.terms == null ? null : JSON.stringify(r.terms),
-      num11(r.entry),
-      num11(r.sl),
-      num11(r.tp),
+      num13(r.entry),
+      num13(r.sl),
+      num13(r.tp),
       r.gateResult ?? null
     ]
   )).catch(() => {
@@ -25704,8 +25704,8 @@ async function processDecision(userId, decision, newsCtx) {
       if (_rdMode !== "off" && decision.fxModel !== "M1") {
         try {
           const { classifyDayType: classifyDayType2, sessionFor: sessionFor2 } = await Promise.resolve().then(() => (init_fx_models(), fx_models_exports));
-          const _snap = state.marketSnapshot?.[decision.symbol] || {};
-          const _cls = classifyDayType2({ adx: _snap.adx, relVolume: _snap.relativeVolume, h1: _sh1?.trend, h4: _sh4?.trend, session: sessionFor2() });
+          const _snap2 = state.marketSnapshot?.[decision.symbol] || {};
+          const _cls = classifyDayType2({ adx: _snap2.adx, relVolume: _snap2.relativeVolume, h1: _sh1?.trend, h4: _sh4?.trend, session: sessionFor2() });
           if (_cls.dayType === "range") {
             if (_rdMode === "block") {
               addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F4E6} RANGE DAY BLOCK: ${_dir} ${decision.symbol} \u2014 range day (score ${_cls.score}); range days lost \u2212$12.5k over 90 days.` });
@@ -25935,8 +25935,8 @@ async function processDecision(userId, decision, newsCtx) {
         }
       }
       const _mt5Snap = getAccountSafetySnapshot(userId, state, "mt5");
-      const _snap = _tlSnap ?? _mt5Snap;
-      if (!_snap) {
+      const _snap2 = _tlSnap ?? _mt5Snap;
+      if (!_snap2) {
         addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: no live account data from any broker \u2014 cannot verify margin/daily-loss, trade skipped` });
         return;
       }
@@ -25953,8 +25953,8 @@ async function processDecision(userId, decision, newsCtx) {
         return null;
       };
       {
-        const _bal = _snap.balance > 0 ? _snap.balance : config.accountBalance || 0;
-        const _block = _safetyBlock(_snap);
+        const _bal = _snap2.balance > 0 ? _snap2.balance : config.accountBalance || 0;
+        const _block = _safetyBlock(_snap2);
         if (_block) {
           addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: ${_block} \u2014 trade skipped` });
           return;
@@ -25985,7 +25985,7 @@ async function processDecision(userId, decision, newsCtx) {
           decision.__markStrategyFired = lockKey;
         }
         if ((config.dailyProfitTarget ?? 0) > 0 && _bal > 0) {
-          const _gainPct = (_snap.realizedToday + _snap.floating) / _bal * 100;
+          const _gainPct = (_snap2.realizedToday + _snap2.floating) / _bal * 100;
           if (_gainPct >= config.dailyProfitTarget) {
             addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F3C6} PROFIT GUARD: daily gain +${_gainPct.toFixed(1)}% \u2265 ${config.dailyProfitTarget}% target \u2014 new trade blocked to protect gains` });
             return;
@@ -48211,12 +48211,12 @@ function linregSlope(values) {
   const xs = values.map((_, i) => i);
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = values.reduce((a, b) => a + b, 0) / n;
-  let num11 = 0, den = 0;
+  let num13 = 0, den = 0;
   for (let i = 0; i < n; i++) {
-    num11 += (xs[i] - mx) * (values[i] - my);
+    num13 += (xs[i] - mx) * (values[i] - my);
     den += (xs[i] - mx) ** 2;
   }
-  return den === 0 ? 0 : num11 / den;
+  return den === 0 ? 0 : num13 / den;
 }
 function ensembleSignal(candles) {
   const price = candles[candles.length - 1].close;
@@ -54315,8 +54315,8 @@ async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilen
         analysis.takeProfit,
         ...supportResistanceLevels
       ].map((p2) => {
-        const num11 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
-        return isNaN(num11) ? 0 : num11;
+        const num13 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
+        return isNaN(num13) ? 0 : num13;
       }).filter((p2) => p2 > 0);
       if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
       const minPrice = Math.min(...prices);
@@ -59411,6 +59411,7 @@ async function getPerpBrainBlockSummary(userId, days) {
   return {
     brainBlocks: counts.get("brain_avoid") || 0,
     vpSkips: counts.get("vp_edge") || 0,
+    earningsSkips: counts.get("earnings") || 0,
     topBlocks: (topRes.rows || []).map((r) => ({
       strategy: String(r.strategy),
       underlying: r.underlying == null ? null : String(r.underlying),
@@ -59433,6 +59434,249 @@ var init_kalshi_perp_brain = __esm({
     perpVpEnabled = () => process.env.KALSHI_PERP_VP !== "off";
     VP_EDGE_TOL_ATR_MULT = 0.25;
     _ensured8 = null;
+  }
+});
+
+// server/services/kalshi-earnings-calendar.ts
+function etPartsOf(tsMs2) {
+  const g = {};
+  for (const p2 of etPartsFmt2.formatToParts(new Date(tsMs2))) {
+    if (p2.type !== "literal") g[p2.type] = Number(p2.value);
+  }
+  return { y: g.year, mo: g.month, d: g.day, h: (g.hour ?? 0) % 24, mi: g.minute ?? 0, s: g.second ?? 0 };
+}
+function etDateString(tsMs2) {
+  const p2 = etPartsOf(tsMs2);
+  return `${p2.y}-${String(p2.mo).padStart(2, "0")}-${String(p2.d).padStart(2, "0")}`;
+}
+function addDaysToDateStr(dateStr, days) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d + days));
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}-${String(t.getUTCDate()).padStart(2, "0")}`;
+}
+function etMidnightUtcMs(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const target = Date.UTC(y, m - 1, d, 0, 0, 0);
+  let guess = target + 5 * 36e5;
+  for (let i = 0; i < 3; i++) {
+    const p2 = etPartsOf(guess);
+    const wallAsUtc = Date.UTC(p2.y, p2.mo - 1, p2.d, p2.h, p2.mi, p2.s);
+    const next = guess + (target - wallAsUtc);
+    if (next === guess) break;
+    guess = next;
+  }
+  return guess;
+}
+function earningsDateWithinWindow(dateStr, nowMs, windowH) {
+  const start = etMidnightUtcMs(dateStr);
+  const end = start + 24 * 36e5;
+  return end > nowMs && start - nowMs < windowH * 36e5;
+}
+function lookupInSnapshot(snap, symbol) {
+  if (!snap || !snap.healthy) return UNKNOWN_LOOKUP;
+  const sym2 = String(symbol || "").toUpperCase();
+  if (!(snap.universe || []).includes(sym2)) return UNKNOWN_LOOKUP;
+  const hit = snap.entries[sym2];
+  return { known: true, date: hit?.date ?? null, time: hit?.time ?? null };
+}
+function earningsBlockApplies(lookup, nowMs, windowH) {
+  return lookup.known && lookup.date != null && earningsDateWithinWindow(lookup.date, nowMs, windowH);
+}
+function earningsStampValue(lookup, nowMs) {
+  if (!lookup.known) return null;
+  if (lookup.date == null) return false;
+  return earningsDateWithinWindow(lookup.date, nowMs, 48);
+}
+function parseNasdaqEarningsDay(json2, dateStr, universe) {
+  const rows = json2?.data?.rows;
+  if (!Array.isArray(rows)) return null;
+  const out = {};
+  for (const r of rows) {
+    const sym2 = String(r?.symbol || "").trim().toUpperCase();
+    if (!sym2 || !universe.has(sym2)) continue;
+    const time = typeof r?.time === "string" && r.time && r.time !== "time-not-supplied" ? r.time : null;
+    if (!out[sym2]) out[sym2] = { date: dateStr, time };
+  }
+  return out;
+}
+async function runEarningsFetchCycle(universe, todayEt, fetcher = fetchNasdaqEarningsDay) {
+  const wanted = new Set((universe || []).map((s) => String(s).trim().toUpperCase()).filter(Boolean));
+  const entries = {};
+  const days = [];
+  let healthy = wanted.size > 0;
+  for (let off = 0; off < FETCH_DAYS; off++) {
+    const dateStr = addDaysToDateStr(todayEt, off);
+    try {
+      const parsed = parseNasdaqEarningsDay(await fetcher(dateStr), dateStr, wanted);
+      if (parsed == null) {
+        healthy = false;
+        continue;
+      }
+      days.push(dateStr);
+      for (const [sym2, e] of Object.entries(parsed)) if (!entries[sym2]) entries[sym2] = e;
+    } catch {
+      healthy = false;
+    }
+  }
+  return { fetchedOnEtDate: todayEt, healthy, days, universe: Array.from(wanted), entries };
+}
+async function loadPersisted() {
+  if (_loaded) return;
+  _loaded = true;
+  try {
+    const rows = await loadRuntimeState(STATE_SCOPE);
+    const hit = rows.find((r) => r.key === STATE_KEY)?.value;
+    if (hit && typeof hit === "object" && typeof hit.fetchedOnEtDate === "string" && hit.entries) {
+      _snap = hit;
+    }
+  } catch {
+  }
+}
+async function ensureEarningsSnapshot(universe, nowMs = Date.now(), fetcher = fetchNasdaqEarningsDay) {
+  try {
+    await loadPersisted();
+    const todayEt = etDateString(nowMs);
+    if (_snap && _snap.fetchedOnEtDate === todayEt) return _snap;
+    if (!_refreshing) {
+      _refreshing = (async () => {
+        try {
+          const snap = await runEarningsFetchCycle(universe, todayEt, fetcher);
+          _snap = snap;
+          saveRuntimeState(STATE_SCOPE, STATE_KEY, snap);
+          return snap;
+        } catch {
+          return _snap;
+        } finally {
+          _refreshing = null;
+        }
+      })();
+    }
+    return await _refreshing;
+  } catch {
+    return _snap;
+  }
+}
+async function getEarningsInfo(symbol, universe, nowMs = Date.now(), fetcher = fetchNasdaqEarningsDay) {
+  if (!perpEarningsEnabled()) return UNKNOWN_LOOKUP;
+  const snap = await ensureEarningsSnapshot(universe, nowMs, fetcher).catch(() => null);
+  return lookupInSnapshot(snap, symbol);
+}
+var perpEarningsEnabled, num8, earningsWindowH, FETCH_DAYS, NASDAQ_URL, STATE_SCOPE, STATE_KEY, etPartsFmt2, UNKNOWN_LOOKUP, fetchNasdaqEarningsDay, _snap, _loaded, _refreshing;
+var init_kalshi_earnings_calendar = __esm({
+  "server/services/kalshi-earnings-calendar.ts"() {
+    "use strict";
+    init_runtime_state();
+    perpEarningsEnabled = () => process.env.KALSHI_PERP_EARNINGS !== "off";
+    num8 = (n, d) => {
+      const v = Number(process.env[n]);
+      return Number.isFinite(v) && v > 0 ? v : d;
+    };
+    earningsWindowH = () => num8("KALSHI_PERP_EARNINGS_WINDOW_H", 48);
+    FETCH_DAYS = 4;
+    NASDAQ_URL = "https://api.nasdaq.com/api/calendar/earnings";
+    STATE_SCOPE = "kalshi_earnings_calendar";
+    STATE_KEY = "v1";
+    etPartsFmt2 = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+    UNKNOWN_LOOKUP = { known: false };
+    fetchNasdaqEarningsDay = async (dateStr) => {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 15e3);
+      try {
+        const res2 = await fetch(`${NASDAQ_URL}?date=${encodeURIComponent(dateStr)}`, {
+          signal: ctrl.signal,
+          headers: {
+            accept: "application/json",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+          }
+        });
+        if (!res2.ok) throw new Error(`nasdaq earnings ${dateStr} -> ${res2.status}`);
+        return await res2.json();
+      } finally {
+        clearTimeout(to);
+      }
+    };
+    _snap = null;
+    _loaded = false;
+    _refreshing = null;
+  }
+});
+
+// server/services/kalshi-funding-fade.ts
+function fundingQuantile(sortedAsc, q) {
+  if (!sortedAsc.length) return 0;
+  const p2 = (sortedAsc.length - 1) * q, lo2 = Math.floor(p2), hi2 = Math.ceil(p2);
+  return sortedAsc[lo2] + (sortedAsc[hi2] - sortedAsc[lo2]) * (p2 - lo2);
+}
+function decideFundingFade(currentRate, distribution, scope, minHistory = fundingFadeMinHistory()) {
+  if (currentRate == null || !Number.isFinite(currentRate) || currentRate === 0) return null;
+  const dist2 = (distribution || []).filter((v) => Number.isFinite(v));
+  if (dist2.length < Math.max(1, minHistory)) return null;
+  const sorted = dist2.slice().sort((a, b) => a - b);
+  const p90 = fundingQuantile(sorted, 0.9);
+  const p10 = fundingQuantile(sorted, 0.1);
+  if (currentRate > 0 && p90 > 0 && currentRate >= p90) {
+    return { direction: "short", rate: currentRate, p10, p90, n: dist2.length, scope };
+  }
+  if (currentRate < 0 && p10 < 0 && currentRate <= p10) {
+    return { direction: "long", rate: currentRate, p10, p90, n: dist2.length, scope };
+  }
+  return null;
+}
+function assembleFundingFadeBook(histories, nowMs, windowDays = fundingFadeWindowDays()) {
+  const cutoff = nowMs - windowDays * 24 * 36e5;
+  const byTicker = /* @__PURE__ */ new Map();
+  const pool2 = [];
+  for (const [ticker, hist] of Array.from(histories.entries())) {
+    const clean = (hist || []).filter((r) => Number.isFinite(r?.rate) && Number.isFinite(r?.fundingTimeMs)).slice().sort((a, b) => a.fundingTimeMs - b.fundingTimeMs);
+    const series = clean.filter((r) => r.fundingTimeMs >= cutoff).map((r) => r.rate);
+    byTicker.set(ticker, { latestRate: clean.length ? clean[clean.length - 1].rate : null, series });
+    pool2.push(...series);
+  }
+  return { byTicker, pool: pool2 };
+}
+async function buildFundingFadeBook(tickers, nowMs = Date.now()) {
+  const key = `${tickers.slice().sort().join(",")}|${fundingFadeWindowDays()}`;
+  if (_bookCache && _bookCache.key === key && nowMs - _bookCache.at < BOOK_TTL_MS) return _bookCache.book;
+  const histories = /* @__PURE__ */ new Map();
+  await Promise.all((tickers || []).map(async (t) => {
+    const h = await getPerpFundingHistory(t).catch(() => []);
+    histories.set(t, h.map((r) => ({ fundingTimeMs: r.fundingTimeMs, rate: r.rate })));
+  }));
+  const book = assembleFundingFadeBook(histories, nowMs);
+  _bookCache = { at: nowMs, key, book };
+  return book;
+}
+function fundingFadeForTicker(ticker, book, minHistory = fundingFadeMinHistory()) {
+  const t = book.byTicker.get(ticker);
+  if (!t || t.latestRate == null) return null;
+  if (t.series.length >= Math.max(1, minHistory)) {
+    return decideFundingFade(t.latestRate, t.series, "ticker", minHistory);
+  }
+  return decideFundingFade(t.latestRate, book.pool, "lane", minHistory);
+}
+var fundingFadeEnabled, num9, fundingFadeMinHistory, fundingFadeWindowDays, BOOK_TTL_MS, _bookCache;
+var init_kalshi_funding_fade = __esm({
+  "server/services/kalshi-funding-fade.ts"() {
+    "use strict";
+    init_kalshi_perps();
+    fundingFadeEnabled = () => process.env.KALSHI_FUNDING_FADE !== "off";
+    num9 = (n, d) => {
+      const v = Number(process.env[n]);
+      return Number.isFinite(v) && v > 0 ? v : d;
+    };
+    fundingFadeMinHistory = () => Math.floor(num9("KALSHI_FUNDING_FADE_MIN_HISTORY", 30));
+    fundingFadeWindowDays = () => num9("KALSHI_FUNDING_FADE_WINDOW_DAYS", 90);
+    BOOK_TTL_MS = 30 * 6e4;
+    _bookCache = null;
   }
 });
 
@@ -65582,7 +65826,7 @@ function aggregateKalshiStats(rows) {
       (g.get(k2) ?? g.set(k2, []).get(k2)).push(v);
     }
   }
-  const minN = num8("KALSHI_STOCK_SHADOW_STATS_MIN_N", 15), fav = num8("KALSHI_STOCK_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num8("KALSHI_STOCK_SHADOW_AVOID_MEDIAN_PCT", 1);
+  const minN = num10("KALSHI_STOCK_SHADOW_STATS_MIN_N", 15), fav = num10("KALSHI_STOCK_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num10("KALSHI_STOCK_SHADOW_AVOID_MEDIAN_PCT", 1);
   return Array.from(g.entries()).map(([k2, v]) => {
     const [strategy, dim, bucket] = k2.split("|");
     const s = v.slice().sort((a, b) => a - b);
@@ -65769,6 +66013,8 @@ async function getKalshiStockShadowReport(userId, days = 30) {
     vpEnabled: perpVpEnabled(),
     blocksInWindow: brainBlockSummary?.brainBlocks ?? 0,
     vpSkipsInWindow: brainBlockSummary?.vpSkips ?? 0,
+    earningsEnabled: perpEarningsEnabled(),
+    earningsSkipsInWindow: brainBlockSummary?.earningsSkips ?? 0,
     favorBuckets,
     avoidBuckets,
     topBlocks: brainBlockSummary?.topBlocks ?? []
@@ -65976,6 +66222,14 @@ async function runKalshiStockShadowCycle(userId) {
   const stats = await computeKalshiStockShadowStats(userId).catch(() => []);
   const markets = await getLiquidStockPerps().catch(() => []);
   if (!markets.length) return { opened: 0, closed };
+  const earningsByUnderlying = /* @__PURE__ */ new Map();
+  if (perpEarningsEnabled()) {
+    const universe = Array.from(new Set(markets.map((m) => m.underlying).filter(Boolean)));
+    await Promise.all(universe.map(async (u) => {
+      earningsByUnderlying.set(u, await getEarningsInfo(u, universe).catch(() => ({ known: false })));
+    }));
+  }
+  const fundingBook = fundingFadeEnabled() ? await buildFundingFadeBook(markets.map((m) => m.ticker)).catch(() => null) : null;
   const actions = await getPerpCorporateActions().catch(() => []);
   const pendingCa = new Set(actions.filter((a) => a.status === "scheduled" && a.effectiveMs != null && a.effectiveMs <= Date.now() + 24 * 36e5).map((a) => a.ticker));
   const { rows: open } = await pool.query(`SELECT strategy, underlying FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
@@ -66042,6 +66296,10 @@ async function runKalshiStockShadowCycle(userId) {
       if (sig.enterLong && !sig.enterShort) signals.push({ strategy: fx.id, direction: "long", score: null });
       else if (sig.enterShort && !sig.enterLong) signals.push({ strategy: fx.id, direction: "short", score: null });
     }
+    if (fundingBook) {
+      const ff = fundingFadeForTicker(mkt.ticker, fundingBook);
+      if (ff) signals.push({ strategy: "funding_fade", direction: ff.direction, score: null });
+    }
     if (!signals.length) continue;
     const h1Bars = await getPerpBars(mkt.ticker, "1h", 60).catch(() => []);
     if (h1Bars.length < 16) continue;
@@ -66079,6 +66337,7 @@ async function runKalshiStockShadowCycle(userId) {
         if (poc != null && vah != null && val != null && vah > val) vpProfile = { poc, vah, val };
       }
     }
+    const eInfo = earningsByUnderlying.get(mkt.underlying);
     for (const sig of signals) {
       if (open.length >= MAX_OPEN2()) break;
       if (open.filter((o) => o.strategy === sig.strategy).length >= MAX_PER_STRAT2()) continue;
@@ -66110,6 +66369,20 @@ async function runKalshiStockShadowCycle(userId) {
       if (agreeing < 2) tags.push("single_runner_no_confluence");
       if (spreadBps > 25) tags.push("wide_spread");
       if (ctx.session_et === "overnight") tags.push("overnight_session");
+      if (perpEarningsEnabled() && eInfo && earningsBlockApplies(eInfo, now, earningsWindowH())) {
+        await logPerpBrainBlocks(userId, [{
+          strategy: sig.strategy,
+          ticker: mkt.ticker,
+          underlying: mkt.underlying,
+          direction: sig.direction,
+          reason: "earnings",
+          bucketDim: "earnings",
+          bucketValue: eInfo.known ? eInfo.date : null,
+          medianNetPct: null,
+          bucketN: null
+        }]);
+        continue;
+      }
       if (perpBrainEnabled()) {
         const gate = evaluatePerpBrainGate(stats, sig.strategy, kalshiBucketsOf(ctx));
         if (gate.blocked) {
@@ -66142,6 +66415,7 @@ async function runKalshiStockShadowCycle(userId) {
         }]);
         continue;
       }
+      const earnings48 = perpEarningsEnabled() && eInfo ? earningsStampValue(eInfo, now) : null;
       const ins = await pool.query(
         `INSERT INTO kalshi_perp_shadow_trades (user_id, strategy, ticker, underlying, direction, entry_price, entry_bid, entry_ask,
            stop_loss, take_profit, sl_pct, contracts, notional_usd, cost_bps, cost_model, score, max_hours)
@@ -66174,7 +66448,7 @@ async function runKalshiStockShadowCycle(userId) {
           new Date(now).getUTCHours(),
           et.hour,
           et.dow,
-          null,
+          earnings48,
           pendingCa.has(mkt.ticker),
           agreeing < 2,
           mkt.leverageEstimate,
@@ -66227,7 +66501,7 @@ function startKalshiStockShadow() {
   setInterval(tick3, 5 * 6e4).unref?.();
   console.log("[kalshi-stock-shadow] started \u2014 SHADOW lane on public Kalshi perp data (no credentials, no orders).");
 }
-var stockOrbEnabled, num8, stockShadowEnabled, accountSimEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started3;
+var stockOrbEnabled, num10, stockShadowEnabled, accountSimEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started3;
 var init_kalshi_stock_shadow = __esm({
   "server/services/kalshi-stock-shadow.ts"() {
     "use strict";
@@ -66236,24 +66510,26 @@ var init_kalshi_stock_shadow = __esm({
     init_kalshi_perps();
     init_kalshi_orb();
     init_kalshi_perp_brain();
+    init_kalshi_earnings_calendar();
+    init_kalshi_funding_fade();
     stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== "off";
-    num8 = (n, d) => {
+    num10 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
     stockShadowEnabled = () => process.env.KALSHI_STOCK_SHADOW !== "off";
     accountSimEnabled = () => process.env.KALSHI_ACCOUNT_SIM !== "off";
-    MAX_OPEN2 = () => Math.floor(num8("KALSHI_STOCK_SHADOW_MAX_OPEN", 30));
-    MAX_PER_STRAT2 = () => Math.floor(num8("KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY", 3));
-    COOLDOWN_MS2 = () => num8("KALSHI_STOCK_SHADOW_COOLDOWN_MIN", 60) * 6e4;
-    EVERY_MS2 = () => num8("KALSHI_STOCK_SHADOW_EVERY_MIN", 10) * 6e4;
-    NOTIONAL2 = () => num8("KALSHI_STOCK_SHADOW_NOTIONAL_USD", 250);
-    MIN_CONF = () => num8("KALSHI_STOCK_SHADOW_MIN_CONFIDENCE", 70);
-    FEE_BPS = () => num8("KALSHI_STOCK_SHADOW_FEE_BPS", 20);
-    SL_LO = () => num8("KALSHI_STOCK_SHADOW_SL_MIN_PCT", 0.8);
-    SL_HI = () => num8("KALSHI_STOCK_SHADOW_SL_MAX_PCT", 4);
-    ATR_MULT2 = () => num8("KALSHI_STOCK_SHADOW_SL_ATR_MULT", 1.5);
-    RR = () => num8("KALSHI_STOCK_SHADOW_RR", 2);
+    MAX_OPEN2 = () => Math.floor(num10("KALSHI_STOCK_SHADOW_MAX_OPEN", 30));
+    MAX_PER_STRAT2 = () => Math.floor(num10("KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY", 3));
+    COOLDOWN_MS2 = () => num10("KALSHI_STOCK_SHADOW_COOLDOWN_MIN", 60) * 6e4;
+    EVERY_MS2 = () => num10("KALSHI_STOCK_SHADOW_EVERY_MIN", 10) * 6e4;
+    NOTIONAL2 = () => num10("KALSHI_STOCK_SHADOW_NOTIONAL_USD", 250);
+    MIN_CONF = () => num10("KALSHI_STOCK_SHADOW_MIN_CONFIDENCE", 70);
+    FEE_BPS = () => num10("KALSHI_STOCK_SHADOW_FEE_BPS", 20);
+    SL_LO = () => num10("KALSHI_STOCK_SHADOW_SL_MIN_PCT", 0.8);
+    SL_HI = () => num10("KALSHI_STOCK_SHADOW_SL_MAX_PCT", 4);
+    ATR_MULT2 = () => num10("KALSHI_STOCK_SHADOW_SL_ATR_MULT", 1.5);
+    RR = () => num10("KALSHI_STOCK_SHADOW_RR", 2);
     CRYPTO_PORTS = ["breakout", "trend_following", "structure", "divergence", "order_flow", "volume_profile"];
     OPTIONS_PORTS = ["orb", "volume_profile", "breakout", "momentum", "order_flow"];
     etFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit", weekday: "short" });
@@ -67482,12 +67758,12 @@ async function getSettingsOverview(userId) {
   }
   return { engines };
 }
-var num9, bool, text2, secs, ENGINES;
+var num11, bool, text2, secs, ENGINES;
 var init_settings_overview = __esm({
   "server/services/settings-overview.ts"() {
     "use strict";
     init_db();
-    num9 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
+    num11 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
     bool = (key, label, standard, from) => ({ key, from, label, standard, fmt: "bool" });
     text2 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "text" });
     secs = (key, label, standard, from) => ({ key, from, label, standard, fmt: "secs" });
@@ -67497,24 +67773,24 @@ var init_settings_overview = __esm({
         name: "FX Engine",
         // Standards: getDefaultConfig() literal in live-trading-engine.ts.
         fields: [
-          num9("minConfidence", "Minimum confidence to trade", 70),
+          num11("minConfidence", "Minimum confidence to trade", 70),
           text2("strategyMode", "Strategy mode", "aggressive"),
-          num9("maxOpenTrades", "Max open trades at once", 5),
-          num9("riskPerTrade", "Risk per trade (%)", 1),
-          num9("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
-          num9("maxDailyLossPct", "Daily loss breaker (%)", 4),
-          num9("dailyLossLimit", "Daily loss limit (%)", 5),
-          num9("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
-          num9("drawdownShieldThreshold", "Drawdown shield (%)", 3),
-          num9("maxLotSize", "Max lot size", 0.1),
-          num9("maxLot", "Absolute lot ceiling (0 = none)", 0),
-          num9("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num9("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
+          num11("maxOpenTrades", "Max open trades at once", 5),
+          num11("riskPerTrade", "Risk per trade (%)", 1),
+          num11("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
+          num11("maxDailyLossPct", "Daily loss breaker (%)", 4),
+          num11("dailyLossLimit", "Daily loss limit (%)", 5),
+          num11("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
+          num11("drawdownShieldThreshold", "Drawdown shield (%)", 3),
+          num11("maxLotSize", "Max lot size", 0.1),
+          num11("maxLot", "Absolute lot ceiling (0 = none)", 0),
+          num11("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num11("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
           bool("trailingStopEnabled", "Trailing stops", true),
           bool("profitLockEnabled", "Profit lock from +1R", true),
-          num9("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
+          num11("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
           bool("propFirmMode", "Prop firm mode", false),
-          num9("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
+          num11("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
           bool("autoFlattenOnBreach", "Close trades when a breaker trips", false),
           bool("brainLearningMode", "Brain learning", true),
           bool("brainShadowEnabled", "Practice results feed the brain", true),
@@ -67531,12 +67807,12 @@ var init_settings_overview = __esm({
         name: "Sol Engine",
         // Standards: DEFAULT_CONFIG in sol-engine.ts.
         fields: [
-          num9("minConfidence", "Minimum confidence to trade", 65),
-          num9("riskPerTradePct", "Risk per trade (%)", 1),
-          num9("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num9("maxTokens", "Max tokens tracked at once", 10),
+          num11("minConfidence", "Minimum confidence to trade", 65),
+          num11("riskPerTradePct", "Risk per trade (%)", 1),
+          num11("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num11("maxTokens", "Max tokens tracked at once", 10),
           bool("shieldEnabled", "Loss shield", true),
-          num9("shieldThreshold", "Shield trips at drawdown (%)", 10),
+          num11("shieldThreshold", "Shield trips at drawdown (%)", 10),
           bool("useKelly", "Kelly position sizing", false),
           text2("directionFilter", "Direction filter", "buy_only"),
           bool("stopOrdersEnabled", "Stop orders", false),
@@ -67555,22 +67831,22 @@ var init_settings_overview = __esm({
         name: "Kalshi Engine",
         // Standards: DEFAULT_CONFIG in kalshi-engine.ts.
         fields: [
-          num9("minConfidence", "Minimum confidence to trade", 70),
-          num9("maxOpenTrades", "Max open trades at once", 3),
-          num9("maxTradesPerDay", "Max trades per day", 10),
-          num9("contractsPerTrade", "Contracts per trade", 5),
-          num9("riskPctPerTrade", "Risk per trade (%)", 5),
-          num9("takeProfitCents", "Take profit (%)", 50),
-          num9("stopLossCents", "Stop loss (%)", 40),
-          num9("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
+          num11("minConfidence", "Minimum confidence to trade", 70),
+          num11("maxOpenTrades", "Max open trades at once", 3),
+          num11("maxTradesPerDay", "Max trades per day", 10),
+          num11("contractsPerTrade", "Contracts per trade", 5),
+          num11("riskPctPerTrade", "Risk per trade (%)", 5),
+          num11("takeProfitCents", "Take profit (%)", 50),
+          num11("stopLossCents", "Stop loss (%)", 40),
+          num11("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
           bool("requireConfluence", "Requires confluence", true),
           bool("ruinGuardEnabled", "Ruin guard (bad-day halt)", true),
-          num9("dailyLossLimitPct", "Daily loss limit (%)", 5),
-          num9("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
+          num11("dailyLossLimitPct", "Daily loss limit (%)", 5),
+          num11("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
           bool("kalshiBrainGating", "Brain can hard-block setups", true),
           bool("brainLearningMode", "Brain learning", true),
           bool("weatherEnabled", "Weather engine", false),
-          num9("cooldownMinutes", "Cooldown between trades (min)", 20)
+          num11("cooldownMinutes", "Cooldown between trades (min)", 20)
         ],
         load: async (userId) => {
           const { getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
@@ -67582,17 +67858,17 @@ var init_settings_overview = __esm({
         name: "Crypto Engine",
         // Standards: column defaults in ensure-cryptocom-engine-tables.ts.
         fields: [
-          num9("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
-          num9("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
-          num9("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
-          num9("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
-          num9("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
-          num9("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
-          num9("leverage", "Leverage", 3, "leverage"),
+          num11("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
+          num11("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
+          num11("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
+          num11("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
+          num11("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
+          num11("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
+          num11("leverage", "Leverage", 3, "leverage"),
           text2("directionFilter", "Direction filter", "both", "direction_filter"),
           bool("brainLearning", "Brain learning", true, "brain_learning_mode"),
           bool("cryptoBrain", "Crypto brain", true, "crypto_brain_enabled"),
-          num9("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
+          num11("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
           bool("autoExecution", "Auto execution", false, "enable_auto_execution"),
           bool("kelly", "Kelly position sizing", false, "use_kelly_criterion"),
           secs("scanInterval", "Scan interval", 12e4, "scan_interval_ms"),
@@ -67620,13 +67896,13 @@ __export(practice_costs_report_exports, {
 });
 function costModelConstants() {
   return {
-    cryptoFeeBps: num10("CRYPTO_PAPER_FEE_BPS", 30),
-    cryptoFeeDeepBps: num10("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
-    cryptoFloorMult: num10("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
-    solSlippagePct: num10("SOL_PAPER_SLIPPAGE_PCT", 0.5),
-    solFeePumpfunPct: num10("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
-    solFeeDefaultPct: num10("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
-    solImpactFallbackPct: num10("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
+    cryptoFeeBps: num12("CRYPTO_PAPER_FEE_BPS", 30),
+    cryptoFeeDeepBps: num12("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
+    cryptoFloorMult: num12("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
+    solSlippagePct: num12("SOL_PAPER_SLIPPAGE_PCT", 0.5),
+    solFeePumpfunPct: num12("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
+    solFeeDefaultPct: num12("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
+    solImpactFallbackPct: num12("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
   };
 }
 async function practiceCostReport(userId, days = 90) {
@@ -67660,12 +67936,12 @@ async function practiceCostReport(userId, days = 90) {
   }
   return out;
 }
-var num10, BANDS;
+var num12, BANDS;
 var init_practice_costs_report = __esm({
   "server/services/practice-costs-report.ts"() {
     "use strict";
     init_db();
-    num10 = (name, dflt) => {
+    num12 = (name, dflt) => {
       const v = Number(process.env[name]);
       return Number.isFinite(v) && v >= 0 ? v : dflt;
     };
@@ -78862,9 +79138,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "12e3135a-dirty";
-var BUILD_BRANCH = "feat/fix-trail-guard-columns";
-var BUILT_AT = "2026-11-14T01:33:23.156Z";
+var BUILD_COMMIT = "3c511ce8-dirty";
+var BUILD_BRANCH = "feat/kalshi-perp-earnings-funding";
+var BUILT_AT = "2026-11-14T03:17:49.806Z";
 
 // server/stripe.ts
 init_db();
@@ -101415,16 +101691,16 @@ Respond with ONLY valid JSON:
     try {
       const { runRuinConeSimulation: runRuinConeSimulation2 } = await Promise.resolve().then(() => (init_ruin_cone(), ruin_cone_exports));
       const q = req.query;
-      const num11 = (v) => v != null && v !== "" ? Number(v) : void 0;
+      const num13 = (v) => v != null && v !== "" ? Number(v) : void 0;
       const result = await runRuinConeSimulation2(userId, {
-        numSimulations: num11(q.numSimulations),
-        numTrades: num11(q.numTrades),
-        startingEquity: num11(q.startingEquity),
-        dailyLossLimit: num11(q.dailyLossLimit),
-        maxDrawdownLimit: num11(q.maxDrawdownLimit),
-        consistencyRuleThreshold: num11(q.consistencyRuleThreshold),
-        profitTarget: num11(q.profitTarget),
-        sourceLimit: num11(q.sourceLimit),
+        numSimulations: num13(q.numSimulations),
+        numTrades: num13(q.numTrades),
+        startingEquity: num13(q.startingEquity),
+        dailyLossLimit: num13(q.dailyLossLimit),
+        maxDrawdownLimit: num13(q.maxDrawdownLimit),
+        consistencyRuleThreshold: num13(q.consistencyRuleThreshold),
+        profitTarget: num13(q.profitTarget),
+        sourceLimit: num13(q.sourceLimit),
         source: q.source ? String(q.source) : void 0,
         noCache: q.nocache === "1" || q.noCache === "true"
       });

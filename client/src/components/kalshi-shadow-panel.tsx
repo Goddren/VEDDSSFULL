@@ -92,6 +92,8 @@ interface KalshiPerpBrain {
   vpEnabled: boolean;
   blocksInWindow: number;
   vpSkipsInWindow: number;
+  earningsEnabled?: boolean;
+  earningsSkipsInWindow?: number;
   favorBuckets: number;
   avoidBuckets: number;
   topBlocks: KalshiPerpBrainTopBlock[];
@@ -172,6 +174,7 @@ const STRATEGY_LABELS: Record<string, string> = {
   order_flow: "Order flow",
   volume_profile: "Volume profile",
   composite_autonomous: "Combined signals (composite)",
+  funding_fade: "Funding extremes fade",
 };
 
 function strategyLabel(key: string): string {
@@ -393,6 +396,9 @@ export function KalshiShadowPanel({ className = "" }: { className?: string }) {
                     <span>Blocked in the last {data.days} days: <b className="text-gray-200">{data.perpBrain.blocksInWindow}</b></span>
                     {data.perpBrain.vpEnabled ? (
                       <span>Volume-profile edge skips: <b className="text-gray-200">{data.perpBrain.vpSkipsInWindow}</b></span>
+                    ) : null}
+                    {data.perpBrain.earningsEnabled ? (
+                      <span>Earnings blackout skips: <b className="text-gray-200">{data.perpBrain.earningsSkipsInWindow ?? 0}</b></span>
                     ) : null}
                     <span>Setups currently rated: <span className="text-emerald-300">{data.perpBrain.favorBuckets} favor</span> · <span className="text-red-300">{data.perpBrain.avoidBuckets} avoid</span></span>
                   </div>

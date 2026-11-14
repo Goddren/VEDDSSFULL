@@ -69,6 +69,21 @@
 // row and learned as a 'vp' bucket dimension, and ONE conservative veto
 // skips entries pressing into the far value-area edge from inside value
 // (kill switch KALSHI_PERP_VP=off).
+//
+// Earnings blackout + funding-extremes fade (2026-11-13, build #3): the
+// context's earnings_within_48h finally has a real source — Nasdaq's
+// public earnings calendar, cached once a day (kalshi-earnings-calendar.ts).
+// A ticker with earnings inside the window (default 48h,
+// KALSHI_PERP_EARNINGS_WINDOW_H) has ALL its entries skipped and each
+// skip audit-logged as reason 'earnings'; a calendar that is down or
+// uncovered reads UNKNOWN and never blocks (kill switch
+// KALSHI_PERP_EARNINGS=off). And the lane gains a 19th strategy,
+// 'funding_fade' (kalshi-funding-fade.ts): when a ticker's latest
+// realized funding print sits in the outer decile of its trailing
+// distribution, the fade takes the other side — same touch entry, ATR
+// stop, 2R target, funding + cost model as every lane strategy (kill
+// switch KALSHI_FUNDING_FADE=off). Still SHADOW ONLY, same as the rest
+// of this lane: no new data source here can place an order.
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
 import { ensureKalshiPerpShadowTables } from './ensure-kalshi-perp-shadow-tables';
@@ -81,6 +96,11 @@ import {
   perpBrainEnabled, perpVpEnabled, evaluatePerpBrainGate, logPerpBrainBlocks,
   getPerpBrainBlockSummary, classifyVpPosition, vpValueEdgeBlock, type VpPosition,
 } from './kalshi-perp-brain';
+import {
+  perpEarningsEnabled, earningsWindowH, getEarningsInfo, earningsBlockApplies, earningsStampValue,
+  type EarningsLookup,
+} from './kalshi-earnings-calendar';
+import { fundingFadeEnabled, buildFundingFadeBook, fundingFadeForTicker, type FundingFadeBook } from './kalshi-funding-fade';
 
 export const stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== 'off';
 
@@ -264,6 +284,10 @@ export interface KalshiPerpBrainPanelReport {
   blocksInWindow: number;
   /** Volume-profile value-edge skips logged in the selected window. */
   vpSkipsInWindow: number;
+  /** Earnings blackout state (build #3): whether the blackout is on, and
+   *  how many entries it skipped in the selected window. */
+  earningsEnabled: boolean;
+  earningsSkipsInWindow: number;
   /** Current 60-day verdict map: setup buckets (the per-strategy 'all' row
    *  excluded) carrying a favor / avoid verdict right now. */
   favorBuckets: number;
@@ -516,6 +540,8 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
     vpEnabled: perpVpEnabled(),
     blocksInWindow: brainBlockSummary?.brainBlocks ?? 0,
     vpSkipsInWindow: brainBlockSummary?.vpSkips ?? 0,
+    earningsEnabled: perpEarningsEnabled(),
+    earningsSkipsInWindow: brainBlockSummary?.earningsSkips ?? 0,
     favorBuckets,
     avoidBuckets,
     topBlocks: brainBlockSummary?.topBlocks ?? [],
@@ -748,6 +774,25 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
   const stats = await computeKalshiStockShadowStats(userId).catch(() => [] as KalshiBucketStat[]);
   const markets = await getLiquidStockPerps().catch(() => [] as PerpMarket[]);
   if (!markets.length) return { opened: 0, closed };
+  // Earnings calendar for this cycle (build #3): one lookup per lane
+  // underlying against the daily-cached Nasdaq snapshot. Lookups share
+  // the single in-flight fetch cycle; any failure reads UNKNOWN and
+  // unknown never blocks. Skipped entirely when the blackout is off —
+  // no fetch, and the context stamp stays NULL exactly as before.
+  const earningsByUnderlying = new Map<string, EarningsLookup>();
+  if (perpEarningsEnabled()) {
+    const universe = Array.from(new Set(markets.map((m) => m.underlying).filter(Boolean)));
+    await Promise.all(universe.map(async (u) => {
+      earningsByUnderlying.set(u, await getEarningsInfo(u, universe).catch(() => ({ known: false } as EarningsLookup)));
+    }));
+  }
+  // Funding-fade distribution book for this cycle (build #3): trailing
+  // realized funding prints per ticker + the lane pool, ~30-min cached
+  // inside the module (funding prints once a day). Fail-soft — no book,
+  // no funding_fade signals.
+  const fundingBook: FundingFadeBook | null = fundingFadeEnabled()
+    ? await buildFundingFadeBook(markets.map((m) => m.ticker)).catch(() => null)
+    : null;
   const actions = await getPerpCorporateActions().catch(() => []);
   const pendingCa = new Set(actions.filter((a) => a.status === 'scheduled' && a.effectiveMs != null && a.effectiveMs <= Date.now() + 24 * 3_600_000).map((a) => a.ticker));
 
@@ -830,6 +875,16 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
       if (sig.enterLong && !sig.enterShort) signals.push({ strategy: fx.id, direction: 'long', score: null });
       else if (sig.enterShort && !sig.enterLong) signals.push({ strategy: fx.id, direction: 'short', score: null });
     }
+    // Funding-extremes fade (build #3): the ticker's latest realized
+    // funding print in the outer decile of its trailing distribution →
+    // take the other side of the crowd. The signal flows into the SAME
+    // entry machinery below (touch entry, ATR stop, 2R target, funding +
+    // cost model, brain gate, VP veto, earnings blackout) as every
+    // other lane strategy — the fade earns no exemptions.
+    if (fundingBook) {
+      const ff = fundingFadeForTicker(mkt.ticker, fundingBook);
+      if (ff) signals.push({ strategy: 'funding_fade', direction: ff.direction, score: null });
+    }
     if (!signals.length) continue;
 
     // Shared per-ticker context: H1 ATR + trends, touch, funding estimate.
@@ -875,6 +930,10 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
       }
     }
 
+    // This ticker's earnings lookup for the candidate loop (build #3):
+    // consulted by the blackout below and stamped on the context row.
+    const eInfo: EarningsLookup | undefined = earningsByUnderlying.get(mkt.underlying);
+
     for (const sig of signals) {
       if (open.length >= MAX_OPEN()) break;
       if (open.filter((o) => o.strategy === sig.strategy).length >= MAX_PER_STRAT()) continue;
@@ -903,6 +962,21 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
       if (agreeing < 2) tags.push('single_runner_no_confluence');
       if (spreadBps > 25) tags.push('wide_spread');
       if (ctx.session_et === 'overnight') tags.push('overnight_session');
+      // ── Earnings blackout (build #3, kalshi-earnings-calendar.ts): a
+      // KNOWN earnings report inside the window skips EVERY strategy on
+      // this ticker — earnings gaps are not a setup any lane strategy is
+      // priced for. Skips are audit-logged as reason 'earnings' with the
+      // report date as the bucket value. An UNKNOWN calendar (source
+      // down / symbol not covered) never blocks: earningsBlockApplies
+      // only fires on a known date inside the window.
+      if (perpEarningsEnabled() && eInfo && earningsBlockApplies(eInfo, now, earningsWindowH())) {
+        await logPerpBrainBlocks(userId, [{
+          strategy: sig.strategy, ticker: mkt.ticker, underlying: mkt.underlying, direction: sig.direction,
+          reason: 'earnings' as const, bucketDim: 'earnings', bucketValue: eInfo.known ? eInfo.date : null,
+          medianNetPct: null, bucketN: null,
+        }]);
+        continue;
+      }
       // ── Perp brain gate (kalshi-perp-brain.ts): the lane's own bucket
       // verdicts now ACT. Any matching 'avoid' bucket hard-blocks this
       // entry, audit-logged per bucket BEFORE the skip; 'favor' matches
@@ -932,6 +1006,10 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
         }]);
         continue;
       }
+      // earnings_within_48h stamp (build #3): true/false only when the
+      // calendar KNOWS (see earningsStampValue); NULL when unknown or
+      // the feature is off — the column's original stub semantics.
+      const earnings48 = perpEarningsEnabled() && eInfo ? earningsStampValue(eInfo, now) : null;
       const ins = await pool.query(
         `INSERT INTO kalshi_perp_shadow_trades (user_id, strategy, ticker, underlying, direction, entry_price, entry_bid, entry_ask,
            stop_loss, take_profit, sl_pct, contracts, notional_usd, cost_bps, cost_model, score, max_hours)
@@ -947,7 +1025,7 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27) ON CONFLICT (trade_id) DO NOTHING`,
         [id, userId, sig.strategy, mkt.ticker, sig.direction, spreadBps, mkt.volume24hNotionalUsd, mkt.openInterest,
          atrPct, h1Trend, h4Trend, aligned, fundEst?.rate ?? null, ctx.session_et, new Date(now).getUTCHours(), et.hour, et.dow,
-         null, pendingCa.has(mkt.ticker), agreeing < 2, mkt.leverageEstimate, tags, adviceFor(stats, sig.strategy, ctx),
+         earnings48, pendingCa.has(mkt.ticker), agreeing < 2, mkt.leverageEstimate, tags, adviceFor(stats, sig.strategy, ctx),
          vpProfile?.poc ?? null, vpProfile?.vah ?? null, vpProfile?.val ?? null, vpPos]).catch(() => {});
       open.push({ strategy: sig.strategy, underlying: mkt.underlying });
       opened++;
