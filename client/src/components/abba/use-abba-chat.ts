@@ -8,6 +8,7 @@
 // panel adds its context/sync bars, the page adds its tabs around this core.
 import { useState, useRef, useCallback } from 'react';
 import type { IdeaDraft } from "@/components/abba/idea-lab";
+import type { AbbaStrategyDraft } from "@/components/abba/strategy-create";
 
 export interface PlanProposal {
   pairs: string[];
@@ -34,6 +35,7 @@ export interface AbbaChatMessage {
   planProposal?: PlanProposal | null;
   ideaDraft?: IdeaDraft | null;
   setupDraft?: any;
+  strategyDraft?: AbbaStrategyDraft | null;
   suggestions?: string[];
   audioUrl?: string; // blob URL for tap-to-play
 }
@@ -131,6 +133,7 @@ export function useAbbaChat(opts: UseAbbaChatOptions) {
               planProposal: parsed.planProposal || null,
               ideaDraft: parsed.ideaDraft || null,
               setupDraft: parsed.setupDraft || null,
+              strategyDraft: parsed.strategyDraft || null,
               suggestions: parsed.suggestions || [],
             } : m));
           }
@@ -167,6 +170,7 @@ export function useAbbaChat(opts: UseAbbaChatOptions) {
           ...m, content: data.response || data.reply || 'Systems offline.',
           navigateTo: data.navigateTo || null, planProposal: data.planProposal || null,
           ideaDraft: data.ideaDraft || null, setupDraft: data.setupDraft || null,
+          strategyDraft: data.strategyDraft || null,
           suggestions: data.suggestions || [],
         } : m));
         const replyText = data.response || data.reply;

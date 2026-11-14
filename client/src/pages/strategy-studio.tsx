@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { apiRequest } from '@/lib/queryClient';
 import { StrategyBuilder } from '@/components/trading/strategy-builder';
+import { ABBA_STUDIO_DRAFT_KEY, ABBA_STUDIO_OPEN_KEY } from '@/components/abba/strategy-create';
 import type { StrategySpec, EngineStrategyInfo } from '@/lib/strategy-spec';
 import { templatePreset, defaultBuilderSpec, engineNativeSpec, ENGINE_STRATEGIES, ADVANCED_PRESETS } from '@/lib/strategy-spec';
 import type { AdvancedPreset } from '@/lib/strategy-spec';
@@ -855,6 +856,52 @@ export default function StrategyStudio() {
   }, [selectedCategoryFilter, selectedRiskFilter]);
   
   const { toast } = useToast();
+
+  // ABBA handoff: the chat proposal card ("Open in Studio to edit") sends
+  // the user here with either an unsaved draft spec or a saved strategy id
+  // in sessionStorage. Load it straight into the builder, once, then clear
+  // the handoff so a refresh starts the Studio normally.
+  useEffect(() => {
+    try {
+      const openId = sessionStorage.getItem(ABBA_STUDIO_OPEN_KEY);
+      const draftRaw = sessionStorage.getItem(ABBA_STUDIO_DRAFT_KEY);
+      if (openId) {
+        sessionStorage.removeItem(ABBA_STUDIO_OPEN_KEY);
+        sessionStorage.removeItem(ABBA_STUDIO_DRAFT_KEY);
+        const id = Number(openId);
+        if (id > 0) {
+          apiRequest('GET', `/api/strategy-wizard/spec-strategies/${id}`).then(async (res) => {
+            const data = await res.json().catch(() => ({}));
+            const s = data?.strategy;
+            if (s?.spec) {
+              setMode(s.spec.source === 'engine' ? 'engine' : s.spec.source === 'template' ? 'template' : 'builder');
+              setSpec(s.spec);
+              setSymbol(s.spec.symbol);
+              setTimeframe(s.spec.timeframe);
+              setSavedId(s.id);
+              setCurrentStep('configure');
+              toast({ title: 'Strategy loaded', description: `"${s.name}" is open in the builder.` });
+            }
+          }).catch(() => { /* the strategy list still shows it */ });
+        }
+        return;
+      }
+      if (draftRaw) {
+        sessionStorage.removeItem(ABBA_STUDIO_DRAFT_KEY);
+        const parsed = JSON.parse(draftRaw);
+        if (parsed && typeof parsed === 'object' && parsed.symbol && parsed.timeframe) {
+          setMode('builder');
+          setSpec(parsed);
+          setSymbol(parsed.symbol);
+          setTimeframe(parsed.timeframe);
+          setSavedId(null);
+          setCurrentStep('configure');
+          toast({ title: 'ABBA draft loaded', description: 'Review the rules, tweak anything, then Save Strategy.' });
+        }
+      }
+    } catch { /* no handoff — normal Studio start */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Handle strategy selection. Indicator-based templates load their
   // mechanical preset as an editable spec; pattern templates keep the

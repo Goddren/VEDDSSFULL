@@ -14,6 +14,7 @@ import { useVoice, ABBA_VOICE_PRESETS, TTS_PROVIDER_LABELS, type AbbaVoicePreset
 import { useAbbaChat } from "@/components/abba/use-abba-chat";
 import { EngineRoomCard } from "@/components/abba/engine-room-card";
 import { SetupDraftCard } from "@/components/abba/setup-review";
+import { StrategyDraftCard } from "@/components/abba/strategy-create";
 import { TradePerformanceCard, TodayReviewPanel, AiHealthStrip } from "@/components/trade-performance-card";
 
 interface GeneratedEA {
@@ -498,6 +499,7 @@ export default function AbbaBotPage() {
                       {m.content}
                       {m.ideaDraft && <IdeaDraftCard draft={m.ideaDraft} />}
                       {m.setupDraft && <SetupDraftCard draft={m.setupDraft} />}
+                      {m.strategyDraft && <StrategyDraftCard draft={m.strategyDraft} />}
                     </div>
                   </div>
                 ))}

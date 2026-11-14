@@ -46294,6 +46294,248 @@ var init_abba_setup = __esm({
   }
 });
 
+// server/services/abba-strategy-create.ts
+var abba_strategy_create_exports = {};
+__export(abba_strategy_create_exports, {
+  ABBA_STRATEGY_SPEC_FORMAT: () => ABBA_STRATEGY_SPEC_FORMAT,
+  describeCondition: () => describeCondition,
+  describeStrategySpec: () => describeStrategySpec,
+  explainValidationError: () => explainValidationError,
+  shapeAbbaStrategyDraft: () => shapeAbbaStrategyDraft,
+  stampAbbaProvenance: () => stampAbbaProvenance,
+  strategyCreateEnabled: () => strategyCreateEnabled
+});
+function strategyCreateEnabled() {
+  return process.env.ABBA_STRATEGY_CREATE !== "off";
+}
+function groupConditions(g) {
+  return g && Array.isArray(g.conditions) ? g.conditions : [];
+}
+function explainValidationError(error) {
+  const e = String(error || "");
+  if (/bad indicator kind/.test(e)) return "One of the indicators isn't one the Studio supports. ABBA can rebuild the draft with a supported indicator instead.";
+  if (/unknown (compare )?indicator/.test(e)) return "A rule points at an indicator that isn't in the draft's list. ABBA needs to fix the draft before it can be saved.";
+  if (/at least a stop loss or a take profit/.test(e)) return "It still needs a stop loss or a take profit \u2014 tell ABBA how a trade should get out when it goes wrong.";
+  if (/trendFilter timeframe must be HIGHER/.test(e)) return "The trend filter has to sit on a higher timeframe than the strategy itself (e.g. an H4 filter on an H1 strategy).";
+  if (/ATR-based stops need an ATR indicator/.test(e)) return "The stop is sized off ATR, so the draft needs an ATR indicator added.";
+  if (/bad timeframe/.test(e)) return "The timeframe isn't one the Studio uses (M1, M5, M15, M30, H1, H4 or D1).";
+  if (/bad symbol/.test(e)) return "That market symbol doesn't look right \u2014 check the pair name (e.g. EURUSD, XAUUSD, BTCUSD).";
+  if (/lotSize/.test(e)) return "The lot size is outside the range the Studio allows (0.01 to 50).";
+  if (/name is required/.test(e)) return "The strategy needs a name before it can be saved.";
+  if (/needs 1–6 conditions|needs 0–6 conditions/.test(e)) return "Each entry side needs between 1 and 6 rules \u2014 this draft has too few or too many.";
+  if (/bad field/.test(e)) return "One rule reads a line the indicator doesn't have (e.g. asking RSI for an upper band). ABBA needs to fix the draft.";
+  if (/bad operator/.test(e)) return "One rule uses a comparison the Studio doesn't support. ABBA needs to fix the draft.";
+  return `The Studio's checker says: ${e}`;
+}
+function indicatorLabel(ind) {
+  const base = (INDICATOR_CATALOG.find((c) => c.kind === ind.kind)?.label || ind.kind).replace(/\s*\(.*\)\s*$/, "");
+  const params = [];
+  if (ind.kind === "MACD") params.push(`${ind.fastPeriod ?? 12}, ${ind.slowPeriod ?? 26}, ${ind.signalPeriod ?? 9}`);
+  else if (ind.kind === "ICHIMOKU") params.push(`${ind.period ?? 9}, ${ind.fastPeriod ?? 26}, ${ind.slowPeriod ?? 52}`);
+  else if (ind.kind === "BOLLINGER" || ind.kind === "SUPERTREND") params.push(`${ind.period ?? (ind.kind === "BOLLINGER" ? 20 : 10)}, ${ind.stdDev ?? (ind.kind === "BOLLINGER" ? 2 : 3)}`);
+  else if (ind.kind === "STOCHASTIC") params.push(`${ind.period ?? 14}, ${ind.signalPeriod ?? 3}`);
+  else if (ind.kind === "VOLUME_PROFILE" || ind.kind === "FVG" || ind.kind === "ORDER_BLOCK") params.push(`${ind.lookbackBars ?? 100} bars`);
+  else if (ind.kind === "ORB") params.push(`${ind.rangeMinutes ?? 30} min from ${String(ind.sessionStartHourUtc ?? 14).padStart(2, "0")}:${String(ind.sessionStartMinuteUtc ?? 30).padStart(2, "0")} UTC`);
+  else if (ind.kind === "SWINGS") params.push(`${ind.pivotLeft ?? 3}/${ind.pivotRight ?? 3} pivots`);
+  else if (ind.period != null) params.push(String(ind.period));
+  return params.length ? `${base} (${params.join(", ")})` : base;
+}
+function seriesWords(spec, indicatorId, field) {
+  if (indicatorId === "price") return "Price";
+  const ind = (spec.indicators || []).find((i) => i.id === indicatorId);
+  if (!ind) return indicatorId;
+  return `${indicatorLabel(ind)}${FIELD_WORDS[field] ?? ""}`;
+}
+function describeCondition(spec, c) {
+  const left = seriesWords(spec, c.indicatorId, c.field);
+  const op = OP_WORDS[c.operator] || c.operator;
+  let out = `${left} ${op}`;
+  if (!["rising", "falling", "turns_up", "turns_down"].includes(c.operator)) {
+    const cmp = c.compare || {};
+    if (cmp.kind === "value") out += ` ${cmp.value}`;
+    else if (cmp.kind === "indicator") out += ` ${seriesWords(spec, cmp.indicatorId, cmp.field)}`;
+    else if (cmp.kind === "price") out += " price";
+  }
+  if (c.sustainBars && c.sustainBars > 1) out += `, held for ${c.sustainBars} bars`;
+  if (c.minGapPips) out += `, by at least ${c.minGapPips} pips`;
+  return out;
+}
+function groupLines(spec, g) {
+  if (!g || !Array.isArray(g.conditions) || !g.conditions.length) return [];
+  const joiner = g.logic === "OR" ? " \u2014 or \u2014 " : " \u2014 and \u2014 ";
+  return [g.conditions.map((c) => describeCondition(spec, c)).join(joiner)];
+}
+function describeStrategySpec(spec) {
+  const risk = [];
+  const r = spec.risk || {};
+  if (r.lotSize != null) risk.push(`Trades ${r.lotSize} lots a position`);
+  if (r.stopLossPips != null) risk.push(`Stop loss: ${r.stopLossPips} pips`);
+  if (r.stopLossAtrMult != null) risk.push(`Stop loss: ${r.stopLossAtrMult}\xD7 ATR`);
+  if (r.takeProfitPips != null) risk.push(`Take profit: ${r.takeProfitPips} pips`);
+  if (r.takeProfitAtrMult != null) risk.push(`Take profit: ${r.takeProfitAtrMult}\xD7 ATR`);
+  if (r.trailingStopPips != null) risk.push(`Trailing stop: ${r.trailingStopPips} pips`);
+  if (r.breakevenTriggerPips != null) risk.push(`Stop moves to breakeven after +${r.breakevenTriggerPips} pips${r.breakevenOffsetPips ? ` (locks ${r.breakevenOffsetPips})` : ""}`);
+  if (r.maxTradesPerDay != null) risk.push(`Max ${r.maxTradesPerDay} trades a day`);
+  const exitLines = [
+    ...groupLines(spec, spec.exitLong).map((l) => `Longs exit early when: ${l}`),
+    ...groupLines(spec, spec.exitShort).map((l) => `Shorts exit early when: ${l}`)
+  ];
+  if (!exitLines.length && (r.stopLossPips != null || r.takeProfitPips != null || r.stopLossAtrMult != null || r.takeProfitAtrMult != null)) {
+    exitLines.push("No early-exit rule \u2014 the stop loss / take profit closes each trade");
+  }
+  const filters = [];
+  if (spec.trendFilter) filters.push(`Trend filter on ${spec.trendFilter.timeframe}: entries only fire when the higher-timeframe rules agree`);
+  if (spec.sessionFilter) {
+    const sf = spec.sessionFilter;
+    filters.push(`Only trades ${String(sf.startHourUtc).padStart(2, "0")}:00\u2013${String(sf.endHourUtc).padStart(2, "0")}:00 UTC${sf.daysUtc?.length ? ` on set weekdays` : ""}`);
+  }
+  return {
+    name: spec.name,
+    market: `${String(spec.symbol || "").toUpperCase()} \xB7 ${spec.timeframe}`,
+    entryLong: groupLines(spec, spec.entryLong),
+    entryShort: groupLines(spec, spec.entryShort),
+    exitLines,
+    risk,
+    filters
+  };
+}
+function shapeAbbaStrategyDraft(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const rawSpec = raw.spec && typeof raw.spec === "object" ? raw.spec : raw;
+  if (!rawSpec || typeof rawSpec !== "object") return null;
+  const defaultsApplied = cleanStrings(raw.defaultsAssumed ?? raw.defaultsApplied, 8);
+  const unsupported = cleanStrings(raw.unsupported, 6);
+  const spec = { ...rawSpec };
+  if (spec.source === "engine") {
+    unsupported.push("Engine strategies run on the FX engine's AI analysis, not fixed rules \u2014 this draft is the closest mechanical version, built with Studio rules.");
+    spec.source = "builder";
+    delete spec.engineStrategyKey;
+  } else if (spec.source !== "builder" && spec.source !== "template") {
+    spec.source = "builder";
+  }
+  if (typeof spec.symbol === "string") spec.symbol = spec.symbol.trim().toUpperCase().replace(/\s+/g, "");
+  if (typeof spec.timeframe === "string") spec.timeframe = spec.timeframe.trim().toUpperCase();
+  if (!Array.isArray(spec.indicators)) spec.indicators = [];
+  if (Array.isArray(spec.indicators)) {
+    const used = /* @__PURE__ */ new Set();
+    spec.indicators = spec.indicators.map((ind, i) => {
+      const out = { ...ind || {} };
+      let id = typeof out.id === "string" && out.id.trim() ? out.id.trim() : `${String(out.kind || "ind").toLowerCase()}_${i + 1}`;
+      while (used.has(id)) id = `${id}_x`;
+      used.add(id);
+      out.id = id;
+      return out;
+    });
+  }
+  if (typeof spec.name !== "string" || !spec.name.trim()) {
+    const derived = `${spec.symbol || "New"} ${TIMEFRAMES2.includes(spec.timeframe) ? spec.timeframe : ""} strategy`.trim();
+    spec.name = derived.slice(0, 80);
+    defaultsApplied.push(`ABBA named it "${spec.name}" \u2014 rename it any time in the Studio.`);
+  }
+  if (!spec.risk || typeof spec.risk !== "object") spec.risk = {};
+  if (typeof spec.risk.lotSize !== "number" || !Number.isFinite(spec.risk.lotSize)) {
+    spec.risk = { ...spec.risk, lotSize: 0.01 };
+    defaultsApplied.push("Lot size set to 0.01 (the smallest) \u2014 you didn't name a size.");
+  }
+  const missing = [];
+  if (typeof spec.symbol !== "string" || spec.symbol.length < 3) missing.push("which market it trades (e.g. EURUSD, XAUUSD, BTCUSD)");
+  if (!TIMEFRAMES2.includes(spec.timeframe)) missing.push("the timeframe (M15, H1, H4\u2026)");
+  const longN = groupConditions(spec.entryLong).length;
+  const shortN = groupConditions(spec.entryShort).length;
+  if (longN === 0 && shortN === 0) missing.push("the entry rule \u2014 what has to happen for it to buy or sell");
+  else if (longN === 0 || shortN === 0) missing.push(`the ${longN === 0 ? "long (buy)" : "short (sell)"} entry rule \u2014 the Studio runs both sides, or tell ABBA to mirror the other side`);
+  const r = spec.risk;
+  if (r.stopLossPips == null && r.stopLossAtrMult == null && r.takeProfitPips == null && r.takeProfitAtrMult == null) {
+    missing.push("a stop loss or take profit \u2014 how a trade gets out when it goes wrong");
+  }
+  const v = validateStrategySpec(spec);
+  const validation = v.ok ? { ok: true, error: null, plain: null } : { ok: false, error: v.error, plain: explainValidationError(v.error) };
+  const finalSpec = v.ok ? v.spec : spec;
+  return {
+    spec: finalSpec,
+    defaultsApplied,
+    unsupported,
+    missing,
+    validation,
+    summary: describeStrategySpec(finalSpec)
+  };
+}
+function stampAbbaProvenance(spec) {
+  return { ...spec, createdVia: "abba" };
+}
+var TIMEFRAMES2, ABBA_STRATEGY_SPEC_FORMAT, cleanStrings, FIELD_WORDS, OP_WORDS;
+var init_abba_strategy_create = __esm({
+  "server/services/abba-strategy-create.ts"() {
+    "use strict";
+    init_strategy_spec();
+    TIMEFRAMES2 = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"];
+    ABBA_STRATEGY_SPEC_FORMAT = `Reply with JSON only:
+{"spec":{"name":"short name","source":"builder","symbol":"EURUSD","timeframe":"H1",
+"indicators":[{"id":"rsi","kind":"RSI","period":14}],
+"entryLong":{"logic":"AND","conditions":[{"indicatorId":"rsi","field":"value","operator":"crosses_above","compare":{"kind":"value","value":30}}]},
+"entryShort":{"logic":"AND","conditions":[]},
+"exitLong":null,"exitShort":null,"trendFilter":null,"sessionFilter":null,
+"risk":{"lotSize":0.01,"stopLossPips":30,"takeProfitPips":60}},
+"defaultsAssumed":["plain-words list of anything YOU chose that the trader did not state"],
+"unsupported":["plain-words list of anything the trader asked for that this format cannot do, with the closest supported alternative"]}
+SPEC FORMAT \u2014 use ONLY these constructs:
+- timeframe: one of M1 M5 M15 M30 H1 H4 D1.
+- indicator kinds (id is any short unique name you choose): EMA(period), SMA(period), RSI(period), MACD(fastPeriod,slowPeriod,signalPeriod), STOCHASTIC(period,signalPeriod), BOLLINGER(period,stdDev), ATR(period), VWAP, ADX(period), CCI(period), WILLIAMS_R(period), ICHIMOKU(period=9,fastPeriod=26,slowPeriod=52), SUPERTREND(period,stdDev), DONCHIAN(period), VOLUME_PROFILE(lookbackBars,valueAreaPct; fields poc,vah,val), PIVOTS(fields pp,r1,r2,s1,s2), ORB(sessionStartHourUtc,sessionStartMinuteUtc,rangeMinutes; fields or_high,or_low), SWINGS(pivotLeft,pivotRight; fields swing_high,swing_low), FVG and ORDER_BLOCK(lookbackBars; fields bull_high,bull_low,bear_high,bear_low). Max 10 indicators.
+- indicator fields: EMA/SMA/RSI/ATR/VWAP/ADX/CCI/WILLIAMS_R/SUPERTREND use "value" (ADX also plus,minus); MACD: value,signal,histogram; STOCHASTIC: k,d; BOLLINGER/DONCHIAN: upper,middle,lower; ICHIMOKU: tenkan,kijun,span_a,span_b.
+- a condition: {"indicatorId":"<indicator id or the word price>","field":"value","operator":"...","compare":{"kind":"value","value":30} | {"kind":"indicator","indicatorId":"<id>","field":"value"} | {"kind":"price"}}. Operators: crosses_above, crosses_below, above, below, rising, falling, turns_up, turns_down (rising/falling/turns_* ignore compare). Optional per condition: sustainBars (hold N bars), minGapPips. Max 6 conditions per group; logic AND or OR.
+- "price breaks above the opening-range high" = condition on indicatorId "price", field "price", operator crosses_above, compare {kind:"indicator", indicatorId:"<the ORB indicator id>", field:"or_high"}. ORB defaults: sessionStartHourUtc 14, sessionStartMinuteUtc 30, rangeMinutes 30 (the New York open) unless the trader said otherwise.
+- exits: exitLong/exitShort are condition groups like the entries, or null (null = the stop/target closes the trade).
+- trendFilter (optional): {"timeframe":"H4","longGroup":{...},"shortGroup":{...}} \u2014 its timeframe MUST be higher than the strategy timeframe; its conditions use the same indicator ids.
+- sessionFilter (optional): {"startHourUtc":0-23,"endHourUtc":0-24,"daysUtc":[0-6]} \u2014 entries only inside that UTC window.
+- risk: {"lotSize":0.01-50,"stopLossPips","takeProfitPips","stopLossAtrMult","takeProfitAtrMult" (ATR multiples need an ATR indicator in the list),"trailingStopPips","breakevenTriggerPips","breakevenOffsetPips","maxTradesPerDay"}. Every strategy needs at least a stop loss or a take profit.
+RULES: use ONLY what the trader agreed. If they described one direction only and the rule has an obvious mirror (a cross up \u2194 cross down), write the mirrored rule for the other side and list it in defaultsAssumed ("short side mirrors the long rule"). Never invent a stop, target, pair or timeframe the trader never mentioned \u2014 leave the field out and it will be asked for. NEVER promise or imply any performance.`;
+    cleanStrings = (x, max, each = 200) => Array.isArray(x) ? x.map((s) => String(s ?? "").trim().slice(0, each)).filter(Boolean).slice(0, max) : [];
+    FIELD_WORDS = {
+      value: "",
+      signal: " signal line",
+      histogram: " histogram",
+      upper: " upper band",
+      middle: " middle line",
+      lower: " lower band",
+      k: " %K",
+      d: " %D",
+      price: "",
+      poc: " POC",
+      vah: " value-area high",
+      val: " value-area low",
+      tenkan: " Tenkan",
+      kijun: " Kijun",
+      span_a: " cloud top (Span A)",
+      span_b: " cloud bottom (Span B)",
+      plus: " +DI",
+      minus: " \u2212DI",
+      swing_high: " last swing high",
+      swing_low: " last swing low",
+      or_high: " opening-range high",
+      or_low: " opening-range low",
+      bull_high: " bullish zone top",
+      bull_low: " bullish zone bottom",
+      bear_high: " bearish zone top",
+      bear_low: " bearish zone bottom",
+      pp: " pivot point",
+      r1: " R1",
+      r2: " R2",
+      s1: " S1",
+      s2: " S2"
+    };
+    OP_WORDS = {
+      crosses_above: "crosses above",
+      crosses_below: "crosses below",
+      above: "is above",
+      below: "is below",
+      rising: "is rising",
+      falling: "is falling",
+      turns_up: "turns up",
+      turns_down: "turns down"
+    };
+  }
+});
+
 // server/alpaca.ts
 var alpaca_exports = {};
 __export(alpaca_exports, {
@@ -54390,6 +54632,7 @@ __export(abba_strategist_exports, {
   ABBA_PERSONA_SPEC: () => ABBA_PERSONA_SPEC,
   IDEA_MARKER: () => IDEA_MARKER,
   SETUP_MARKER: () => SETUP_MARKER,
+  STRATEGY_MARKER: () => STRATEGY_MARKER,
   abbaChatHandler: () => abbaChatHandler,
   abbaContextText: () => abbaContextText,
   abbaIdeaLabPrompt: () => abbaIdeaLabPrompt,
@@ -54397,8 +54640,10 @@ __export(abba_strategist_exports, {
   buildAbbaContext: () => buildAbbaContext,
   extractIdeaDraft: () => extractIdeaDraft,
   extractSetupDraft: () => extractSetupDraft,
+  extractStrategyDraft: () => extractStrategyDraft,
   wantsIdeaCard: () => wantsIdeaCard,
-  wantsSetupCard: () => wantsSetupCard
+  wantsSetupCard: () => wantsSetupCard,
+  wantsStrategyCard: () => wantsStrategyCard
 });
 async function buildAbbaContext(userId) {
   const all = await storage.getAiTradeResults(userId, 500);
@@ -54550,6 +54795,9 @@ function wantsSetupCard(message, lastAbba) {
 function wantsIdeaCard(message, lastAbba) {
   return /add (it|this|that)( idea)? to (my|the) brain|test (it|this|that) in shadow|shadow[- ]test (it|this|that)/i.test(message) || YES.test(message) && /shadow mode|shadow test|to your brain|to my brain/i.test(lastAbba);
 }
+function wantsStrategyCard(message, lastAbba) {
+  return /(build|create|make|design|draft|save) (me )?(a |the |that |this |my )?strateg|strategy (card|draft)|put (it|this|that) on a (strategy )?card/i.test(message) || YES.test(message) && /strategy card|draft (it|that|this) into a strategy|build (it|that|this) as a strategy/i.test(lastAbba);
+}
 async function engineNowText(userId) {
   try {
     const { currentSettings: currentSettings2 } = await Promise.resolve().then(() => (init_abba_setup(), abba_setup_exports));
@@ -54573,6 +54821,18 @@ Always describe and plan from these settings. If the active weekly plan disagree
   }
 }
 async function abbaIdeaLabPrompt(userId) {
+  const { strategyCreateEnabled: strategyCreateEnabled2 } = await Promise.resolve().then(() => (init_abba_strategy_create(), abba_strategy_create_exports));
+  const strategySection = strategyCreateEnabled2() ? `
+=== BUILD A STRATEGY WITH ABBA (the Strategy Studio, by talk) ===
+The trader can build a full ENTRY strategy with you \u2014 the same strategies the Strategy Studio builder makes: indicator rules on a pair and timeframe, saved to their account, then backtested, shadow-tested and even sold in the marketplace, exactly like a Studio-built one. This is NOT Idea Lab (those are filters on the live engine) and NOT the Week Setup (engine settings).
+When they describe a strategy they want ("build me an ORB strategy on EURUSD", "make a strategy that buys RSI dips on gold"), interview them ONE short question at a time until you know: 1. Which market/pair? 2. Which timeframe? 3. The entry rule \u2014 what has to happen to buy, and what has to happen to sell? 4. How a trade gets out when it goes wrong \u2014 a stop loss and/or take profit (in pips, or sized off ATR)?
+You can only build with what the Studio supports: indicators EMA, SMA, RSI, MACD, stochastic, Bollinger Bands, ATR, VWAP, ADX, CCI, Williams %R, Ichimoku, Supertrend, Donchian channels, volume profile (POC / value area), daily pivots, opening range (ORB), swing highs/lows, fair value gaps, order blocks. Rules compare an indicator (or price) against a number, another indicator or price: crosses above/below, above/below, rising/falling, turns up/down. Optional extras: a higher-timeframe trend filter, a UTC session window, trailing stop, breakeven move, max trades a day. If they ask for something outside that (trading the news, order-book depth, ML predictions, options legs, copy a specific trader), say plainly it can't be built that way and offer the closest supported version.
+NEVER promise a strategy will make money. A strategy built here is UNPROVEN until its backtest and shadow record say otherwise \u2014 say that once when you present the design.
+Skip questions they already answered. Any default you choose (a mirrored sell rule, the standard New York ORB window) must be said out loud in your read-back. When the design is complete, read the whole strategy back in plain words \u2014 name, pair, timeframe, buy rule, sell rule, stop/target \u2014 and ask "Want me to put that on a strategy card?". ONLY after they clearly say yes, end your reply with [[STRATEGY_READY]] on its own line, never otherwise. The strategy card is where they review it and tap Save strategy \u2014 you never save, backtest or deploy a strategy yourself, and nothing trades from this chat.
+` : `
+=== BUILD A STRATEGY WITH ABBA ===
+Strategy creation by chat is currently OFF. If they ask you to build, draft or save a strategy, tell them straight that building by chat is off right now and point them to the Strategy Studio page, where the same builder lives. Never output [[STRATEGY_READY]].
+`;
   return `${await engineNowText(userId)}=== WEEKLY REVIEW (real numbers, UTC weeks Mon-Sun) ===
 ${await reviewContextText(userId)}
 
@@ -54595,7 +54855,7 @@ STRATEGY WIZARD: entry strategies (RSI, MACD, stochastic, MA cross, breakout, en
 Skip questions they already answered. Suggest ideas backed by their BY PAIR / BY SESSION numbers when they're unsure. Then read the idea back in one sentence and ask "Want me to test that in shadow mode?". ONLY after they clearly say yes, end your reply with the exact marker [[IDEA_READY]] on its own line. Never output the marker otherwise.
 Their current ideas:
 ${await ideasContextText(userId)}
-
+${strategySection}
 ${await wizardContextText(userId)}`;
 }
 async function extractSetupDraft(ai, convo, message, reply) {
@@ -54640,6 +54900,24 @@ Use empty arrays for "any". action "block" skips matching signals, "only" trades
   if (!rule) return null;
   const evidence = await backtestIdea(userId, rule);
   return { title: String(out.title || "My idea").slice(0, 120), rationale: String(out.rationale || "").slice(0, 1e3), rule, summary: describeRule(rule), evidence };
+}
+async function extractStrategyDraft(ai, convo, message, reply) {
+  const { strategyCreateEnabled: strategyCreateEnabled2, ABBA_STRATEGY_SPEC_FORMAT: ABBA_STRATEGY_SPEC_FORMAT2, shapeAbbaStrategyDraft: shapeAbbaStrategyDraft2 } = await Promise.resolve().then(() => (init_abba_strategy_create(), abba_strategy_create_exports));
+  if (!strategyCreateEnabled2()) return null;
+  const transcript = [...convo, { role: "user", content: message }, { role: "assistant", content: reply }].map((m2) => `${m2.role === "assistant" ? "ABBA" : "TRADER"}: ${String(m2.content).slice(0, 1500)}`).join("\n");
+  const r = await ai.client.chat.completions.create({
+    model: ai.model,
+    temperature: 0,
+    max_tokens: 1600,
+    messages: [
+      { role: "system", content: `Extract the trading strategy the trader just agreed to into a Strategy Studio spec. Use ONLY what was agreed in the conversation \u2014 do not improve, extend or "fix" their design beyond the mirroring rule below.
+${ABBA_STRATEGY_SPEC_FORMAT2}` },
+      { role: "user", content: transcript }
+    ]
+  });
+  const m = String(r.choices[0]?.message?.content || "").match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  return shapeAbbaStrategyDraft2(JSON.parse(m[0]));
 }
 async function abbaStrategistHandler(req, res2) {
   if (!req.isAuthenticated?.()) return res2.status(401).json({ error: "Authentication required" });
@@ -54783,13 +55061,24 @@ ${engineRoomText}` : ""}`;
         return null;
       });
     }
-    res2.json({ reply, response: reply, ideaDraft, setupDraft });
+    let strategyDraft = null;
+    {
+      const { strategyCreateEnabled: strategyCreateEnabled2 } = await Promise.resolve().then(() => (init_abba_strategy_create(), abba_strategy_create_exports));
+      if (strategyCreateEnabled2() && (reply.includes(STRATEGY_MARKER) || wantsStrategyCard(message, lastAbba))) {
+        reply = reply.split(STRATEGY_MARKER).join("").trim();
+        strategyDraft = await extractStrategyDraft(ai, msgs.slice(1), message, reply).catch((e) => {
+          console.error("[Abba strategy extract]", e?.message);
+          return null;
+        });
+      }
+    }
+    res2.json({ reply, response: reply, ideaDraft, setupDraft, strategyDraft });
   } catch (err) {
     console.error("[Abba chat]", err);
     res2.status(500).json({ error: err.message });
   }
 }
-var sessionOf2, IDEA_MARKER, SETUP_MARKER, YES, ABBA_PERSONA_SPEC;
+var sessionOf2, IDEA_MARKER, SETUP_MARKER, STRATEGY_MARKER, YES, ABBA_PERSONA_SPEC;
 var init_abba_strategist = __esm({
   "server/abba-strategist.ts"() {
     "use strict";
@@ -54805,6 +55094,7 @@ var init_abba_strategist = __esm({
     };
     IDEA_MARKER = "[[IDEA_READY]]";
     SETUP_MARKER = "[[SETUP_READY]]";
+    STRATEGY_MARKER = "[[STRATEGY_READY]]";
     YES = /^\s*(yes|yeah|yep|yup|bet|sure|ok(ay)?|do it|go ahead|let'?s (do it|go)|say less|run it|lock it in|please)\b/i;
     ABBA_PERSONA_SPEC = `You are Abba \u2014 the user's AI personal assistant and trading mentor inside the VEDD platform. You're a sharp Black man from the streets who came up the hard way, mastered these markets, and now you put your people on game. Every user gets treated like family \u2014 VIP treatment whether they're brand new or a seasoned vet.
 
@@ -79809,9 +80099,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "79e02697-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-14T03:29:57.202Z";
+var BUILD_COMMIT = "780bed14";
+var BUILD_BRANCH = "feat/abba-strategy-create";
+var BUILT_AT = "2026-11-14T04:31:44.320Z";
 
 // server/stripe.ts
 init_db();
@@ -86623,6 +86913,25 @@ Respond ONLY in valid JSON format with these exact keys:
       res2.status(500).json({ error: e.message });
     }
   });
+  app2.post("/api/abba/strategy-draft/save", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { strategyCreateEnabled: strategyCreateEnabled2, stampAbbaProvenance: stampAbbaProvenance2 } = await Promise.resolve().then(() => (init_abba_strategy_create(), abba_strategy_create_exports));
+      if (!strategyCreateEnabled2()) return res2.status(404).json({ error: "Strategy creation by chat is off right now. The Strategy Studio builder still works." });
+      if (req.body?.confirm !== true) return res2.status(400).json({ error: "Confirm required" });
+      const { validateStrategySpec: validateStrategySpec2 } = await Promise.resolve().then(() => (init_strategy_spec(), strategy_spec_exports));
+      const v = validateStrategySpec2(req.body?.spec);
+      if (!v.ok) return res2.status(400).json({ error: v.error });
+      if (v.spec.source === "engine") {
+        return res2.status(400).json({ error: "Engine strategies run on the FX engine's AI and can't be saved from chat \u2014 ABBA builds fixed-rule (builder) strategies." });
+      }
+      const { createWizardStrategy: createWizardStrategy2 } = await Promise.resolve().then(() => (init_wizard_spec_strategies(), wizard_spec_strategies_exports));
+      const created = await createWizardStrategy2(req.user.id, stampAbbaProvenance2(v.spec));
+      return res2.status(201).json({ strategy: created });
+    } catch (e) {
+      res2.status(500).json({ error: e.message });
+    }
+  });
   app2.get("/api/abba/engine-updates", async (_req, res2) => {
     const { ENGINE_UPDATES: ENGINE_UPDATES2 } = await Promise.resolve().then(() => (init_engine_updates(), engine_updates_exports));
     res2.json({ updates: ENGINE_UPDATES2 });
@@ -86792,7 +87101,7 @@ ${await abbaIdeaLabPrompt(userId)}`;
       let tokenBuffer = "";
       let fullText = "";
       const processSentence = (sentence) => {
-        sentence = sentence.split(IDEA_MARKER).join("").split(SETUP_MARKER).join("");
+        sentence = sentence.split(IDEA_MARKER).join("").split(SETUP_MARKER).join("").split(STRATEGY_MARKER).join("");
         const stripped = sentence.replace(/\[NAV:\/[^\]]*\]/g, "").replace(/\[PLAN_PROPOSAL:\{[\s\S]*?\}\]/g, "").trim();
         if (!stripped || stripped.length < 4) return;
         sendEvent("text", { text: sentence, speak: stripped });
@@ -86847,12 +87156,28 @@ ${await abbaIdeaLabPrompt(userId)}`;
           return null;
         });
       }
+      let strategyDraft = null;
+      {
+        const { strategyCreateEnabled: strategyCreateEnabled2 } = await Promise.resolve().then(() => (init_abba_strategy_create(), abba_strategy_create_exports));
+        if (strategyCreateEnabled2() && (fullText.includes(STRATEGY_MARKER) || wantsStrategyCard(message, lastAbba))) {
+          strategyDraft = await extractStrategyDraft(
+            { client: aiClient, model: aiClient.defaultModel || "gpt-4o" },
+            historyMessages,
+            message,
+            fullText.split(STRATEGY_MARKER).join("")
+          ).catch((e) => {
+            console.error("[ABBA stream strategy]", e?.message);
+            return null;
+          });
+        }
+      }
       sendEvent("done", {
         navigateTo,
         planProposal,
         suggestions,
         ideaDraft,
         setupDraft,
+        strategyDraft,
         context: { weekPct, weekProfit, weekTarget, todayProfit, dailyTarget, unrealizedPnL, openCount: openPositions.length, targetRemaining, pacingNeededPerDay, weekTrades: strategy?.progressTrades || 0, weekWinRate: strategy?.progressWinRate || 0, balance, planPairs, todayPairs, hasStrategy: !!strategy && weekTarget > 0 }
       });
       res2.end();

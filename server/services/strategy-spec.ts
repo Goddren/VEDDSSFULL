@@ -146,6 +146,11 @@ export interface StrategySpec {
      *  subscription to the listing lapses (marketplace-subscriptions). */
     grantType?: 'purchase' | 'subscription';
   };
+  /** How this strategy came to exist: 'abba' when the user built it by
+   *  talking to ABBA (stamped server-side by the ABBA save route only),
+   *  'studio' or absent for specs composed in the Studio UI. Display /
+   *  provenance metadata — the runner ignores it, same as marketplace. */
+  createdVia?: 'abba' | 'studio';
 }
 
 export const INDICATOR_CATALOG: Array<{
