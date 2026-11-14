@@ -42,7 +42,7 @@
 import { pool } from '../db';
 import { getRuntimeStateStrict, saveRuntimeState, loadRuntimeState } from './runtime-state';
 import { getTrailGuards, retireTrailGuard, ensureTrailGuardStampColumns, type TrailGuard } from './trail-guards';
-import { ensureSolShadowContextTable } from './sol-shadow-stats';
+import { ensureSolTrailGuardColumns } from './sol-shadow-stats';
 import { logShadowLessonBlock } from './shadow-lesson-gate';
 
 export function trailGuardLearningOn(): boolean {
@@ -132,69 +132,90 @@ const FINAL_R = `
 
 const num = (v: any): number | null => (v == null || isNaN(Number(v)) ? null : Math.round(Number(v) * 100) / 100);
 
-async function guardedStats(userId: number, guard: TrailGuard): Promise<GuardPerf> {
-  if (guard.engine === 'crypto') {
-    await ensureTrailGuardStampColumns();
+/**
+ * Closes under the guard. Awaits the per-table stamp-column ensure
+ * before naming trail_guard_id, and NEVER rejects: any failure (ensure
+ * or query — e.g. the columns genuinely cannot be created) resolves
+ * null, which the evaluation loop reads as "no verdict this pass"
+ * rather than a fabricated 0-trade record. Exported for the check
+ * script's fail-open pin.
+ */
+export async function guardedStats(userId: number, guard: TrailGuard): Promise<GuardPerf | null> {
+  try {
+    if (guard.engine === 'crypto') {
+      await ensureTrailGuardStampColumns();
+      const { rows } = await pool.query(
+        `SELECT COUNT(*)::int AS trades,
+                COUNT(*) FILTER (WHERE realized_pnl > 0)::int AS wins,
+                AVG(${FINAL_R}) AS avg_final,
+                AVG(CASE WHEN peak_r_multiple > 0 THEN peak_r_multiple - ${FINAL_R} END) AS avg_giveback
+           FROM cryptocom_engine_trades t
+          WHERE user_id = $1 AND trail_guard_id = $2 AND status = 'closed'
+            AND closed_at >= now() - ($3 || ' days')::interval AND closed_at >= $4`,
+        [userId, guard.id, String(WINDOW_DAYS), guard.promotedAt]);
+      const r = rows[0] ?? {};
+      return { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgFinal: num(r.avg_final), avgGiveback: num(r.avg_giveback) };
+    }
+    await ensureSolTrailGuardColumns();
     const { rows } = await pool.query(
       `SELECT COUNT(*)::int AS trades,
-              COUNT(*) FILTER (WHERE realized_pnl > 0)::int AS wins,
-              AVG(${FINAL_R}) AS avg_final,
-              AVG(CASE WHEN peak_r_multiple > 0 THEN peak_r_multiple - ${FINAL_R} END) AS avg_giveback
-         FROM cryptocom_engine_trades t
-        WHERE user_id = $1 AND trail_guard_id = $2 AND status = 'closed'
+              COUNT(*) FILTER (WHERE net_pct > 0)::int AS wins,
+              AVG(net_pct) AS avg_final,
+              AVG(CASE WHEN peak_gain_pct IS NOT NULL AND gross_pct IS NOT NULL THEN peak_gain_pct - gross_pct END) AS avg_giveback
+         FROM sol_shadow_context
+        WHERE user_id = $1 AND trail_guard_id = $2 AND closed_at IS NOT NULL
           AND closed_at >= now() - ($3 || ' days')::interval AND closed_at >= $4`,
       [userId, guard.id, String(WINDOW_DAYS), guard.promotedAt]);
     const r = rows[0] ?? {};
     return { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgFinal: num(r.avg_final), avgGiveback: num(r.avg_giveback) };
+  } catch (e: any) {
+    console.error(`[trail-guard-learning] guarded stats failed for guard ${guard.id} (non-fatal):`, e?.message || e);
+    return null;
   }
-  await ensureSolShadowContextTable();
-  const { rows } = await pool.query(
-    `SELECT COUNT(*)::int AS trades,
-            COUNT(*) FILTER (WHERE net_pct > 0)::int AS wins,
-            AVG(net_pct) AS avg_final,
-            AVG(CASE WHEN peak_gain_pct IS NOT NULL AND gross_pct IS NOT NULL THEN peak_gain_pct - gross_pct END) AS avg_giveback
-       FROM sol_shadow_context
-      WHERE user_id = $1 AND trail_guard_id = $2 AND closed_at IS NOT NULL
-        AND closed_at >= now() - ($3 || ' days')::interval AND closed_at >= $4`,
-    [userId, guard.id, String(WINDOW_DAYS), guard.promotedAt]);
-  const r = rows[0] ?? {};
-  return { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgFinal: num(r.avg_final), avgGiveback: num(r.avg_giveback) };
 }
 
 /** Pre-guard baseline recomputed from closes before promotion — only used
- *  when the promotion-time snapshot stored on the guard is incomplete. */
-async function computedBaseline(userId: number, guard: TrailGuard): Promise<GuardPerf | null> {
+ *  when the promotion-time snapshot stored on the guard is incomplete.
+ *  Never rejects (same fail-open contract as guardedStats). The crypto
+ *  query runs on cryptocom_engine_trades, so it awaits the stamp-column
+ *  ensure first even though it never names the columns itself. */
+export async function computedBaseline(userId: number, guard: TrailGuard): Promise<GuardPerf | null> {
   const groupCol = guard.dimension === 'strategy'
     ? (guard.engine === 'crypto' ? 'strategy' : 'strategy_id')
     : 'symbol';
-  if (guard.engine === 'crypto') {
-    await ensureTrailGuardStampColumns();
+  try {
+    if (guard.engine === 'crypto') {
+      await ensureTrailGuardStampColumns();
+      const { rows } = await pool.query(
+        `SELECT COUNT(*)::int AS trades,
+                COUNT(*) FILTER (WHERE realized_pnl > 0)::int AS wins,
+                AVG(${FINAL_R}) AS avg_final,
+                AVG(CASE WHEN peak_r_multiple > 0 THEN peak_r_multiple - ${FINAL_R} END) AS avg_giveback
+           FROM cryptocom_engine_trades t
+          WHERE user_id = $1 AND ${groupCol} = $2 AND status = 'closed'
+            AND closed_at < $3 AND closed_at >= $3::timestamptz - ($4 || ' days')::interval`,
+        [userId, guard.key, guard.promotedAt, String(WINDOW_DAYS)]);
+      const r = rows[0] ?? {};
+      if ((Number(r.trades) || 0) < 5) return null;
+      return { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgFinal: num(r.avg_final), avgGiveback: num(r.avg_giveback) };
+    }
+    await ensureSolTrailGuardColumns();
     const { rows } = await pool.query(
       `SELECT COUNT(*)::int AS trades,
-              COUNT(*) FILTER (WHERE realized_pnl > 0)::int AS wins,
-              AVG(${FINAL_R}) AS avg_final,
-              AVG(CASE WHEN peak_r_multiple > 0 THEN peak_r_multiple - ${FINAL_R} END) AS avg_giveback
-         FROM cryptocom_engine_trades t
-        WHERE user_id = $1 AND ${groupCol} = $2 AND status = 'closed'
+              COUNT(*) FILTER (WHERE net_pct > 0)::int AS wins,
+              AVG(net_pct) AS avg_final,
+              AVG(CASE WHEN peak_gain_pct IS NOT NULL AND gross_pct IS NOT NULL THEN peak_gain_pct - gross_pct END) AS avg_giveback
+         FROM sol_shadow_context
+        WHERE user_id = $1 AND ${groupCol} = $2 AND closed_at IS NOT NULL
           AND closed_at < $3 AND closed_at >= $3::timestamptz - ($4 || ' days')::interval`,
       [userId, guard.key, guard.promotedAt, String(WINDOW_DAYS)]);
     const r = rows[0] ?? {};
     if ((Number(r.trades) || 0) < 5) return null;
     return { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgFinal: num(r.avg_final), avgGiveback: num(r.avg_giveback) };
+  } catch (e: any) {
+    console.error(`[trail-guard-learning] baseline stats failed for guard ${guard.id} (non-fatal):`, e?.message || e);
+    return null;
   }
-  await ensureSolShadowContextTable();
-  const { rows } = await pool.query(
-    `SELECT COUNT(*)::int AS trades,
-            COUNT(*) FILTER (WHERE net_pct > 0)::int AS wins,
-            AVG(net_pct) AS avg_final,
-            AVG(CASE WHEN peak_gain_pct IS NOT NULL AND gross_pct IS NOT NULL THEN peak_gain_pct - gross_pct END) AS avg_giveback
-       FROM sol_shadow_context
-      WHERE user_id = $1 AND ${groupCol} = $2 AND closed_at IS NOT NULL
-        AND closed_at < $3 AND closed_at >= $3::timestamptz - ($4 || ' days')::interval`,
-    [userId, guard.key, guard.promotedAt, String(WINDOW_DAYS)]);
-  const r = rows[0] ?? {};
-  if ((Number(r.trades) || 0) < 5) return null;
-  return { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgFinal: num(r.avg_final), avgGiveback: num(r.avg_giveback) };
 }
 
 async function baselineFor(userId: number, guard: TrailGuard): Promise<GuardPerf | null> {
@@ -251,6 +272,10 @@ export async function evaluateTrailGuardsForUser(userId: number, force = false):
           guardedStats(userId, guard),
           baselineFor(userId, guard),
         ]);
+        // Stats unreadable this pass (DB hiccup, columns unfixable):
+        // no verdict and NO eval record — never overwrite a real
+        // verdict with a fabricated "watching 0/N" line.
+        if (!guarded) continue;
         const unit = guard.engine === 'crypto' ? 'R' : '%';
         const { verdict, reason } = evaluateGuardPerformance(guarded, baseline, {
           minTrades: MIN_GUARDED(), delta: harmDelta(guard.engine), unit,
@@ -296,6 +321,16 @@ let _started = false;
 export function startTrailGuardLearning(): void {
   if (_started) return;
   _started = true;
+  // Boot warm-up: create the trail-guard stamp columns NOW, in this
+  // process, instead of waiting for a guard-gated path that may never
+  // run. The crypto columns are named by every Drizzle query on
+  // cryptocom_engine_trades (PR #69 put them in the schema), so their
+  // existence must not depend on a guard ever being promoted — that
+  // coupling is what produced the 2026-11-13 "column trail_guard_id
+  // does not exist" cluster. Both ensures are idempotent, memoized and
+  // non-rejecting, so this fire-and-forget is safe.
+  void ensureTrailGuardStampColumns();
+  void ensureSolTrailGuardColumns();
   const sweep = async () => {
     if (!trailGuardLearningOn()) return;
     try {

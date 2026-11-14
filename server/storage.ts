@@ -98,6 +98,7 @@ import {
   type StopOrder,
 } from "@shared/schema";
 import { db, pool } from "./db";
+import { ensureTrailGuardStampColumns } from "./services/trail-guards";
 import { eq, and, sql, desc, isNull, gte, lte, lt, inArray } from "drizzle-orm";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -2484,12 +2485,24 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
+  // ── Trail-guard stamp columns (cryptocom_engine_trades) ──────────────
+  // The Drizzle schema carries trail_guard_id/_action/_profile on this
+  // table (PR #69), so EVERY query below — full selects and INSERT/
+  // UPDATE … RETURNING alike — names those columns. They are created
+  // lazily by ensureTrailGuardStampColumns(); each method here awaits
+  // it first so the columns' existence never depends on a trail guard
+  // having been promoted (the 2026-11-13 "column trail_guard_id does
+  // not exist" failure). The ensure is memoized + non-rejecting, so
+  // after the first call this is a resolved-promise await.
+
   async createCryptocomEngineTrade(trade: InsertCryptocomEngineTrade): Promise<CryptocomEngineTrade> {
+    await ensureTrailGuardStampColumns();
     const [result] = await db.insert(cryptocomEngineTrades).values(trade).returning();
     return result;
   }
 
   async getOpenCryptocomEngineTrades(userId: number): Promise<CryptocomEngineTrade[]> {
+    await ensureTrailGuardStampColumns();
     return db.select().from(cryptocomEngineTrades)
       .where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, 'open')));
   }
@@ -2501,6 +2514,7 @@ export class DatabaseStorage implements IStorage {
    * abandon live positions to run unprotected.
    */
   async getUserIdsWithOpenCryptocomTrades(): Promise<number[]> {
+    await ensureTrailGuardStampColumns();
     const rows = await db.selectDistinct({ userId: cryptocomEngineTrades.userId })
       .from(cryptocomEngineTrades)
       .where(eq(cryptocomEngineTrades.status, 'open'));
@@ -2508,6 +2522,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserCryptocomEngineTrades(userId: number, limit: number = 50): Promise<CryptocomEngineTrade[]> {
+    await ensureTrailGuardStampColumns();
     return db.select().from(cryptocomEngineTrades)
       .where(eq(cryptocomEngineTrades.userId, userId))
       .orderBy(desc(cryptocomEngineTrades.createdAt))
@@ -2530,6 +2545,7 @@ export class DatabaseStorage implements IStorage {
    * recoverStaleCryptocomCloseClaims below.
    */
   async claimCryptocomEngineTradeForClose(id: number): Promise<CryptocomEngineTrade | undefined> {
+    await ensureTrailGuardStampColumns();
     const [row] = await db.update(cryptocomEngineTrades)
       .set({ status: 'closing', updatedAt: new Date() })
       .where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, 'open')))
@@ -2539,6 +2555,7 @@ export class DatabaseStorage implements IStorage {
 
   /** Hand a claimed trade back to 'open' when the close could not be executed. */
   async releaseCryptocomEngineTradeClaim(id: number): Promise<void> {
+    await ensureTrailGuardStampColumns();
     await db.update(cryptocomEngineTrades)
       .set({ status: 'open', updatedAt: new Date() })
       .where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, 'closing')));
@@ -2551,6 +2568,7 @@ export class DatabaseStorage implements IStorage {
    * avoid. Returns how many were recovered.
    */
   async recoverStaleCryptocomCloseClaims(olderThanMs: number = 5 * 60 * 1000): Promise<number> {
+    await ensureTrailGuardStampColumns();
     const cutoff = new Date(Date.now() - olderThanMs);
     const rows = await db.update(cryptocomEngineTrades)
       .set({ status: 'open', updatedAt: new Date() })
@@ -2579,12 +2597,14 @@ export class DatabaseStorage implements IStorage {
    */
   async updateCryptocomEngineTradeQuantity(id: number, quantity: number): Promise<void> {
     if (!(quantity > 0)) return;
+    await ensureTrailGuardStampColumns();
     await db.update(cryptocomEngineTrades)
       .set({ quantity, updatedAt: new Date() })
       .where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, 'open')));
   }
 
   async flagCryptocomEngineTradeUnreconciled(id: number, note: string): Promise<CryptocomEngineTrade | undefined> {
+    await ensureTrailGuardStampColumns();
     const [row] = await db.update(cryptocomEngineTrades)
       .set({ status: 'needs_reconciliation', exitReason: note, updatedAt: new Date() })
       .where(and(eq(cryptocomEngineTrades.id, id), inArray(cryptocomEngineTrades.status, ['open', 'closing'])))
@@ -2611,6 +2631,7 @@ export class DatabaseStorage implements IStorage {
    * statements exactly one matches a row and the other returns none.
    */
   async closeCryptocomEngineTrade(id: number, data: { exitPrice: number; exitOrderId?: string; exitReason: string; realizedPnl: number }): Promise<CryptocomEngineTrade | undefined> {
+    await ensureTrailGuardStampColumns();
     const [result] = await db.update(cryptocomEngineTrades)
       .set({ status: 'closed', exitPrice: data.exitPrice, exitOrderId: data.exitOrderId, exitReason: data.exitReason, realizedPnl: data.realizedPnl, closedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, 'closing')))
@@ -2619,6 +2640,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTodayCryptocomEngineTradeCount(userId: number): Promise<number> {
+    await ensureTrailGuardStampColumns();
     const startOfDay = new Date(); startOfDay.setUTCHours(0, 0, 0, 0);
     const rows = await db.select().from(cryptocomEngineTrades)
       .where(and(eq(cryptocomEngineTrades.userId, userId), gte(cryptocomEngineTrades.createdAt, startOfDay)));
@@ -2626,6 +2648,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTodayCryptocomEngineRealizedPnl(userId: number): Promise<number> {
+    await ensureTrailGuardStampColumns();
     const startOfDay = new Date(); startOfDay.setUTCHours(0, 0, 0, 0);
     const rows = await db.select().from(cryptocomEngineTrades)
       .where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, 'closed'), gte(cryptocomEngineTrades.closedAt, startOfDay)));
@@ -2633,6 +2656,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCryptocomEngineTradeStats(userId: number): Promise<{ totalClosed: number; wins: number; winRate: number }> {
+    await ensureTrailGuardStampColumns();
     const rows = await db.select().from(cryptocomEngineTrades)
       .where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, 'closed')));
     const totalClosed = rows.length;
@@ -2642,6 +2666,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCryptocomEngineDailyPnlHistory(userId: number, days: number): Promise<Record<string, number>> {
+    await ensureTrailGuardStampColumns();
     const since = new Date(); since.setUTCHours(0, 0, 0, 0); since.setUTCDate(since.getUTCDate() - days);
     const rows = await db.select().from(cryptocomEngineTrades)
       .where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, 'closed'), gte(cryptocomEngineTrades.closedAt, since)));
@@ -2655,6 +2680,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateCryptocomEngineTradeTrailState(id: number, data: { peakRMultiple: number; trailArmed: boolean }): Promise<void> {
+    await ensureTrailGuardStampColumns();
     await db.update(cryptocomEngineTrades)
       .set({ peakRMultiple: data.peakRMultiple, trailArmed: data.trailArmed, updatedAt: new Date() })
       .where(eq(cryptocomEngineTrades.id, id));
