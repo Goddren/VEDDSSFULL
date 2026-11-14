@@ -178,6 +178,7 @@ async function getClient(userId: number): Promise<{ client: any; model: string }
 // ── Idea Lab: shared by /api/abba/chat and /api/abba/stream ───────────────────
 export const IDEA_MARKER = '[[IDEA_READY]]';
 export const SETUP_MARKER = '[[SETUP_READY]]';
+export const STRATEGY_MARKER = '[[STRATEGY_READY]]';
 
 // The model doesn't reliably emit the markers, so also read the trader's own
 // words: an explicit ask, or a "yes" right after ABBA offered the card.
@@ -189,6 +190,10 @@ export function wantsSetupCard(message: string, lastAbba: string): boolean {
 export function wantsIdeaCard(message: string, lastAbba: string): boolean {
   return /add (it|this|that)( idea)? to (my|the) brain|test (it|this|that) in shadow|shadow[- ]test (it|this|that)/i.test(message)
     || (YES.test(message) && /shadow mode|shadow test|to your brain|to my brain/i.test(lastAbba));
+}
+export function wantsStrategyCard(message: string, lastAbba: string): boolean {
+  return /(build|create|make|design|draft|save) (me )?(a |the |that |this |my )?strateg|strategy (card|draft)|put (it|this|that) on a (strategy )?card/i.test(message)
+    || (YES.test(message) && /strategy card|draft (it|that|this) into a strategy|build (it|that|this) as a strategy/i.test(lastAbba));
 }
 /** What the engines are set to RIGHT NOW, so ABBA talks about the real settings, not an old plan. */
 async function engineNowText(userId: number): Promise<string> {
@@ -213,6 +218,18 @@ Always describe and plan from these settings. If the active weekly plan disagree
 }
 
 export async function abbaIdeaLabPrompt(userId: number): Promise<string> {
+  const { strategyCreateEnabled } = await import('./services/abba-strategy-create');
+  const strategySection = strategyCreateEnabled() ? `
+=== BUILD A STRATEGY WITH ABBA (the Strategy Studio, by talk) ===
+The trader can build a full ENTRY strategy with you — the same strategies the Strategy Studio builder makes: indicator rules on a pair and timeframe, saved to their account, then backtested, shadow-tested and even sold in the marketplace, exactly like a Studio-built one. This is NOT Idea Lab (those are filters on the live engine) and NOT the Week Setup (engine settings).
+When they describe a strategy they want ("build me an ORB strategy on EURUSD", "make a strategy that buys RSI dips on gold"), interview them ONE short question at a time until you know: 1. Which market/pair? 2. Which timeframe? 3. The entry rule — what has to happen to buy, and what has to happen to sell? 4. How a trade gets out when it goes wrong — a stop loss and/or take profit (in pips, or sized off ATR)?
+You can only build with what the Studio supports: indicators EMA, SMA, RSI, MACD, stochastic, Bollinger Bands, ATR, VWAP, ADX, CCI, Williams %R, Ichimoku, Supertrend, Donchian channels, volume profile (POC / value area), daily pivots, opening range (ORB), swing highs/lows, fair value gaps, order blocks. Rules compare an indicator (or price) against a number, another indicator or price: crosses above/below, above/below, rising/falling, turns up/down. Optional extras: a higher-timeframe trend filter, a UTC session window, trailing stop, breakeven move, max trades a day. If they ask for something outside that (trading the news, order-book depth, ML predictions, options legs, copy a specific trader), say plainly it can't be built that way and offer the closest supported version.
+NEVER promise a strategy will make money. A strategy built here is UNPROVEN until its backtest and shadow record say otherwise — say that once when you present the design.
+Skip questions they already answered. Any default you choose (a mirrored sell rule, the standard New York ORB window) must be said out loud in your read-back. When the design is complete, read the whole strategy back in plain words — name, pair, timeframe, buy rule, sell rule, stop/target — and ask "Want me to put that on a strategy card?". ONLY after they clearly say yes, end your reply with [[STRATEGY_READY]] on its own line, never otherwise. The strategy card is where they review it and tap Save strategy — you never save, backtest or deploy a strategy yourself, and nothing trades from this chat.
+` : `
+=== BUILD A STRATEGY WITH ABBA ===
+Strategy creation by chat is currently OFF. If they ask you to build, draft or save a strategy, tell them straight that building by chat is off right now and point them to the Strategy Studio page, where the same builder lives. Never output [[STRATEGY_READY]].
+`;
   return `${await engineNowText(userId)}=== WEEKLY REVIEW (real numbers, UTC weeks Mon-Sun) ===
 ${await reviewContextText(userId)}
 
@@ -235,7 +252,7 @@ STRATEGY WIZARD: entry strategies (RSI, MACD, stochastic, MA cross, breakout, en
 Skip questions they already answered. Suggest ideas backed by their BY PAIR / BY SESSION numbers when they're unsure. Then read the idea back in one sentence and ask "Want me to test that in shadow mode?". ONLY after they clearly say yes, end your reply with the exact marker [[IDEA_READY]] on its own line. Never output the marker otherwise.
 Their current ideas:
 ${await ideasContextText(userId)}
-
+${strategySection}
 ${await wizardContextText(userId)}`;
 }
 
@@ -282,6 +299,24 @@ Use empty arrays for "any". action "block" skips matching signals, "only" trades
   if (!rule) return null;
   const evidence = await backtestIdea(userId, rule);
   return { title: String(out.title || 'My idea').slice(0, 120), rationale: String(out.rationale || '').slice(0, 1000), rule, summary: describeRule(rule), evidence };
+}
+
+// Conversation → Strategy Studio spec draft (shaped + validated, never saved here)
+export async function extractStrategyDraft(ai: { client: any; model: string }, convo: any[], message: string, reply: string) {
+  const { strategyCreateEnabled, ABBA_STRATEGY_SPEC_FORMAT, shapeAbbaStrategyDraft } = await import('./services/abba-strategy-create');
+  if (!strategyCreateEnabled()) return null;
+  const transcript = [...convo, { role: 'user', content: message }, { role: 'assistant', content: reply }]
+    .map((m) => `${m.role === 'assistant' ? 'ABBA' : 'TRADER'}: ${String(m.content).slice(0, 1500)}`).join('\n');
+  const r = await ai.client.chat.completions.create({
+    model: ai.model, temperature: 0, max_tokens: 1600,
+    messages: [
+      { role: 'system', content: `Extract the trading strategy the trader just agreed to into a Strategy Studio spec. Use ONLY what was agreed in the conversation — do not improve, extend or "fix" their design beyond the mirroring rule below.\n${ABBA_STRATEGY_SPEC_FORMAT}` },
+      { role: 'user', content: transcript },
+    ],
+  });
+  const m = String(r.choices[0]?.message?.content || '').match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  return shapeAbbaStrategyDraft(JSON.parse(m[0]));
 }
 
 // ── Strategist: diagnose + adapt next-day/weekly plan + setups ──────────────────
@@ -524,10 +559,23 @@ ${engineRoomText}` : ''}`;
       reply = reply.split(SETUP_MARKER).join('').trim();
       setupDraft = await extractSetupDraft(ai, msgs.slice(1), message, reply).catch((e) => { console.error('[Abba setup extract]', e?.message); return null; });
     }
+    // Strategy creation: the trader agreed to a strategy design → a shaped,
+    // Studio-validated DRAFT for the proposal card. Nothing is saved in
+    // chat — the card's Save button is the only write path.
+    let strategyDraft: any = null;
+    {
+      const { strategyCreateEnabled } = await import('./services/abba-strategy-create');
+      if (strategyCreateEnabled() && (reply.includes(STRATEGY_MARKER) || wantsStrategyCard(message, lastAbba))) {
+        reply = reply.split(STRATEGY_MARKER).join('').trim();
+        strategyDraft = await extractStrategyDraft(ai, msgs.slice(1), message, reply).catch((e) => {
+          console.error('[Abba strategy extract]', e?.message); return null;
+        });
+      }
+    }
     // `response` mirrors `reply`: the floating assistant's non-stream fallback
     // (and the ABBA page's older code path) read `data.response`, so both
     // shapes are served from this one handler.
-    res.json({ reply, response: reply, ideaDraft, setupDraft });
+    res.json({ reply, response: reply, ideaDraft, setupDraft, strategyDraft });
   } catch (err: any) {
     console.error('[Abba chat]', err);
     res.status(500).json({ error: err.message });
