@@ -80,27 +80,27 @@ const buySeg = routesSrc.slice(buyStart, routesSrc.indexOf('// ── Daily Trad
     row({ epoch: undefined }),
   ];
   const proof = fxModelListingProof(mixed);
-  check('A1 listing proof counts epoch-2 rows only', proof.tradeCount === 20, `got ${proof.tradeCount} of 36 rows`);
+  check('A1 listing proof counts current-epoch rows only', proof.tradeCount === 20, `got ${proof.tradeCount} of 36 rows`);
   check('A2 a snapshot with pre-epoch rows is marked legacy', proof.legacy === true && proof.epoch === 1);
-  check('A3 proof stats grade the epoch-2 rows only', proof.avgR === 1 && proof.winRate === 1, `avgR=${proof.avgR} winRate=${proof.winRate}`);
+  check('A3 proof stats grade the current-epoch rows only', proof.avgR === 1 && proof.winRate === 1, `avgR=${proof.avgR} winRate=${proof.winRate}`);
   check('A4 proof is labelled shadow proof with a prop sim attached',
     proof.proofType === 'shadow' && proof.kind === 'fx_model' && !!proof.propSim.M1 && proof.propSim.M1.tradesTaken === 20);
 
   const currentOnly = fxModelListingProof(Array.from({ length: 25 }, () => row({ r_multiple: 0.5 })));
-  check('A5 a pure epoch-2 snapshot is the current system record', currentOnly.legacy === false && currentOnly.epoch === 2 && currentOnly.tradeCount === 25);
+  check('A5 a pure current-epoch snapshot is the current system record', currentOnly.legacy === false && currentOnly.epoch === MODELS_EPOCH && currentOnly.tradeCount === 25);
 
   const listingSeg = fxSrc.slice(fxSrc.indexOf('export async function getFxModelListingRows'), fxSrc.indexOf('export function fxModelRowsForStats'));
-  check('A6 the listing query itself filters to epoch 2', listingSeg.includes('AND epoch = ${MODELS_EPOCH}') && listingSeg.includes("source='own'"));
+  check('A6 the listing query itself filters to the current epoch', listingSeg.includes('AND epoch = ${currentModelsEpoch()}') && listingSeg.includes("source='own'"));
   check('A7 the listing minimum counts those epoch-2 rows (route checks rows.length)',
     routesSrc.includes('r.rows.length < fm.FX_MODEL_MIN_TO_LIST'));
 
-  check('A8 import keeps epoch 2 and demotes everything else to legacy epoch 1',
-    fxModelImportEpoch({ epoch: 2 }) === 2 && fxModelImportEpoch({ epoch: 1 }) === 1 && fxModelImportEpoch({}) === 1 && fxModelImportEpoch({ epoch: 3 }) === 1);
+  check('A8 import keeps the current epoch and demotes everything else to legacy epoch 1',
+    fxModelImportEpoch({ epoch: MODELS_EPOCH }) === MODELS_EPOCH && fxModelImportEpoch({ epoch: 2 }) === 1 && fxModelImportEpoch({ epoch: 1 }) === 1 && fxModelImportEpoch({}) === 1 && fxModelImportEpoch({ epoch: 99 }) === 1);
 
-  const stamped = stampFxModelImportContext({ volumeProfile: { poc: 1.1 } }, { epoch: 2 }, { sellerId: 7, listingId: 42 });
+  const stamped = stampFxModelImportContext({ volumeProfile: { poc: 1.1 } }, { epoch: MODELS_EPOCH }, { sellerId: 7, listingId: 42 });
   check('A9 import stamps marketplace provenance and keeps the original context',
     stamped?.marketplace?.source === 'marketplace_model' && stamped?.marketplace?.sellerId === 7
-    && stamped?.marketplace?.listingId === 42 && stamped?.marketplace?.epoch === 2
+    && stamped?.marketplace?.listingId === 42 && stamped?.marketplace?.epoch === MODELS_EPOCH
     && (stamped as any)?.volumeProfile?.poc === 1.1, JSON.stringify(stamped));
   const stampedLegacy = stampFxModelImportContext(null, { epoch: 1 }, { sellerId: 7, listingId: 42 });
   check('A10 a legacy snapshot imports stamped with epoch 1 (never live-eligible)',
@@ -117,13 +117,13 @@ const buySeg = routesSrc.slice(buyStart, routesSrc.indexOf('// ── Daily Trad
 {
   const importedSlice = (over: any = {}): any => ({
     model: 'M1', dayType: 'range', symbol: 'EURUSD', session: 'London',
-    source: 'marketplace_model', listingId: 42, sellerId: 7, recordEpoch: 2, legacy: false,
+    source: 'marketplace_model', listingId: 42, sellerId: 7, recordEpoch: MODELS_EPOCH, legacy: false,
     trades: 64, wins: 32, winRate: 0.5, avgR: 0.3, totalR: 19.2,
     level: 'Proficient', allTimeLevel: 'Proficient',
     epochTrades: 60, epochWins: 30, epochWinRate: 0.5, epochAvgR: 0.3, epochTotalR: 18, epochLevel: 'Proficient',
     ...over,
   });
-  check('B1 a perfect imported epoch-2 slice meets the live bar', importedSliceMeetsBar(importedSlice()) === true);
+  check('B1 a perfect imported current-epoch slice meets the live bar', importedSliceMeetsBar(importedSlice()) === true);
   check('B2 the same slice as an OWN slice meets the same bar (one bar for both)',
     sliceMeetsBar({ ...importedSlice(), source: 'own' }) === true);
   check('B3 an epoch-1 imported slice is not eligible', importedSliceMeetsBar(importedSlice({ recordEpoch: 1, legacy: true })) === false);

@@ -30,8 +30,9 @@
 // Epoch + probation + prop-firm sim (Nov 12, 2026, user directives):
 //   • EPOCH — the promotion bar (sliceLiveReady) must grade only the
 //     CURRENT system. Decisions inserted from this build onward are
-//     stamped epoch = MODELS_EPOCH (2); pre-existing rows default to
-//     epoch 1. getModelMastery still returns all-time rows for display,
+//     stamped epoch = MODELS_EPOCH (3 since the AI-regime build;
+//     epoch 2 was the enriched/lifts system); rows keep the epoch they
+//     were stamped with. getModelMastery still returns all-time rows for display,
 //     but level / ready math uses epoch-filtered stats. Kill switch
 //     FX_MODELS_EPOCH=off makes promotion counting all-time again.
 //   • LIFTS (probation release) — for the enriched (epoch-2) models,
@@ -53,14 +54,46 @@
 //     wired into getModelMastery as `propSim`, never into a live path.
 //
 // Marketplace completion (Nov 12, 2026, user directive):
-//   • New model listings snapshot ONLY the current (epoch-2) record and
+//   • New model listings snapshot ONLY the current-system record and
 //     carry its proof + prop-sim summary, so a buyer can see which
 //     system produced the record before paying.
-//   • A purchased epoch-2 slice can qualify the BUYER's own new shadow
+//   • A purchased current-epoch slice can qualify the BUYER's own new shadow
 //     idea for the same live hand-off, under the buyer's own live
 //     toggle, the buyer's shared M1/M2 daily caps, and every normal
-//     engine guard. Pre-epoch-2 snapshots are legacy and never qualify.
+//     engine guard. Older-epoch snapshots are legacy and never qualify.
 //     Kill switch FX_MODEL_MARKETPLACE_LIVE=off restores own-only.
+//
+// AI regime vote + strategy-signal directive (Nov 13, 2026, user
+// directive — build #2 of the engine-accuracy list):
+//   • The batched AI call ALSO returns a per-pair regime vote
+//     (range | trend | mixed + confidence). The deterministic
+//     scorecard stays the default: the vote DECIDES the day type only
+//     when the scorecard verdict is mixed — its borderline band — and
+//     the vote confidence clears FX_MODELS_AI_REGIME_MIN_CONF
+//     (default 0.6). A decisive scorecard is never overridden. Every
+//     decision stamps regimeSource / aiRegime / aiRegimeConfidence /
+//     scorecardRegime so the record can later judge whether the AI
+//     calls regime better than the scorecard — v1 is the tie-break
+//     only, by design, until that record says otherwise.
+//   • The prompt names the active strategy signals for each pair —
+//     derived ONLY from context that actually exists (ORB state, ICT
+//     BOS/CHOCH structure, the trend/momentum composite, volume
+//     profile, the server-checked measured-range candidate, plus any
+//     ctx.signals entries a caller attached) — and directs the AI to
+//     prefer aligned setups and NAME the alignment. Ideas record
+//     strategyAligned, validated against the pair's active list, so
+//     slices can later be cut by named strategy. (The sniper /
+//     prop-firm strategy picks are NOT in the models' context today:
+//     they are computed inside the live engine's decision path, after
+//     the models cycle runs — they are not listed, and compounding is
+//     a sizing mode, not a signal.)
+//   • Kill switch FX_MODELS_AI_REGIME=off restores the pre-build
+//     behavior exactly: scorecard-only regime, the pre-build prompt
+//     byte for byte, no regime/strategy stamps — and the current
+//     epoch falls back to 2 (see currentModelsEpoch), so promotion,
+//     listing and marketplace counting grade the epoch-2 record
+//     again. Epoch-3 rows stay stored and count again when the
+//     switch is turned back on. FX_MODELS_EPOCH=off still = all-time.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { pool } from '../db';
@@ -186,14 +219,124 @@ export function classifyDayType(input: {
 export const modelsEnrichOn = (): boolean => process.env.FX_MODELS_ENRICH !== 'off';
 
 // ── Epoch (promotion counts the current system only) ─────────────────────
-// Epoch 1 = every decision recorded before this build (including the
-// brief enriched-but-unstamped window after PR #57 — those rows carry
-// the DB default 1; only rows inserted by this build onward are stamped
-// 2). Epoch 2 = decisions made with the enriched context (VP / Markov /
-// ORB / D1) under the probation release.
-export const MODELS_EPOCH = 2;
+// Epoch 1 = every decision recorded before the epoch builds (including
+// the brief enriched-but-unstamped window after PR #57 — those rows
+// carry the DB default 1). Epoch 2 = decisions made with the enriched
+// context (VP / Markov / ORB / D1) under the probation release.
+// Epoch 3 = epoch 2 + the AI regime tie-break and the strategy-signal
+// directive (this build). MODELS_EPOCH is the LATEST system epoch;
+// currentModelsEpoch() is the epoch the running configuration grades
+// and stamps: 3 while the AI-regime build is on, 2 when it is killed
+// (FX_MODELS_AI_REGIME=off restores the pre-build system wholesale).
+export const MODELS_EPOCH = 3;
+export const PREVIOUS_MODELS_EPOCH = 2;
 /** Kill switch FX_MODELS_EPOCH=off → promotion counting is all-time again. */
 export const modelsEpochOn = (): boolean => process.env.FX_MODELS_EPOCH !== 'off';
+
+// ── AI regime vote (tie-break only) + strategy-signal directive ─────────
+/** Kill switch FX_MODELS_AI_REGIME=off → scorecard-only regime, the
+ *  pre-build prompt byte for byte, no regime/strategy stamps, and the
+ *  current epoch falls back to PREVIOUS_MODELS_EPOCH. */
+export const modelsAiRegimeOn = (): boolean => process.env.FX_MODELS_AI_REGIME !== 'off';
+
+/** The epoch new decisions are stamped with and epoch-filtered
+ *  counting grades, under the running configuration. */
+export const currentModelsEpoch = (): number => modelsAiRegimeOn() ? MODELS_EPOCH : PREVIOUS_MODELS_EPOCH;
+
+/** Minimum AI confidence (0..1) for a regime vote to break a tie.
+ *  Env FX_MODELS_AI_REGIME_MIN_CONF, default 0.6, clamped to [0, 1]. */
+export const aiRegimeMinConfidence = (): number => {
+  const raw = Number(process.env.FX_MODELS_AI_REGIME_MIN_CONF);
+  return Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0.6;
+};
+
+export interface AiRegimeVote { regime: DayType; confidence: number }
+
+export interface RegimeResolution {
+  /** The day type the decision is recorded (and sliced) under. */
+  dayType: DayType;
+  /** The model the effective day type calls for. */
+  autoModel: ModelId;
+  regimeSource: 'scorecard' | 'ai_tiebreak';
+  /** The AI's vote, normalized; null when absent/invalid or switched off. */
+  aiRegime: DayType | null;
+  aiRegimeConfidence: number | null;
+  scorecardRegime: DayType;
+  scorecardAutoModel: ModelId;
+  /** The AI voted for a different day type than the scorecard picked. */
+  disagreement: boolean;
+  /** The vote actually decided the day type (mixed scorecard + confident vote). */
+  tiebreakApplied: boolean;
+}
+
+const DAY_TYPES: readonly string[] = ['range', 'trend', 'mixed'];
+
+/** Normalize one raw regime vote from the AI response. Confidence is
+ *  0..1; a 1..100 value is rescaled (models occasionally answer in %). */
+export function normalizeAiRegimeVote(raw: any): AiRegimeVote | null {
+  const regime = String(raw?.regime ?? raw?.dayType ?? '').toLowerCase();
+  if (!DAY_TYPES.includes(regime)) return null;
+  let conf = Number(raw?.confidence);
+  if (!Number.isFinite(conf)) return null;
+  if (conf > 1 && conf <= 100) conf = conf / 100;
+  if (conf < 0 || conf > 1) return null;
+  return { regime: regime as DayType, confidence: Math.round(conf * 1000) / 1000 };
+}
+
+/** The scorecard's borderline band: its verdict is 'mixed' (score 2–3,
+ *  between the range ≤1 and trend ≥4 cuts in classifyDayType). Only a
+ *  borderline verdict can be tie-broken — a decisive scorecard
+ *  (range/trend) is NEVER overridden by the vote in v1. */
+export const scorecardIsBorderline = (scorecard: { dayType: DayType }): boolean => scorecard.dayType === 'mixed';
+
+/**
+ * Blend the scorecard verdict with the AI's regime vote. Pure.
+ * Rules (v1, deliberately narrow):
+ *   • AI-regime off or no valid vote → the scorecard decides.
+ *   • Scorecard decisive (range/trend) → the scorecard decides; the
+ *     vote is recorded and any disagreement is flagged for the record.
+ *   • Scorecard mixed + vote confidence ≥ aiRegimeMinConfidence() →
+ *     the vote decides (regimeSource 'ai_tiebreak'); a 'mixed' vote
+ *     confirms mixed and keeps the scorecard's autoModel tie-break.
+ */
+export function resolveRegimeWithAiVote(
+  scorecard: { dayType: DayType; autoModel: ModelId; score?: number },
+  rawVote: any,
+): RegimeResolution {
+  const base: RegimeResolution = {
+    dayType: scorecard.dayType, autoModel: scorecard.autoModel, regimeSource: 'scorecard',
+    aiRegime: null, aiRegimeConfidence: null,
+    scorecardRegime: scorecard.dayType, scorecardAutoModel: scorecard.autoModel,
+    disagreement: false, tiebreakApplied: false,
+  };
+  if (!modelsAiRegimeOn()) return base;
+  const vote = normalizeAiRegimeVote(rawVote);
+  if (!vote) return base;
+  base.aiRegime = vote.regime;
+  base.aiRegimeConfidence = vote.confidence;
+  base.disagreement = vote.regime !== scorecard.dayType;
+  if (scorecardIsBorderline(scorecard) && vote.confidence >= aiRegimeMinConfidence()) {
+    base.dayType = vote.regime;
+    base.autoModel = vote.regime === 'trend' ? 'M2' : vote.regime === 'range' ? 'M1' : scorecard.autoModel;
+    base.regimeSource = 'ai_tiebreak';
+    base.tiebreakApplied = true;
+  }
+  return base;
+}
+
+export interface RegimeVoteSummary { votes: number; agreements: number; disagreements: number; tiebreaks: number; agreementRate: number | null }
+
+/** Aggregate per-pair regime resolutions into a cycle summary. Pure. */
+export function summarizeRegimeResolutions(list: RegimeResolution[]): RegimeVoteSummary {
+  let votes = 0, agreements = 0, disagreements = 0, tiebreaks = 0;
+  for (const r of list || []) {
+    if (r.aiRegime == null) continue;
+    votes++;
+    if (r.disagreement) disagreements++; else agreements++;
+    if (r.tiebreakApplied) tiebreaks++;
+  }
+  return { votes, agreements, disagreements, tiebreaks, agreementRate: votes ? agreements / votes : null };
+}
 
 // ── Lifts (formerly blocked pairs/sessions trade in shadow again) ────────
 /** Kill switch FX_MODELS_LIFTS=off → pair vetoes + M2 session veto return. */
@@ -841,6 +984,107 @@ export function m1Candidate(symbol: string, ctx: any, engine: ModelEngine = 'fx'
   };
 }
 
+export interface NamedStrategySignal { name: string; label: string; detail: string; direction?: string | null }
+
+const STRATEGY_NAME_ALIASES: Record<string, string> = {
+  orb: 'orb', opening_range: 'orb', openingrange: 'orb',
+  bos: 'ict_bos', choch: 'ict_bos', breakout: 'ict_bos', ict_bos: 'ict_bos',
+  momentum: 'momentum', trend: 'momentum',
+  vp: 'volume_profile', volume_profile: 'volume_profile', volumeprofile: 'volume_profile',
+  range: 'measured_range', measured_range: 'measured_range', measuredrange: 'measured_range',
+};
+
+/** Canonical strategyAligned name for a raw AI / signal name. */
+export function canonicalStrategyName(raw: any): string | null {
+  const key = String(raw ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (!key) return null;
+  return STRATEGY_NAME_ALIASES[key] || key;
+}
+
+/**
+ * The named strategy signals ACTIVE for a pair, derived ONLY from the
+ * model context that actually exists (see the header inventory): the
+ * ORB state (FX), ICT BOS/CHOCH structure on H1/H4, the trend/momentum
+ * composite (H1+H4 agreement, ADX, DI separation, relative volume),
+ * the volume profile, the server-checked measured-range candidate
+ * (attached by the decide path before the prompt is built), plus any
+ * caller-attached ctx.signals entries. The sniper / prop-firm picks
+ * are computed inside the live engine's decision path — after the
+ * models cycle — and are NOT in this context; they appear here only
+ * if a caller ever attaches them as ctx.signals.
+ */
+export function namedStrategySignals(ctx: any, engine: ModelEngine = 'fx'): NamedStrategySignal[] {
+  const out: NamedStrategySignal[] = [];
+  const seen = new Set<string>();
+  const push = (name: any, label: string, detail: any, direction: string | null = null) => {
+    const c = canonicalStrategyName(name);
+    if (!c || seen.has(c)) return;
+    seen.add(c);
+    out.push({ name: c, label, detail: String(detail || '').slice(0, 200), direction });
+  };
+  if (engine === 'fx') {
+    const orb = ctx?.orb;
+    if (orb && (orb.phase === 'breakout' || orb.phase === 'retest') && (orb.direction === 'BUY' || orb.direction === 'SELL')) {
+      push('orb', 'ORB', `${orb.direction} ${orb.phase}${orb.retest ? ', retest active' : ''} — opening range ${orb.rangeLow}–${orb.rangeHigh}`, orb.direction);
+    }
+  }
+  const bos: string[] = [];
+  if (ctx?.h1?.bos) bos.push(`H1 ${ctx.h1.bos}`);
+  if (ctx?.h4?.bos) bos.push(`H4 ${ctx.h4.bos}`);
+  if (bos.length) push('ict_bos', 'ICT BOS/CHOCH breakout', bos.join('; '));
+  const h1t = ctx?.h1?.trend, h4t = ctx?.h4?.trend;
+  const adx = Number(ctx?.adx);
+  const pdi = Number(ctx?.plusDI), mdi = Number(ctx?.minusDI);
+  const diSep = Number.isFinite(pdi) && Number.isFinite(mdi) ? Math.abs(pdi - mdi) : null;
+  const rv = Number(ctx?.relVolume);
+  if (h1t && h1t !== 'NEUTRAL' && h1t === h4t && Number.isFinite(adx) && adx >= 20
+    && (diSep == null || diSep >= 8) && (!Number.isFinite(rv) || rv >= 0.9)) {
+    push('momentum', 'Momentum', `H1/H4 ${h1t}, ADX ${adx.toFixed(0)}${diSep != null ? `, DI separation ${diSep.toFixed(0)}` : ''}${Number.isFinite(rv) ? `, relative volume ${rv.toFixed(2)}x` : ''}`,
+      h1t === 'BULLISH' ? 'BUY' : h1t === 'BEARISH' ? 'SELL' : null);
+  }
+  const vp = ctx?.volumeProfile;
+  if (vp) push('volume_profile', 'Volume Profile', `price ${vp.pricePos}; POC ${vp.poc}, VAH ${vp.vah}, VAL ${vp.val}`);
+  const cand = ctx?.range?.m1Candidate;
+  if (cand) push('measured_range', 'Measured Range', `${cand.direction} at the ${cand.edge} edge; first target the range mid ${cand.target}`, cand.direction);
+  const attached = ctx?.signals;
+  if (Array.isArray(attached)) {
+    for (const e of attached) {
+      if (typeof e === 'string') push(e, e, 'attached engine strategy signal');
+      else if (e && typeof e === 'object') push(e.strategy ?? e.name ?? e.id ?? e.type, String(e.strategy ?? e.name ?? e.id ?? e.type ?? 'signal'), e.reason ?? e.description ?? 'attached engine strategy signal', e.direction ?? null);
+    }
+  } else if (attached && typeof attached === 'object') {
+    for (const [k, v] of Object.entries(attached)) {
+      if (v === true) push(k, k, 'attached engine strategy signal');
+      else if (v && typeof v === 'object') push((v as any).strategy ?? (v as any).name ?? k, String((v as any).strategy ?? (v as any).name ?? k), (v as any).reason ?? (v as any).description ?? 'attached engine strategy signal', (v as any).direction ?? null);
+    }
+  }
+  return out;
+}
+
+/** Validate an AI-supplied strategyAligned against the pair's ACTIVE
+ *  named signals: an alignment the context never offered records null. */
+export function normalizeStrategyAligned(raw: any, ctx: any, engine: ModelEngine = 'fx'): string | null {
+  const c = canonicalStrategyName(raw);
+  if (!c) return null;
+  return namedStrategySignals(ctx, engine).some((s) => s.name === c) ? c : null;
+}
+
+/** The regime-vote + strategy-directive block spliced into the prompt
+ *  while the AI-regime build is on (FX_MODELS_AI_REGIME). */
+function strategyDirectiveGuidance(engine: ModelEngine, pairs: Array<{ symbol: string; ctx: any }>): string {
+  const lines = [
+    'REGIME VOTE + STRATEGY-SIGNAL DIRECTIVE:',
+    '  • REGIME VOTE: for EACH pair, return one regimeVotes entry — your honest read of the day type (range | trend | mixed) with confidence 0.00-1.00. The scorecard has already classified the pair (ctx.dayType); your vote is recorded against it and decides the day type only when the scorecard read is borderline, so vote your real read, not an echo of ctx.dayType.',
+    '  • NAMED STRATEGY SIGNALS active this hour (the only names "strategyAligned" may use, per pair):',
+    ...pairs.map((p) => {
+      const sigs = namedStrategySignals(p.ctx, engine);
+      return `    - ${p.symbol}: ${sigs.length ? sigs.map((s) => `${s.name} (${s.detail})`).join('; ') : 'none active'}`;
+    }),
+    '  • ALIGNMENT: prefer an idea aligned with an active named strategy when its quality is otherwise comparable — never force a trade just to align. For each idea, set "strategyAligned" to the exact active signal name the setup is based on, or null when it is based on none of them.',
+  ];
+  return lines.join('\n');
+}
+
 /**
  * Enrichment guidance spliced into the models prompt when enrichment is on.
  * Written against the enriched ctx fields (volumeProfile / orb / markov /
@@ -868,8 +1112,14 @@ function enrichmentGuidance(engine: ModelEngine): string {
  * (FX_MODELS_LIFTS) — the Model 2 scope line: any session, any pair, no
  * self-censoring over the formerly blocked ground. Lifts off → the
  * legacy scope line returns byte for byte.
+ *
+ * With aiRegime=false (FX_MODELS_AI_REGIME=off) the returned prompt is
+ * the pre-AI-regime prompt byte for byte (same enriched/lifts state);
+ * with it on, the response tail is replaced: a REGIME VOTE +
+ * STRATEGY-SIGNAL DIRECTIVE block is spliced in and the JSON contract
+ * gains regimeVotes[] plus a per-idea "strategyAligned".
  */
-export function buildModelsPrompt(engine: ModelEngine, session: string, pairs: Array<{ symbol: string; ctx: any }>, masteryLines: string, enriched: boolean = modelsEnrichOn()): string {
+export function buildModelsPrompt(engine: ModelEngine, session: string, pairs: Array<{ symbol: string; ctx: any }>, masteryLines: string, enriched: boolean = modelsEnrichOn(), aiRegime: boolean = modelsAiRegimeOn()): string {
   const liftsPrompt = enriched && modelsLiftsOn();
   const m2ScopeLine = liftsPrompt
     ? `  \u2022 Sessions and pairs: Model 2 may trade ANY session and any pair${M2_PAIRS_EXCLUDED.length ? ` \u2014 including ${M2_PAIRS_EXCLUDED.join(', ')} and the Asian / New York sessions, which were blocked until now` : ''}. Judge each idea on today's merits; the poor October record in those places is history in the track record below, not a rule.`
@@ -899,8 +1149,14 @@ ${pairs.map((p) => `${p.symbol}: ${JSON.stringify(p.ctx)}`).join('\n')}
 Respond ONLY with JSON:
 {"ideas":[{"symbol":"EURUSD","model":"M1","direction":"BUY|SELL|NONE","entry":1.0,"stopLoss":1.0,"takeProfit":1.0,"confidence":0-100,"setup":"short name","reason":"one sentence"}]}
 Give exactly one M1 and one M2 entry per pair.`;
-  if (!enriched) return base;
-  return base.replace('Both models use every input', `${enrichmentGuidance(engine)}Both models use every input`);
+  let prompt = !enriched ? base : base.replace('Both models use every input', `${enrichmentGuidance(engine)}Both models use every input`);
+  if (!aiRegime) return prompt;
+  const tailAt = prompt.lastIndexOf('\n\nRespond ONLY with JSON:');
+  if (tailAt < 0) return prompt;
+  const tail = `\n\n${strategyDirectiveGuidance(engine, pairs)}\n\nRespond ONLY with JSON:
+{"regimeVotes":[{"symbol":"EURUSD","regime":"range|trend|mixed","confidence":0.00}],"ideas":[{"symbol":"EURUSD","model":"M1","direction":"BUY|SELL|NONE","entry":1.0,"stopLoss":1.0,"takeProfit":1.0,"confidence":0-100,"setup":"short name","strategyAligned":"<exact active signal name for that pair, or null>","reason":"one sentence"}]}
+Give exactly one regime vote per pair and exactly one M1 and one M2 entry per pair.`;
+  return prompt.slice(0, tailAt) + tail;
 }
 
 /** The prompt's "your own track record" block, from mastery slices. */
@@ -928,6 +1184,16 @@ export interface ModelIdeaOutcome {
   /** The stored reasoning: rule note prefix (when a rule stopped it) + reason. */
   reasoning: string;
   ruleNote: string;
+  /** Regime provenance (AI-regime build): how the recorded day type was
+   *  decided, the AI's vote, and the scorecard's own verdict. All null
+   *  when FX_MODELS_AI_REGIME=off (the pre-build behavior). */
+  regimeSource: 'scorecard' | 'ai_tiebreak' | null;
+  aiRegime: DayType | null;
+  aiRegimeConfidence: number | null;
+  scorecardRegime: DayType | null;
+  /** The named active strategy the idea is aligned with (validated
+   *  against the pair's active list), or null. */
+  strategyAligned: string | null;
   storedCtx: any;
 }
 
@@ -939,6 +1205,10 @@ export interface DecideModelIdeasResult {
   paused: boolean;
   /** The AI client or the AI call itself failed. */
   failed: boolean;
+  /** Per-pair regime-vote accounting for this call: how often the AI
+   *  agreed/disagreed with the scorecard and how many tie-breaks it
+   *  actually decided. Zeroed when the AI-regime build is off. */
+  regimeSummary: RegimeVoteSummary;
 }
 
 /**
@@ -955,7 +1225,7 @@ export async function decideModelIdeas(userId: number, session: string, pairs: A
   masteryLines: string;
   rangeFor: (symbol: string) => Promise<any | null>;
 }): Promise<DecideModelIdeasResult> {
-  const out: DecideModelIdeasResult = { outcomes: [], aiCalls: 0, paused: false, failed: false };
+  const out: DecideModelIdeasResult = { outcomes: [], aiCalls: 0, paused: false, failed: false, regimeSummary: { votes: 0, agreements: 0, disagreements: 0, tiebreaks: 0, agreementRate: null } };
   try {
     const { fxShouldPauseForCredits } = await import('./ai-budget-guard');
     if (fxShouldPauseForCredits()) { out.paused = true; return out; }
@@ -991,8 +1261,32 @@ export async function decideModelIdeas(userId: number, session: string, pairs: A
     out.failed = true;
     return out;
   }
-  let ideas: any[] = [];
-  try { ideas = JSON.parse(content.slice(content.indexOf('{'), content.lastIndexOf('}') + 1))?.ideas || []; } catch { return out; }
+  let parsed: any = null;
+  try { parsed = JSON.parse(content.slice(content.indexOf('{'), content.lastIndexOf('}') + 1)); } catch { return out; }
+  const ideas: any[] = Array.isArray(parsed?.ideas) ? parsed.ideas : [];
+
+  // Regime votes: resolve each pair's scorecard verdict against the
+  // AI's vote (tie-break only — see resolveRegimeWithAiVote). The
+  // effective day type/autoModel replace the scorecard's in the stored
+  // context, so slices, mastery and the live hand-off all grade the
+  // type the idea was actually recorded under.
+  const aiRegime = modelsAiRegimeOn();
+  const voteByPair = new Map<string, any>();
+  if (aiRegime && Array.isArray(parsed?.regimeVotes)) {
+    for (const v of parsed.regimeVotes) {
+      const sym = String(v?.symbol || '').toUpperCase().replace('/', '');
+      if (sym) voteByPair.set(sym, v);
+    }
+  }
+  const resolutionByPair = new Map<string, RegimeResolution>();
+  for (const p of pairs) {
+    const sym = p.symbol.toUpperCase().replace('/', '');
+    resolutionByPair.set(sym, resolveRegimeWithAiVote(
+      { dayType: p.ctx?.dayType, autoModel: p.ctx?.autoModel, score: Number(p.ctx?.trendScore) },
+      voteByPair.get(sym),
+    ));
+  }
+  out.regimeSummary = summarizeRegimeResolutions(Array.from(resolutionByPair.values()));
 
   const byPair = new Map(pairs.map((p) => [p.symbol.toUpperCase(), p.ctx]));
   for (const i of ideas) {
@@ -1032,13 +1326,26 @@ export async function decideModelIdeas(userId: number, session: string, pairs: A
     // this build onward. The stored ctx is a per-idea copy (the pair
     // ctx is shared across both models' ideas for that pair).
     const prov = decisionProvenance(model, sym, session, engine);
+    const resolution = resolutionByPair.get(sym)
+      || resolveRegimeWithAiVote({ dayType: ctx.dayType, autoModel: ctx.autoModel, score: Number(ctx.trendScore) }, undefined);
+    const strategyAligned = aiRegime && dir !== 'NONE' ? normalizeStrategyAligned(i?.strategyAligned, ctx, engine) : null;
     const storedCtx = {
-      ...ctx, epoch: MODELS_EPOCH, enrichOn: modelsEnrichOn(),
+      ...ctx, dayType: resolution.dayType, autoModel: resolution.autoModel, epoch: currentModelsEpoch(), enrichOn: modelsEnrichOn(),
       ...(prov.wasExcludedPair ? { wasExcludedPair: true } : {}),
       ...(prov.wasBlockedSession ? { wasBlockedSession: true } : {}),
+      ...(aiRegime ? {
+        regimeSource: resolution.regimeSource, aiRegime: resolution.aiRegime,
+        aiRegimeConfidence: resolution.aiRegimeConfidence, scorecardRegime: resolution.scorecardRegime,
+        strategyAligned,
+      } : {}),
     };
     out.outcomes.push({
-      symbol: sym, model, dayType: ctx.dayType, autoModel: ctx.autoModel,
+      symbol: sym, model, dayType: resolution.dayType, autoModel: resolution.autoModel,
+      regimeSource: aiRegime ? resolution.regimeSource : null,
+      aiRegime: aiRegime ? resolution.aiRegime : null,
+      aiRegimeConfidence: aiRegime ? resolution.aiRegimeConfidence : null,
+      scorecardRegime: aiRegime ? resolution.scorecardRegime : null,
+      strategyAligned,
       direction: isTrade ? dir : 'NONE',
       isTrade,
       tradeDirection: dir,
@@ -1093,7 +1400,7 @@ export async function getDeadSlices(userId: number, engine: ModelEngine): Promis
        FROM fx_model_decisions
       WHERE user_id=$1 AND engine=$2 AND source='own' AND result IN ('WIN','LOSS','EXPIRED')
         AND created_at >= now() - ($3 || ' days')::interval
-        ${modelsEpochOn() ? `AND epoch = ${MODELS_EPOCH}` : ''}
+        ${modelsEpochOn() ? `AND epoch = ${currentModelsEpoch()}` : ''}
       GROUP BY model, day_type, symbol, session`,
     [userId, engine, String(days)],
   );
@@ -1113,6 +1420,11 @@ async function shadowDecide(userId: number, session: string, pairs: Array<{ symb
     masteryLines,
     rangeFor: (s) => rangeFeatures(s, engine).catch(() => null),
   });
+  // Regime-vote accounting for the cycle: how the AI's regime calls
+  // compare with the scorecard's (the record v1 exists to build).
+  if (res.regimeSummary.votes) {
+    console.log(`[fx-models] regime votes (${engine} ${session}): ${res.regimeSummary.agreements}/${res.regimeSummary.votes} agree with the scorecard, ${res.regimeSummary.disagreements} disagreement(s), ${res.regimeSummary.tiebreaks} tie-break(s) applied`);
+  }
   // Lesson gate verdicts for this cycle (cached ~15 min; fail-open —
   // a stats error must never stop the shadow lane from recording).
   const dead = fxModelsLessonGateOn() ? await getDeadSlices(userId, engine).catch(() => null) : null;
@@ -1130,7 +1442,7 @@ async function shadowDecide(userId: number, session: string, pairs: Array<{ symb
         [userId, o.symbol, o.model, o.dayType, session, o.tradeDirection, o.entry, o.stopLoss, o.takeProfit,
           o.confidence, o.setup,
           (`[lesson gate: slice proven dead — ${deadStat.trades} resolved, avg ${deadStat.avgR.toFixed(2)}R, win ${Math.round(winRate * 100)}%] ` + o.reasoning).slice(0, 700),
-          JSON.stringify(gateCtx), engine, MODELS_EPOCH],
+          JSON.stringify(gateCtx), engine, currentModelsEpoch()],
       ).catch(() => null);
       void logShadowLessonBlock({
         lane: 'fx_models', userId, strategyKey: o.model,
@@ -1145,7 +1457,7 @@ async function shadowDecide(userId: number, session: string, pairs: Array<{ symb
        VALUES ($1,$2,$3,'shadow',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16) RETURNING id`,
       [userId, o.symbol, o.model, o.dayType, session, o.direction, o.entry, o.stopLoss, o.takeProfit,
         o.confidence, o.setup, o.reasoning,
-        JSON.stringify(o.storedCtx), o.isTrade ? null : 'NO_TRADE', engine, MODELS_EPOCH],
+        JSON.stringify(o.storedCtx), o.isTrade ? null : 'NO_TRADE', engine, currentModelsEpoch()],
     ).catch(() => null);
     // Crypto models are shadow-only for now; only FX ideas can be handed live.
     if (engine === 'fx' && o.isTrade && ins?.rows?.[0]?.id) {
@@ -1258,7 +1570,7 @@ export interface FxModelListingProof {
   kind: 'fx_model';
   /** Model ideas are forward SHADOW decisions resolved against real prices. */
   proofType: 'shadow';
-  /** The record's system epoch. New listings are always MODELS_EPOCH. */
+  /** The record's system epoch. New listings always carry the running current epoch. */
   epoch: number;
   /** True when a stored snapshot contains any pre-current-system rows. */
   legacy: boolean;
@@ -1270,14 +1582,14 @@ export interface FxModelListingProof {
 
 /**
  * Proof summary for a model snapshot, graded ONLY on current-system
- * (epoch-2) rows. Pure and exported so listing cards, the listing route,
+ * (current-epoch) rows. Pure and exported so listing cards, the listing route,
  * and the check script all read the same numbers. Snapshots frozen
  * before the epoch existed have no epoch on their rows: they report
  * epoch 1 / legacy and contribute no current-system trades.
  */
 export function fxModelListingProof(rows: any[]): FxModelListingProof {
   const list = Array.isArray(rows) ? rows : [];
-  const current = list.filter((r: any) => Number(r?.epoch) === MODELS_EPOCH);
+  const current = list.filter((r: any) => Number(r?.epoch) === currentModelsEpoch());
   const statRows = fxModelRowsForStats(current);
   const wins = statRows.filter((r: any) => r.tradeOutcome === 'WIN').length;
   const tradeCount = current.length;
@@ -1287,7 +1599,7 @@ export function fxModelListingProof(rows: any[]): FxModelListingProof {
   return {
     kind: 'fx_model',
     proofType: 'shadow',
-    epoch: current.length === list.length && list.length > 0 ? MODELS_EPOCH : (epochs.length ? Math.min(...epochs) : 1),
+    epoch: current.length === list.length && list.length > 0 ? currentModelsEpoch() : (epochs.length ? Math.min(...epochs) : 1),
     legacy: list.length > 0 && current.length !== list.length,
     tradeCount,
     winRate: tradeCount ? wins / tradeCount : null,
@@ -1305,7 +1617,7 @@ export async function getFxModelListingRows(userId: number, filter: string[] | n
             result, r_multiple, pips, exit_price, created_at, resolved_at, engine, epoch
        FROM fx_model_decisions
       WHERE user_id=$1 AND source='own' AND engine='${engine}' AND result IN ('WIN','LOSS','EXPIRED')
-        AND epoch = ${MODELS_EPOCH}
+        AND epoch = ${currentModelsEpoch()}
         AND ($2::text IS NULL OR model=$2) AND ($3::text IS NULL OR day_type=$3)
         AND (cardinality($4::text[]) = 0 OR symbol = ANY($4::text[]))
       ORDER BY created_at DESC LIMIT 3000`,
@@ -1316,7 +1628,7 @@ export async function getFxModelListingRows(userId: number, filter: string[] | n
   const avgR = n ? rows.reduce((a: number, r: any) => a + (Number(r.r_multiple) || 0), 0) / n : 0;
   const winRate = n ? wins / n : 0;
   const masteryScore = Math.round(Math.min(1, n / 150) * 50 + Math.max(0, Math.min(1, (avgR + 0.5) / 1.5)) * 50);
-  return { rows, avgR, masteryScore, level: masteryLevel(n, winRate, avgR), epoch: MODELS_EPOCH, proof: fxModelListingProof(rows) };
+  return { rows, avgR, masteryScore, level: masteryLevel(n, winRate, avgR), epoch: currentModelsEpoch(), proof: fxModelListingProof(rows) };
 }
 
 /** Marketplace stat shape: EXPIRED counts as a win only if it closed in profit. */
@@ -1339,7 +1651,7 @@ export interface FxModelImportProvenance {
 /** The epoch an imported row keeps: current-system rows stay epoch 2;
  *  anything older (or unstamped) is imported as legacy epoch 1. */
 export function fxModelImportEpoch(row: any): number {
-  return Number(row?.epoch) === MODELS_EPOCH ? MODELS_EPOCH : 1;
+  return Number(row?.epoch) === currentModelsEpoch() ? currentModelsEpoch() : 1;
 }
 
 /**
@@ -1393,7 +1705,7 @@ export async function importFxModelSnapshot(buyerId: number, snapshot: any[], pr
 //     Master AND clears the go-live bar (sliceLiveReady): 50+ resolved
 //     ideas, avg R ≥ +0.2, win rate ≥ 40%, no losing week in the last two.
 //     The proving record may be the user's own — or, since the marketplace
-//     completion, a purchased epoch-2 record for the same slice
+//     completion, a purchased current-epoch record for the same slice
 //     (importedSliceLiveReady; FX_MODEL_MARKETPLACE_LIVE=off disables).
 //   • the model's live daily cap isn't used up (M1: 3, M2: 2 by default),
 //     shared across own-proven and marketplace-proven hand-offs
@@ -1440,7 +1752,7 @@ function clampInt(n: any, lo: number, hi: number) { const x = Math.round(Number(
 const GO_LIVE = { minTrades: 50, minAvgR: 0.2, minWinRate: 0.4 };
 
 /**
- * The non-DB half of the go-live bar, graded on promotionStats (epoch-2
+ * The non-DB half of the go-live bar, graded on promotionStats (current-epoch
  * record while the epoch is on). Pure and exported for the check script.
  * NOTE: there is deliberately NO pair/session block here — under the
  * lifts a formerly excluded pair or blocked session becomes eligible
@@ -1459,7 +1771,7 @@ export async function sliceLiveReady(userId: number, s: any): Promise<boolean> {
        FROM fx_model_decisions
       WHERE user_id=$1 AND engine='fx' AND source='own' AND result IN ('WIN','LOSS','EXPIRED')
         AND model=$2 AND day_type=$3 AND symbol=$4 AND session=$5
-        ${modelsEpochOn() ? `AND epoch = ${MODELS_EPOCH}` : ''}
+        ${modelsEpochOn() ? `AND epoch = ${currentModelsEpoch()}` : ''}
         AND created_at >= date_trunc('week', now()) - interval '7 days'
       GROUP BY 1`,
     [userId, s.model, s.dayType, s.symbol, s.session],
@@ -1471,14 +1783,14 @@ export async function sliceLiveReady(userId: number, s: any): Promise<boolean> {
  * The non-DB half of the PURCHASED-slice bar: exactly the own-slice bar
  * (sliceMeetsBar, graded on the imported record's epoch stats), plus
  * marketplace provenance — the slice must come from a known listing,
- * must be a current-system (epoch-2) record, and the marketplace live
+ * must be a current-system record, and the marketplace live
  * path must not be killed. Pure and exported for the check script.
  */
 export function importedSliceMeetsBar(s: any): boolean {
   if (!fxModelMarketplaceLiveOn()) return false;
   if (!s || s.source !== 'marketplace_model' || s.legacy) return false;
   if (!(Number(s.listingId) > 0)) return false;
-  if (Number(s.recordEpoch ?? s.epoch) !== MODELS_EPOCH) return false;
+  if (Number(s.recordEpoch ?? s.epoch) !== currentModelsEpoch()) return false;
   return sliceMeetsBar(s);
 }
 
@@ -1499,7 +1811,7 @@ export async function importedSliceLiveReady(userId: number, s: any): Promise<bo
   const { rows } = await pool.query(
     `SELECT date_trunc('week', created_at) AS wk, SUM(r_multiple)::float AS r
        FROM fx_model_decisions
-      WHERE user_id=$1 AND engine='fx' AND source='purchased_brain' AND epoch = ${MODELS_EPOCH}
+      WHERE user_id=$1 AND engine='fx' AND source='purchased_brain' AND epoch = ${currentModelsEpoch()}
         AND model=$2 AND day_type=$3 AND symbol=$4 AND session=$5
         AND context->'marketplace'->>'listingId' = $6
         AND created_at >= date_trunc('week', now()) - interval '7 days'
@@ -1742,7 +2054,52 @@ export function masteryLevel(trades: number, winRate: number, avgR: number): str
 }
 
 /** Per model × day type × pair × session: data volume, accuracy, expectancy, level. */
-export async function getModelMastery(userId: number, opts: { ownOnly?: boolean; engine?: ModelEngine } = {}): Promise<{ models: any[]; slices: any[]; importedSlices: any[]; propSim: Record<'M1' | 'M2', PropSimResult> }> {
+export interface RegimeSourceStats { trades: number; wins: number; winRate: number; avgR: number; totalR: number }
+export interface RegimeModelStats { votes: number; agreements: number; disagreements: number; agreementRate: number | null; bySource: Record<'scorecard' | 'ai_tiebreak', RegimeSourceStats> }
+
+/**
+ * Per-model regime record for the panel: how often the AI's regime
+ * vote agreed with the scorecard, and resolved results split by who
+ * decided the day type (regimeSource). Pure — rows are raw decision
+ * rows ({ model, result, r_multiple, context }); context may be an
+ * object or a JSON string. Only rows carrying a regime vote count.
+ */
+export function summarizeRegimeStats(rows: Array<{ model?: any; result?: any; r_multiple?: any; context?: any }>): Record<'M1' | 'M2', RegimeModelStats> {
+  const emptySource = (): RegimeSourceStats => ({ trades: 0, wins: 0, winRate: 0, avgR: 0, totalR: 0 });
+  const emptyModel = (): RegimeModelStats => ({ votes: 0, agreements: 0, disagreements: 0, agreementRate: null, bySource: { scorecard: emptySource(), ai_tiebreak: emptySource() } });
+  const out: Record<'M1' | 'M2', RegimeModelStats> = { M1: emptyModel(), M2: emptyModel() };
+  for (const r of rows || []) {
+    const m = out[r?.model as 'M1' | 'M2'];
+    if (!m) continue;
+    let ctx: any = r.context;
+    if (typeof ctx === 'string') { try { ctx = JSON.parse(ctx); } catch { ctx = null; } }
+    if (!ctx || typeof ctx !== 'object') continue;
+    if (ctx.aiRegime && ctx.scorecardRegime) {
+      m.votes++;
+      if (ctx.aiRegime === ctx.scorecardRegime) m.agreements++; else m.disagreements++;
+    }
+    const src = ctx.regimeSource === 'ai_tiebreak' ? 'ai_tiebreak' : ctx.regimeSource === 'scorecard' ? 'scorecard' : null;
+    if (src && (r.result === 'WIN' || r.result === 'LOSS' || r.result === 'EXPIRED')) {
+      const s = m.bySource[src];
+      s.trades++;
+      if (r.result === 'WIN') s.wins++;
+      const rv = Number(r.r_multiple);
+      if (Number.isFinite(rv)) s.totalR += rv;
+    }
+  }
+  for (const m of [out.M1, out.M2]) {
+    m.agreementRate = m.votes ? m.agreements / m.votes : null;
+    for (const s of [m.bySource.scorecard, m.bySource.ai_tiebreak]) {
+      s.winRate = s.trades ? s.wins / s.trades : 0;
+      s.avgR = s.trades ? s.totalR / s.trades : 0;
+      s.totalR = Math.round(s.totalR * 100) / 100;
+      s.avgR = Math.round(s.avgR * 1000) / 1000;
+    }
+  }
+  return out;
+}
+
+export async function getModelMastery(userId: number, opts: { ownOnly?: boolean; engine?: ModelEngine } = {}): Promise<{ models: any[]; slices: any[]; importedSlices: any[]; propSim: Record<'M1' | 'M2', PropSimResult>; regimeStats: Record<'M1' | 'M2', RegimeModelStats> }> {
   const _eng = opts.engine === 'crypto' ? 'crypto' : 'fx';
   await ensureFxModelTables();
   const agg = async (group: string) => (await pool.query(
@@ -1750,10 +2107,10 @@ export async function getModelMastery(userId: number, opts: { ownOnly?: boolean;
             COUNT(*) FILTER (WHERE result='WIN')::int AS wins,
             COALESCE(AVG(r_multiple),0)::float AS avg_r,
             COALESCE(SUM(r_multiple),0)::float AS total_r,
-            COUNT(*) FILTER (WHERE epoch = ${MODELS_EPOCH})::int AS epoch_trades,
-            COUNT(*) FILTER (WHERE epoch = ${MODELS_EPOCH} AND result='WIN')::int AS epoch_wins,
-            COALESCE(AVG(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_avg_r,
-            COALESCE(SUM(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_total_r
+            COUNT(*) FILTER (WHERE epoch = ${currentModelsEpoch()})::int AS epoch_trades,
+            COUNT(*) FILTER (WHERE epoch = ${currentModelsEpoch()} AND result='WIN')::int AS epoch_wins,
+            COALESCE(AVG(r_multiple) FILTER (WHERE epoch = ${currentModelsEpoch()}),0)::float AS epoch_avg_r,
+            COALESCE(SUM(r_multiple) FILTER (WHERE epoch = ${currentModelsEpoch()}),0)::float AS epoch_total_r
        FROM fx_model_decisions
       WHERE user_id=$1 AND engine='${_eng}' AND result IN ('WIN','LOSS','EXPIRED') AND source NOT IN ('guard_block','lesson_gate')${opts.ownOnly ? " AND source='own'" : ''}
       GROUP BY ${group} ORDER BY trades DESC`, [userId])).rows;
@@ -1795,10 +2152,10 @@ export async function getModelMastery(userId: number, opts: { ownOnly?: boolean;
             COUNT(*) FILTER (WHERE result='WIN')::int AS wins,
             COALESCE(AVG(r_multiple),0)::float AS avg_r,
             COALESCE(SUM(r_multiple),0)::float AS total_r,
-            COUNT(*) FILTER (WHERE epoch = ${MODELS_EPOCH})::int AS epoch_trades,
-            COUNT(*) FILTER (WHERE epoch = ${MODELS_EPOCH} AND result='WIN')::int AS epoch_wins,
-            COALESCE(AVG(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_avg_r,
-            COALESCE(SUM(r_multiple) FILTER (WHERE epoch = ${MODELS_EPOCH}),0)::float AS epoch_total_r
+            COUNT(*) FILTER (WHERE epoch = ${currentModelsEpoch()})::int AS epoch_trades,
+            COUNT(*) FILTER (WHERE epoch = ${currentModelsEpoch()} AND result='WIN')::int AS epoch_wins,
+            COALESCE(AVG(r_multiple) FILTER (WHERE epoch = ${currentModelsEpoch()}),0)::float AS epoch_avg_r,
+            COALESCE(SUM(r_multiple) FILTER (WHERE epoch = ${currentModelsEpoch()}),0)::float AS epoch_total_r
        FROM fx_model_decisions
       WHERE user_id=$1 AND engine='fx' AND result IN ('WIN','LOSS','EXPIRED') AND source='purchased_brain'
       GROUP BY model, day_type, symbol, session, listing_id, seller_id ORDER BY trades DESC`, [userId]).catch(() => ({ rows: [] as any[] }))).rows : [];
@@ -1816,7 +2173,7 @@ export async function getModelMastery(userId: number, opts: { ownOnly?: boolean;
       // MAX() picks 'subscription' over 'purchase' alphabetically, so a
       // partially-upgraded record stays gated until fully converted).
       grantType: r.grant_type === 'subscription' ? 'subscription' : 'purchase',
-      legacy: !(recordEpoch === MODELS_EPOCH && listingId != null),
+      legacy: !(recordEpoch === currentModelsEpoch() && listingId != null),
     };
   });
   // Prop-firm simulation over the CURRENT system's own resolved record
@@ -1827,14 +2184,22 @@ export async function getModelMastery(userId: number, opts: { ownOnly?: boolean;
     `SELECT model, day_type, symbol, session, confidence, r_multiple, created_at, resolved_at
        FROM fx_model_decisions
       WHERE user_id=$1 AND engine='${_eng}' AND source='own' AND result IN ('WIN','LOSS','EXPIRED')
-        ${modelsEpochOn() ? `AND epoch = ${MODELS_EPOCH}` : ''}
+        ${modelsEpochOn() ? `AND epoch = ${currentModelsEpoch()}` : ''}
       ORDER BY COALESCE(resolved_at, created_at), created_at`, [userId]).catch(() => ({ rows: [] as any[] }))).rows;
   const byModel: Record<string, any[]> = { M1: [], M2: [] };
   for (const r of simRows) { if (byModel[r.model]) byModel[r.model].push(r); }
+  // Regime record (AI-regime build): the user's OWN epoch-3 decisions
+  // carrying a regime vote — agreement with the scorecard plus resolved
+  // results split by regimeSource, for the panel's compact line.
+  const regimeRows = (await pool.query(
+    `SELECT model, result, r_multiple, context FROM fx_model_decisions
+      WHERE user_id=$1 AND engine='${_eng}' AND source='own' AND epoch = ${MODELS_EPOCH} AND context ? 'aiRegime'`, [userId],
+  ).catch(() => ({ rows: [] as any[] }))).rows;
   return {
     models: (await agg('model')).map(shape),
     slices: (await agg('model, day_type, symbol, session')).map(shape),
     importedSlices,
     propSim: { M1: propSimulate(byModel.M1), M2: propSimulate(byModel.M2) },
+    regimeStats: summarizeRegimeStats(regimeRows),
   };
 }

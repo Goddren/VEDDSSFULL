@@ -213,7 +213,7 @@ const quietTaken = () => taken(EUR, LON, 85, 35, 14); // 40% wins → no floor r
   const guardsPage = src('../client/src/pages/guards-trails.tsx');
   const weekly = src('../client/src/pages/weekly-strategy.tsx');
   check('G11 panel renders on Guards & Trails ONLY', guardsPage.includes('GateCalibrationPanel') && !weekly.includes('GateCalibrationPanel'));
-  check('G12 service worker bumped to vedd-v265', src('../client/public/sw.js').includes("vedd-v265"));
+  check('G12 service worker bumped past vedd-v265 (v266 by the FX-models AI-regime build)', src('../client/public/sw.js').includes("vedd-v266"));
   check('G13 band table has the five specified bands', CONF_BANDS.map((b) => b.key).join(',') === '<70,70-80,80-88,88-95,95+');
 }
 
