@@ -12,7 +12,9 @@
  *      pair vetoes AND the M2 session veto stop firing; provenance
  *      flags mark the formerly blocked ground; lifts off (or enrich
  *      off) restores every veto; the M2 prompt scope line follows.
- *   E. Epoch: MODELS_EPOCH = 2, promotionStats grades epoch-filtered
+ *   E. Epoch: MODELS_EPOCH = 3 since the AI-regime build (the running
+ *      current epoch falls back to 2 with FX_MODELS_AI_REGIME=off —
+ *      pinned in check-fx-models-ai-regime.ts), promotionStats grades epoch-filtered
  *      stats while the epoch is on and all-time stats when it is off,
  *      and the bar refuses slices whose epoch record is too thin no
  *      matter how good the all-time record looks. A formerly excluded
@@ -26,6 +28,7 @@
 import { readFileSync } from 'node:fs';
 import {
   MODELS_EPOCH,
+  currentModelsEpoch,
   modelsEpochOn,
   modelsLiftsOn,
   liftsActive,
@@ -116,7 +119,7 @@ delete process.env.FX_M2_EXCLUDED_PAIRS;
 
 // ── E. Epoch ───────────────────────────────────────────────────────────────
 {
-  check('E1 MODELS_EPOCH is 2', MODELS_EPOCH === 2);
+  check('E1 MODELS_EPOCH is 3 (AI-regime build) and the running current epoch matches', MODELS_EPOCH === 3 && currentModelsEpoch() === 3);
   check('E2 epoch on by default', modelsEpochOn() === true);
 
   const mixed = {
@@ -143,13 +146,13 @@ delete process.env.FX_M2_EXCLUDED_PAIRS;
     trades: 64, avgR: 0.38, winRate: 0.56, allTimeLevel: 'Proficient',
     epochTrades: 60, epochAvgR: 0.35, epochWinRate: 0.55, epochLevel: 'Proficient',
   };
-  check('E8 formerly excluded pair + blocked session with a perfect epoch-2 record MEETS the bar (no hard block)',
+  check('E8 formerly excluded pair + blocked session with a perfect current-epoch record MEETS the bar (no hard block)',
     sliceMeetsBar(perfectFormerlyBlocked) === true);
   const src = readFileSync(new URL('../server/services/fx-models.ts', import.meta.url), 'utf8');
   const goLiveSeg = src.slice(src.indexOf('export async function maybeGoLive'), src.indexOf('submitFxModelTrade'));
   check('E9 maybeGoLive has no pair/session hard block (eligibility is the bar + toggle + caps only)',
     !goLiveSeg.includes('isExcludedPair') && !goLiveSeg.includes('M2_SESSIONS'));
-  check('E10 shadowDecide stamps epoch on insert', src.includes('context, result, engine, epoch') && src.includes('MODELS_EPOCH]'));
+  check('E10 shadowDecide stamps the running current epoch on insert', src.includes('context, result, engine, epoch') && src.includes('currentModelsEpoch()]'));
 }
 
 // ── S. propSimulate ────────────────────────────────────────────────────────

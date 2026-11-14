@@ -25,6 +25,13 @@ interface PropSimSummary {
   tradesTaken: number; tradesSkipped: number; blown: boolean; blownAt: string | null;
   worstDayPct: number; daysActive: number;
 }
+interface RegimeSourceSummary {
+  trades: number; wins: number; winRate: number; avgR: number; totalR: number;
+}
+interface RegimeSummary {
+  votes: number; agreements: number; disagreements: number; agreementRate: number | null;
+  bySource: Record<"scorecard" | "ai_tiebreak", RegimeSourceSummary>;
+}
 interface DecisionRow {
   id: number; symbol: string; model: "M1" | "M2"; day_type: string; session: string; direction: string;
   entry_price: number | null; stop_loss: number | null; take_profit: number | null; confidence: number;
@@ -65,7 +72,7 @@ export function FxModelsPanel({ className = "", engine = "fx" }: { className?: s
   const [tab, setTab] = useState<"today" | "mastery" | "ideas">("today");
   const isCrypto = engine === "crypto";
   const dayTypes = useQuery<{ dayTypes: DayTypeRow[] }>({ queryKey: [`/api/fx-models/day-types?engine=${engine}`], refetchInterval: 60000 });
-  const mastery = useQuery<{ models: MasteryRow[]; slices: MasteryRow[]; importedSlices?: MasteryRow[]; propSim?: Record<string, PropSimSummary> }>({ queryKey: [`/api/fx-models/mastery?engine=${engine}`], refetchInterval: 120000 });
+  const mastery = useQuery<{ models: MasteryRow[]; slices: MasteryRow[]; importedSlices?: MasteryRow[]; propSim?: Record<string, PropSimSummary>; regimeStats?: Record<string, RegimeSummary> }>({ queryKey: [`/api/fx-models/mastery?engine=${engine}`], refetchInterval: 120000 });
   const decisions = useQuery<{ decisions: DecisionRow[] }>({ queryKey: [`/api/fx-models/decisions?limit=60&engine=${engine}`], refetchInterval: 60000, enabled: tab === "ideas" });
 
   const settingsQ = useQuery<{ settings: { live: boolean; m1DailyCap: number; m2DailyCap: number }; eligible: MasteryRow[] }>({ queryKey: ["/api/fx-models/settings"], refetchInterval: 120000, enabled: !isCrypto });
@@ -161,6 +168,7 @@ export function FxModelsPanel({ className = "", engine = "fx" }: { className?: s
               ) : (
                 <p className="text-[10px] text-gray-500">No resolved ideas yet</p>
               )}
+              <RegimeLine stats={mastery.data?.regimeStats?.[m]} />
             </div>
           );
         })}
@@ -209,6 +217,22 @@ function PropSimLine({ sim }: { sim?: PropSimSummary }) {
   return (
     <p className="text-[11px] text-gray-300 mt-1" title={PROP_SIM_TITLE}>
       Prop sim ($100k): {fmtMoney(sim.endBalance)} ({sim.totalReturnPct >= 0 ? "+" : ""}{sim.totalReturnPct.toFixed(1)}%) · {sim.tradesTaken} trades · worst day {sim.worstDayPct.toFixed(1)}%
+    </p>
+  );
+}
+
+const REGIME_TITLE = "AI regime vote vs the deterministic scorecard: agreement rate over voted decisions, plus resolved results split by who decided the day type — scorecard or AI tie-break (borderline scorecard + a confident AI vote)";
+
+function RegimeLine({ stats }: { stats?: RegimeSummary }) {
+  if (!stats || stats.votes === 0) return null;
+  const sc = stats.bySource.scorecard;
+  const ai = stats.bySource.ai_tiebreak;
+  const parts = [`AI regime: agrees ${stats.agreementRate != null ? `${Math.round(stats.agreementRate * 100)}%` : "—"} (${stats.agreements}/${stats.votes})`];
+  if (sc.trades > 0) parts.push(`scorecard ${fmtR(sc.avgR)} avg · ${sc.trades} resolved`);
+  if (ai.trades > 0) parts.push(`AI tie-break ${fmtR(ai.avgR)} avg · ${ai.trades} resolved`);
+  return (
+    <p className="text-[11px] text-gray-300 mt-1" title={REGIME_TITLE} data-testid="fx-model-regime-line">
+      {parts.join(" · ")}
     </p>
   );
 }

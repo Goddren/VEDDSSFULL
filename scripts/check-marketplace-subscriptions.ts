@@ -50,7 +50,7 @@ import {
   runSubscriptionRenewals,
   type SubscriptionRecord,
 } from '../server/services/marketplace-subscriptions';
-import { stampFxModelImportContext, importedSliceMeetsBar } from '../server/services/fx-models';
+import { stampFxModelImportContext, importedSliceMeetsBar, MODELS_EPOCH } from '../server/services/fx-models';
 import { cloneStrategySpecForBuyer } from '../server/services/strategy-marketplace';
 
 let pass = 0, fail = 0;
@@ -193,7 +193,7 @@ const baseSub = (over: Partial<SubscriptionRecord> = {}): SubscriptionRecord => 
   const slice: any = {
     source: 'marketplace_model',
     epochTrades: 60, epochWinRate: 0.5, epochAvgR: 0.3, epochLevel: 'Proficient',
-    recordEpoch: 2, legacy: false, listingId: 42, grantType: 'subscription',
+    recordEpoch: MODELS_EPOCH, legacy: false, listingId: 42, grantType: 'subscription',
   };
   check('G2 the pure bar itself is grant-agnostic (subscription check is layered in the async gate)',
     importedSliceMeetsBar(slice) === true);

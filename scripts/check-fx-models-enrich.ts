@@ -159,6 +159,7 @@ delete process.env.FX_MODELS_ENRICH; // default-on for the veto tests below
 // ── E. buildModelsPrompt ───────────────────────────────────────────────────
 {
   process.env.FX_MODELS_LIFTS = 'off'; // isolate the enrichment diff (see header)
+  process.env.FX_MODELS_AI_REGIME = 'off'; // isolate from the AI-regime prompt tail too (pinned in check-fx-models-ai-regime.ts)
   const pairs = [{ symbol: 'EURUSD', ctx: { price: 1.1, dayType: 'range' } }];
   const off = buildModelsPrompt('fx', 'London', pairs, '', false);
   check('E1 off prompt: legacy head + tail anchors',
@@ -193,6 +194,7 @@ delete process.env.FX_MODELS_ENRICH; // default-on for the veto tests below
   check('E10 modelsEnrichOn false when FX_MODELS_ENRICH=off', modelsEnrichOn() === false);
   delete process.env.FX_MODELS_ENRICH;
   delete process.env.FX_MODELS_LIFTS;
+  delete process.env.FX_MODELS_AI_REGIME;
 }
 
 console.log(`\n${total - failures}/${total} checks passed${failures ? ` — ${failures} FAILED` : ''}`);
