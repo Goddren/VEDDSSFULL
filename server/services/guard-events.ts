@@ -82,7 +82,7 @@ export async function guardFireRates(userId: number, days = 7): Promise<{ days: 
  */
 export function recordBlockedTrade(userId: number, kind: string, symbol: string | null, plan: {
   direction?: unknown; entryPrice?: unknown; stopLoss?: unknown; takeProfit?: unknown;
-  confidence?: unknown; model?: unknown; setup?: unknown;
+  confidence?: unknown; model?: unknown; setup?: unknown; session?: unknown;
 }, detail?: string): void {
   if (process.env.GUARD_COUNTERFACTUALS === 'off') return;
   void (async () => {
@@ -96,14 +96,22 @@ export function recordBlockedTrade(userId: number, kind: string, symbol: string 
       const { ensureFxModelTables } = await import('./fx-models');
       await ensureFxModelTables();
       const conf = Number(plan.confidence);
+      // Gate calibration (feat/gate-calibration) slices blocked plans by
+      // pair × session and replays the R:R gate per confidence band, so the
+      // row now also carries the canonical session plus the planned R:R and
+      // the exact confidence in context. Older consumers only read
+      // context->>'guard', which is unchanged.
+      const plannedRR = Math.abs(tp - entry) / Math.abs(entry - sl);
+      const { canonSession } = await import('../utils/session');
+      const session = plan.session ? canonSession(plan.session, new Date().getUTCHours()) : null;
       await pool.query(
-        `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, source, engine)
-         VALUES ($1,$2,$3,'blocked',$4,$5,$6,$7,$8,$9,$10,$11::jsonb,'guard_block','fx')`,
-        [userId, symbol, String(plan.model ?? 'engine').slice(0, 60), dir, entry, sl, tp,
+        `INSERT INTO fx_model_decisions (user_id, symbol, model, mode, session, direction, entry_price, stop_loss, take_profit, confidence, setup, reasoning, context, source, engine)
+         VALUES ($1,$2,$3,'blocked',$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,'guard_block','fx')`,
+        [userId, symbol, String(plan.model ?? 'engine').slice(0, 60), session, dir, entry, sl, tp,
          Number.isFinite(conf) ? Math.round(conf) : null,
          plan.setup ? String(plan.setup).slice(0, 120) : null,
          `Blocked by ${kind}${detail ? `: ${String(detail).slice(0, 300)}` : ''}`.slice(0, 500),
-         JSON.stringify({ guard: kind })],
+         JSON.stringify({ guard: kind, plannedRR: Math.round(plannedRR * 1000) / 1000, ...(Number.isFinite(conf) ? { confidence: conf } : {}) })],
       );
     } catch { /* counterfactuals never block trading */ }
   })();

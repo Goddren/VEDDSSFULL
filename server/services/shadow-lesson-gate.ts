@@ -72,8 +72,11 @@ export function ensureShadowLessonBlocksTable(): Promise<void> {
 export interface ShadowLessonBlock {
   /** 'trail_guard' rows are not entry blocks — they are the trail guards'
    *  self-evaluation retirements (trail-guard-learning.ts), written to the
-   *  same audit table so every lesson-driven action has one trail. */
-  lane: 'sol_shadow' | 'crypto_shadow' | 'studio_shadow' | 'fx_models' | 'trail_guard';
+   *  same audit table so every lesson-driven action has one trail.
+   *  'gate_calibration' rows are likewise not blocks: they are the user's
+   *  apply/revert taps on per-slice gate recommendations
+   *  (gate-calibration.ts), audited here for the same reason. */
+  lane: 'sol_shadow' | 'crypto_shadow' | 'studio_shadow' | 'fx_models' | 'trail_guard' | 'gate_calibration';
   userId: number;
   strategyKey: string;
   /** Human-readable bucket: "all", "liquidity <25k", "M1 · range · EURUSD · London", "deployment 42". */

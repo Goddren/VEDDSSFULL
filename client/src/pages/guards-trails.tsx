@@ -2,6 +2,7 @@ import { ShieldCheck } from "lucide-react";
 import { InfoExplainer } from "@/components/info-explainer";
 import {
   EngineSafeguardsPanel,
+  GateCalibrationPanel,
   GuardFireRatesPanel,
   PromotedRulesPanel,
   SkippedTradesPanel,
@@ -44,6 +45,7 @@ export default function GuardsTrailsPage() {
       <GuardFireRatesPanel />
       <SkippedTradesPanel />
       <PromotedRulesPanel />
+      <GateCalibrationPanel />
       <TrailStudyPanel />
     </div>
   );
