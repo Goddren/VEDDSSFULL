@@ -281,6 +281,29 @@ export async function solTrailGuardFor(userId: number, strategyId: string | null
 // without touching the study. Unguarded trades stay unstamped; a stamp
 // write never throws and never blocks the monitor.
 let _colsEnsured: Promise<void> | null = null;
+/**
+ * Create the three stamp columns on cryptocom_engine_trades if missing.
+ *
+ * These columns are load-bearing beyond the stamp itself: PR #69 added
+ * them to the Drizzle schema (shared/schema.ts), so EVERY storage.ts
+ * query on cryptocom_engine_trades — full selects, INSERT/UPDATE …
+ * RETURNING — names them, whether or not any guard exists. The original
+ * version of this ensure only ran from the stamp writer (which fires
+ * only when a promoted guard governs a trade) and from the learning
+ * loop's own reads, so on an install where no guard was ever promoted
+ * the ALTER never executed and the Drizzle reads failed with
+ * `column "trail_guard_id" does not exist` (production, 2026-11-13
+ * 21:04–21:08 UTC). Every read/write path for this table now awaits
+ * this ensure first (storage.ts, the stamp, the learning reads, plus a
+ * boot warm-up in startTrailGuardLearning).
+ *
+ * Idempotent (ADD COLUMN IF NOT EXISTS), memoized per process, and
+ * NEVER rejecting: on failure it logs, resets the memo so the next call
+ * retries, and resolves — an ensure failure must not become a new gate
+ * in front of hot engine paths; the caller's query then succeeds (the
+ * usual case: the columns already exist) or fails exactly as it would
+ * have without the ensure.
+ */
 export function ensureTrailGuardStampColumns(): Promise<void> {
   if (!_colsEnsured) {
     _colsEnsured = pool.query(`ALTER TABLE cryptocom_engine_trades
@@ -288,7 +311,10 @@ export function ensureTrailGuardStampColumns(): Promise<void> {
         ADD COLUMN IF NOT EXISTS trail_guard_action text,
         ADD COLUMN IF NOT EXISTS trail_guard_profile jsonb`)
       .then(() => undefined)
-      .catch((e) => { _colsEnsured = null; throw e; });
+      .catch((e: any) => {
+        _colsEnsured = null;
+        console.error('[trail-guards] stamp-column ensure failed (non-fatal, will retry):', e?.message || e);
+      });
   }
   return _colsEnsured;
 }

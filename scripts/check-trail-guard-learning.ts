@@ -15,12 +15,25 @@
  *   B. harmDelta — native units per engine.
  *   C. Kill switch.
  *   D. Source pins — retire path, no auto-promote, attribution, fail-open.
+ *   E. Column-existence lifecycle — the 2026-11-13 production failure
+ *      `column "trail_guard_id" does not exist`: the columns were added
+ *      to the Drizzle schema (so every storage.ts query on
+ *      cryptocom_engine_trades names them) but were only CREATED by an
+ *      ensure coupled to the guard-gated stamp path. Pins: every
+ *      read/write path awaits its table's ensure first, both ensures
+ *      are idempotent + memoized + non-rejecting, a boot warm-up runs
+ *      them, and a stats read with no reachable database resolves null
+ *      (fail open) instead of rejecting. Section E's runtime pins rely
+ *      on the repo's localhost DB fallback refusing connections — run
+ *      with DATABASE_URL/PGHOST unset, as in this repo's check setup.
  */
 import { readFileSync } from 'node:fs';
 import {
-  evaluateGuardPerformance, harmDelta, trailGuardLearningOn,
+  evaluateGuardPerformance, harmDelta, trailGuardLearningOn, guardedStats,
   type GuardPerf,
 } from '../server/services/trail-guard-learning';
+import { ensureTrailGuardStampColumns, type TrailGuard } from '../server/services/trail-guards';
+import { ensureSolTrailGuardColumns } from '../server/services/sol-shadow-stats';
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ''): void {
@@ -108,5 +121,53 @@ check('D13 panel endpoint attaches evaluations',
 check('D14 sweep enumerates only users holding guards, watchdog idiom',
   /loadRuntimeState\('trail_guards'\)/.test(learning) && /setInterval/.test(learning));
 
-console.log(failures ? `\n${failures} FAILURE(S)` : '\nALL PASS');
-process.exit(failures ? 1 : 0);
+// ── E. Column-existence lifecycle (2026-11-13 trail_guard_id failure) ────
+const storage = src('../server/storage.ts');
+check('E1 storage: every cryptocom_engine_trades method awaits the stamp-column ensure first',
+  /import \{ ensureTrailGuardStampColumns \} from "\.\/services\/trail-guards";/.test(storage)
+  && (storage.match(/await ensureTrailGuardStampColumns\(\);/g) || []).length >= 15,
+  `${(storage.match(/await ensureTrailGuardStampColumns\(\);/g) || []).length} ensured methods`);
+check('E2 learning reads await the per-table ensure before naming trail_guard_id (both engines)',
+  /await ensureTrailGuardStampColumns\(\);\s*\n\s*const \{ rows \} = await pool\.query\([\s\S]{0,900}?trail_guard_id = \$2/.test(learning)
+  && /await ensureSolTrailGuardColumns\(\);\s*\n\s*const \{ rows \} = await pool\.query\([\s\S]{0,900}?trail_guard_id = \$2/.test(learning));
+check('E3 learning no longer couples its Sol reads to the whole-table ensure',
+  !/ensureSolShadowContextTable/.test(learning) && /ensureSolTrailGuardColumns/.test(learning));
+check('E4 both ensures are non-rejecting by construction (catch logs + resets memo, never rethrows)',
+  /stamp-column ensure failed \(non-fatal, will retry\)/.test(guards) && !/catch\(\(e\) => \{ _colsEnsured = null; throw e; \}\)/.test(guards)
+  && /trail-guard column ensure failed \(non-fatal, will retry\)/.test(solStats) && /_trailColsEnsured = null;/.test(solStats));
+check('E5 both ensures are idempotent + memoized',
+  (guards.match(/ADD COLUMN IF NOT EXISTS trail_guard/g) || []).length === 3 && /let _colsEnsured/.test(guards)
+  && (solStats.match(/ADD COLUMN IF NOT EXISTS trail_guard/g) || []).length >= 3 && /let _trailColsEnsured/.test(solStats));
+check('E6 boot warm-up: startTrailGuardLearning fires both ensures immediately',
+  /void ensureTrailGuardStampColumns\(\);\s*\n\s*void ensureSolTrailGuardColumns\(\);/.test(learning));
+check('E7 the loop writes NO eval record when guarded stats are unreadable (null = skip)',
+  /if \(!guarded\) continue;/.test(learning));
+
+// Runtime pins — no database is reachable in the check environment
+// (localhost fallback refuses), which is exactly the degraded state the
+// fail-open contract exists for: ensures must RESOLVE, reads must
+// resolve null, and nothing may reject.
+const fakeGuard: TrailGuard = {
+  id: 'check-guard', engine: 'crypto', dimension: 'strategy', key: 'check',
+  action: 'tighten', trades: 0, avgFinal: null, avgPeak: null, avgGiveback: null,
+  trailExitShare: null,
+  profile: { method: 'fixed_r', activationR: 1, fixedR: 0.5, stepR: 0.5, profitLockPct: 50, sarInitialAF: 0.02, sarMaxAF: 0.2, breakevenBufferR: 0 },
+  profileSummary: 'check', promotedAt: new Date(0).toISOString(), active: true,
+};
+(async () => {
+  let e8 = true;
+  try { await ensureTrailGuardStampColumns(); await ensureTrailGuardStampColumns(); await ensureTrailGuardStampColumns(); }
+  catch { e8 = false; }
+  check('E8 crypto ensure resolves (never rejects) with no reachable database, repeatedly', e8);
+  let e9 = true;
+  try { await ensureSolTrailGuardColumns(); await ensureSolTrailGuardColumns(); }
+  catch { e9 = false; }
+  check('E9 Sol ensure resolves (never rejects) with no reachable database, repeatedly', e9);
+  const cryptoRead = await guardedStats(1, fakeGuard).then(v => v === null ? 'null' : 'value', () => 'rejected');
+  check('E10 crypto guarded-stats read degrades fail-open (resolves null, never rejects)', cryptoRead === 'null', cryptoRead);
+  const solRead = await guardedStats(1, { ...fakeGuard, engine: 'sol' }).then(v => v === null ? 'null' : 'value', () => 'rejected');
+  check('E11 Sol guarded-stats read degrades fail-open (resolves null, never rejects)', solRead === 'null', solRead);
+
+  console.log(failures ? `\n${failures} FAILURE(S)` : '\nALL PASS');
+  process.exit(failures ? 1 : 0);
+})();

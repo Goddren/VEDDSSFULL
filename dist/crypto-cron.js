@@ -4175,6 +4175,170 @@ var init_schema = __esm({
   }
 });
 
+// server/services/runtime-state.ts
+var runtime_state_exports = {};
+__export(runtime_state_exports, {
+  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
+  getRuntimeStateStrict: () => getRuntimeStateStrict,
+  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
+  loadRuntimeState: () => loadRuntimeState,
+  saveRuntimeState: () => saveRuntimeState
+});
+function ensureRuntimeStateTable() {
+  if (!ensured) {
+    ensured = pool.query(DDL2).then(() => void 0).catch((err) => {
+      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
+      ensured = null;
+    });
+  }
+  return ensured;
+}
+function saveRuntimeState(scope, key, value) {
+  void (async () => {
+    try {
+      await ensureRuntimeStateTable();
+      await pool.query(
+        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+        [scope, key, JSON.stringify(value)]
+      );
+    } catch (err) {
+      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
+    }
+  })();
+}
+async function loadRuntimeState(scope) {
+  try {
+    await ensureRuntimeStateTable();
+    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
+    return rows;
+  } catch (err) {
+    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
+    return [];
+  }
+}
+async function getRuntimeStateStrict(scope, key) {
+  await ensureRuntimeStateTable();
+  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
+  return rows[0]?.value ?? null;
+}
+async function insertRuntimeStateIfAbsent(scope, key, value) {
+  await ensureRuntimeStateTable();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
+    [scope, key, JSON.stringify(value)]
+  );
+  return getRuntimeStateStrict(scope, key);
+}
+var DDL2, ensured;
+var init_runtime_state = __esm({
+  "server/services/runtime-state.ts"() {
+    "use strict";
+    init_db();
+    DDL2 = `
+CREATE TABLE IF NOT EXISTS "runtime_state" (
+  "scope" text NOT NULL,
+  "key" text NOT NULL,
+  "value" jsonb NOT NULL,
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  PRIMARY KEY ("scope", "key")
+);
+`;
+    ensured = null;
+  }
+});
+
+// server/services/sol-learned-rules.ts
+var init_sol_learned_rules = __esm({
+  "server/services/sol-learned-rules.ts"() {
+    "use strict";
+  }
+});
+
+// server/services/trail-study.ts
+var init_trail_study = __esm({
+  "server/services/trail-study.ts"() {
+    "use strict";
+    init_db();
+    init_sol_learned_rules();
+  }
+});
+
+// server/services/trail-guards.ts
+function trailGuardsOn() {
+  return process.env.TRAIL_GUARDS !== "off";
+}
+async function getTrailGuards(userId) {
+  const hit = _cache.get(userId);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.guards;
+  let guards = [];
+  try {
+    const v = await getRuntimeStateStrict(SCOPE, String(userId));
+    if (Array.isArray(v)) guards = v;
+  } catch {
+  }
+  _cache.set(userId, { at: Date.now(), guards });
+  return guards;
+}
+function matchGuard(guards, engine, strategy, symbol) {
+  const active = guards.filter((g) => g.active && g.engine === engine);
+  const strat = strategy ? active.find((g) => g.dimension === "strategy" && g.key === strategy) : void 0;
+  const sym = symbol ? active.find((g) => g.dimension === "symbol" && g.key === symbol) : void 0;
+  if (strat && sym) return strat.action === "tighten" ? strat : sym.action === "tighten" ? sym : strat;
+  return strat ?? sym ?? null;
+}
+async function cryptoTrailGuardFor(userId, strategy, symbol) {
+  if (!trailGuardsOn()) return null;
+  try {
+    return matchGuard(await getTrailGuards(userId), "crypto", strategy, symbol);
+  } catch {
+    return null;
+  }
+}
+function ensureTrailGuardStampColumns() {
+  if (!_colsEnsured) {
+    _colsEnsured = pool.query(`ALTER TABLE cryptocom_engine_trades
+        ADD COLUMN IF NOT EXISTS trail_guard_id text,
+        ADD COLUMN IF NOT EXISTS trail_guard_action text,
+        ADD COLUMN IF NOT EXISTS trail_guard_profile jsonb`).then(() => void 0).catch((e) => {
+      _colsEnsured = null;
+      console.error("[trail-guards] stamp-column ensure failed (non-fatal, will retry):", e?.message || e);
+    });
+  }
+  return _colsEnsured;
+}
+async function stampCryptoTradeTrailGuard(userId, tradeId, guard) {
+  const memoKey = `${userId}:${tradeId}`;
+  const stampKey = `${guard.id}:${guard.action}`;
+  if (_stamped.get(memoKey) === stampKey) return;
+  try {
+    await ensureTrailGuardStampColumns();
+    await pool.query(
+      `UPDATE cryptocom_engine_trades SET trail_guard_id = $2, trail_guard_action = $3, trail_guard_profile = $4::jsonb
+        WHERE id = $1 AND user_id = $5`,
+      [tradeId, guard.id, guard.action, JSON.stringify(guard.profile), userId]
+    );
+    _stamped.set(memoKey, stampKey);
+  } catch (e) {
+    console.error("[trail-guards] stamp failed (non-fatal):", e?.message || e);
+  }
+}
+var SCOPE, _cache, CACHE_MS, _colsEnsured, _stamped;
+var init_trail_guards = __esm({
+  "server/services/trail-guards.ts"() {
+    "use strict";
+    init_runtime_state();
+    init_trail_study();
+    init_sol_learned_rules();
+    init_db();
+    SCOPE = "trail_guards";
+    _cache = /* @__PURE__ */ new Map();
+    CACHE_MS = 3e4;
+    _colsEnsured = null;
+    _stamped = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/storage.ts
 var storage_exports = {};
 __export(storage_exports, {
@@ -4220,6 +4384,7 @@ var init_storage = __esm({
     "use strict";
     init_schema();
     init_db();
+    init_trail_guards();
     ENCRYPTION_KEY = process.env.API_KEY_ENCRYPTION_SECRET;
     ENCRYPTION_ALGORITHM = "aes-256-cbc";
     if (!ENCRYPTION_KEY || ENCRYPTION_KEY.length < 64) {
@@ -5406,11 +5571,22 @@ var init_storage = __esm({
       async getUserCryptocomEngineActivity(userId, limit = 50) {
         return db.select().from(cryptocomEngineActivity).where(eq(cryptocomEngineActivity.userId, userId)).orderBy(desc(cryptocomEngineActivity.createdAt)).limit(limit);
       }
+      // ── Trail-guard stamp columns (cryptocom_engine_trades) ──────────────
+      // The Drizzle schema carries trail_guard_id/_action/_profile on this
+      // table (PR #69), so EVERY query below — full selects and INSERT/
+      // UPDATE … RETURNING alike — names those columns. They are created
+      // lazily by ensureTrailGuardStampColumns(); each method here awaits
+      // it first so the columns' existence never depends on a trail guard
+      // having been promoted (the 2026-11-13 "column trail_guard_id does
+      // not exist" failure). The ensure is memoized + non-rejecting, so
+      // after the first call this is a resolved-promise await.
       async createCryptocomEngineTrade(trade) {
+        await ensureTrailGuardStampColumns();
         const [result] = await db.insert(cryptocomEngineTrades).values(trade).returning();
         return result;
       }
       async getOpenCryptocomEngineTrades(userId) {
+        await ensureTrailGuardStampColumns();
         return db.select().from(cryptocomEngineTrades).where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, "open")));
       }
       /**
@@ -5420,10 +5596,12 @@ var init_storage = __esm({
        * abandon live positions to run unprotected.
        */
       async getUserIdsWithOpenCryptocomTrades() {
+        await ensureTrailGuardStampColumns();
         const rows = await db.selectDistinct({ userId: cryptocomEngineTrades.userId }).from(cryptocomEngineTrades).where(eq(cryptocomEngineTrades.status, "open"));
         return rows.map((r) => r.userId);
       }
       async getUserCryptocomEngineTrades(userId, limit = 50) {
+        await ensureTrailGuardStampColumns();
         return db.select().from(cryptocomEngineTrades).where(eq(cryptocomEngineTrades.userId, userId)).orderBy(desc(cryptocomEngineTrades.createdAt)).limit(limit);
       }
       /**
@@ -5442,11 +5620,13 @@ var init_storage = __esm({
        * recoverStaleCryptocomCloseClaims below.
        */
       async claimCryptocomEngineTradeForClose(id) {
+        await ensureTrailGuardStampColumns();
         const [row] = await db.update(cryptocomEngineTrades).set({ status: "closing", updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, "open"))).returning();
         return row;
       }
       /** Hand a claimed trade back to 'open' when the close could not be executed. */
       async releaseCryptocomEngineTradeClaim(id) {
+        await ensureTrailGuardStampColumns();
         await db.update(cryptocomEngineTrades).set({ status: "open", updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, "closing")));
       }
       /**
@@ -5456,6 +5636,7 @@ var init_storage = __esm({
        * avoid. Returns how many were recovered.
        */
       async recoverStaleCryptocomCloseClaims(olderThanMs = 5 * 60 * 1e3) {
+        await ensureTrailGuardStampColumns();
         const cutoff = new Date(Date.now() - olderThanMs);
         const rows = await db.update(cryptocomEngineTrades).set({ status: "open", updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.status, "closing"), lt(cryptocomEngineTrades.updatedAt, cutoff))).returning();
         return rows.length;
@@ -5480,9 +5661,11 @@ var init_storage = __esm({
        */
       async updateCryptocomEngineTradeQuantity(id, quantity) {
         if (!(quantity > 0)) return;
+        await ensureTrailGuardStampColumns();
         await db.update(cryptocomEngineTrades).set({ quantity, updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, "open")));
       }
       async flagCryptocomEngineTradeUnreconciled(id, note) {
+        await ensureTrailGuardStampColumns();
         const [row] = await db.update(cryptocomEngineTrades).set({ status: "needs_reconciliation", exitReason: note, updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), inArray(cryptocomEngineTrades.status, ["open", "closing"]))).returning();
         return row;
       }
@@ -5505,22 +5688,26 @@ var init_storage = __esm({
        * statements exactly one matches a row and the other returns none.
        */
       async closeCryptocomEngineTrade(id, data) {
+        await ensureTrailGuardStampColumns();
         const [result] = await db.update(cryptocomEngineTrades).set({ status: "closed", exitPrice: data.exitPrice, exitOrderId: data.exitOrderId, exitReason: data.exitReason, realizedPnl: data.realizedPnl, closedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, "closing"))).returning();
         return result;
       }
       async getTodayCryptocomEngineTradeCount(userId) {
+        await ensureTrailGuardStampColumns();
         const startOfDay = /* @__PURE__ */ new Date();
         startOfDay.setUTCHours(0, 0, 0, 0);
         const rows = await db.select().from(cryptocomEngineTrades).where(and(eq(cryptocomEngineTrades.userId, userId), gte(cryptocomEngineTrades.createdAt, startOfDay)));
         return rows.length;
       }
       async getTodayCryptocomEngineRealizedPnl(userId) {
+        await ensureTrailGuardStampColumns();
         const startOfDay = /* @__PURE__ */ new Date();
         startOfDay.setUTCHours(0, 0, 0, 0);
         const rows = await db.select().from(cryptocomEngineTrades).where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, "closed"), gte(cryptocomEngineTrades.closedAt, startOfDay)));
         return rows.reduce((sum, r) => sum + (r.realizedPnl || 0), 0);
       }
       async getCryptocomEngineTradeStats(userId) {
+        await ensureTrailGuardStampColumns();
         const rows = await db.select().from(cryptocomEngineTrades).where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, "closed")));
         const totalClosed = rows.length;
         const wins = rows.filter((r) => (r.realizedPnl || 0) > 0).length;
@@ -5528,6 +5715,7 @@ var init_storage = __esm({
         return { totalClosed, wins, winRate };
       }
       async getCryptocomEngineDailyPnlHistory(userId, days) {
+        await ensureTrailGuardStampColumns();
         const since = /* @__PURE__ */ new Date();
         since.setUTCHours(0, 0, 0, 0);
         since.setUTCDate(since.getUTCDate() - days);
@@ -5541,6 +5729,7 @@ var init_storage = __esm({
         return history;
       }
       async updateCryptocomEngineTradeTrailState(id, data) {
+        await ensureTrailGuardStampColumns();
         await db.update(cryptocomEngineTrades).set({ peakRMultiple: data.peakRMultiple, trailArmed: data.trailArmed, updatedAt: /* @__PURE__ */ new Date() }).where(eq(cryptocomEngineTrades.id, id));
       }
       // ── Crypto.com Connection methods (crypto-derivatives bucket) ──────────────
@@ -7853,7 +8042,7 @@ __export(crypto_brain_exports, {
   recordCryptoBrainOutcome: () => recordCryptoBrainOutcome
 });
 function cryptoBrainReady(userId) {
-  return _cache.has(userId);
+  return _cache2.has(userId);
 }
 function bump(map, key, win) {
   const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
@@ -7941,20 +8130,20 @@ async function learnFromCryptoTrades(userId) {
     else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES}).`);
   }
   const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
-  _cache.set(userId, { brain, at: Date.now() });
+  _cache2.set(userId, { brain, at: Date.now() });
   return brain;
 }
 async function getOrRefreshCryptoBrain(userId, force = false) {
-  const hit = _cache.get(userId);
+  const hit = _cache2.get(userId);
   if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS) return hit.brain;
   return learnFromCryptoTrades(userId);
 }
 function cryptoBrainSizeMultiplier(userId, symbol) {
-  const k = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
+  const k = _cache2.get(userId)?.brain?.symbolKnowledge[symbol];
   return k ? k.recommendedSizeMultiplier : 1;
 }
 function cryptoBrainGate(userId, symbol, strategy, hourUtc) {
-  const k = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
+  const k = _cache2.get(userId)?.brain?.symbolKnowledge[symbol];
   if (!k) return { blocked: false, reason: "" };
   const decided = k.wins + k.losses;
   if (decided >= 15 && k.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} ${k.winRate}% WR over ${decided} \u2014 skipping symbol` };
@@ -7993,14 +8182,14 @@ async function recordCryptoBrainOutcome(o) {
     console.error("[crypto-brain] recordCryptoBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var MIN_TRADES, REFRESH_TTL_MS, _cache;
+var MIN_TRADES, REFRESH_TTL_MS, _cache2;
 var init_crypto_brain = __esm({
   "server/services/crypto-brain.ts"() {
     "use strict";
     init_db();
     MIN_TRADES = 10;
     REFRESH_TTL_MS = 60 * 1e3;
-    _cache = /* @__PURE__ */ new Map();
+    _cache2 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -8332,170 +8521,6 @@ var init_process_fingerprint = __esm({
   "server/services/process-fingerprint.ts"() {
     "use strict";
     PROCESS_BOOT_ID = `pid${process.pid}@${(/* @__PURE__ */ new Date()).toISOString()}`;
-  }
-});
-
-// server/services/runtime-state.ts
-var runtime_state_exports = {};
-__export(runtime_state_exports, {
-  ensureRuntimeStateTable: () => ensureRuntimeStateTable,
-  getRuntimeStateStrict: () => getRuntimeStateStrict,
-  insertRuntimeStateIfAbsent: () => insertRuntimeStateIfAbsent,
-  loadRuntimeState: () => loadRuntimeState,
-  saveRuntimeState: () => saveRuntimeState
-});
-function ensureRuntimeStateTable() {
-  if (!ensured) {
-    ensured = pool.query(DDL2).then(() => void 0).catch((err) => {
-      console.error("[runtime-state] ensure table failed (non-fatal):", err?.message ?? err);
-      ensured = null;
-    });
-  }
-  return ensured;
-}
-function saveRuntimeState(scope, key, value) {
-  void (async () => {
-    try {
-      await ensureRuntimeStateTable();
-      await pool.query(
-        `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
-         ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-        [scope, key, JSON.stringify(value)]
-      );
-    } catch (err) {
-      console.error(`[runtime-state] save ${scope}/${key} failed (non-fatal):`, err?.message ?? err);
-    }
-  })();
-}
-async function loadRuntimeState(scope) {
-  try {
-    await ensureRuntimeStateTable();
-    const { rows } = await pool.query(`SELECT key, value FROM runtime_state WHERE scope = $1`, [scope]);
-    return rows;
-  } catch (err) {
-    console.error(`[runtime-state] load ${scope} failed (non-fatal):`, err?.message ?? err);
-    return [];
-  }
-}
-async function getRuntimeStateStrict(scope, key) {
-  await ensureRuntimeStateTable();
-  const { rows } = await pool.query(`SELECT value FROM runtime_state WHERE scope = $1 AND key = $2`, [scope, key]);
-  return rows[0]?.value ?? null;
-}
-async function insertRuntimeStateIfAbsent(scope, key, value) {
-  await ensureRuntimeStateTable();
-  await pool.query(
-    `INSERT INTO runtime_state (scope, key, value) VALUES ($1, $2, $3::jsonb) ON CONFLICT (scope, key) DO NOTHING`,
-    [scope, key, JSON.stringify(value)]
-  );
-  return getRuntimeStateStrict(scope, key);
-}
-var DDL2, ensured;
-var init_runtime_state = __esm({
-  "server/services/runtime-state.ts"() {
-    "use strict";
-    init_db();
-    DDL2 = `
-CREATE TABLE IF NOT EXISTS "runtime_state" (
-  "scope" text NOT NULL,
-  "key" text NOT NULL,
-  "value" jsonb NOT NULL,
-  "updated_at" timestamp NOT NULL DEFAULT now(),
-  PRIMARY KEY ("scope", "key")
-);
-`;
-    ensured = null;
-  }
-});
-
-// server/services/sol-learned-rules.ts
-var init_sol_learned_rules = __esm({
-  "server/services/sol-learned-rules.ts"() {
-    "use strict";
-  }
-});
-
-// server/services/trail-study.ts
-var init_trail_study = __esm({
-  "server/services/trail-study.ts"() {
-    "use strict";
-    init_db();
-    init_sol_learned_rules();
-  }
-});
-
-// server/services/trail-guards.ts
-function trailGuardsOn() {
-  return process.env.TRAIL_GUARDS !== "off";
-}
-async function getTrailGuards(userId) {
-  const hit = _cache2.get(userId);
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.guards;
-  let guards = [];
-  try {
-    const v = await getRuntimeStateStrict(SCOPE, String(userId));
-    if (Array.isArray(v)) guards = v;
-  } catch {
-  }
-  _cache2.set(userId, { at: Date.now(), guards });
-  return guards;
-}
-function matchGuard(guards, engine, strategy, symbol) {
-  const active = guards.filter((g) => g.active && g.engine === engine);
-  const strat = strategy ? active.find((g) => g.dimension === "strategy" && g.key === strategy) : void 0;
-  const sym = symbol ? active.find((g) => g.dimension === "symbol" && g.key === symbol) : void 0;
-  if (strat && sym) return strat.action === "tighten" ? strat : sym.action === "tighten" ? sym : strat;
-  return strat ?? sym ?? null;
-}
-async function cryptoTrailGuardFor(userId, strategy, symbol) {
-  if (!trailGuardsOn()) return null;
-  try {
-    return matchGuard(await getTrailGuards(userId), "crypto", strategy, symbol);
-  } catch {
-    return null;
-  }
-}
-function ensureTrailGuardStampColumns() {
-  if (!_colsEnsured) {
-    _colsEnsured = pool.query(`ALTER TABLE cryptocom_engine_trades
-        ADD COLUMN IF NOT EXISTS trail_guard_id text,
-        ADD COLUMN IF NOT EXISTS trail_guard_action text,
-        ADD COLUMN IF NOT EXISTS trail_guard_profile jsonb`).then(() => void 0).catch((e) => {
-      _colsEnsured = null;
-      throw e;
-    });
-  }
-  return _colsEnsured;
-}
-async function stampCryptoTradeTrailGuard(userId, tradeId, guard) {
-  const memoKey = `${userId}:${tradeId}`;
-  const stampKey = `${guard.id}:${guard.action}`;
-  if (_stamped.get(memoKey) === stampKey) return;
-  try {
-    await ensureTrailGuardStampColumns();
-    await pool.query(
-      `UPDATE cryptocom_engine_trades SET trail_guard_id = $2, trail_guard_action = $3, trail_guard_profile = $4::jsonb
-        WHERE id = $1 AND user_id = $5`,
-      [tradeId, guard.id, guard.action, JSON.stringify(guard.profile), userId]
-    );
-    _stamped.set(memoKey, stampKey);
-  } catch (e) {
-    console.error("[trail-guards] stamp failed (non-fatal):", e?.message || e);
-  }
-}
-var SCOPE, _cache2, CACHE_MS, _colsEnsured, _stamped;
-var init_trail_guards = __esm({
-  "server/services/trail-guards.ts"() {
-    "use strict";
-    init_runtime_state();
-    init_trail_study();
-    init_sol_learned_rules();
-    init_db();
-    SCOPE = "trail_guards";
-    _cache2 = /* @__PURE__ */ new Map();
-    CACHE_MS = 3e4;
-    _colsEnsured = null;
-    _stamped = /* @__PURE__ */ new Map();
   }
 });
 

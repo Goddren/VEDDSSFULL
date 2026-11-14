@@ -54,6 +54,34 @@ export function ensureSolShadowContextTable(): Promise<void> {
   return _ensured;
 }
 
+let _trailColsEnsured: Promise<void> | null = null;
+/**
+ * Create ONLY the trail-guard stamp columns on sol_shadow_context.
+ * The learning loop's Sol reads (trail-guard-learning.ts) name these
+ * columns but must degrade fail-open, so they await this dedicated
+ * ensure rather than the whole-table ensure above (whose rejection
+ * semantics the entry/close writers rely on). Idempotent
+ * (ADD COLUMN IF NOT EXISTS), memoized per process, and NEVER
+ * rejecting: on failure it logs, resets the memo so the next call
+ * retries, and resolves — the caller's read then succeeds (columns
+ * already exist, the usual case) or fails into its own fail-open catch.
+ * Mirrors ensureTrailGuardStampColumns in trail-guards.ts.
+ */
+export function ensureSolTrailGuardColumns(): Promise<void> {
+  if (!_trailColsEnsured) {
+    _trailColsEnsured = pool.query(`ALTER TABLE sol_shadow_context
+          ADD COLUMN IF NOT EXISTS trail_guard_id text,
+          ADD COLUMN IF NOT EXISTS trail_guard_action text,
+          ADD COLUMN IF NOT EXISTS trail_guard_profile jsonb`)
+      .then(() => undefined)
+      .catch((e: any) => {
+        _trailColsEnsured = null;
+        console.error('[sol-shadow-stats] trail-guard column ensure failed (non-fatal, will retry):', e?.message ?? e);
+      });
+  }
+  return _trailColsEnsured;
+}
+
 export interface SolShadowEntryContext {
   userId: number; positionId: string; strategyId: string; symbol: string; mint?: string | null; dex?: string | null;
   liquidityUsd?: number | null; priceChange1h?: number | null; priceChange24h?: number | null;
