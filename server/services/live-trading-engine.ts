@@ -2,6 +2,7 @@ import { sessionForHour, sameSession } from '../utils/session';
 import { lookupPairKnowledge } from '../utils/pair-key';
 import { marketDataService } from '../market-data/service';
 import { logGuard, recordBlockedTrade } from './guard-events';
+import { getGateCalibrationOverridesFor, resolveGateThresholds } from './gate-calibration';
 import { recordShadow, resolveShadows, getShadowSessionStat, SHADOW_WEIGHT } from './brain-shadow';
 import { getPacePlan, paceWindowFor, pacePromptSection, computePacePlan } from './goal-pace';
 import { getAiLevelSync } from './ai-level';
@@ -5515,6 +5516,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             symbol: decision.symbol,
             message: `🧠 CONFIDENCE FLOOR: Session win rate ${(mind.sessionWinRate * 100).toFixed(0)}% — engine raised minimum to ${adaptedFloor}%. Signal at ${confidence}% rejected.`,
           });
+          // Gate calibration: record what the floor turned away (counterfactual
+          // only — the reject decision above is unchanged).
+          recordBlockedTrade(userId, 'confidence_floor_skip', decision.symbol, { direction: decision.direction, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence, model: decision.fxModel || decision.model, setup: decision.setup, session: sessionForHour(new Date().getUTCHours()) }, `adapted floor ${adaptedFloor}%`);
           state.signalsGenerated++;
           return;
         }
@@ -5906,7 +5910,18 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // Below 74%, the statistical edge is not reliable enough to overcome spread + slippage
     // Adjusted from 78% → 74% to restore moderate signal volume while keeping quality gate
     const HARD_CONFIDENCE_FLOOR = 74;
-    const effectiveMinConf2 = Math.max(config.minConfidence, HARD_CONFIDENCE_FLOOR);
+    // Gate calibration (feat/gate-calibration): if the user has APPLIED a
+    // per-slice recommendation from their own measured record, it replaces
+    // the default floor for this pair × session — and supplies the R:R
+    // gate's high-confidence exception threshold further down. Consults fail
+    // open to the defaults; hard safety gates are never read from here.
+    const _gateSession = sessionForHour(new Date().getUTCHours());
+    const _gcOverrides = await getGateCalibrationOverridesFor(userId, decision.symbol, _gateSession);
+    const _gcThresholds = resolveGateThresholds(_gcOverrides.exact, _gcOverrides.pair, {
+      confidenceFloor: Math.max(config.minConfidence, HARD_CONFIDENCE_FLOOR),
+      rrHighConfThreshold: 88,
+    });
+    const effectiveMinConf2 = _gcThresholds.confidenceFloor;
     if (adjustedConfidence < effectiveMinConf2) {
       addActivity(userId, {
         type: 'signal',
@@ -5915,6 +5930,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         confidence: adjustedConfidence,
         message: `Signal skipped (${adjustedConfidence}% < ${effectiveMinConf2}% min [hard floor: ${HARD_CONFIDENCE_FLOOR}%]): ${decision.reason}`,
       });
+      // Gate calibration: record what the floor turned away (counterfactual
+      // only — the reject decision above is unchanged).
+      recordBlockedTrade(userId, 'confidence_floor_skip', decision.symbol, { direction: decision.direction, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: adjustedConfidence, model: decision.fxModel || decision.model, setup: decision.setup, session: _gateSession }, `${adjustedConfidence}% < ${effectiveMinConf2}% floor`);
       state.signalsGenerated++;
       return;
     }
@@ -6516,6 +6534,10 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       const rewardDist = Math.abs(takeProfit - entryPrice);
       if (riskDist > 0) {
         const rr = rewardDist / riskDist;
+        // Gate calibration: the sub-1:2 exception threshold is 88% by
+        // default, or the user's applied per-slice value when one exists
+        // (resolved once at the confidence-floor site above).
+        const _rrHiConf = _gcThresholds.rrHighConfThreshold;
         if (rr < 1.5) {
           addActivity(userId, {
             type: 'signal',
@@ -6524,18 +6546,22 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             confidence: adjustedConfidence,
             message: `❌ R:R GATE REJECT: ${decision.symbol} ${decision.direction} R:R=${rr.toFixed(2)} < 1.5 minimum. Adjust TP or skip this setup.`,
           });
+          // Gate calibration: record what the R:R gate turned away
+          // (counterfactual only — the reject decision above is unchanged).
+          recordBlockedTrade(userId, 'rr_gate_skip', decision.symbol, { direction: decision.direction, entryPrice, stopLoss, takeProfit, confidence: adjustedConfidence, model: decision.fxModel || decision.model, setup: decision.setup, session: _gateSession }, `R:R ${rr.toFixed(2)} < 1.5`);
           state.signalsGenerated++;
           return;
         }
-        // Enforce 2.0 R:R minimum — only allow below 2.0 on very high-confidence setups (88%+)
-        if (rr < 2.0 && adjustedConfidence < 88) {
+        // Enforce 2.0 R:R minimum — only allow below 2.0 on very high-confidence setups (88%+ by default)
+        if (rr < 2.0 && adjustedConfidence < _rrHiConf) {
           addActivity(userId, {
             type: 'signal',
             symbol: decision.symbol,
             direction: decision.direction,
             confidence: adjustedConfidence,
-            message: `❌ R:R GATE REJECT: ${decision.symbol} ${decision.direction} R:R=${rr.toFixed(2)} — below 1:2 minimum. Requires 88%+ confidence to allow sub-2:1 setups (current: ${adjustedConfidence}%).`,
+            message: `❌ R:R GATE REJECT: ${decision.symbol} ${decision.direction} R:R=${rr.toFixed(2)} — below 1:2 minimum. Requires ${_rrHiConf}%+ confidence to allow sub-2:1 setups (current: ${adjustedConfidence}%).`,
           });
+          recordBlockedTrade(userId, 'rr_gate_skip', decision.symbol, { direction: decision.direction, entryPrice, stopLoss, takeProfit, confidence: adjustedConfidence, model: decision.fxModel || decision.model, setup: decision.setup, session: _gateSession }, `R:R ${rr.toFixed(2)} sub-1:2 at ${adjustedConfidence}% < ${_rrHiConf}%`);
           state.signalsGenerated++;
           return;
         }
@@ -6543,7 +6569,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           addActivity(userId, {
             type: 'info',
             symbol: decision.symbol,
-            message: `⚠️ R:R note: ${decision.symbol} R:R=${rr.toFixed(2)} allowed on ${adjustedConfidence}% confidence (88%+ exception). Monitor closely.`,
+            message: `⚠️ R:R note: ${decision.symbol} R:R=${rr.toFixed(2)} allowed on ${adjustedConfidence}% confidence (${_rrHiConf}%+ exception). Monitor closely.`,
           });
         }
       }
