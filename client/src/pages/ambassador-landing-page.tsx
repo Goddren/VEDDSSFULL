@@ -147,6 +147,31 @@ export default function AmbassadorLandingPage() {
             </p>
           </div>
 
+          {/* Build-your-own loop — Strategy Studio + Shadow Mode */}
+          <Card className="bg-gray-900 border-gray-800 mb-6">
+            <CardContent className="p-5">
+              <p className="text-white font-bold text-center mb-1">Got a strategy idea of your own?</p>
+              <p className="text-gray-400 text-sm text-center mb-4">
+                Build it in the Strategy Studio, backtest it on history, and prove it in Shadow mode — virtual trades on live prices — before you ever risk real money.
+              </p>
+              <div className="grid grid-cols-2 gap-3 text-center">
+                {[
+                  { step: "Build it", text: "Strategy Studio builder — volume profile, ICT, ORB, VWAP & more. No code." },
+                  { step: "Backtest it", text: "Replay your strategy over history and read the trades, win rate & drawdown." },
+                  { step: "Prove it in Shadow", text: "Virtual money on live prices builds a real record. Paper results — not live earnings." },
+                  { step: "Trade it or sell it", text: "Go live on your own broker, or list it in the Brain Marketplace — \"Proven in shadow.\"" },
+                ].map((item, i) => (
+                  <div key={item.step} className="rounded-lg bg-gray-800/60 border border-gray-800 p-3">
+                    <p className="font-bold text-sm mb-1" style={{ color: brandColor }}>
+                      {i + 1}. {item.step}
+                    </p>
+                    <p className="text-gray-400 text-xs leading-relaxed">{item.text}</p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Quiz Phase */}
           {phase === "quiz" && questions.length > 0 && (
             <Card className="bg-gray-900 border-gray-800">

@@ -1957,6 +1957,64 @@ const guideSections: GuideSection[] = [
         ]
       }
     ]
+  },
+  {
+    id: 'strategy-studio-shadow',
+    title: 'Strategy Studio & Shadow Mode',
+    icon: Layers,
+    description: 'Build your own strategy in the Strategy Studio, backtest it, prove it in Shadow (virtual) mode on live prices, then trade it live or sell it in the Brain Marketplace',
+    content: [
+      {
+        heading: 'Building Your Own Strategy in the Studio',
+        steps: [
+          'Open the Strategy Studio from the menu and start from one of the 13 presets — or from a blank strategy',
+          'Add the blocks your idea needs: volume profile, ICT concepts, opening range breakout (ORB), VWAP, and indicators like ADX, CCI, Ichimoku, Supertrend, and Donchian channels',
+          'Add higher-timeframe and session filters so the strategy only trades when and where you want it to',
+          'Set your exit rules, including breakeven moves, then name and save the strategy — it stays yours'
+        ],
+        tips: ['Start from a preset closest to your idea and change one thing at a time — you will learn faster what actually helps']
+      },
+      {
+        heading: 'Backtesting: What It Tells You (and What It Doesn\'t)',
+        steps: [
+          'Run a backtest to replay your strategy over historical prices and see the trades it would have taken',
+          'Read the headline numbers: how many trades, the win rate, the average result per trade, and the worst drawdown',
+          'A clean backtest means the idea survived history — it is a reason to keep testing, not proof it will work live',
+          'Backtests cannot show you live spreads, slippage, or how a strategy behaves in market conditions history has not repeated'
+        ],
+        tips: ['If a backtest only looks good on one pair or one month, treat that as a warning sign, not a green light']
+      },
+      {
+        heading: 'Shadow Mode: Prove It on Live Prices with Virtual Money',
+        steps: [
+          'Deploy the strategy to Shadow (virtual) mode instead of a broker account',
+          'In Shadow, the strategy trades live prices with virtual money — no real orders are ever placed',
+          'Every virtual trade is recorded, building a real record of the strategy\'s decisions: trade count, win rate, average R, and week-by-week results',
+          'Read the record the way you would read any track record: a handful of trades proves nothing — look for 30+ trades and consistency across weeks',
+          'Shadow results are virtual (paper) results. They show how the strategy\'s rules behave, but they are not live earnings and never guarantee live results'
+        ],
+        tips: ['Let a strategy build its shadow record before risking real money on it — that patience is the whole point of Shadow mode']
+      },
+      {
+        heading: 'Going Live',
+        steps: [
+          'When the shadow record looks solid, deploy the same strategy to your own connected broker account (MT5, DXtrade, or TradeLocker)',
+          'One broker account runs one strategy at a time, so the results stay clean and attributable',
+          'The live runner protects you: if a deployment hits repeated errors, it stops itself rather than trading blind',
+          'You can pause or stop a deployment at any time — going live never hands over the keys'
+        ]
+      },
+      {
+        heading: 'Selling It in the Brain Marketplace',
+        steps: [
+          'A strategy with a proven shadow record can be listed in the Brain Marketplace, where it carries the "Proven in shadow" label',
+          'The shadow bar for listing: 30+ shadow trades, average of at least +0.2R per trade, win rate of at least 40%, and no losing week in the last two weeks',
+          'Set your own price — a one-time purchase price, a monthly subscription, or both',
+          'Buyers deploy your strategy the same way you did — to Shadow first or to their own broker account — and you keep the full sale price'
+        ],
+        tips: ['The label says "Proven in shadow" because that is exactly what it means: proven in virtual trading, with the record there for buyers to inspect']
+      }
+    ]
   }
 ];
 
