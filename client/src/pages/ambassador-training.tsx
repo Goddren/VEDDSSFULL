@@ -82,7 +82,8 @@ import {
   Youtube,
   Hash,
   Radio,
-  Phone
+  Phone,
+  Wrench
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -3082,6 +3083,89 @@ const trainingModules: TrainingModule[] = [
             '50+ practice trades, average R at or below \u22120.2, win rate 40% or less, and no winning week in the last 30 days',
             'One very large loss',
             'Nothing — lessons become guards automatically',
+          ],
+          correct: 1,
+        },
+      },
+    ],
+  },
+  {
+    id: 'strategy-studio-shadow',
+    title: 'Selling the Strategy Studio & Shadow Mode',
+    description: 'How to pitch the build-your-own loop: traders design their own strategy in the Strategy Studio, backtest it, prove it in Shadow (virtual) mode on live prices, then trade it live or sell it in the Brain Marketplace.',
+    duration: '15 min',
+    icon: Wrench,
+    lessons: [
+      {
+        id: 'the-loop',
+        title: 'The Loop: Build It, Backtest It, Prove It, Trade It or Sell It',
+        content: [
+          'Plenty of traders have their own idea — a breakout they swear by, a session they love, an indicator combo they trust. Until now their options were: learn to code, pay someone to code it, or risk real money finding out if it works. The Strategy Studio removes all three barriers.',
+          'In the Strategy Studio builder, a trader assembles a strategy from advanced blocks — volume profile, ICT concepts, opening range breakout (ORB), VWAP, ADX, CCI, Ichimoku, Supertrend, Donchian channels — plus higher-timeframe and session filters and breakeven exit rules. Thirteen presets give them a running start, and no code is ever written.',
+          'Step two is the backtest: the strategy replays over historical prices so the trader sees the trades it would have taken, the win rate, and the drawdown — before a single dollar is at risk. A backtest is a filter, not a promise: it earns the strategy a live-price test, nothing more.',
+          'Step three is Shadow mode. The strategy deploys virtually — it trades live prices with virtual money and builds a real record of its decisions. No broker orders, no real money, no way to fool yourself with two lucky trades: the record is trade count, win rate, average R, and week-by-week consistency.',
+          'Then the trader chooses. Deploy the proven strategy live on their own broker account — or list it in the Brain Marketplace, where shadow-proven strategies carry the "Proven in shadow" label. Sellers set a one-time price or a monthly subscription, and buyers deploy the strategy exactly the same way: Shadow first, or live on their own account.',
+        ],
+        tips: [
+          'Memorize the one-liner: "Build it \u2192 Backtest it \u2192 Prove it in Shadow \u2192 Trade it or sell it"',
+          'The strongest prospects for this pitch are traders who already have a system or an idea they cannot test — ask "what would you build if testing it cost you nothing?"',
+        ],
+        keyPoints: [
+          { title: 'Strategy Studio Builder', description: 'Build a custom strategy from advanced blocks — volume profile, ICT, ORB, VWAP, Ichimoku and more — with 13 presets and zero code.', icon: Wrench },
+          { title: 'Backtest First', description: 'Replay the idea over history and read the trades, win rate, and drawdown before any money is involved.', icon: BarChart2 },
+          { title: 'Shadow Proof', description: 'Deploy virtually on live prices with virtual money and build a real record — the honest way to prove a strategy.', icon: ShieldCheck },
+          { title: 'Trade It or Sell It', description: 'Go live on your own broker account, or list it in the Brain Marketplace ("Proven in shadow") at a one-time or monthly subscription price.', icon: DollarSign },
+        ],
+        guideLink: { text: 'Read the full guide: Strategy Studio & Shadow Mode', section: 'strategy-studio-shadow' },
+      },
+      {
+        id: 'explain-studio-shadow-30',
+        title: 'Explain It in 30 Seconds',
+        content: [
+          'Say it like this: "Got a strategy idea of your own? In VEDD\'s Strategy Studio you build it yourself — volume profile, ICT, ORB, VWAP, the serious blocks, no code. Backtest it on history. Then deploy it to Shadow mode: it trades live prices with virtual money and builds a real record. If the record holds up, trade it live on your own broker — or sell it in the Marketplace to traders who deploy it the same way."',
+          'Worked example — walk a prospect through it: "Say your thing is the New York opening range. You\'d build that in the Studio with the ORB block and a session filter, backtest it over the last few months, then let it run in Shadow for a few weeks. You\'re not asking whether I believe in your idea — you\'re looking at its record. If it proves itself, that record is exactly what a Marketplace buyer wants to see."',
+          'Close on the honesty: "Shadow is virtual money on live prices. I\'ll never call it earnings — it\'s proof of how the strategy behaves. That\'s worth more than a screenshot of somebody\'s best week."',
+        ],
+        tips: [
+          'Never describe shadow results as earnings or live results — always "virtual trades on live prices"',
+          'Never promise a strategy will profit, in Shadow or live. Sell the testing path, not an outcome',
+          'If a prospect only wants signals, that is fine — the Studio pitch is for builders. Do not force it',
+        ],
+        realWorldExamples: [
+          {
+            scenario: 'A prospect says: "I already have my own strategy — I don\'t need another signal service."',
+            outcome: 'You agree with him, then show the loop: build his exact idea in the Strategy Studio, backtest it, and let Shadow mode produce the record. The pitch lands because you stopped selling signals and started offering proof for HIS system.',
+            lesson: 'For system traders, the product is the test-before-live path — Studio, backtest, Shadow — not VEDD\'s strategies.',
+            type: 'insight',
+          },
+          {
+            scenario: 'A prospect asks: "So the Shadow numbers — is that real money people made?"',
+            outcome: 'You answer plainly: "No — Shadow is virtual money trading live prices. It is a real record of the strategy\'s decisions, and that honesty is the point: nobody has to risk a dollar to find out whether an idea holds together."',
+            lesson: 'Correcting the record yourself, before they catch it, is what makes the rest of your pitch believable.',
+            type: 'warning',
+          },
+        ],
+      },
+      {
+        id: 'studio-shadow-objections',
+        title: 'Objections & the Honest Frame',
+        content: [
+          '"Why not just trade it live and see?" — Because live money is the most expensive backtest there is. Shadow gives the same live prices and the same record-keeping with virtual money; the only thing removed is the tuition traders pay the market for untested ideas.',
+          '"Can I actually sell a strategy I built?" — Yes. Once a strategy builds a proven shadow record (30+ trades, average at least +0.2R, win rate at least 40%, no losing week in the last two), it can be listed in the Brain Marketplace with the "Proven in shadow" label, at a one-time price or a monthly subscription the seller sets.',
+          '"Is this the AI building strategies for me?" — No, and do not pitch it that way. The Strategy Studio builder is the trader\'s own hands on the blocks. What VEDD\'s AI does elsewhere in the app is separate — keep the Studio pitch about the trader\'s own idea and their own proof.',
+          'The frame that keeps you compliant and credible: you are selling a workshop and a proving ground, not a result. Traders who hear "test it before you risk money" trust you more, stay longer, and bring you other builders.',
+        ],
+        tips: [
+          'Use the prospect\'s own strategy idea in the walkthrough — generic feature lists do not close builders',
+          'Point prospects to the User Guide section "Strategy Studio & Shadow Mode" for the self-serve walkthrough',
+        ],
+        quiz: {
+          question: 'How must Shadow mode results always be described to a prospect?',
+          options: [
+            'As earnings the strategy has already made',
+            'As virtual (paper) trades on live prices — a real record of the strategy\'s decisions, not live earnings',
+            'As a preview of guaranteed live performance',
+            'As demo results that do not count for anything',
           ],
           correct: 1,
         },

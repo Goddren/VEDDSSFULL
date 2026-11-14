@@ -29,6 +29,10 @@ const STEPS = [
     detail: "Once approved, connect the account credentials to VEDD: MT5 accounts use the MT5 Chart Data EA, TradeLocker-based accounts connect directly from the Webhooks page. Both take under 5 minutes.",
   },
   {
+    title: 'Show the test-before-live path: Strategy Studio + Shadow',
+    detail: "Take two minutes to show the other door: attendees with their own strategy idea can build it in the Strategy Studio (volume profile, ICT, ORB, VWAP blocks — no code), backtest it on history, and deploy it to Shadow (virtual) mode to build a real record on live prices with virtual money before it ever trades live. Strategies with a proven shadow record can also be listed in the Brain Marketplace, labeled 'Proven in shadow.' Shadow results are virtual/paper results — say so plainly.",
+  },
+  {
     title: 'Turn on the AI SS Engine',
     detail: "Head to the AI SS Engine page, set a weekly goal, and flip the engine on. Attendees leave with a live, AI-managed funded account — not just a signup.",
   },
@@ -73,6 +77,7 @@ We'll walk you through:
 1. Signing up for a funded prop firm account
 2. Connecting it to VEDD's AI trading engine
 3. Leaving with a live, AI-managed account
+4. Building your own strategy in the Strategy Studio, backtesting it, and proving it in Shadow (virtual) mode before it trades live
 
 Sign up for your funded account here: ${referralLink || '[add your referral link]'}
 

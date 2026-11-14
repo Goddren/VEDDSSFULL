@@ -192,6 +192,10 @@ export default function AmbassadorSalesScriptPage() {
       solution: '"On God — those Telegram signal groups are one person\'s opinion. Some random dude thinking he knows what the market\'s doing. VEDD runs 12+ indicators PLUS GPT-4o AI analysis PLUS live news sentiment all at the same time. It\'s not a comparison. Level up and stop paying for someone\'s guesses."',
     },
     {
+      pain: 'Got my own strategy idea but can\'t code it / scared to test it with real money',
+      solution: '"That\'s literally what the Strategy Studio was built for. You build your idea yourself — volume profile, ICT, ORB, VWAP, session filters, breakeven rules — no code at all. Backtest it on history in minutes. Then run it in Shadow mode: live prices, virtual money, and it builds a real record of every decision. You find out if your idea is real BEFORE your money does. And if it proves out in Shadow, you can even list it in the Brain Marketplace and let other traders subscribe to it. Your idea stops being a theory and becomes a product."',
+    },
+    {
       pain: 'Want to get into crypto / Solana but don\'t know where to start',
       solution: '"VEDD has a whole Solana token scanner that AI scans trending tokens, scores them on sentiment, tokenomics, whale activity — and you can paper trade first before putting real money in. It\'s literally built for people who want to move smart in crypto without getting rugged. No cap."',
     },
@@ -205,6 +209,7 @@ export default function AmbassadorSalesScriptPage() {
     { step: '5. Solana Scanner — Crypto Bag Alert', detail: '"For my crypto people — VEDD has an AI scanner that goes through trending Solana tokens and scores them. Sentiment, tokenomics, whale activity, on-chain data — all analyzed. You can paper trade first before putting any real money in. It\'s built so you can move smart in crypto without getting caught in a rug pull. IYKYK."' },
     { step: '6. Workforce Academy — Level Up Your Knowledge', detail: '"VEDD isn\'t just a tool — it\'s a whole education ecosystem. The Workforce Academy has 12 full courses: AI trading, Web3, financial literacy, credit building, entrepreneurship. You complete courses, earn certificates that stack for grant eligibility, and level up your knowledge while you level up your bag. It\'s built for communities that been slept on."' },
     { step: '7. VEDD Token Rewards — Earn While You Learn', detail: '"Every analysis you run, every EA you build, every trade that executes — you\'re earning VEDD tokens. Those tokens are redeemable for subscription credits, exclusive features, and governance votes in the ecosystem. You\'re not just using a platform — you\'re building equity in it. That\'s the difference."' },
+    { step: '8. Strategy Studio & Shadow Mode — Build Your Own, Test It First', detail: '"Now this one is for the traders who got their OWN ideas. The Strategy Studio lets you build your own strategy — volume profile, ICT, opening range breakout, VWAP, Ichimoku, Supertrend, the serious blocks — no code, and there\'s 13 presets to start from. You backtest it on history first. Then you deploy it to Shadow mode: it trades live prices with VIRTUAL money and builds a real record — no real dollars at risk while you find out if your idea actually holds up. If the record proves out, you deploy it live on your own broker account — or you list it in the Brain Marketplace with the \'Proven in shadow\' label and charge a one-time price or a monthly subscription, and other traders deploy it the same way. Build it, backtest it, prove it in Shadow, then trade it or sell it. And I\'ma keep it real — Shadow is virtual money, so nobody\'s calling that earnings. It\'s proof of how the strategy behaves, and that proof is the whole point."' },
   ];
 
   const pricingScripts = [
@@ -270,6 +275,10 @@ export default function AmbassadorSalesScriptPage() {
     {
       objection: "I'll check the website later.",
       response: `"For sure — I'll send you the link right now so you got it. But while I got you, can I show you one thing real quick? Takes 60 seconds and I think once you see the AI analyze a chart it'll all make sense when you visit the site. Most people who see it go from 'I'll check it later' to 'aight how do I get started' in under a minute. You got 60 seconds?"`,
+    },
+    {
+      objection: "I want to trade my own strategy, not follow somebody else's signals.",
+      response: `"Say less — that's exactly who the Strategy Studio is for. You build YOUR strategy in the builder: volume profile, ICT, ORB, VWAP, higher-timeframe and session filters, breakeven rules — your rules, no code. Backtest it on history, then deploy it to Shadow mode so it trades live prices with virtual money and builds a real record. When the record proves your idea works, you deploy it live on your own broker account. And here's the part nobody else is doing: a strategy with a proven shadow record can be listed in the Brain Marketplace — labeled 'Proven in shadow' — at a one-time price or a monthly subscription YOU set. You're not following anybody. You're building something other traders pay to deploy."`,
     },
     {
       objection: "I don't trust AI for trading.",
