@@ -15,8 +15,10 @@
 //    tags only — shadow sizing is a fixed notional, so there is nothing to
 //    boost, and inventing one would fake evidence.
 //  • LOG — every block lands in kalshi_perp_brain_blocks (one row per
-//    blocking bucket, plus the volume-profile veto rows) so the panel —
-//    and Chris — can audit exactly what the brain stopped, and why.
+//    blocking bucket, plus the volume-profile veto rows and, from build
+//    #3, the earnings-blackout rows with reason 'earnings' and the
+//    report date in bucket_value) so the panel — and Chris — can audit
+//    exactly what the brain stopped, and why.
 //  • REHABILITATION IS AUTOMATIC — stats roll over the lane's own 60-day
 //    window and are re-aggregated every cycle. When a bucket's recent
 //    record improves enough that its verdict leaves 'avoid', the gate
@@ -148,7 +150,7 @@ export interface PerpBrainBlockRow {
   ticker: string;
   underlying?: string | null;
   direction?: string | null;
-  reason: 'brain_avoid' | 'vp_edge';
+  reason: 'brain_avoid' | 'vp_edge' | 'earnings';
   bucketDim?: string | null;
   bucketValue?: string | null;
   medianNetPct?: number | null;
@@ -192,6 +194,7 @@ export interface PerpBrainTopBlock {
 export interface PerpBrainBlockSummary {
   brainBlocks: number;
   vpSkips: number;
+  earningsSkips: number;
   topBlocks: PerpBrainTopBlock[];
 }
 
@@ -226,6 +229,7 @@ export async function getPerpBrainBlockSummary(userId: number, days: number): Pr
   return {
     brainBlocks: counts.get('brain_avoid') || 0,
     vpSkips: counts.get('vp_edge') || 0,
+    earningsSkips: counts.get('earnings') || 0,
     topBlocks: (topRes.rows || []).map((r: any): PerpBrainTopBlock => ({
       strategy: String(r.strategy),
       underlying: r.underlying == null ? null : String(r.underlying),
