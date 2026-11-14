@@ -153,29 +153,174 @@ export interface StrategySpec {
   createdVia?: 'abba' | 'studio';
 }
 
+/** Plain-language education for one buildable block, shown to the user
+ *  at the moment they pick it (Studio library + draft) and available to
+ *  ABBA chat from this same source, so both surfaces teach identically.
+ *  Factual tendencies + failure modes only — never a performance claim. */
+export type BlockCategory =
+  | 'Trend' | 'Momentum' | 'Volatility' | 'Volume'
+  | 'Structure & Patterns' | 'Candlesticks' | 'Filters & Risk';
+
+export interface BlockEducation {
+  /** Friendly name a beginner recognises ("Moving average (EMA)"). */
+  plainName: string;
+  category: BlockCategory;
+  /** What the block is, in one or two plain sentences. */
+  whatItIs: string;
+  /** Why traders use it — the tendency it tries to capture. */
+  whyItWorks: string;
+  /** Its known weakness — how it false-signals or gets misused. */
+  whyItFails: string;
+  /** Catalog keys (indicator kinds or block keys) it combines well with. */
+  pairsWith: string[];
+  /** Plain words a user might search by ("breakout", "overbought"). */
+  searchTerms: string[];
+}
+
 export const INDICATOR_CATALOG: Array<{
   kind: IndicatorKind; label: string; fields: ConditionField[]; defaults: Partial<IndicatorConfig>;
+  education: BlockEducation;
 }> = [
-  { kind: 'EMA', label: 'Exponential Moving Average', fields: ['value'], defaults: { period: 21 } },
-  { kind: 'SMA', label: 'Simple Moving Average', fields: ['value'], defaults: { period: 50 } },
-  { kind: 'RSI', label: 'Relative Strength Index', fields: ['value'], defaults: { period: 14 } },
-  { kind: 'MACD', label: 'MACD', fields: ['value', 'signal', 'histogram'], defaults: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 } },
-  { kind: 'STOCHASTIC', label: 'Stochastic Oscillator', fields: ['k', 'd'], defaults: { period: 14, signalPeriod: 3 } },
-  { kind: 'BOLLINGER', label: 'Bollinger Bands', fields: ['upper', 'middle', 'lower'], defaults: { period: 20, stdDev: 2 } },
-  { kind: 'ATR', label: 'Average True Range', fields: ['value'], defaults: { period: 14 } },
-  { kind: 'VWAP', label: 'VWAP (daily reset)', fields: ['value'], defaults: {} },
-  { kind: 'ADX', label: 'ADX (trend strength)', fields: ['value', 'plus', 'minus'], defaults: { period: 14 } },
-  { kind: 'CCI', label: 'CCI', fields: ['value'], defaults: { period: 20 } },
-  { kind: 'WILLIAMS_R', label: 'Williams %R', fields: ['value'], defaults: { period: 14 } },
-  { kind: 'ICHIMOKU', label: 'Ichimoku Cloud', fields: ['tenkan', 'kijun', 'span_a', 'span_b'], defaults: { period: 9, fastPeriod: 26, slowPeriod: 52 } },
-  { kind: 'SUPERTREND', label: 'Supertrend', fields: ['value'], defaults: { period: 10, stdDev: 3 } },
-  { kind: 'DONCHIAN', label: 'Donchian Channel', fields: ['upper', 'middle', 'lower'], defaults: { period: 20 } },
-  { kind: 'VOLUME_PROFILE', label: 'Volume Profile (POC / Value Area)', fields: ['poc', 'vah', 'val'], defaults: { lookbackBars: 100, valueAreaPct: 70 } },
-  { kind: 'PIVOTS', label: 'Daily Pivot Points', fields: ['pp', 'r1', 'r2', 's1', 's2'], defaults: {} },
-  { kind: 'ORB', label: 'Opening Range (ORB)', fields: ['or_high', 'or_low'], defaults: { sessionStartHourUtc: 14, sessionStartMinuteUtc: 30, rangeMinutes: 30 } },
-  { kind: 'SWINGS', label: 'Swing Highs / Lows (structure)', fields: ['swing_high', 'swing_low'], defaults: { pivotLeft: 3, pivotRight: 3 } },
-  { kind: 'FVG', label: 'Fair Value Gaps (ICT)', fields: ['bull_high', 'bull_low', 'bear_high', 'bear_low'], defaults: { lookbackBars: 100 } },
-  { kind: 'ORDER_BLOCK', label: 'Order Blocks (ICT)', fields: ['bull_high', 'bull_low', 'bear_high', 'bear_low'], defaults: { lookbackBars: 100, pivotLeft: 5 } },
+  { kind: 'EMA', label: 'Exponential Moving Average', fields: ['value'], defaults: { period: 21 }, education: {
+    plainName: 'Moving average — EMA (fast-reacting)', category: 'Trend',
+    whatItIs: 'A moving average that weights recent prices more heavily, so it hugs price closer than a simple average.',
+    whyItWorks: 'In a persistent trend, price tends to stay on one side of its EMA and pullbacks often stall near it — so "which side of the EMA" and EMA crosses can keep a strategy trading with the move instead of against it.',
+    whyItFails: 'In a sideways market the EMA flattens and price whips across it, producing repeated false crosses. It also lags: entries come after the move has already started.',
+    pairsWith: ['ADX', 'RSI', 'SUPERTREND'], searchTerms: ['trend', 'moving average', 'crossover', 'golden cross', 'fast average'],
+  } },
+  { kind: 'SMA', label: 'Simple Moving Average', fields: ['value'], defaults: { period: 50 }, education: {
+    plainName: 'Moving average — SMA (classic 50/200)', category: 'Trend',
+    whatItIs: 'The plain average of the last N closes. The 50 and 200 SMAs are the most-watched trend lines in trading.',
+    whyItWorks: 'A slow, smooth line gives an objective read of the bigger trend: above it, traders bias long; below it, bias short. Because so many traders watch the same levels, reactions near them can be self-fulfilling.',
+    whyItFails: 'It lags even more than an EMA, so trend flips are confirmed late, and in ranges price saws through it in both directions.',
+    pairsWith: ['EMA', 'ADX', 'DONCHIAN'], searchTerms: ['trend', 'moving average', '200 day', 'slow average', 'death cross'],
+  } },
+  { kind: 'RSI', label: 'Relative Strength Index', fields: ['value'], defaults: { period: 14 }, education: {
+    plainName: 'RSI — momentum & overbought/oversold', category: 'Momentum',
+    whatItIs: 'An oscillator from 0 to 100 comparing recent gains to recent losses. By convention, above 70 is "overbought" and below 30 is "oversold".',
+    whyItWorks: 'Momentum extremes often coincide with exhaustion, so RSI turning back out of an extreme can mark a snap-back; holding above or below 50 is also a quick trend-strength read.',
+    whyItFails: 'In a strong trend RSI can stay overbought or oversold for a long time — fading it early means fighting the trend. The 70/30 levels are conventions, not walls.',
+    pairsWith: ['EMA', 'BOLLINGER', 'VWAP'], searchTerms: ['overbought', 'oversold', 'momentum', 'reversal', 'divergence', 'oscillator'],
+  } },
+  { kind: 'MACD', label: 'MACD', fields: ['value', 'signal', 'histogram'], defaults: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 }, education: {
+    plainName: 'MACD — momentum shifts', category: 'Momentum',
+    whatItIs: 'The difference between a fast and a slow EMA, plotted with its own signal line and a histogram — a trend/momentum hybrid.',
+    whyItWorks: 'Crosses of the signal line capture momentum changing direction, and the histogram shows acceleration building or fading before the cross happens.',
+    whyItFails: 'It is built from moving averages, so it lags and whipsaws in ranges; crosses near the zero line are especially noisy.',
+    pairsWith: ['ADX', 'EMA', 'BOLLINGER'], searchTerms: ['momentum', 'crossover', 'histogram', 'signal line', 'trend change'],
+  } },
+  { kind: 'STOCHASTIC', label: 'Stochastic Oscillator', fields: ['k', 'd'], defaults: { period: 14, signalPeriod: 3 }, education: {
+    plainName: 'Stochastic — fast momentum timer', category: 'Momentum',
+    whatItIs: 'An oscillator (0–100) showing where the close sits inside the recent high–low range, as %K with its smoothed %D line.',
+    whyItWorks: 'A sensitive momentum read — traders use %K/%D crosses out of the extreme zones to time pullback entries inside an existing trend.',
+    whyItFails: 'Very twitchy: in a trend it pins at 100 or 0 and produces many false crosses, especially on low timeframes.',
+    pairsWith: ['EMA', 'RSI', 'SUPERTREND'], searchTerms: ['overbought', 'oversold', 'momentum', 'timing', 'pullback', 'oscillator'],
+  } },
+  { kind: 'BOLLINGER', label: 'Bollinger Bands', fields: ['upper', 'middle', 'lower'], defaults: { period: 20, stdDev: 2 }, education: {
+    plainName: 'Bollinger Bands — stretch & squeeze', category: 'Volatility',
+    whatItIs: 'A moving average with bands set a number of standard deviations away, so the bands widen when volatility expands and squeeze tight when it contracts.',
+    whyItWorks: 'Band touches mark statistically stretched prices, and a hard squeeze (very narrow bands) often comes before a volatility expansion and breakout.',
+    whyItFails: 'In a strong trend price can "walk the band" for many bars — a band touch by itself is not a reversal signal.',
+    pairsWith: ['RSI', 'ATR', 'DONCHIAN'], searchTerms: ['volatility', 'bands', 'squeeze', 'breakout', 'stretched', 'mean reversion'],
+  } },
+  { kind: 'ATR', label: 'Average True Range', fields: ['value'], defaults: { period: 14 }, education: {
+    plainName: 'ATR — the volatility ruler', category: 'Volatility',
+    whatItIs: 'How much price typically moves per bar, in price units. A ruler for volatility — it says nothing about direction.',
+    whyItWorks: 'Stops and targets sized as ATR multiples adapt to the pair and timeframe, instead of one fixed pip number being too tight on a wild pair and too wide on a quiet one.',
+    whyItFails: 'It cannot time or direct a trade, and a multiple that fits a quiet week can be far too tight when a news spike hits.',
+    pairsWith: ['SUPERTREND', 'DONCHIAN', 'BOLLINGER'], searchTerms: ['volatility', 'stop size', 'position', 'range', 'risk'],
+  } },
+  { kind: 'VWAP', label: 'VWAP (daily reset)', fields: ['value'], defaults: {}, education: {
+    plainName: 'VWAP — the day\'s fair price', category: 'Volume',
+    whatItIs: 'The volume-weighted average price for the day, resetting each day — the benchmark institutions often judge executions against.',
+    whyItWorks: 'Intraday price stretched far from VWAP tends to get pulled back toward it, and holding above or below VWAP is a quick read on which side is in control today.',
+    whyItFails: 'Only meaningful intraday — it resets daily, and FX feeds carry tick volume rather than true exchange volume, so it is an approximation.',
+    pairsWith: ['RSI', 'ORB', 'PIVOTS'], searchTerms: ['intraday', 'fair value', 'mean reversion', 'session', 'volume'],
+  } },
+  { kind: 'ADX', label: 'ADX (trend strength)', fields: ['value', 'plus', 'minus'], defaults: { period: 14 }, education: {
+    plainName: 'ADX — is there a real trend?', category: 'Trend',
+    whatItIs: 'Measures trend STRENGTH from 0 to 100 regardless of direction; the +DI/−DI lines show which side is stronger.',
+    whyItWorks: 'Mostly used as a filter: trend systems often only take entries when ADX says a real trend exists (commonly above 20–25), skipping the chop where they bleed.',
+    whyItFails: 'ADX lags — it rises after a trend is underway and can stay high into exhaustion. It never tells direction by itself.',
+    pairsWith: ['EMA', 'SUPERTREND', 'MACD'], searchTerms: ['trend strength', 'filter', 'chop', 'ranging', 'trend or range'],
+  } },
+  { kind: 'CCI', label: 'CCI', fields: ['value'], defaults: { period: 20 }, education: {
+    plainName: 'CCI — momentum vs the average', category: 'Momentum',
+    whatItIs: 'An oscillator comparing price to its statistical average, scaled so most readings sit between −100 and +100.',
+    whyItWorks: 'Crosses of the ±100 lines flag momentum surges and stretched prices; traders use it for trend pullback entries and to spot momentum diverging from price.',
+    whyItFails: 'It is unbounded and jumpy — in strong trends it camps beyond ±100 and early counter-trend entries get run over.',
+    pairsWith: ['EMA', 'RSI', 'BOLLINGER'], searchTerms: ['momentum', 'overbought', 'oversold', 'divergence', 'oscillator'],
+  } },
+  { kind: 'WILLIAMS_R', label: 'Williams %R', fields: ['value'], defaults: { period: 14 }, education: {
+    plainName: 'Williams %R — short-term extremes', category: 'Momentum',
+    whatItIs: 'A fast oscillator (from −100 to 0) showing where the close sits in the recent range; −20 and −80 mark the conventional extreme zones.',
+    whyItWorks: 'A quick read on short-term exhaustion — turns out of an extreme zone can time snap-backs and the end of a pullback.',
+    whyItFails: 'Extremely sensitive: in a trend it camps in the extreme zone and fires repeated premature counter-trend signals.',
+    pairsWith: ['RSI', 'EMA', 'STOCHASTIC'], searchTerms: ['overbought', 'oversold', 'momentum', 'snap back', 'oscillator'],
+  } },
+  { kind: 'ICHIMOKU', label: 'Ichimoku Cloud', fields: ['tenkan', 'kijun', 'span_a', 'span_b'], defaults: { period: 9, fastPeriod: 26, slowPeriod: 52 }, education: {
+    plainName: 'Ichimoku — a whole trend system', category: 'Trend',
+    whatItIs: 'A complete trend framework in one indicator: the Tenkan and Kijun lines plus the Kumo cloud, all built from mid-point averages.',
+    whyItWorks: 'Price above the cloud with Tenkan above Kijun stacks several trend confirmations at once, and the cloud itself acts as a support/resistance zone.',
+    whyItFails: 'Slow by design (a 52-period backbone) — it confirms trends late and turns muddy in range-bound markets.',
+    pairsWith: ['ADX', 'RSI', 'DONCHIAN'], searchTerms: ['trend', 'cloud', 'kumo', 'system', 'support resistance'],
+  } },
+  { kind: 'SUPERTREND', label: 'Supertrend', fields: ['value'], defaults: { period: 10, stdDev: 3 }, education: {
+    plainName: 'Supertrend — trend line + trailing stop', category: 'Trend',
+    whatItIs: 'An ATR-based line that sits below price in uptrends and above price in downtrends, flipping side when the trend breaks.',
+    whyItWorks: 'One clear rule — stay with the trade while price is on the right side of the line — and the line doubles as a trailing stop level that adapts to volatility.',
+    whyItFails: 'Flips whipsaw in sideways markets, and every flip happens only after price has already moved against you by roughly the ATR distance.',
+    pairsWith: ['ADX', 'ATR', 'EMA'], searchTerms: ['trend', 'trailing stop', 'flip', 'atr'],
+  } },
+  { kind: 'DONCHIAN', label: 'Donchian Channel', fields: ['upper', 'middle', 'lower'], defaults: { period: 20 }, education: {
+    plainName: 'Donchian channel — breakout boundaries', category: 'Trend',
+    whatItIs: 'The highest high and lowest low of the last N bars as a channel — the boundaries the original Turtle traders used for breakouts.',
+    whyItWorks: 'A break of the channel is an objective "new extreme" signal: the method needs no prediction, it just reacts when price does something it has not done in N bars.',
+    whyItFails: 'Most breakouts inside ranges are false — the approach accepts many small losses while waiting for a few long trends, and gives back open profit waiting for the middle-line exit.',
+    pairsWith: ['ATR', 'ADX', 'EMA'], searchTerms: ['breakout', 'turtle', 'channel', 'new high', 'trend'],
+  } },
+  { kind: 'VOLUME_PROFILE', label: 'Volume Profile (POC / Value Area)', fields: ['poc', 'vah', 'val'], defaults: { lookbackBars: 100, valueAreaPct: 70 }, education: {
+    plainName: 'Volume Profile — where trading happened', category: 'Volume',
+    whatItIs: 'A map of how much volume traded at each price: the POC (the most-traded price) and the Value Area holding about 70% of volume, edged by the VAH and VAL.',
+    whyItWorks: 'Price tends to be drawn to heavily traded prices (fair value) and to move quickly through thinly traded gaps; value-area edges are watched as support and resistance.',
+    whyItFails: 'FX volume is one feed\'s tick volume, not the whole market, and the levels shift with the lookback window — treat them as zones, not exact lines.',
+    pairsWith: ['VWAP', 'SWINGS', 'ATR'], searchTerms: ['volume', 'poc', 'value area', 'support resistance', 'fair value', 'auction'],
+  } },
+  { kind: 'PIVOTS', label: 'Daily Pivot Points', fields: ['pp', 'r1', 'r2', 's1', 's2'], defaults: {}, education: {
+    plainName: 'Pivot points — daily reference levels', category: 'Structure & Patterns',
+    whatItIs: 'Classic floor-trader levels (the pivot point PP, resistances R1/R2, supports S1/S2) calculated from the prior day\'s high, low and close.',
+    whyItWorks: 'They are widely watched intraday reference levels — many traders place stops and targets around them, which can make price reactions there partly self-fulfilling.',
+    whyItFails: 'The levels are fixed all day and ignore the current day\'s structure; in a strong trend price runs straight through them.',
+    pairsWith: ['VWAP', 'ORB', 'RSI'], searchTerms: ['support resistance', 'levels', 'intraday', 'daily', 'floor trader'],
+  } },
+  { kind: 'ORB', label: 'Opening Range (ORB)', fields: ['or_high', 'or_low'], defaults: { sessionStartHourUtc: 14, sessionStartMinuteUtc: 30, rangeMinutes: 30 }, education: {
+    plainName: 'Opening Range Breakout (ORB)', category: 'Structure & Patterns',
+    whatItIs: 'The high and low of the first minutes after a session open (the opening range); entries trigger on a break of that range.',
+    whyItWorks: 'Session opens concentrate overnight orders and fresh money, so a decisive break of the opening range often sets the session\'s direction early.',
+    whyItFails: 'False breakouts are the classic trap — price pokes out of the range, triggers breakout entries, then reverses back inside. A very wide range also leaves no sensible place for a stop.',
+    pairsWith: ['VWAP', 'ATR', 'VOLUME_PROFILE'], searchTerms: ['breakout', 'opening range', 'session open', 'new york', 'london'],
+  } },
+  { kind: 'SWINGS', label: 'Swing Highs / Lows (structure)', fields: ['swing_high', 'swing_low'], defaults: { pivotLeft: 3, pivotRight: 3 }, education: {
+    plainName: 'Swing highs & lows — market structure', category: 'Structure & Patterns',
+    whatItIs: 'Confirmed turning points (pivots) on the chart — the landmarks for breaks of structure, support/resistance and stop placement.',
+    whyItWorks: 'Structure is the backbone of most discretionary systems: a close through the last swing level is an objective change in the short-term trend.',
+    whyItFails: 'A pivot only confirms after later bars print, so the level arrives late by design; in choppy markets swings form and break constantly.',
+    pairsWith: ['FVG', 'ORDER_BLOCK', 'DONCHIAN'], searchTerms: ['structure', 'break of structure', 'bos', 'support resistance', 'pivot', 'swing'],
+  } },
+  { kind: 'FVG', label: 'Fair Value Gaps (ICT)', fields: ['bull_high', 'bull_low', 'bear_high', 'bear_low'], defaults: { lookbackBars: 100 }, education: {
+    plainName: 'Fair Value Gap (FVG) — price imbalance', category: 'Structure & Patterns',
+    whatItIs: 'An ICT concept: a three-candle imbalance where a strong move leaves a price zone barely traded. The gap\'s top and bottom edges are tracked as levels.',
+    whyItWorks: 'Price often revisits imbalances, so a retest of the gap can offer an entry in the direction of the original move, with the far edge as a natural invalidation.',
+    whyItFails: 'Not every gap gets revisited, and gaps standing against a strong trend get run straight through. On FX this is a candle-pattern proxy, not exchange order data.',
+    pairsWith: ['SWINGS', 'ORDER_BLOCK', 'EMA'], searchTerms: ['ict', 'imbalance', 'gap', 'retest', 'smart money'],
+  } },
+  { kind: 'ORDER_BLOCK', label: 'Order Blocks (ICT)', fields: ['bull_high', 'bull_low', 'bear_high', 'bear_low'], defaults: { lookbackBars: 100, pivotLeft: 5 }, education: {
+    plainName: 'Order Block (ICT) — institutional zone', category: 'Structure & Patterns',
+    whatItIs: 'An ICT concept: the last opposing candle before a strong displacement move, treated as the zone where large orders plausibly executed.',
+    whyItWorks: 'The first retest of a fresh block is watched for a reaction in the displacement direction — the idea is that unfilled interest remains at that zone.',
+    whyItFails: 'Blocks are everywhere if you look loosely — quality depends entirely on the displacement that followed, and old, repeatedly retested blocks lose their meaning.',
+    pairsWith: ['FVG', 'SWINGS', 'VOLUME_PROFILE'], searchTerms: ['ict', 'order block', 'zone', 'supply demand', 'smart money', 'retest'],
+  } },
 ];
 
 const TIMEFRAMES: StrategyTimeframe[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];

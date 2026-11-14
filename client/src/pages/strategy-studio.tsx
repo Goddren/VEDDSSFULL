@@ -16,12 +16,14 @@ import {
   Activity, ArrowUpRight, Undo, Flame,
   ShieldCheck, Scale, Settings,
   ArrowLeftRight, Waves, CandlestickChart, FilterX,
-  Rocket, BrainCircuit, Store, Square
+  Rocket, BrainCircuit, Store, Square, Wrench, BookOpen, Eye
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { apiRequest } from '@/lib/queryClient';
 import { StrategyBuilder } from '@/components/trading/strategy-builder';
+import { StrategyHealthPanel } from '@/components/trading/strategy-health-panel';
+import { AbbaCopilotPanel } from '@/components/trading/abba-copilot-panel';
 import { ABBA_STUDIO_DRAFT_KEY, ABBA_STUDIO_OPEN_KEY } from '@/components/abba/strategy-create';
 import type { StrategySpec, EngineStrategyInfo } from '@/lib/strategy-spec';
 import { templatePreset, defaultBuilderSpec, engineNativeSpec, ENGINE_STRATEGIES, ADVANCED_PRESETS } from '@/lib/strategy-spec';
@@ -1257,7 +1259,9 @@ export default function StrategyStudio() {
                   </h3>
                   <p className="text-sm text-muted-foreground mt-1">
                     Combine indicators into your own entry and exit rules — EMA, RSI, MACD, Stochastic, Bollinger, ATR.
-                    Backtest it for real, save it, turn it into an MT5 EA, deploy it to a live account.
+                    Every block teaches why it works and where it breaks while you build, Strategy Health reads your draft
+                    live, and ABBA rides along with suggestions. Backtest it for real, save it, turn it into an MT5 EA,
+                    deploy it to a live account — or Shadow-test it first.
                   </p>
                 </div>
                 <Button size="lg" onClick={handleStartBuilder} className="bg-gradient-to-r from-indigo-500 to-indigo-700 text-white shrink-0">
@@ -1548,22 +1552,31 @@ export default function StrategyStudio() {
         return (
           <>
             {spec ? (
-              <div className="space-y-4">
-                {spec.entryLong.conditions.length + spec.entryShort.conditions.length > 0 && (
-                  <div className="flex flex-wrap items-center justify-between gap-3 border rounded-lg p-3">
-                    <p className="text-sm text-muted-foreground">
-                      Like these rules? Turn them into a MetaTrader 5 Expert Advisor in the same format as VEDD's built-in EA generator.
-                    </p>
-                    <Button onClick={handleDownloadEa} disabled={isGeneratingEa}>
-                      <ArrowUpRight className="h-4 w-4 mr-2" />
-                      {isGeneratingEa ? 'Generating…' : 'Download MT5 EA (.mq5)'}
-                    </Button>
-                  </div>
-                )}
-                <StrategyBuilder
-                  value={spec}
-                  onChange={(s) => { setSpec(s); setSymbol(s.symbol); setTimeframe(s.timeframe); }}
-                />
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_370px] items-start">
+                <div className="space-y-4 min-w-0">
+                  {spec.entryLong.conditions.length + spec.entryShort.conditions.length > 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 border rounded-lg p-3">
+                      <p className="text-sm text-muted-foreground">
+                        Like these rules? Turn them into a MetaTrader 5 Expert Advisor in the same format as VEDD's built-in EA generator.
+                      </p>
+                      <Button onClick={handleDownloadEa} disabled={isGeneratingEa}>
+                        <ArrowUpRight className="h-4 w-4 mr-2" />
+                        {isGeneratingEa ? 'Generating…' : 'Download MT5 EA (.mq5)'}
+                      </Button>
+                    </div>
+                  )}
+                  <StrategyBuilder
+                    value={spec}
+                    onChange={(s) => { setSpec(s); setSymbol(s.symbol); setTimeframe(s.timeframe); }}
+                  />
+                </div>
+                <div className="space-y-4 xl:sticky xl:top-4">
+                  <StrategyHealthPanel spec={spec} />
+                  <AbbaCopilotPanel
+                    spec={spec}
+                    onApplySpec={(s) => { setSpec(s); setSymbol(s.symbol); setTimeframe(s.timeframe); }}
+                  />
+                </div>
               </div>
             ) : customizedStrategy && (
               <div className="space-y-6">
@@ -2081,10 +2094,10 @@ export default function StrategyStudio() {
   // Progress indicator
   const renderStepIndicator = () => {
     const steps = [
-      { id: 'select', name: 'Select Strategy', icon: Filter },
-      { id: 'configure', name: 'Configure Parameters', icon: Sliders },
-      { id: 'backtest', name: 'Backtest Settings', icon: Play },
-      { id: 'results', name: 'Review Results', icon: LineChart }
+      { id: 'select', name: 'Start', icon: Filter },
+      { id: 'configure', name: 'Build & Learn', icon: Sliders },
+      { id: 'backtest', name: 'Backtest', icon: Play },
+      { id: 'results', name: 'Results & Deploy', icon: LineChart }
     ];
 
     return (
@@ -2141,22 +2154,39 @@ export default function StrategyStudio() {
   return (
     <div className="container mx-auto px-4 py-10">
       <div className="mb-10 text-center">
-        <motion.h1 
+        <motion.h1
           className="text-3xl md:text-4xl font-bold tracking-tight"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          Trading Strategy Visualization Wizard
+          Strategy Builder Hub
         </motion.h1>
-        <motion.p 
+        <motion.p
           className="text-muted-foreground mt-4 max-w-2xl mx-auto"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.2 }}
         >
-          Create, customize, and backtest trading strategies with visual performance analysis
+          Everything to build and test a strategy in one place — and it teaches you while you build:
+          why each block can work, and exactly where it breaks.
         </motion.p>
+        <div className="mt-6 flex flex-wrap items-stretch justify-center gap-2">
+          {[
+            { icon: Wrench, title: '1 · Build', text: 'Pick blocks from the library, set your rules' },
+            { icon: BookOpen, title: '2 · Learn as you build', text: 'Every block explains itself; Health + ABBA read your draft' },
+            { icon: Play, title: '3 · Backtest', text: 'Replay your exact rules on real history' },
+            { icon: Eye, title: '4 · Shadow test', text: 'Prove it forward on live prices, virtual money' },
+          ].map((s) => (
+            <div key={s.title} className="flex items-start gap-2 border rounded-lg px-3 py-2 text-left bg-card max-w-[260px]">
+              <s.icon className="h-5 w-5 text-indigo-400 shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold leading-tight">{s.title}</div>
+                <div className="text-xs text-muted-foreground leading-snug mt-0.5">{s.text}</div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
       
       {/* Step Indicator */}

@@ -1,15 +1,17 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Trash2, Info } from 'lucide-react';
+import { Plus, Trash2, Info, BookOpen, ChevronDown, ChevronUp } from 'lucide-react';
 import type {
   StrategySpec, IndicatorConfig, IndicatorKind, Condition, ConditionGroup, ConditionField,
 } from '@/lib/strategy-spec';
 import { INDICATOR_FIELDS, INDICATOR_DEFAULTS, WIZARD_SYMBOLS, TIMEFRAMES } from '@/lib/strategy-spec';
+import { BlockLibrary, BlockEduDetails } from './block-library';
+import { BLOCK_EDUCATION } from '@/lib/block-education';
 
 /**
  * Condition-builder editor for a StrategySpec. Used by the Strategy
@@ -67,6 +69,41 @@ export function StrategyBuilder({ value, onChange }: { value: StrategySpec; onCh
     while (spec.indicators.some((i) => i.id === id)) { n++; id = `${kind.toLowerCase()}${n}`; }
     set({ indicators: [...spec.indicators, { id, kind, ...INDICATOR_DEFAULTS[kind] }] });
   };
+
+  const addSessionFilter = () =>
+    set({ sessionFilter: { startHourUtc: 7, endHourUtc: 21, daysUtc: [1, 2, 3, 4, 5] } });
+
+  const addTrendFilter = () => {
+    const higher = TIMEFRAMES.filter((t) => TF_ORDER.indexOf(t) > TF_ORDER.indexOf(spec.timeframe));
+    set({ trendFilter: { timeframe: (higher[0] ?? 'H4') as StrategySpec['timeframe'], longGroup: { logic: 'AND', conditions: [] }, shortGroup: { logic: 'AND', conditions: [] } } });
+  };
+
+  // Education, at the moment of choosing and inside the assembled
+  // draft: every block's "why it works / where it breaks", from the
+  // single education source (lib/block-education).
+  const [eduOpen, setEduOpen] = useState<string | null>(null);
+  const eduButton = (stateKey: string) => {
+    const open = eduOpen === stateKey;
+    return (
+      <Button variant="ghost" size="sm" className="min-h-[44px] px-2 text-xs"
+        onClick={() => setEduOpen(open ? null : stateKey)}>
+        <BookOpen className="h-3.5 w-3.5 mr-1" /> Learn
+        {open ? <ChevronUp className="h-3.5 w-3.5 ml-1" /> : <ChevronDown className="h-3.5 w-3.5 ml-1" />}
+      </Button>
+    );
+  };
+  const eduDetails = (stateKey: string, eduKey: string) => {
+    const edu = BLOCK_EDUCATION[eduKey];
+    if (!edu || eduOpen !== stateKey) return null;
+    return (
+      <div className="basis-full w-full border-t pt-2 mt-1">
+        <BlockEduDetails edu={edu} />
+      </div>
+    );
+  };
+  const eduToggle = (stateKey: string, eduKey: string) => (
+    <>{eduButton(stateKey)}{eduDetails(stateKey, eduKey)}</>
+  );
 
   const updateIndicator = (id: string, patch: Partial<IndicatorConfig>) =>
     set({ indicators: spec.indicators.map((i) => (i.id === id ? { ...i, ...patch } : i)) });
@@ -267,7 +304,7 @@ export function StrategyBuilder({ value, onChange }: { value: StrategySpec; onCh
           <Card>
             <CardHeader>
               <CardTitle>Indicators</CardTitle>
-              <CardDescription>Add the indicators your rules compare. Give each one a moment to warm up — the backtester skips the warmup bars.</CardDescription>
+              <CardDescription>Add the indicators your rules compare — tap Learn on any of them to see why traders use it and where it breaks. Give each one a moment to warm up — the backtester skips the warmup bars.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {spec.indicators.map((ind) => (
@@ -355,17 +392,27 @@ export function StrategyBuilder({ value, onChange }: { value: StrategySpec; onCh
                   {(ind.kind === 'VWAP' || ind.kind === 'PIVOTS') && (
                     <span className="text-xs text-muted-foreground">{ind.kind === 'VWAP' ? 'Daily-reset VWAP from bar volume.' : 'Classic floor pivots from the prior UTC day.'}</span>
                   )}
-                  <Button variant="ghost" size="icon" className="h-8 w-8 ml-auto" onClick={() => removeIndicator(ind.id)}>
+                  <Button variant="ghost" size="icon" className="h-9 w-9 ml-auto" onClick={() => removeIndicator(ind.id)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
+                  {eduToggle(`ind-${ind.id}`, ind.kind)}
                 </div>
               ))}
-              <div className="flex flex-wrap gap-2">
-                {(Object.keys(INDICATOR_DEFAULTS) as IndicatorKind[]).map((kind) => (
-                  <Button key={kind} variant="outline" size="sm" disabled={spec.indicators.length >= 10} onClick={() => addIndicator(kind)}>
-                    <Plus className="h-4 w-4 mr-1" /> {kind.replace(/_/g, ' ')}
-                  </Button>
-                ))}
+              <div className="border-t pt-3">
+                <div className="font-medium text-sm mb-1">Block Library</div>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Everything you can build with — search it in plain words, and every block teaches
+                  what it is, why traders use it, and where it breaks, before you add it.
+                </p>
+                <BlockLibrary
+                  onAddIndicator={addIndicator}
+                  onAddSessionFilter={addSessionFilter}
+                  onAddTrendFilter={addTrendFilter}
+                  indicatorsFull={spec.indicators.length >= 10}
+                  hasSessionFilter={spec.sessionFilter != null}
+                  hasTrendFilter={spec.trendFilter != null}
+                  canAddTrendFilter={TF_ORDER.indexOf(spec.timeframe) < TF_ORDER.length - 1}
+                />
               </div>
             </CardContent>
           </Card>
@@ -390,14 +437,20 @@ export function StrategyBuilder({ value, onChange }: { value: StrategySpec; onCh
             </CardHeader>
             <CardContent className="space-y-4">
               {spec.sessionFilter == null ? (
-                <div className="border rounded-lg p-3 flex items-center justify-between">
-                  <div>
-                    <div className="font-medium text-sm">Session filter (UTC)</div>
-                    <div className="text-xs text-muted-foreground">Entries only inside a daily window — e.g. London/NY hours only.</div>
+                <div className="border rounded-lg p-3 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="font-medium text-sm">Session filter (UTC)</div>
+                      <div className="text-xs text-muted-foreground">Entries only inside a daily window — e.g. London/NY hours only.</div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {eduButton('filter-session')}
+                      <Button variant="outline" size="sm" className="min-h-[44px]" onClick={addSessionFilter}>
+                        <Plus className="h-4 w-4 mr-1" /> Add session filter
+                      </Button>
+                    </div>
                   </div>
-                  <Button variant="outline" size="sm" onClick={() => set({ sessionFilter: { startHourUtc: 7, endHourUtc: 21, daysUtc: [1, 2, 3, 4, 5] } })}>
-                    <Plus className="h-4 w-4 mr-1" /> Add session filter
-                  </Button>
+                  {eduDetails('filter-session', 'SESSION_FILTER')}
                 </div>
               ) : (
                 <div className="border rounded-lg p-3 space-y-3">
@@ -427,17 +480,20 @@ export function StrategyBuilder({ value, onChange }: { value: StrategySpec; onCh
               )}
 
               {spec.trendFilter == null ? (
-                <div className="border rounded-lg p-3 flex items-center justify-between">
-                  <div>
-                    <div className="font-medium text-sm">Higher-timeframe trend filter</div>
-                    <div className="text-xs text-muted-foreground">The same indicators, computed on a higher timeframe, must agree before any entry fires.</div>
+                <div className="border rounded-lg p-3 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="font-medium text-sm">Higher-timeframe trend filter</div>
+                      <div className="text-xs text-muted-foreground">The same indicators, computed on a higher timeframe, must agree before any entry fires.</div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {eduButton('filter-trend')}
+                      <Button variant="outline" size="sm" className="min-h-[44px]" onClick={addTrendFilter}>
+                        <Plus className="h-4 w-4 mr-1" /> Add trend filter
+                      </Button>
+                    </div>
                   </div>
-                  <Button variant="outline" size="sm" onClick={() => {
-                    const higher = TIMEFRAMES.filter((t) => TF_ORDER.indexOf(t) > TF_ORDER.indexOf(spec.timeframe));
-                    set({ trendFilter: { timeframe: (higher[0] ?? 'H4') as StrategySpec['timeframe'], longGroup: { logic: 'AND', conditions: [] }, shortGroup: { logic: 'AND', conditions: [] } } });
-                  }}>
-                    <Plus className="h-4 w-4 mr-1" /> Add trend filter
-                  </Button>
+                  {eduDetails('filter-trend', 'TREND_FILTER')}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -465,10 +521,26 @@ export function StrategyBuilder({ value, onChange }: { value: StrategySpec; onCh
 
       <Card>
         <CardHeader>
-          <CardTitle>Risk & Sizing</CardTitle>
-          <CardDescription>Fixed lot sizing in v1. Leave a field empty to turn it off — a backtestable strategy needs at least a stop loss or a take profit.</CardDescription>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <CardTitle>Risk & Sizing</CardTitle>
+              <CardDescription>Fixed lot sizing in v1. Leave a field empty to turn it off — a backtestable strategy needs at least a stop loss or a take profit.</CardDescription>
+            </div>
+            {eduButton('risk-guide')}
+          </div>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-3">
+        <CardContent className="space-y-4">
+          {eduOpen === 'risk-guide' && (
+            <div className="space-y-4 border rounded-lg p-3">
+              {(['STOP_LOSS', 'TAKE_PROFIT', 'TRAILING_STOP', 'BREAKEVEN', 'MAX_TRADES_PER_DAY'] as const).map((k) => (
+                <div key={k}>
+                  <div className="font-medium text-sm mb-1">{BLOCK_EDUCATION[k].plainName}</div>
+                  <BlockEduDetails edu={BLOCK_EDUCATION[k]} />
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-2"><Label>Lot size</Label>
             <NumInput value={spec.risk.lotSize} onChange={(v) => set({ risk: { ...spec.risk, lotSize: v ?? 0.01 } })} step="0.01" min="0.01" /></div>
           <div className="space-y-2"><Label>Stop loss (pips)</Label>
@@ -489,6 +561,7 @@ export function StrategyBuilder({ value, onChange }: { value: StrategySpec; onCh
             <div className="space-y-2"><Label>Take profit (× ATR)</Label>
               <NumInput value={spec.risk.takeProfitAtrMult} onChange={(v) => set({ risk: { ...spec.risk, takeProfitAtrMult: v } })} step="0.1" placeholder="off" /></div>
           </>)}
+          </div>
         </CardContent>
       </Card>
     </div>
