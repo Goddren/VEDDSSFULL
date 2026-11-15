@@ -12503,6 +12503,51 @@ var init_ensure_kalshi_perp_shadow_tables = __esm({
   }
 });
 
+// server/services/ensure-kalshi-weather-shadow-tables.ts
+var ensure_kalshi_weather_shadow_tables_exports = {};
+__export(ensure_kalshi_weather_shadow_tables_exports, {
+  ensureKalshiWeatherShadowTables: () => ensureKalshiWeatherShadowTables
+});
+function ensureKalshiWeatherShadowTables() {
+  if (!_ensured4) {
+    _ensured4 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_weather_shadow_trades (
+      id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL DEFAULT 'weather_ensemble',
+      city_code text NOT NULL, city_name text NOT NULL, series_ticker text NOT NULL,
+      event_ticker text NOT NULL, ticker text NOT NULL, subtitle text,
+      strike_type text, target_date text NOT NULL,
+      direction text NOT NULL DEFAULT 'LONG',
+      entry_price_cents int NOT NULL, entry_bid_cents int, entry_ask_cents int,
+      model_prob_pct double precision NOT NULL, edge_cents double precision NOT NULL,
+      confidence int, contracts double precision NOT NULL, notional_usd double precision NOT NULL,
+      fee_pct double precision NOT NULL DEFAULT 0, cost_model text NOT NULL DEFAULT 'placeholder',
+      status text NOT NULL DEFAULT 'open',
+      result text, exit_price_cents int, exit_reason text,
+      gross_return_pct double precision, return_pct double precision, r_multiple double precision,
+      exclude_from_stats boolean NOT NULL DEFAULT false,
+      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_weather_shadow_trades_user_status ON kalshi_weather_shadow_trades (user_id, status)`)).then(() => pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS kalshi_weather_shadow_trades_open_uniq ON kalshi_weather_shadow_trades (user_id, ticker) WHERE status='open'`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS kalshi_weather_shadow_context (
+      trade_id int PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL DEFAULT 'weather_ensemble',
+      city_code text NOT NULL, ticker text NOT NULL,
+      gfs_members int, ecmwf_members int, total_members int,
+      ensemble_median_f double precision, ensemble_mean_f double precision,
+      nws_forecast_high_f double precision, nws_agrees boolean,
+      model_prob_pct double precision, market_ask_cents int, edge_cents double precision,
+      spread_cents int, hour_utc int,
+      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision)`)).then(() => void 0).catch((e) => {
+      _ensured4 = null;
+      throw e;
+    });
+  }
+  return _ensured4;
+}
+var _ensured4;
+var init_ensure_kalshi_weather_shadow_tables = __esm({
+  "server/services/ensure-kalshi-weather-shadow-tables.ts"() {
+    "use strict";
+    init_db();
+    _ensured4 = null;
+  }
+});
+
 // server/services/strategy-deployments.ts
 var strategy_deployments_exports = {};
 __export(strategy_deployments_exports, {
@@ -12892,8 +12937,8 @@ __export(shadow_ledger_exports, {
   shadowLedgerSummary: () => shadowLedgerSummary
 });
 function ensureShadowLedger() {
-  if (!_ensured4) {
-    _ensured4 = (async () => {
+  if (!_ensured5) {
+    _ensured5 = (async () => {
       try {
         const { ensurePaperTable: ensurePaperTable2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
         await ensurePaperTable2();
@@ -12910,6 +12955,11 @@ function ensureShadowLedger() {
       } catch {
       }
       try {
+        const { ensureKalshiWeatherShadowTables: ensureKalshiWeatherShadowTables2 } = await Promise.resolve().then(() => (init_ensure_kalshi_weather_shadow_tables(), ensure_kalshi_weather_shadow_tables_exports));
+        await ensureKalshiWeatherShadowTables2();
+      } catch {
+      }
+      try {
         const { ensureStrategyTables: ensureStrategyTables2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
         await ensureStrategyTables2();
       } catch {
@@ -12921,11 +12971,11 @@ function ensureShadowLedger() {
       }
       await pool.query(VIEW_SQL);
     })().catch((e) => {
-      _ensured4 = null;
+      _ensured5 = null;
       throw e;
     });
   }
-  return _ensured4;
+  return _ensured5;
 }
 async function shadowLedgerSummary(userId, days = 30) {
   await ensureShadowLedger();
@@ -12944,7 +12994,7 @@ async function shadowLedgerSummary(userId, days = 30) {
   ]);
   return { days, bySource, bySession, byDirection, best: slices.slice(0, 10), worst: slices.slice(-10).reverse(), h4Alignment: alignment };
 }
-var SESSION_SQL, VIEW_SQL, _ensured4;
+var SESSION_SQL, VIEW_SQL, _ensured5;
 var init_shadow_ledger = __esm({
   "server/services/shadow-ledger.ts"() {
     "use strict";
@@ -13042,6 +13092,23 @@ CREATE OR REPLACE VIEW shadow_ledger AS
    WHERE k.status = 'closed' AND k.return_pct IS NOT NULL AND k.exclude_from_stats IS NOT TRUE
      AND NOT (abs(k.return_pct) >= 40 AND extract(epoch from (k.closed_at - k.opened_at)) < 120)
   UNION ALL
+  -- Kalshi WEATHER ensemble shadow lane (kalshi-weather-shadow.ts): virtual
+  -- YES buys on KXHIGH daily-high buckets, graded at Kalshi settlement.
+  -- Binary shape: the whole stake is the unit of risk, so r_multiple is
+  -- return_pct/100 as stamped at close. Symbol = city code (the slice the
+  -- lane learns per), strategy = the lane's model name. Expired/no-result
+  -- rows carry exclude_from_stats and never appear.
+  SELECT ('kalshi_weather_shadow:' || w.id)::text, 'kalshi_weather_shadow', 'kalshi', w.user_id,
+         w.strategy, w.city_code, 'LONG',
+         w.opened_at, w.closed_at,
+         extract(hour from w.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(w.opened_at AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN w.return_pct > 0 THEN 'WIN' WHEN w.return_pct < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         w.r_multiple::float, w.return_pct::float
+    FROM kalshi_weather_shadow_trades w
+   WHERE w.status = 'closed' AND w.return_pct IS NOT NULL AND w.exclude_from_stats IS NOT TRUE
+  UNION ALL
   -- Strategy Studio shadow deployments (strategy-shadow.ts): the runner
   -- trading saved spec strategies virtually \u2014 fills resolved from bar
   -- prices into strategy_trades rows with mode='shadow'. R comes from
@@ -13063,7 +13130,7 @@ CREATE OR REPLACE VIEW shadow_ledger AS
     LEFT JOIN wizard_strategies w ON w.id = t.strategy_id
    WHERE t.mode = 'shadow' AND t.status = 'closed' AND t.r_multiple IS NOT NULL
 `;
-    _ensured4 = null;
+    _ensured5 = null;
   }
 });
 
@@ -13082,8 +13149,8 @@ __export(shadow_lesson_gate_exports, {
   studioShadowLessonsOn: () => studioShadowLessonsOn
 });
 function ensureShadowLessonBlocksTable() {
-  if (!_ensured5) {
-    _ensured5 = pool.query(`CREATE TABLE IF NOT EXISTS shadow_lesson_blocks (
+  if (!_ensured6) {
+    _ensured6 = pool.query(`CREATE TABLE IF NOT EXISTS shadow_lesson_blocks (
       id serial PRIMARY KEY,
       lane text NOT NULL,
       user_id int NOT NULL,
@@ -13095,11 +13162,11 @@ function ensureShadowLessonBlocksTable() {
       median_pct double precision,
       reason text NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS shadow_lesson_blocks_lane_user_at ON shadow_lesson_blocks (lane, user_id, created_at DESC)`)).then(() => void 0).catch((e) => {
-      _ensured5 = null;
+      _ensured6 = null;
       throw e;
     });
   }
-  return _ensured5;
+  return _ensured6;
 }
 async function logShadowLessonBlock(b) {
   try {
@@ -13181,7 +13248,7 @@ async function getSolShadowLessonVerdicts(userId, force = false) {
   _solCache.set(userId, { at: Date.now(), verdicts });
   return verdicts;
 }
-var solShadowLessonsOn, cryptoShadowLessonsOn, studioShadowLessonsOn, fxModelsLessonGateOn, _ensured5, _solCache;
+var solShadowLessonsOn, cryptoShadowLessonsOn, studioShadowLessonsOn, fxModelsLessonGateOn, _ensured6, _solCache;
 var init_shadow_lesson_gate = __esm({
   "server/services/shadow-lesson-gate.ts"() {
     "use strict";
@@ -13190,7 +13257,7 @@ var init_shadow_lesson_gate = __esm({
     cryptoShadowLessonsOn = () => process.env.CRYPTO_SHADOW_LESSONS !== "off";
     studioShadowLessonsOn = () => process.env.STUDIO_SHADOW_LESSONS !== "off";
     fxModelsLessonGateOn = () => process.env.FX_MODELS_LESSON_GATE !== "off";
-    _ensured5 = null;
+    _ensured6 = null;
     _solCache = /* @__PURE__ */ new Map();
   }
 });
@@ -19256,7 +19323,7 @@ function logDecisionShadow(r) {
     _seen.set(k2, Date.now());
     if (_seen.size > 5e3) _seen.clear();
   }
-  const num13 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  const num14 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
   void ensureDecisionShadowTable().then(() => pool.query(
     `INSERT INTO fx_decision_shadow (user_id, scan_id, symbol, session, hour_utc, lane, mode, acted, picked, ai_status,
        direction, score, terms, entry, sl, tp, gate_result)
@@ -19273,11 +19340,11 @@ function logDecisionShadow(r) {
       !!r.picked,
       r.aiStatus ?? null,
       r.direction ?? null,
-      num13(r.score),
+      num14(r.score),
       r.terms == null ? null : JSON.stringify(r.terms),
-      num13(r.entry),
-      num13(r.sl),
-      num13(r.tp),
+      num14(r.entry),
+      num14(r.sl),
+      num14(r.tp),
       r.gateResult ?? null
     ]
   )).catch(() => {
@@ -42737,7 +42804,7 @@ function isFakeWinSignature(holdingMinutes, returnPct) {
   return holdingMinutes != null && holdingMinutes <= QUARANTINE_MAX_HOLD_MIN && returnPct != null && Math.abs(returnPct) >= QUARANTINE_MIN_ABS_RETURN_PCT;
 }
 async function ensureTable4() {
-  if (_ensured6) return;
+  if (_ensured7) return;
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
@@ -42759,7 +42826,7 @@ async function ensureTable4() {
       );
       CREATE INDEX IF NOT EXISTS "idx_sol_brain_outcomes_user_symbol" ON "sol_brain_outcomes" ("user_id", "symbol");
     `);
-    _ensured6 = true;
+    _ensured7 = true;
   } catch (err) {
     console.error("[sol-brain] ensureTable failed (non-fatal):", err?.message ?? err);
   }
@@ -42919,7 +42986,7 @@ async function recordSolBrainOutcome(o) {
     console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var MIN_TRADES6, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, BAD_PRICE_SYMBOLS, _ensured6, _cache4;
+var MIN_TRADES6, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, BAD_PRICE_SYMBOLS, _ensured7, _cache4;
 var init_sol_brain = __esm({
   "server/services/sol-brain.ts"() {
     "use strict";
@@ -42930,7 +42997,7 @@ var init_sol_brain = __esm({
     QUARANTINE_MAX_HOLD_MIN = 1;
     QUARANTINE_MIN_ABS_RETURN_PCT = 40;
     BAD_PRICE_SYMBOLS = ["RAY", "mSOL"];
-    _ensured6 = false;
+    _ensured7 = false;
     _cache4 = /* @__PURE__ */ new Map();
   }
 });
@@ -42977,8 +43044,8 @@ __export(sol_shadow_stats_exports, {
   sessionOf: () => sessionOf
 });
 function ensureSolShadowContextTable() {
-  if (!_ensured7) {
-    _ensured7 = pool.query(`CREATE TABLE IF NOT EXISTS sol_shadow_context (
+  if (!_ensured8) {
+    _ensured8 = pool.query(`CREATE TABLE IF NOT EXISTS sol_shadow_context (
       id serial PRIMARY KEY, user_id int NOT NULL, position_id text NOT NULL UNIQUE,
       strategy_id text NOT NULL, symbol text NOT NULL, mint text, dex text,
       liquidity_usd double precision, price_change_1h double precision, price_change_24h double precision,
@@ -42995,11 +43062,11 @@ function ensureSolShadowContextTable() {
           ADD COLUMN IF NOT EXISTS trail_guard_id text,
           ADD COLUMN IF NOT EXISTS trail_guard_action text,
           ADD COLUMN IF NOT EXISTS trail_guard_profile jsonb`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS sol_shadow_context_user_closed ON sol_shadow_context (user_id, closed_at)`)).then(() => void 0).catch((e) => {
-      _ensured7 = null;
+      _ensured8 = null;
       throw e;
     });
   }
-  return _ensured7;
+  return _ensured8;
 }
 function ensureSolTrailGuardColumns() {
   if (!_trailColsEnsured) {
@@ -43181,7 +43248,7 @@ async function getSolShadowStatsText(userId, max = 12) {
     return "";
   }
 }
-var num5, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured7, _trailColsEnsured, _cache5;
+var num5, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured8, _trailColsEnsured, _cache5;
 var init_sol_shadow_stats = __esm({
   "server/services/sol-shadow-stats.ts"() {
     "use strict";
@@ -43193,7 +43260,7 @@ var init_sol_shadow_stats = __esm({
     MIN_N = () => num5("SOL_SHADOW_STATS_MIN_N", 15);
     FAVOR_PCT = () => num5("SOL_SHADOW_FAVOR_MEDIAN_PCT", 1);
     AVOID_PCT = () => num5("SOL_SHADOW_AVOID_MEDIAN_PCT", 2);
-    _ensured7 = null;
+    _ensured8 = null;
     _trailColsEnsured = null;
     _cache5 = /* @__PURE__ */ new Map();
   }
@@ -49135,12 +49202,12 @@ function linregSlope(values) {
   const xs = values.map((_, i) => i);
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = values.reduce((a, b) => a + b, 0) / n;
-  let num13 = 0, den = 0;
+  let num14 = 0, den = 0;
   for (let i = 0; i < n; i++) {
-    num13 += (xs[i] - mx) * (values[i] - my);
+    num14 += (xs[i] - mx) * (values[i] - my);
     den += (xs[i] - mx) ** 2;
   }
-  return den === 0 ? 0 : num13 / den;
+  return den === 0 ? 0 : num14 / den;
 }
 function ensembleSignal(candles) {
   const price = candles[candles.length - 1].close;
@@ -50560,7 +50627,7 @@ async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC", timeframe =
   if (brainEnabled) await getOrRefreshKalshiBrain(userId).catch(() => {
   });
   const LONGSHOT_FLOOR_CENTS = Math.max(12, getKalshiEngineState(userId).config.minEntryPriceCents ?? 30);
-  const SPREAD_MAX_CENTS = 12;
+  const SPREAD_MAX_CENTS2 = 12;
   const EDGE_MIN_CENTS = 4;
   const picks = [];
   for (const b of event.brackets) {
@@ -50568,8 +50635,8 @@ async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC", timeframe =
     const ask = b.yesAsk > 0 ? b.yesAsk : b.yesProbability;
     if (ask <= 1 || ask >= 97) continue;
     if (ask < LONGSHOT_FLOOR_CENTS) continue;
-    const spread = b.yesBid > 0 ? ask - b.yesBid : SPREAD_MAX_CENTS + 1;
-    if (spread > SPREAD_MAX_CENTS) continue;
+    const spread = b.yesBid > 0 ? ask - b.yesBid : SPREAD_MAX_CENTS2 + 1;
+    if (spread > SPREAD_MAX_CENTS2) continue;
     if (brainGating && kalshiBrainGate(userId, coin, b.strikeType, (/* @__PURE__ */ new Date()).getUTCHours(), consensus.confidence).blocked) continue;
     const modelProb = _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice);
     const modelProbPct = Math.round(modelProb * 100);
@@ -55287,8 +55354,8 @@ async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilen
         analysis.takeProfit,
         ...supportResistanceLevels
       ].map((p2) => {
-        const num13 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
-        return isNaN(num13) ? 0 : num13;
+        const num14 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
+        return isNaN(num14) ? 0 : num14;
       }).filter((p2) => p2 > 0);
       if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
       const minPrice = Math.min(...prices);
@@ -60419,17 +60486,17 @@ function vpValueEdgeBlock(direction, entry, profile, atr3) {
   return direction === "short" ? entry - profile.val <= tol : profile.vah - entry <= tol;
 }
 function ensurePerpBrainTables() {
-  if (!_ensured8) {
-    _ensured8 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_brain_blocks (
+  if (!_ensured9) {
+    _ensured9 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_brain_blocks (
       id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, ticker text NOT NULL, underlying text,
       direction text, reason text NOT NULL, bucket_dim text, bucket_value text,
       median_net_pct double precision, bucket_n int,
       created_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_brain_blocks_user_created ON kalshi_perp_brain_blocks (user_id, created_at)`)).then(() => void 0).catch((e) => {
-      _ensured8 = null;
+      _ensured9 = null;
       throw e;
     });
   }
-  return _ensured8;
+  return _ensured9;
 }
 async function logPerpBrainBlocks(userId, rows) {
   if (!rows.length) return;
@@ -60502,7 +60569,7 @@ async function getPerpBrainBlockSummary(userId, days) {
     }))
   };
 }
-var perpBrainEnabled, perpVpEnabled, VP_EDGE_TOL_ATR_MULT, _ensured8;
+var perpBrainEnabled, perpVpEnabled, VP_EDGE_TOL_ATR_MULT, _ensured9;
 var init_kalshi_perp_brain = __esm({
   "server/services/kalshi-perp-brain.ts"() {
     "use strict";
@@ -60510,7 +60577,7 @@ var init_kalshi_perp_brain = __esm({
     perpBrainEnabled = () => process.env.KALSHI_PERP_BRAIN !== "off";
     perpVpEnabled = () => process.env.KALSHI_PERP_VP !== "off";
     VP_EDGE_TOL_ATR_MULT = 0.25;
-    _ensured8 = null;
+    _ensured9 = null;
   }
 });
 
@@ -67699,6 +67766,618 @@ var init_kalshi_stock_shadow = __esm({
   }
 });
 
+// server/services/kalshi-price-snapshots.ts
+function ensureKalshiPriceSnapshotTable() {
+  if (!_ensured10) {
+    _ensured10 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_price_snapshots (
+      id serial PRIMARY KEY, lane text NOT NULL, user_id int NOT NULL,
+      market_ticker text NOT NULL, event_ticker text, series_ticker text,
+      yes_bid_cents int, yes_ask_cents int, last_price_cents int,
+      volume double precision, kind text NOT NULL DEFAULT 'interval',
+      captured_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_price_snapshots_market_time ON kalshi_price_snapshots (market_ticker, captured_at)`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_price_snapshots_time ON kalshi_price_snapshots (captured_at)`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_price_snapshots_lane_user ON kalshi_price_snapshots (lane, user_id)`)).then(() => void 0).catch((e) => {
+      _ensured10 = null;
+      throw e;
+    });
+  }
+  return _ensured10;
+}
+async function recordKalshiPriceSnapshots(rows) {
+  if (!rows.length) return 0;
+  try {
+    await ensureKalshiPriceSnapshotTable();
+    const values = [];
+    const tuples = [];
+    rows.forEach((s, i) => {
+      const b = i * 10;
+      tuples.push(`($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10})`);
+      values.push(
+        s.lane,
+        s.userId,
+        s.marketTicker,
+        s.eventTicker ?? null,
+        s.seriesTicker ?? null,
+        centsOrNull(s.yesBidCents),
+        centsOrNull(s.yesAskCents),
+        centsOrNull(s.lastPriceCents),
+        s.volume == null || !Number.isFinite(s.volume) ? null : s.volume,
+        s.kind
+      );
+    });
+    await pool.query(
+      `INSERT INTO kalshi_price_snapshots (lane, user_id, market_ticker, event_ticker, series_ticker, yes_bid_cents, yes_ask_cents, last_price_cents, volume, kind)
+       VALUES ${tuples.join(",")}`,
+      values
+    );
+    return rows.length;
+  } catch {
+    return 0;
+  }
+}
+async function countKalshiPriceSnapshots(lane, userId) {
+  try {
+    await ensureKalshiPriceSnapshotTable();
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM kalshi_price_snapshots WHERE lane=$1 AND user_id=$2`,
+      [lane, userId]
+    );
+    return Number(rows[0]?.n ?? 0);
+  } catch {
+    return 0;
+  }
+}
+async function pruneKalshiPriceSnapshots(nowMs = Date.now()) {
+  if (nowMs - _lastPruneMs < 24 * 36e5) return -1;
+  _lastPruneMs = nowMs;
+  try {
+    await ensureKalshiPriceSnapshotTable();
+    const a = await pool.query(
+      `DELETE FROM kalshi_price_snapshots WHERE kind='interval' AND captured_at < now() - ($1::int * interval '1 day')`,
+      [INTERVAL_RETENTION_DAYS]
+    );
+    const b = await pool.query(
+      `DELETE FROM kalshi_price_snapshots WHERE kind IN ('decision','settlement') AND captured_at < now() - ($1::int * interval '1 day')`,
+      [DECISION_RETENTION_DAYS]
+    );
+    return (a.rowCount ?? 0) + (b.rowCount ?? 0);
+  } catch {
+    return -1;
+  }
+}
+var _ensured10, centsOrNull, INTERVAL_RETENTION_DAYS, DECISION_RETENTION_DAYS, _lastPruneMs;
+var init_kalshi_price_snapshots = __esm({
+  "server/services/kalshi-price-snapshots.ts"() {
+    "use strict";
+    init_db();
+    _ensured10 = null;
+    centsOrNull = (v) => v == null || !Number.isFinite(v) ? null : Math.round(v);
+    INTERVAL_RETENTION_DAYS = 45;
+    DECISION_RETENTION_DAYS = 180;
+    _lastPruneMs = 0;
+  }
+});
+
+// server/services/kalshi-weather-shadow.ts
+var kalshi_weather_shadow_exports = {};
+__export(kalshi_weather_shadow_exports, {
+  ALL_CITY_KEYS: () => ALL_CITY_KEYS,
+  LANE: () => LANE,
+  MIN_EDGE_CENTS: () => MIN_EDGE_CENTS,
+  STRATEGY: () => STRATEGY,
+  aggregateWeatherStats: () => aggregateWeatherStats,
+  biasGuardBlocks: () => biasGuardBlocks,
+  extractMemberDailyMaxima: () => extractMemberDailyMaxima,
+  fetchEcmwfDailyMax: () => fetchEcmwfDailyMax,
+  fetchNwsForecastHigh: () => fetchNwsForecastHigh,
+  getKalshiWeatherShadowReport: () => getKalshiWeatherShadowReport,
+  lastWeatherShadowCycle: () => lastWeatherShadowCycle,
+  parseNwsForecastHigh: () => parseNwsForecastHigh,
+  resolveWeatherShadowTrades: () => resolveWeatherShadowTrades,
+  runKalshiWeatherShadowCycle: () => runKalshiWeatherShadowCycle,
+  startKalshiWeatherShadow: () => startKalshiWeatherShadow,
+  weatherBucketsOf: () => weatherBucketsOf,
+  weatherEnsembleShadowEnabled: () => weatherEnsembleShadowEnabled,
+  weatherEntryQualifies: () => weatherEntryQualifies,
+  weatherFeePct: () => weatherFeePct,
+  weatherSettlementReturnPct: () => weatherSettlementReturnPct
+});
+function weatherFeePct(entryPriceFrac) {
+  if (!Number.isFinite(entryPriceFrac) || entryPriceFrac <= 0 || entryPriceFrac >= 1) return 0;
+  return 7 * (1 - entryPriceFrac);
+}
+function weatherSettlementReturnPct(entryCents, resultYes, feePct) {
+  const gross = resultYes ? (100 - entryCents) / entryCents * 100 : -100;
+  return gross - feePct;
+}
+function weatherEntryQualifies(args) {
+  return args.edgeCents >= args.minEdgeCents && args.askCents >= args.minEntryCents && args.askCents <= args.maxEntryCents && args.spreadCents <= args.spreadMaxCents;
+}
+function extractMemberDailyMaxima(hourly, targetLocalDate) {
+  if (!hourly?.time?.length) return [];
+  const times = hourly.time;
+  const dayIdx = [];
+  for (let i = 0; i < times.length; i++) if (String(times[i]).slice(0, 10) === targetLocalDate) dayIdx.push(i);
+  if (!dayIdx.length) return [];
+  const memberKeys = Object.keys(hourly).filter((k2) => k2 === "temperature_2m" || k2.startsWith("temperature_2m_member"));
+  const members = [];
+  for (const key of memberKeys) {
+    const arr2 = hourly[key];
+    if (!Array.isArray(arr2)) continue;
+    let mx = -Infinity;
+    for (const i of dayIdx) {
+      const v = arr2[i];
+      if (typeof v === "number" && v > mx) mx = v;
+    }
+    if (mx > -Infinity) members.push(mx);
+  }
+  return members;
+}
+function parseNwsForecastHigh(periods, targetLocalDate) {
+  if (!Array.isArray(periods)) return null;
+  for (const p2 of periods) {
+    if (!p2?.isDaytime) continue;
+    if (String(p2.startTime ?? "").slice(0, 10) !== targetLocalDate) continue;
+    const t = Number(p2.temperature);
+    if (!Number.isFinite(t)) return null;
+    return p2.temperatureUnit === "C" ? t * 9 / 5 + 32 : t;
+  }
+  return null;
+}
+function biasGuardBlocks(medianF, brackets, maxBiasDegrees) {
+  const fav = brackets.filter((b) => b.strikeType === "between" && b.floorStrike != null && b.capStrike != null).reduce((best, b) => b.yesAsk > (best?.yesAsk ?? -1) ? b : best, null);
+  if (!fav) return { blocked: false, favoriteMid: null };
+  const mid = ((fav.floorStrike ?? 0) + (fav.capStrike ?? 0)) / 2;
+  return { blocked: Math.abs(medianF - mid) > maxBiasDegrees, favoriteMid: mid };
+}
+async function fetchEcmwfDailyMax(city, targetLocalDate, fetcher = defaultFetcher) {
+  const cacheKey = `${city.code}:${targetLocalDate}`;
+  const hit = _ecmwfCache.get(cacheKey);
+  if (hit && Date.now() - hit.ts < 30 * 6e4) return hit.members;
+  const url = `https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${city.lat}&longitude=${city.lon}&hourly=temperature_2m&models=ecmwf_ifs025&forecast_days=4&temperature_unit=fahrenheit&timezone=${encodeURIComponent(city.tz)}`;
+  const data = await fetcher(url);
+  const members = extractMemberDailyMaxima(data?.hourly, targetLocalDate);
+  if (!members.length) throw new Error("Open-Meteo ECMWF ensemble: no member maxima");
+  _ecmwfCache.set(cacheKey, { members, ts: Date.now() });
+  return members;
+}
+async function fetchNwsForecastHigh(city, targetLocalDate, fetcher = defaultFetcher) {
+  const cacheKey = `${city.code}:${targetLocalDate}`;
+  const hit = _nwsCache.get(cacheKey);
+  if (hit && Date.now() - hit.ts < 30 * 6e4) return hit.high;
+  let high = null;
+  try {
+    const points = await fetcher(`https://api.weather.gov/points/${city.lat},${city.lon}`);
+    const forecastUrl = points?.properties?.forecast;
+    if (forecastUrl) {
+      const fc = await fetcher(String(forecastUrl));
+      high = parseNwsForecastHigh(fc?.properties?.periods, targetLocalDate);
+    }
+  } catch {
+    high = null;
+  }
+  _nwsCache.set(cacheKey, { high, ts: Date.now() });
+  return high;
+}
+function localDateInTz2(ms, tz) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
+}
+function medianOf(vals) {
+  const s = [...vals].sort((a, b) => a - b);
+  return s.length ? s[Math.floor(s.length / 2)] : 0;
+}
+function lastWeatherShadowCycle() {
+  return _lastCycle;
+}
+async function runKalshiWeatherShadowCycle(userId) {
+  const result = { opened: 0, resolved: 0, snapshots: 0, cities: 0, reasons: [], at: (/* @__PURE__ */ new Date()).toISOString() };
+  if (!weatherEnsembleShadowEnabled()) {
+    result.reasons.push("disabled (KALSHI_WEATHER_ENSEMBLE=off)");
+    _lastCycle = result;
+    return result;
+  }
+  await ensureKalshiWeatherShadowTables();
+  result.resolved = await resolveWeatherShadowTrades(userId).catch(() => 0);
+  await pruneKalshiPriceSnapshots().catch(() => -1);
+  const { rows: openCountRows } = await pool.query(
+    `SELECT count(*)::int AS n FROM kalshi_weather_shadow_trades WHERE user_id=$1 AND status='open'`,
+    [userId]
+  );
+  let openTotal = Number(openCountRows[0]?.n ?? 0);
+  for (const key of ALL_CITY_KEYS) {
+    const city = WEATHER_CITIES[key];
+    try {
+      const event = await getKalshiCryptoEvent(city.series);
+      if (!event.brackets.length) {
+        result.reasons.push(`${city.name}: no open ${city.series} brackets`);
+        continue;
+      }
+      result.cities++;
+      const targetDate = localDateInTz2(new Date(event.closeTime).getTime() - 6 * 36e5, city.tz);
+      let gfs = [];
+      try {
+        gfs = await fetchEnsembleDailyMax(city, targetDate);
+      } catch (e) {
+        result.reasons.push(`${city.name}: GFS ensemble unavailable (${e.message})`);
+      }
+      let ecmwf = [];
+      try {
+        ecmwf = await fetchEcmwfDailyMax(city, targetDate);
+      } catch {
+      }
+      const members = [...gfs, ...ecmwf];
+      const nwsHigh = await fetchNwsForecastHigh(city, targetDate).catch(() => null);
+      const openedTickers = /* @__PURE__ */ new Set();
+      const snapRows = event.brackets.map((b) => ({
+        lane: LANE,
+        userId,
+        marketTicker: b.ticker,
+        eventTicker: event.eventTicker,
+        seriesTicker: city.series,
+        yesBidCents: b.yesBid,
+        yesAskCents: b.yesAsk,
+        lastPriceCents: b.yesProbability,
+        volume: b.volume,
+        kind: "interval"
+      }));
+      if (!members.length) {
+        result.reasons.push(`${city.name}: no ensemble members from either model \u2014 snapshots only`);
+        result.snapshots += await recordKalshiPriceSnapshots(snapRows);
+        continue;
+      }
+      const median = medianOf(members);
+      const mean = members.reduce((a, b) => a + b, 0) / members.length;
+      const guard = biasGuardBlocks(median, event.brackets, MAX_BIAS_DEGREES());
+      const candidates = [];
+      for (const b of event.brackets) {
+        if (!b.hasLiquidity) continue;
+        const ask = b.yesAsk > 0 ? b.yesAsk : b.yesProbability;
+        const spread = b.yesBid > 0 ? ask - b.yesBid : SPREAD_MAX_CENTS() + 1;
+        const probPct = Math.round(bucketProbFromMembers(members, b) * 100);
+        const edge = probPct - ask;
+        if (!guard.blocked && weatherEntryQualifies({
+          edgeCents: edge,
+          askCents: ask,
+          spreadCents: spread,
+          minEdgeCents: MIN_EDGE_CENTS(),
+          minEntryCents: MIN_ENTRY_CENTS(),
+          maxEntryCents: MAX_ENTRY_CENTS(),
+          spreadMaxCents: SPREAD_MAX_CENTS()
+        })) candidates.push({ b, probPct, edge, spread });
+      }
+      candidates.sort((a, z3) => z3.edge - a.edge);
+      let openedHere = 0;
+      if (!guard.blocked) {
+        for (const c of candidates) {
+          if (openedHere >= MAX_PER_EVENT() || openTotal >= MAX_OPEN3()) break;
+          const { rows: dup } = await pool.query(
+            `SELECT id FROM kalshi_weather_shadow_trades WHERE user_id=$1 AND ticker=$2 AND status='open'`,
+            [userId, c.b.ticker]
+          );
+          if (dup.length) continue;
+          const ask = c.b.yesAsk > 0 ? c.b.yesAsk : c.b.yesProbability;
+          const feePct = weatherFeePct(ask / 100);
+          const notional = NOTIONAL_USD();
+          const contracts = notional / (ask / 100);
+          const ins = await pool.query(
+            `INSERT INTO kalshi_weather_shadow_trades
+               (user_id, strategy, city_code, city_name, series_ticker, event_ticker, ticker, subtitle, strike_type, target_date,
+                entry_price_cents, entry_bid_cents, entry_ask_cents, model_prob_pct, edge_cents, confidence,
+                contracts, notional_usd, fee_pct, cost_model)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'placeholder')
+             ON CONFLICT (user_id, ticker) WHERE status='open' DO NOTHING RETURNING id`,
+            [
+              userId,
+              STRATEGY,
+              city.code,
+              city.name,
+              city.series,
+              event.eventTicker,
+              c.b.ticker,
+              c.b.subtitle,
+              c.b.strikeType,
+              targetDate,
+              ask,
+              c.b.yesBid || null,
+              c.b.yesAsk || null,
+              c.probPct,
+              c.edge,
+              null,
+              contracts,
+              notional,
+              feePct
+            ]
+          ).catch(() => ({ rows: [] }));
+          const tradeId = ins.rows[0]?.id;
+          if (!tradeId) continue;
+          openedTickers.add(c.b.ticker);
+          await pool.query(
+            `INSERT INTO kalshi_weather_shadow_context
+               (trade_id, user_id, strategy, city_code, ticker, gfs_members, ecmwf_members, total_members,
+                ensemble_median_f, ensemble_mean_f, nws_forecast_high_f, nws_agrees,
+                model_prob_pct, market_ask_cents, edge_cents, spread_cents, hour_utc)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT (trade_id) DO NOTHING`,
+            [
+              tradeId,
+              userId,
+              STRATEGY,
+              city.code,
+              c.b.ticker,
+              gfs.length,
+              ecmwf.length,
+              members.length,
+              median,
+              mean,
+              nwsHigh,
+              nwsHigh == null ? null : Math.abs(nwsHigh - median) <= 2,
+              c.probPct,
+              ask,
+              c.edge,
+              c.spread,
+              (/* @__PURE__ */ new Date()).getUTCHours()
+            ]
+          ).catch(() => {
+          });
+          openedHere++;
+          openTotal++;
+          result.opened++;
+        }
+      }
+      for (const s of snapRows) if (openedTickers.has(s.marketTicker)) s.kind = "decision";
+      result.snapshots += await recordKalshiPriceSnapshots(snapRows);
+      result.reasons.push(guard.blocked ? `${city.name}: SKIP entries \u2014 ensemble median ${median.toFixed(1)}\xB0F vs market favorite mid ${guard.favoriteMid?.toFixed(1)}\xB0F (> ${MAX_BIAS_DEGREES()}\xB0 bias guard); snapshots recorded` : `${city.name}: ${members.length} members (GFS ${gfs.length} + ECMWF ${ecmwf.length})${nwsHigh != null ? `, NWS high ${nwsHigh}\xB0F` : ""} \u2192 ${openedHere} shadow open(s), best edge ${candidates[0] ? `+${candidates[0].edge}\xA2` : "none"}`);
+    } catch (err) {
+      result.reasons.push(`${city.name}: ${err.message}`);
+    }
+  }
+  _lastCycle = result;
+  return result;
+}
+async function resolveWeatherShadowTrades(userId) {
+  await ensureKalshiWeatherShadowTables();
+  const { rows } = await pool.query(
+    `SELECT id, ticker, event_ticker, series_ticker, entry_price_cents, fee_pct, opened_at
+       FROM kalshi_weather_shadow_trades WHERE user_id=$1 AND status='open'`,
+    [userId]
+  );
+  let closed = 0;
+  for (const t of rows) {
+    try {
+      const st = await getKalshiMarketStatus(String(t.ticker));
+      if (!st) continue;
+      if (st.result === "yes" || st.result === "no") {
+        const yes = st.result === "yes";
+        const ret = weatherSettlementReturnPct(Number(t.entry_price_cents), yes, Number(t.fee_pct) || 0);
+        const gross = yes ? (100 - Number(t.entry_price_cents)) / Number(t.entry_price_cents) * 100 : -100;
+        await pool.query(
+          `UPDATE kalshi_weather_shadow_trades
+              SET status='closed', result=$2, exit_price_cents=$3, exit_reason='settlement',
+                  gross_return_pct=$4, return_pct=$5, r_multiple=$6, closed_at=now()
+            WHERE id=$1 AND status='open'`,
+          [t.id, st.result, yes ? 100 : 0, gross, ret, ret / 100]
+        );
+        await pool.query(
+          `UPDATE kalshi_weather_shadow_context
+              SET closed_at=now(), exit_reason='settlement',
+                  hold_minutes=extract(epoch from (now() - $2::timestamptz)) / 60, net_pct=$3
+            WHERE trade_id=$1`,
+          [t.id, t.opened_at, ret]
+        ).catch(() => {
+        });
+        await recordKalshiPriceSnapshots([{
+          lane: LANE,
+          userId,
+          marketTicker: String(t.ticker),
+          eventTicker: t.event_ticker,
+          seriesTicker: t.series_ticker,
+          yesBidCents: st.yesBid,
+          yesAskCents: st.yesAsk,
+          lastPriceCents: st.lastPrice,
+          kind: "settlement"
+        }]);
+        closed++;
+      } else if ((st.status === "closed" || st.status === "finalized") && Date.now() - new Date(t.opened_at).getTime() > 72 * 36e5) {
+        await pool.query(
+          `UPDATE kalshi_weather_shadow_trades
+              SET status='expired', exit_reason='no_result_72h', exclude_from_stats=true, closed_at=now()
+            WHERE id=$1 AND status='open'`,
+          [t.id]
+        );
+        closed++;
+      }
+    } catch {
+    }
+  }
+  return closed;
+}
+function weatherBucketsOf(c) {
+  const b = {};
+  if (c.city_code) b.city = c.city_code;
+  if (c.edge_cents != null) b.edge = c.edge_cents < 12 ? "8-12c" : c.edge_cents < 20 ? "12-20c" : "20c+";
+  if (c.model_prob_pct != null) b.prob = c.model_prob_pct < 40 ? "<40%" : c.model_prob_pct < 60 ? "40-60%" : c.model_prob_pct < 80 ? "60-80%" : "80%+";
+  if (c.total_members != null) b.pool = c.total_members >= 60 ? "gfs+ecmwf" : "gfs_only";
+  if (c.nws_agrees != null) b.nws = c.nws_agrees ? "agrees" : "differs";
+  return b;
+}
+function quantile4(s, q) {
+  if (!s.length) return 0;
+  const p2 = (s.length - 1) * q, lo2 = Math.floor(p2), hi2 = Math.ceil(p2);
+  return s[lo2] + (s[hi2] - s[lo2]) * (p2 - lo2);
+}
+function aggregateWeatherStats(rows) {
+  const g = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const v = Number(r.net_pct);
+    if (!Number.isFinite(v)) continue;
+    for (const [dim, bucket] of Object.entries({ ...weatherBucketsOf(r), all: "all" })) {
+      const k2 = `${STRATEGY}|${dim}|${bucket}`;
+      (g.get(k2) ?? g.set(k2, []).get(k2)).push(v);
+    }
+  }
+  return Array.from(g.entries()).map(([k2, v]) => {
+    const [strategy, dim, bucket] = k2.split("|");
+    const s = v.slice().sort((a, b) => a - b);
+    const med = quantile4(s, 0.5);
+    const verdict = s.length >= 15 ? med > 0.5 ? "favor" : med < -1 ? "avoid" : "learning" : "learning";
+    return { strategy, dim, bucket, n: s.length, medianNet: med, winRate: s.filter((x) => x > 0).length / s.length, verdict };
+  });
+}
+async function getKalshiWeatherShadowReport(userId, days = 30) {
+  const windowDays = Number.isFinite(days) ? Math.max(1, Math.min(365, Math.floor(days))) : 30;
+  await ensureKalshiWeatherShadowTables();
+  const validWhere = `user_id=$1 AND status='closed' AND exclude_from_stats IS NOT TRUE
+    AND return_pct IS NOT NULL AND closed_at >= now() - ($2::int * interval '1 day')`;
+  const [summaryRes, byCityRes, openRes, recentRes, statsRows, snapshots] = await Promise.all([
+    pool.query(
+      `SELECT (SELECT count(*)::int FROM kalshi_weather_shadow_trades WHERE user_id=$1 AND status='open') AS open_count,
+         count(*)::int AS closed_count,
+         (count(*) FILTER (WHERE return_pct > 0))::int AS wins,
+         CASE WHEN count(*) > 0 THEN (count(*) FILTER (WHERE return_pct > 0))::float / count(*)::float END AS win_rate,
+         avg(return_pct)::float AS avg_return_pct, avg(r_multiple)::float AS avg_r,
+         COALESCE(sum(notional_usd * return_pct / 100), 0)::float AS est_net_pnl_usd,
+         (SELECT max(opened_at) FROM kalshi_weather_shadow_trades WHERE user_id=$1) AS last_opened_at,
+         max(closed_at) AS last_closed_at
+       FROM kalshi_weather_shadow_trades WHERE ${validWhere}`,
+      [userId, windowDays]
+    ),
+    pool.query(
+      `SELECT city_code, city_name, count(*)::int AS trades,
+         (count(*) FILTER (WHERE return_pct > 0))::int AS wins,
+         ((count(*) FILTER (WHERE return_pct > 0))::float / count(*)::float) AS win_rate,
+         avg(return_pct)::float AS avg_return_pct,
+         COALESCE(sum(notional_usd * return_pct / 100), 0)::float AS est_net_pnl_usd
+       FROM kalshi_weather_shadow_trades WHERE ${validWhere} GROUP BY city_code, city_name ORDER BY trades DESC`,
+      [userId, windowDays]
+    ),
+    pool.query(
+      `SELECT t.id, t.city_code, t.city_name, t.ticker, t.subtitle, t.target_date, t.entry_price_cents,
+         t.model_prob_pct, t.edge_cents, t.contracts, t.notional_usd, t.opened_at,
+         c.ensemble_median_f, c.nws_forecast_high_f, c.total_members
+       FROM kalshi_weather_shadow_trades t LEFT JOIN kalshi_weather_shadow_context c ON c.trade_id = t.id
+       WHERE t.user_id=$1 AND t.status='open' ORDER BY t.opened_at DESC LIMIT 30`,
+      [userId]
+    ),
+    pool.query(
+      `SELECT t.id, t.city_code, t.city_name, t.ticker, t.subtitle, t.target_date, t.entry_price_cents,
+         t.result, t.return_pct, t.r_multiple, t.exit_reason, t.closed_at, c.model_prob_pct, c.edge_cents
+       FROM kalshi_weather_shadow_trades t LEFT JOIN kalshi_weather_shadow_context c ON c.trade_id = t.id
+       WHERE t.user_id=$1 AND t.status='closed' AND t.exclude_from_stats IS NOT TRUE AND t.return_pct IS NOT NULL
+         AND t.closed_at >= now() - ($2::int * interval '1 day')
+       ORDER BY t.closed_at DESC LIMIT 10`,
+      [userId, windowDays]
+    ),
+    pool.query(
+      `SELECT c.city_code, c.edge_cents, c.model_prob_pct, c.total_members, c.nws_agrees, c.net_pct
+       FROM kalshi_weather_shadow_context c JOIN kalshi_weather_shadow_trades t ON t.id = c.trade_id
+       WHERE c.user_id=$1 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL AND t.exclude_from_stats IS NOT TRUE
+         AND c.closed_at >= now() - interval '60 days'`,
+      [userId]
+    ),
+    countKalshiPriceSnapshots(LANE, userId)
+  ]);
+  const s = summaryRes.rows[0] || {};
+  return {
+    enabled: weatherEnsembleShadowEnabled(),
+    strategy: STRATEGY,
+    minEdgeCents: MIN_EDGE_CENTS(),
+    summary: {
+      openCount: Number(s.open_count ?? 0),
+      closedCount: Number(s.closed_count ?? 0),
+      wins: Number(s.wins ?? 0),
+      winRate: s.win_rate == null ? null : Number(s.win_rate),
+      avgReturnPct: s.avg_return_pct == null ? null : Number(s.avg_return_pct),
+      avgR: s.avg_r == null ? null : Number(s.avg_r),
+      estNetPnlUsd: Number(s.est_net_pnl_usd ?? 0),
+      snapshots,
+      lastOpenedAt: s.last_opened_at ?? null,
+      lastClosedAt: s.last_closed_at ?? null
+    },
+    byCity: byCityRes.rows.map((r) => ({
+      city_code: r.city_code,
+      city_name: r.city_name,
+      trades: Number(r.trades),
+      wins: Number(r.wins),
+      win_rate: r.win_rate == null ? null : Number(r.win_rate),
+      avg_return_pct: r.avg_return_pct == null ? null : Number(r.avg_return_pct),
+      est_net_pnl_usd: Number(r.est_net_pnl_usd ?? 0)
+    })),
+    openPositions: openRes.rows,
+    recentCloses: recentRes.rows,
+    bucketStats: aggregateWeatherStats(statsRows.rows),
+    lastCycle: _lastCycle
+  };
+}
+async function resolveOwnerUserId2() {
+  if (_ownerId2) return _ownerId2;
+  const env = Number(process.env.KALSHI_WEATHER_SHADOW_USER_ID);
+  if (Number.isFinite(env) && env > 0) {
+    _ownerId2 = env;
+    return _ownerId2;
+  }
+  try {
+    const { rows } = await pool.query(`SELECT id FROM users WHERE is_admin = true ORDER BY id LIMIT 1`);
+    _ownerId2 = rows[0]?.id ?? 1;
+  } catch {
+    _ownerId2 = 1;
+  }
+  return _ownerId2;
+}
+function startKalshiWeatherShadow() {
+  if (_started4) return;
+  _started4 = true;
+  if (!weatherEnsembleShadowEnabled()) {
+    console.log("[kalshi-weather-shadow] disabled (KALSHI_WEATHER_ENSEMBLE=off).");
+    return;
+  }
+  const tick3 = async () => {
+    try {
+      const uid2 = await resolveOwnerUserId2();
+      if (uid2) await runKalshiWeatherShadowCycle(uid2);
+    } catch (e) {
+      console.error("[kalshi-weather-shadow] tick failed (non-fatal):", e?.message ?? e);
+    }
+  };
+  setTimeout(tick3, 4 * 6e4).unref?.();
+  setInterval(tick3, EVERY_MS3()).unref?.();
+  console.log("[kalshi-weather-shadow] started \u2014 SHADOW lane on Open-Meteo ensembles + public Kalshi data (no credentials, no orders).");
+}
+var LANE, STRATEGY, weatherEnsembleShadowEnabled, num11, MIN_EDGE_CENTS, MIN_ENTRY_CENTS, MAX_ENTRY_CENTS, SPREAD_MAX_CENTS, MAX_BIAS_DEGREES, MAX_OPEN3, MAX_PER_EVENT, NOTIONAL_USD, EVERY_MS3, ALL_CITY_KEYS, defaultFetcher, _ecmwfCache, _nwsCache, _lastCycle, _ownerId2, _started4;
+var init_kalshi_weather_shadow = __esm({
+  "server/services/kalshi-weather-shadow.ts"() {
+    "use strict";
+    init_db();
+    init_ensure_kalshi_weather_shadow_tables();
+    init_kalshi_weather();
+    init_kalshi();
+    init_kalshi_price_snapshots();
+    LANE = "kalshi_weather_shadow";
+    STRATEGY = "weather_ensemble";
+    weatherEnsembleShadowEnabled = () => process.env.KALSHI_WEATHER_ENSEMBLE !== "off";
+    num11 = (n, d) => {
+      const v = Number(process.env[n]);
+      return Number.isFinite(v) && v > 0 ? v : d;
+    };
+    MIN_EDGE_CENTS = () => num11("KALSHI_WEATHER_SHADOW_MIN_EDGE_CENTS", 8);
+    MIN_ENTRY_CENTS = () => Math.floor(num11("KALSHI_WEATHER_SHADOW_MIN_ENTRY_CENTS", 15));
+    MAX_ENTRY_CENTS = () => Math.floor(num11("KALSHI_WEATHER_SHADOW_MAX_ENTRY_CENTS", 96));
+    SPREAD_MAX_CENTS = () => Math.floor(num11("KALSHI_WEATHER_SHADOW_SPREAD_MAX_CENTS", 12));
+    MAX_BIAS_DEGREES = () => num11("KALSHI_WEATHER_SHADOW_MAX_BIAS_DEGREES", 3);
+    MAX_OPEN3 = () => Math.floor(num11("KALSHI_WEATHER_SHADOW_MAX_OPEN", 30));
+    MAX_PER_EVENT = () => Math.floor(num11("KALSHI_WEATHER_SHADOW_MAX_PER_EVENT", 3));
+    NOTIONAL_USD = () => num11("KALSHI_WEATHER_SHADOW_NOTIONAL_USD", 100);
+    EVERY_MS3 = () => num11("KALSHI_WEATHER_SHADOW_EVERY_MIN", 30) * 6e4;
+    ALL_CITY_KEYS = Object.keys(WEATHER_CITIES);
+    defaultFetcher = async (url) => {
+      const res2 = await fetch(url, { headers: { "User-Agent": "VEDD-Trading-AI/1.0" }, signal: AbortSignal.timeout(1e4) });
+      if (!res2.ok) throw new Error(`fetch ${res2.status} for ${url.split("?")[0]}`);
+      return res2.json();
+    };
+    _ecmwfCache = /* @__PURE__ */ new Map();
+    _nwsCache = /* @__PURE__ */ new Map();
+    _lastCycle = null;
+    _ownerId2 = null;
+    _started4 = false;
+  }
+});
+
 // server/services/all-time-performance.ts
 var all_time_performance_exports = {};
 __export(all_time_performance_exports, {
@@ -68884,12 +69563,12 @@ async function getSettingsOverview(userId) {
   }
   return { engines };
 }
-var num11, bool, text2, secs, ENGINES;
+var num12, bool, text2, secs, ENGINES;
 var init_settings_overview = __esm({
   "server/services/settings-overview.ts"() {
     "use strict";
     init_db();
-    num11 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
+    num12 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
     bool = (key, label, standard, from) => ({ key, from, label, standard, fmt: "bool" });
     text2 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "text" });
     secs = (key, label, standard, from) => ({ key, from, label, standard, fmt: "secs" });
@@ -68899,24 +69578,24 @@ var init_settings_overview = __esm({
         name: "FX Engine",
         // Standards: getDefaultConfig() literal in live-trading-engine.ts.
         fields: [
-          num11("minConfidence", "Minimum confidence to trade", 70),
+          num12("minConfidence", "Minimum confidence to trade", 70),
           text2("strategyMode", "Strategy mode", "aggressive"),
-          num11("maxOpenTrades", "Max open trades at once", 5),
-          num11("riskPerTrade", "Risk per trade (%)", 1),
-          num11("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
-          num11("maxDailyLossPct", "Daily loss breaker (%)", 4),
-          num11("dailyLossLimit", "Daily loss limit (%)", 5),
-          num11("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
-          num11("drawdownShieldThreshold", "Drawdown shield (%)", 3),
-          num11("maxLotSize", "Max lot size", 0.1),
-          num11("maxLot", "Absolute lot ceiling (0 = none)", 0),
-          num11("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num11("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
+          num12("maxOpenTrades", "Max open trades at once", 5),
+          num12("riskPerTrade", "Risk per trade (%)", 1),
+          num12("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
+          num12("maxDailyLossPct", "Daily loss breaker (%)", 4),
+          num12("dailyLossLimit", "Daily loss limit (%)", 5),
+          num12("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
+          num12("drawdownShieldThreshold", "Drawdown shield (%)", 3),
+          num12("maxLotSize", "Max lot size", 0.1),
+          num12("maxLot", "Absolute lot ceiling (0 = none)", 0),
+          num12("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num12("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
           bool("trailingStopEnabled", "Trailing stops", true),
           bool("profitLockEnabled", "Profit lock from +1R", true),
-          num11("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
+          num12("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
           bool("propFirmMode", "Prop firm mode", false),
-          num11("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
+          num12("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
           bool("autoFlattenOnBreach", "Close trades when a breaker trips", false),
           bool("brainLearningMode", "Brain learning", true),
           bool("brainShadowEnabled", "Practice results feed the brain", true),
@@ -68933,12 +69612,12 @@ var init_settings_overview = __esm({
         name: "Sol Engine",
         // Standards: DEFAULT_CONFIG in sol-engine.ts.
         fields: [
-          num11("minConfidence", "Minimum confidence to trade", 65),
-          num11("riskPerTradePct", "Risk per trade (%)", 1),
-          num11("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num11("maxTokens", "Max tokens tracked at once", 10),
+          num12("minConfidence", "Minimum confidence to trade", 65),
+          num12("riskPerTradePct", "Risk per trade (%)", 1),
+          num12("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num12("maxTokens", "Max tokens tracked at once", 10),
           bool("shieldEnabled", "Loss shield", true),
-          num11("shieldThreshold", "Shield trips at drawdown (%)", 10),
+          num12("shieldThreshold", "Shield trips at drawdown (%)", 10),
           bool("useKelly", "Kelly position sizing", false),
           text2("directionFilter", "Direction filter", "buy_only"),
           bool("stopOrdersEnabled", "Stop orders", false),
@@ -68957,22 +69636,22 @@ var init_settings_overview = __esm({
         name: "Kalshi Engine",
         // Standards: DEFAULT_CONFIG in kalshi-engine.ts.
         fields: [
-          num11("minConfidence", "Minimum confidence to trade", 70),
-          num11("maxOpenTrades", "Max open trades at once", 3),
-          num11("maxTradesPerDay", "Max trades per day", 10),
-          num11("contractsPerTrade", "Contracts per trade", 5),
-          num11("riskPctPerTrade", "Risk per trade (%)", 5),
-          num11("takeProfitCents", "Take profit (%)", 50),
-          num11("stopLossCents", "Stop loss (%)", 40),
-          num11("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
+          num12("minConfidence", "Minimum confidence to trade", 70),
+          num12("maxOpenTrades", "Max open trades at once", 3),
+          num12("maxTradesPerDay", "Max trades per day", 10),
+          num12("contractsPerTrade", "Contracts per trade", 5),
+          num12("riskPctPerTrade", "Risk per trade (%)", 5),
+          num12("takeProfitCents", "Take profit (%)", 50),
+          num12("stopLossCents", "Stop loss (%)", 40),
+          num12("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
           bool("requireConfluence", "Requires confluence", true),
           bool("ruinGuardEnabled", "Ruin guard (bad-day halt)", true),
-          num11("dailyLossLimitPct", "Daily loss limit (%)", 5),
-          num11("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
+          num12("dailyLossLimitPct", "Daily loss limit (%)", 5),
+          num12("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
           bool("kalshiBrainGating", "Brain can hard-block setups", true),
           bool("brainLearningMode", "Brain learning", true),
           bool("weatherEnabled", "Weather engine", false),
-          num11("cooldownMinutes", "Cooldown between trades (min)", 20)
+          num12("cooldownMinutes", "Cooldown between trades (min)", 20)
         ],
         load: async (userId) => {
           const { getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
@@ -68984,17 +69663,17 @@ var init_settings_overview = __esm({
         name: "Crypto Engine",
         // Standards: column defaults in ensure-cryptocom-engine-tables.ts.
         fields: [
-          num11("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
-          num11("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
-          num11("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
-          num11("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
-          num11("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
-          num11("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
-          num11("leverage", "Leverage", 3, "leverage"),
+          num12("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
+          num12("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
+          num12("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
+          num12("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
+          num12("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
+          num12("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
+          num12("leverage", "Leverage", 3, "leverage"),
           text2("directionFilter", "Direction filter", "both", "direction_filter"),
           bool("brainLearning", "Brain learning", true, "brain_learning_mode"),
           bool("cryptoBrain", "Crypto brain", true, "crypto_brain_enabled"),
-          num11("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
+          num12("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
           bool("autoExecution", "Auto execution", false, "enable_auto_execution"),
           bool("kelly", "Kelly position sizing", false, "use_kelly_criterion"),
           secs("scanInterval", "Scan interval", 12e4, "scan_interval_ms"),
@@ -69022,13 +69701,13 @@ __export(practice_costs_report_exports, {
 });
 function costModelConstants() {
   return {
-    cryptoFeeBps: num12("CRYPTO_PAPER_FEE_BPS", 30),
-    cryptoFeeDeepBps: num12("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
-    cryptoFloorMult: num12("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
-    solSlippagePct: num12("SOL_PAPER_SLIPPAGE_PCT", 0.5),
-    solFeePumpfunPct: num12("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
-    solFeeDefaultPct: num12("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
-    solImpactFallbackPct: num12("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
+    cryptoFeeBps: num13("CRYPTO_PAPER_FEE_BPS", 30),
+    cryptoFeeDeepBps: num13("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
+    cryptoFloorMult: num13("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
+    solSlippagePct: num13("SOL_PAPER_SLIPPAGE_PCT", 0.5),
+    solFeePumpfunPct: num13("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
+    solFeeDefaultPct: num13("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
+    solImpactFallbackPct: num13("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
   };
 }
 async function practiceCostReport(userId, days = 90) {
@@ -69062,12 +69741,12 @@ async function practiceCostReport(userId, days = 90) {
   }
   return out;
 }
-var num12, BANDS;
+var num13, BANDS;
 var init_practice_costs_report = __esm({
   "server/services/practice-costs-report.ts"() {
     "use strict";
     init_db();
-    num12 = (name, dflt) => {
+    num13 = (name, dflt) => {
       const v = Number(process.env[name]);
       return Number.isFinite(v) && v >= 0 ? v : dflt;
     };
@@ -80264,9 +80943,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "d1018a07-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-15T21:25:18.546Z";
+var BUILD_COMMIT = "9abe3f36-dirty";
+var BUILD_BRANCH = "feat/kalshi-weather-ensemble-shadow";
+var BUILT_AT = "2026-11-15T22:03:31.405Z";
 
 // server/stripe.ts
 init_db();
@@ -98350,6 +99029,17 @@ Rules:
       res2.status(500).json({ error: err.message });
     }
   });
+  app2.get("/api/kalshi-weather-shadow", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const rawDays = Number(req.query.days);
+      const days = Number.isFinite(rawDays) ? Math.max(1, Math.min(365, Math.floor(rawDays))) : 30;
+      const { getKalshiWeatherShadowReport: getKalshiWeatherShadowReport2 } = await Promise.resolve().then(() => (init_kalshi_weather_shadow(), kalshi_weather_shadow_exports));
+      res2.json(await getKalshiWeatherShadowReport2(req.user.id, days));
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
   app2.get("/api/crypto-paper", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     try {
@@ -102922,16 +103612,16 @@ Respond with ONLY valid JSON:
     try {
       const { runRuinConeSimulation: runRuinConeSimulation2 } = await Promise.resolve().then(() => (init_ruin_cone(), ruin_cone_exports));
       const q = req.query;
-      const num13 = (v) => v != null && v !== "" ? Number(v) : void 0;
+      const num14 = (v) => v != null && v !== "" ? Number(v) : void 0;
       const result = await runRuinConeSimulation2(userId, {
-        numSimulations: num13(q.numSimulations),
-        numTrades: num13(q.numTrades),
-        startingEquity: num13(q.startingEquity),
-        dailyLossLimit: num13(q.dailyLossLimit),
-        maxDrawdownLimit: num13(q.maxDrawdownLimit),
-        consistencyRuleThreshold: num13(q.consistencyRuleThreshold),
-        profitTarget: num13(q.profitTarget),
-        sourceLimit: num13(q.sourceLimit),
+        numSimulations: num14(q.numSimulations),
+        numTrades: num14(q.numTrades),
+        startingEquity: num14(q.startingEquity),
+        dailyLossLimit: num14(q.dailyLossLimit),
+        maxDrawdownLimit: num14(q.maxDrawdownLimit),
+        consistencyRuleThreshold: num14(q.consistencyRuleThreshold),
+        profitTarget: num14(q.profitTarget),
+        sourceLimit: num14(q.sourceLimit),
         source: q.source ? String(q.source) : void 0,
         noCache: q.nocache === "1" || q.noCache === "true"
       });
@@ -115658,6 +116348,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startTrailGuardLearning2();
     const { startKalshiStockShadow: startKalshiStockShadow2 } = await Promise.resolve().then(() => (init_kalshi_stock_shadow(), kalshi_stock_shadow_exports));
     startKalshiStockShadow2();
+    const { startKalshiWeatherShadow: startKalshiWeatherShadow2 } = await Promise.resolve().then(() => (init_kalshi_weather_shadow(), kalshi_weather_shadow_exports));
+    startKalshiWeatherShadow2();
     try {
       const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { rows } = await pool2.query(`SELECT user_id FROM sol_engine_settings WHERE auto_trade_enabled = true`);
