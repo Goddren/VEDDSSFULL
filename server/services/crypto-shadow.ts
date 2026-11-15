@@ -90,13 +90,13 @@ function ema(vals: number[], n: number): number | null {
   return e;
 }
 /** Bars may arrive newest-first or oldest-first; normalise to oldest-first. */
-function oldestFirst(bars: Bar[]): Bar[] { return bars.length > 1 && bars[0].t > bars[bars.length - 1].t ? bars.slice().reverse() : bars; }
-function trendOf(closes: number[], fast: number, slow: number): string | null {
+export function oldestFirst(bars: Bar[]): Bar[] { return bars.length > 1 && bars[0].t > bars[bars.length - 1].t ? bars.slice().reverse() : bars; }
+export function trendOf(closes: number[], fast: number, slow: number): string | null {
   const f = ema(closes, fast), s = ema(closes, slow);
   if (f == null || s == null) return null;
   return f > s * 1.002 ? 'BULLISH' : f < s * 0.998 ? 'BEARISH' : 'NEUTRAL';
 }
-function pctChange(bars: Bar[], hoursBack: number): number | null {
+export function pctChange(bars: Bar[], hoursBack: number): number | null {
   if (bars.length <= hoursBack) return null;
   const now = bars[bars.length - 1].c, then = bars[bars.length - 1 - hoursBack].c;
   return then > 0 ? ((now - then) / then) * 100 : null;
