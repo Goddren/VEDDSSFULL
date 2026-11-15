@@ -34,6 +34,7 @@ import {
   recordKalshiPriceSnapshots, countKalshiPriceSnapshots, pruneKalshiPriceSnapshots,
   type KalshiPriceSnapshotInput,
 } from './kalshi-price-snapshots';
+import { accountReplay, accountSimEnabled, type KalshiAccountSimResult } from './kalshi-stock-shadow';
 
 export const LANE = 'kalshi_sports_shadow';
 export const STRATEGY = 'sports_odds_benchmark';
@@ -576,6 +577,12 @@ export interface KalshiSportsShadowReport {
     avgReturnPct: number | null; avgR: number | null; estNetPnlUsd: number;
     snapshots: number; observations: number; lastOpenedAt: string | null; lastClosedAt: string | null;
   };
+  // $100-account illustration over the window's closes, replayed with the
+  // stock-perp lane's shared accountReplay. Absent when
+  // KALSHI_ACCOUNT_SIM=off (the client then hides the block). Present with
+  // zero trades while the lane is dormant — the panel renders the $100
+  // start state instead of hiding it.
+  accountSim?: KalshiAccountSimResult;
   byLeague: Array<{ league: string; trades: number; wins: number; win_rate: number | null; avg_return_pct: number | null; est_net_pnl_usd: number }>;
   openPositions: any[];
   recentCloses: any[];
@@ -588,7 +595,8 @@ export async function getKalshiSportsShadowReport(userId: number, days = 30): Pr
   await ensureKalshiSportsShadowTables();
   const validWhere = `user_id=$1 AND status='closed' AND exclude_from_stats IS NOT TRUE
     AND return_pct IS NOT NULL AND closed_at >= now() - ($2::int * interval '1 day')`;
-  const [summaryRes, byLeagueRes, openRes, recentRes, statsRows, snapshots, obsRes] = await Promise.all([
+  const simOn = accountSimEnabled();
+  const [summaryRes, byLeagueRes, openRes, recentRes, statsRows, snapshots, obsRes, closesRes] = await Promise.all([
     pool.query(
       `SELECT (SELECT count(*)::int FROM kalshi_sports_shadow_trades WHERE user_id=$1 AND status='open') AS open_count,
          count(*)::int AS closed_count,
@@ -626,8 +634,27 @@ export async function getKalshiSportsShadowReport(userId: number, days = 30): Pr
          AND c.closed_at >= now() - interval '60 days'`, [userId]),
     countKalshiPriceSnapshots(LANE, userId),
     pool.query(`SELECT count(*)::int AS n FROM kalshi_sports_shadow_observations WHERE user_id=$1`, [userId]).catch(() => ({ rows: [{ n: 0 }] })),
+    // Every valid close in the window, oldest first, for the $100-account
+    // replay (the recent-closes list above is capped at 10 — never reuse
+    // it). Same validWhere, so excluded rows stay excluded. Only read
+    // when the account view is on (KALSHI_ACCOUNT_SIM).
+    simOn
+      ? pool.query(
+        `SELECT return_pct::float AS return_pct
+         FROM kalshi_sports_shadow_trades
+         WHERE ${validWhere}
+         ORDER BY closed_at ASC, id ASC`, [userId, windowDays])
+      : Promise.resolve(null),
   ]);
   const s = summaryRes.rows[0] || {};
+  // $100-account replay over the window's closes in close order — the
+  // stock-perp lane's shared helper and semantics: each close moves the
+  // WHOLE running balance by that trade's net return_pct. With no closes
+  // (the lane is dormant until an odds key is added) the replay returns
+  // the untouched $100 start, which the panel renders as the start state.
+  const accountSim = simOn
+    ? accountReplay((((closesRes as any)?.rows || []) as any[]).map((r: any) => Number(r.return_pct)))
+    : undefined;
   return {
     enabled: sportsOddsShadowEnabled(),
     strategy: STRATEGY,
@@ -637,6 +664,7 @@ export async function getKalshiSportsShadowReport(userId: number, days = 30): Pr
       oddsApiKeyConfigured: !!process.env.ODDS_API_KEY,
       activeSource: configuredOddsSource(),
     },
+    ...(accountSim ? { accountSim } : {}),
     summary: {
       openCount: Number(s.open_count ?? 0), closedCount: Number(s.closed_count ?? 0),
       wins: Number(s.wins ?? 0), winRate: s.win_rate == null ? null : Number(s.win_rate),

@@ -18,6 +18,15 @@ interface SportsShadowSummary {
   lastOpenedAt: string | null;
   lastClosedAt: string | null;
 }
+interface KalshiAccountSim {
+  startBalance: number;
+  endBalance: number;
+  totalReturnPct: number;
+  trades: number;
+  maxDrawdownPct: number;
+  worstTradePct: number | null;
+  bestTradePct: number | null;
+}
 interface SportsLeagueStat {
   league: string;
   trades: number;
@@ -32,6 +41,7 @@ interface SportsShadowReport {
   minDivergencePts: number;
   activation: { oddspapiKeyConfigured: boolean; oddsApiKeyConfigured: boolean; activeSource: string | null };
   summary: SportsShadowSummary;
+  accountSim?: KalshiAccountSim;
   byLeague: SportsLeagueStat[];
   openPositions: any[];
   recentCloses: any[];
@@ -122,6 +132,7 @@ export function KalshiSportsShadowPanel({ className = "" }: { className?: string
           <p><b>The trade.</b> Kalshi's game prices are set by a retail-heavy crowd and can lag or overshoot the book. When the de-vigged book probability says a team wins 62% of the time but Kalshi sells that outcome at 55¢, the 7-point gap is the signal — this lane only acts at {data?.minDivergencePts ?? 4}+ points.</p>
           <p><b>Strict matching.</b> A game counts only when both teams and the game window line up exactly between the book and Kalshi, with exactly one possible pairing. If two games could match, the lane skips both — a wrong pairing would poison the record.</p>
           <p><b>Evidence.</b> Every matched game is written down (book probability next to Kalshi's price) whether or not a position opens, and Kalshi prices are snapshotted on a schedule — settled contracts leave almost no price history behind, so the lane keeps its own.</p>
+          <p><b>The $100 account.</b> Percentages are hard to feel, so the panel also replays the closed trades on a pretend $100 account: it starts at $100 and applies each trade's real net result to the whole balance, in the order the trades closed — the same replay the stock-perp shadow panel uses. The lane can hold several trades at once, so read it as a clear illustration of what these results add up to — not an exact account history. While the lane is dormant the account simply sits at $100.</p>
           <p><b>Costs.</b> Results are net of a placeholder estimate of Kalshi's trading fee. Nothing here is live: a live step would be a separate, explicit decision after this record proves out.</p>
         </InfoExplainer>
       </div>
@@ -160,6 +171,38 @@ export function KalshiSportsShadowPanel({ className = "" }: { className?: string
             <StatCard label="Est. net P&L" value={fmtUsd(summary.estNetPnlUsd)} detail="on $100 pretend stakes" valueClass={pnlClass(summary.estNetPnlUsd)} />
             <StatCard label="Games graded" value={summary.observations} detail={`${summary.snapshots} Kalshi price snapshots saved`} />
           </div>
+
+          {data.accountSim ? (
+            <div className="mt-2 rounded-lg border border-cyan-400/25 bg-cyan-500/[0.06] px-3 py-2.5">
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <h3 className="text-[11px] font-bold text-gray-100">If this was a $100 account</h3>
+                <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">last {days} days · closed trades only</span>
+              </div>
+              {data.accountSim.trades > 0 ? (
+                <>
+                  <div className="mt-1 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+                    <span className="text-xl font-black tabular-nums text-gray-100">
+                      {fmtUsd(data.accountSim.startBalance)} → <span className={pnlClass(data.accountSim.totalReturnPct)}>{fmtUsd(data.accountSim.endBalance)}</span>
+                    </span>
+                    <span className={`text-sm font-bold tabular-nums ${pnlClass(data.accountSim.totalReturnPct)}`}>{fmtPct(data.accountSim.totalReturnPct, 2)} overall</span>
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap gap-x-2.5 gap-y-0.5 text-[10px] tabular-nums text-gray-400">
+                    <span>{data.accountSim.trades} closed trades counted</span>
+                    <span>Worst dip {data.accountSim.maxDrawdownPct > 0 ? `−${data.accountSim.maxDrawdownPct.toFixed(1)}%` : "0%"} from the account's peak</span>
+                    <span className={data.accountSim.bestTradePct != null ? pnlClass(data.accountSim.bestTradePct) : undefined}>Best trade {fmtPct(data.accountSim.bestTradePct, 2)}</span>
+                    <span className={data.accountSim.worstTradePct != null ? pnlClass(data.accountSim.worstTradePct) : undefined}>Worst trade {fmtPct(data.accountSim.worstTradePct, 2)}</span>
+                  </div>
+                  <p className="mt-1 text-[10px] leading-snug text-gray-500">
+                    Starts at $100. Each closed trade moves the whole balance by its real net result — after modeled fees — one trade at a time in the order trades closed. The lane can hold several trades at once, so treat this as a clear illustration, not an exact account history.
+                  </p>
+                </>
+              ) : (
+                <p className="mt-1 text-[10px] leading-snug text-gray-400">
+                  {fmtUsd(data.accountSim.endBalance)} — no resolved trades yet. The $100 result starts counting with the first close.
+                </p>
+              )}
+            </div>
+          ) : null}
 
           {!hasAnyTrades && !dormant ? (
             <p className="mt-3 rounded-lg bg-black/20 px-2 py-2 text-[10px] leading-snug text-gray-400">
