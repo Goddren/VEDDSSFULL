@@ -7,6 +7,7 @@ import { Link } from "wouter";
 import { Activity, Brain, Loader2, Play, Square, Scan, Save, Store, TrendingUp, Wallet, XCircle } from "lucide-react";
 import { KalshiShadowPanel } from "@/components/kalshi-shadow-panel";
 import { KalshiWeatherShadowPanel } from "@/components/kalshi-weather-shadow-panel";
+import { KalshiSportsShadowPanel } from "@/components/kalshi-sports-shadow-panel";
 
 // Consolidated Kalshi command center — every setting + feature in one place.
 // All reads/writes use the existing /api/kalshi/* routes; no server changes.
@@ -206,6 +207,8 @@ export default function KalshiHubPage() {
 
         {/* Kalshi Weather — ensemble shadow lane */}
         <KalshiWeatherShadowPanel className="mb-5" />
+        {/* Kalshi Sports — book-odds benchmark shadow lane */}
+        <KalshiSportsShadowPanel className="mb-5" />
 
         {/* Value picks */}
         {picks?.picks?.length > 0 && (
