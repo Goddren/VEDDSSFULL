@@ -1659,6 +1659,14 @@ async function withRetry<T>(
     const { startKalshiStockShadow } = await import('./services/kalshi-stock-shadow');
     startKalshiStockShadow();
 
+    // Kalshi SPORTS odds-benchmark SHADOW lane — virtual game-winner
+    // positions from de-vigged book odds (OddsPapi Pinnacle primary, The
+    // Odds API fallback; keys from env only) vs public Kalshi prices.
+    // No key configured = idle, never a crash. No orders; kill switch
+    // KALSHI_SPORTS_ODDS=off.
+    const { startKalshiSportsShadow } = await import('./services/kalshi-sports-shadow');
+    startKalshiSportsShadow();
+
     // SOL engine — AUTO-RESUME for users who left auto-trade on. Previously the
     // Sol engine had NO boot-resume (unlike FX/futures/options), so its scan loop
     // silently died on every deploy and stayed dark until manually re-Started —

@@ -14293,6 +14293,55 @@ var init_ensure_kalshi_perp_shadow_tables = __esm({
   }
 });
 
+// server/services/ensure-kalshi-sports-shadow-tables.ts
+var ensure_kalshi_sports_shadow_tables_exports = {};
+__export(ensure_kalshi_sports_shadow_tables_exports, {
+  ensureKalshiSportsShadowTables: () => ensureKalshiSportsShadowTables
+});
+function ensureKalshiSportsShadowTables() {
+  if (!_ensured4) {
+    _ensured4 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_sports_shadow_trades (
+      id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL DEFAULT 'sports_odds_benchmark',
+      league text NOT NULL, series_ticker text NOT NULL,
+      event_ticker text NOT NULL, ticker text NOT NULL, team text NOT NULL, opponent text,
+      direction text NOT NULL DEFAULT 'LONG',
+      entry_price_cents int NOT NULL, entry_bid_cents int, entry_ask_cents int,
+      book_prob_pct double precision NOT NULL, divergence_cents double precision NOT NULL,
+      bookmaker text, odds_source text, confidence int,
+      contracts double precision NOT NULL, notional_usd double precision NOT NULL,
+      fee_pct double precision NOT NULL DEFAULT 0, cost_model text NOT NULL DEFAULT 'placeholder',
+      commence_time timestamptz,
+      status text NOT NULL DEFAULT 'open',
+      result text, exit_price_cents int, exit_reason text,
+      gross_return_pct double precision, return_pct double precision, r_multiple double precision,
+      exclude_from_stats boolean NOT NULL DEFAULT false,
+      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_sports_shadow_trades_user_status ON kalshi_sports_shadow_trades (user_id, status)`)).then(() => pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS kalshi_sports_shadow_trades_open_uniq ON kalshi_sports_shadow_trades (user_id, ticker) WHERE status='open'`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS kalshi_sports_shadow_context (
+      trade_id int PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL DEFAULT 'sports_odds_benchmark',
+      league text NOT NULL, ticker text NOT NULL,
+      book_home_price_dec double precision, book_away_price_dec double precision,
+      book_prob_pct double precision, market_ask_cents int, divergence_cents double precision,
+      spread_cents int, bookmaker text, odds_source text, hour_utc int,
+      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision)`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS kalshi_sports_shadow_observations (
+      id serial PRIMARY KEY, user_id int NOT NULL, league text NOT NULL,
+      event_ticker text NOT NULL, market_ticker text NOT NULL, team text NOT NULL,
+      book_prob_pct double precision, kalshi_ask_cents int, divergence_cents double precision,
+      bookmaker text, odds_source text, commence_time timestamptz,
+      captured_at timestamptz NOT NULL DEFAULT now())`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_sports_shadow_obs_time ON kalshi_sports_shadow_observations (captured_at)`)).then(() => void 0).catch((e) => {
+      _ensured4 = null;
+      throw e;
+    });
+  }
+  return _ensured4;
+}
+var _ensured4;
+var init_ensure_kalshi_sports_shadow_tables = __esm({
+  "server/services/ensure-kalshi-sports-shadow-tables.ts"() {
+    "use strict";
+    init_db();
+    _ensured4 = null;
+  }
+});
+
 // server/services/strategy-deployments.ts
 var strategy_deployments_exports = {};
 __export(strategy_deployments_exports, {
@@ -14682,8 +14731,8 @@ __export(shadow_ledger_exports, {
   shadowLedgerSummary: () => shadowLedgerSummary
 });
 function ensureShadowLedger() {
-  if (!_ensured4) {
-    _ensured4 = (async () => {
+  if (!_ensured5) {
+    _ensured5 = (async () => {
       try {
         const { ensurePaperTable: ensurePaperTable2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
         await ensurePaperTable2();
@@ -14700,6 +14749,11 @@ function ensureShadowLedger() {
       } catch {
       }
       try {
+        const { ensureKalshiSportsShadowTables: ensureKalshiSportsShadowTables2 } = await Promise.resolve().then(() => (init_ensure_kalshi_sports_shadow_tables(), ensure_kalshi_sports_shadow_tables_exports));
+        await ensureKalshiSportsShadowTables2();
+      } catch {
+      }
+      try {
         const { ensureStrategyTables: ensureStrategyTables2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
         await ensureStrategyTables2();
       } catch {
@@ -14711,11 +14765,11 @@ function ensureShadowLedger() {
       }
       await pool.query(VIEW_SQL);
     })().catch((e) => {
-      _ensured4 = null;
+      _ensured5 = null;
       throw e;
     });
   }
-  return _ensured4;
+  return _ensured5;
 }
 async function shadowLedgerSummary(userId, days = 30) {
   await ensureShadowLedger();
@@ -14734,7 +14788,7 @@ async function shadowLedgerSummary(userId, days = 30) {
   ]);
   return { days, bySource, bySession, byDirection, best: slices.slice(0, 10), worst: slices.slice(-10).reverse(), h4Alignment: alignment };
 }
-var SESSION_SQL, VIEW_SQL, _ensured4;
+var SESSION_SQL, VIEW_SQL, _ensured5;
 var init_shadow_ledger = __esm({
   "server/services/shadow-ledger.ts"() {
     "use strict";
@@ -14832,6 +14886,23 @@ CREATE OR REPLACE VIEW shadow_ledger AS
    WHERE k.status = 'closed' AND k.return_pct IS NOT NULL AND k.exclude_from_stats IS NOT TRUE
      AND NOT (abs(k.return_pct) >= 40 AND extract(epoch from (k.closed_at - k.opened_at)) < 120)
   UNION ALL
+  -- Kalshi SPORTS odds-benchmark shadow lane (kalshi-sports-shadow.ts):
+  -- virtual YES buys on game-winner markets where the de-vigged book
+  -- probability beat Kalshi's ask by the divergence bar, graded at Kalshi
+  -- settlement. Binary shape: r_multiple is return_pct/100 as stamped at
+  -- close. Symbol = team backed. Expired/no-result rows carry
+  -- exclude_from_stats and never appear.
+  SELECT ('kalshi_sports_shadow:' || s.id)::text, 'kalshi_sports_shadow', 'kalshi', s.user_id,
+         s.strategy, s.team, 'LONG',
+         s.opened_at, s.closed_at,
+         extract(hour from s.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(s.opened_at AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN s.return_pct > 0 THEN 'WIN' WHEN s.return_pct < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         s.r_multiple::float, s.return_pct::float
+    FROM kalshi_sports_shadow_trades s
+   WHERE s.status = 'closed' AND s.return_pct IS NOT NULL AND s.exclude_from_stats IS NOT TRUE
+  UNION ALL
   -- Strategy Studio shadow deployments (strategy-shadow.ts): the runner
   -- trading saved spec strategies virtually \u2014 fills resolved from bar
   -- prices into strategy_trades rows with mode='shadow'. R comes from
@@ -14853,7 +14924,7 @@ CREATE OR REPLACE VIEW shadow_ledger AS
     LEFT JOIN wizard_strategies w ON w.id = t.strategy_id
    WHERE t.mode = 'shadow' AND t.status = 'closed' AND t.r_multiple IS NOT NULL
 `;
-    _ensured4 = null;
+    _ensured5 = null;
   }
 });
 
@@ -14872,8 +14943,8 @@ __export(shadow_lesson_gate_exports, {
   studioShadowLessonsOn: () => studioShadowLessonsOn
 });
 function ensureShadowLessonBlocksTable() {
-  if (!_ensured5) {
-    _ensured5 = pool.query(`CREATE TABLE IF NOT EXISTS shadow_lesson_blocks (
+  if (!_ensured6) {
+    _ensured6 = pool.query(`CREATE TABLE IF NOT EXISTS shadow_lesson_blocks (
       id serial PRIMARY KEY,
       lane text NOT NULL,
       user_id int NOT NULL,
@@ -14885,11 +14956,11 @@ function ensureShadowLessonBlocksTable() {
       median_pct double precision,
       reason text NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS shadow_lesson_blocks_lane_user_at ON shadow_lesson_blocks (lane, user_id, created_at DESC)`)).then(() => void 0).catch((e) => {
-      _ensured5 = null;
+      _ensured6 = null;
       throw e;
     });
   }
-  return _ensured5;
+  return _ensured6;
 }
 async function logShadowLessonBlock(b) {
   try {
@@ -14971,7 +15042,7 @@ async function getSolShadowLessonVerdicts(userId, force = false) {
   _solCache.set(userId, { at: Date.now(), verdicts });
   return verdicts;
 }
-var solShadowLessonsOn, cryptoShadowLessonsOn, studioShadowLessonsOn, fxModelsLessonGateOn, _ensured5, _solCache;
+var solShadowLessonsOn, cryptoShadowLessonsOn, studioShadowLessonsOn, fxModelsLessonGateOn, _ensured6, _solCache;
 var init_shadow_lesson_gate = __esm({
   "server/services/shadow-lesson-gate.ts"() {
     "use strict";
@@ -14980,7 +15051,7 @@ var init_shadow_lesson_gate = __esm({
     cryptoShadowLessonsOn = () => process.env.CRYPTO_SHADOW_LESSONS !== "off";
     studioShadowLessonsOn = () => process.env.STUDIO_SHADOW_LESSONS !== "off";
     fxModelsLessonGateOn = () => process.env.FX_MODELS_LESSON_GATE !== "off";
-    _ensured5 = null;
+    _ensured6 = null;
     _solCache = /* @__PURE__ */ new Map();
   }
 });

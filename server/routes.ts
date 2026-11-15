@@ -17683,6 +17683,20 @@ Rules:
       res.json(await getKalshiStockShadowReport((req.user as User).id, days));
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
+  // Kalshi SPORTS odds-benchmark SHADOW lane: read-only panel report —
+  // virtual game-winner positions taken when the de-vigged book probability
+  // beat Kalshi's ask by the divergence bar, graded at Kalshi settlement,
+  // plus activation state (which odds key is configured — booleans only).
+  // ?days=30 (1–365).
+  app.get("/api/kalshi-sports-shadow", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const rawDays = Number(req.query.days);
+      const days = Number.isFinite(rawDays) ? Math.max(1, Math.min(365, Math.floor(rawDays))) : 30;
+      const { getKalshiSportsShadowReport } = await import('./services/kalshi-sports-shadow');
+      res.json(await getKalshiSportsShadowReport((req.user as User).id, days));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
   app.get("/api/crypto-paper", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {
