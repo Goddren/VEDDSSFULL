@@ -20,6 +20,21 @@
 // the learned-rules exit step (paper + shadow — live Sol exits are
 // unchanged, same boundary as the learned rules themselves).
 //
+// SOL KEYING (2026-11-15, Chris's directive): Sol guards key on STRATEGY
+// ONLY — never on the token. Sol tokens are routinely pump-and-dump: a
+// guard built for one token is a guard for something that may not exist
+// next week, while the strategy's pooled record across tokens is the
+// durable evidence (the same reasoning the PR #68 Sol lesson gate uses:
+// per-token gating is forbidden by design there too). So Sol candidates
+// come only from the study's strategy grouping (which aggregates closes
+// across every token the strategy traded), the promote endpoint refuses
+// a Sol symbol selection outright, and the Sol consult matches strategy
+// guards only — a stored per-token Sol guard, if one ever existed, can
+// no longer govern an exit. Crypto keeps its symbol dimension: crypto
+// pairs are durable instruments, and that behavior is unchanged. (The
+// trail study still DISPLAYS Sol per-symbol stats for observation; they
+// simply can no longer become guards.)
+//
 // Guards live in runtime_state ('trail_guards', userId). Retiring keeps the
 // record with active=false. Kill switch: TRAIL_GUARDS=off disables both
 // consults (guards remain stored). Consults FAIL OPEN: any error means the
@@ -152,7 +167,9 @@ function profileSummary(engine: 'crypto' | 'sol', p: CryptoTrailProfile | SolTra
 }
 
 // ── Candidates (derived from the trail study; eligibility lives here) ──────
-function candidatesFrom(engine: 'crypto' | 'sol', dimension: 'strategy' | 'symbol', groups: TrailGroup[], guarded: Set<string>): TrailCandidate[] {
+// Exported for the check script (check-sol-trail-guard-keys.ts), same
+// pattern as trail-guard-learning.ts exporting its stats readers.
+export function candidatesFrom(engine: 'crypto' | 'sol', dimension: 'strategy' | 'symbol', groups: TrailGroup[], guarded: Set<string>): TrailCandidate[] {
   const out: TrailCandidate[] = [];
   for (const g of groups) {
     if (g.trades < MIN_TRADES()) continue;
@@ -187,14 +204,23 @@ export async function getTrailGuardCandidates(userId: number) {
   const candidates = [
     ...candidatesFrom('crypto', 'strategy', report.crypto.byStrategy, guarded),
     ...candidatesFrom('crypto', 'symbol', report.crypto.bySymbol, guarded),
+    // Sol: strategy grouping ONLY (see SOL KEYING in the header) — the
+    // bySymbol study groups are display-only and never become candidates,
+    // so a Sol candidate's record aggregates across all of the strategy's
+    // tokens by construction (the study groups by strategy_id).
     ...candidatesFrom('sol', 'strategy', report.sol.byStrategy, guarded),
-    ...candidatesFrom('sol', 'symbol', report.sol.bySymbol, guarded),
   ];
   return { candidates, guards };
 }
 
 // ── Promote / retire ────────────────────────────────────────────────────────
 export async function promoteTrailGuard(userId: number, sel: { engine: 'crypto' | 'sol'; dimension: 'strategy' | 'symbol'; key: string; action: 'tighten' | 'lock_profile' }) {
+  // Sol guards are strategy-keyed only (see SOL KEYING in the header):
+  // refuse a per-token selection outright rather than letting it fall
+  // through to a generic "no longer qualifies" — the answer is never.
+  if (sel.engine === 'sol' && sel.dimension === 'symbol') {
+    return { ok: false as const, status: 422, error: 'Sol trail guards key on strategy only — a guard for one token would outlive the token. Promote the strategy group instead.' };
+  }
   const { candidates, guards } = await getTrailGuardCandidates(userId);
   const cand = candidates.find(c => c.engine === sel.engine && c.dimension === sel.dimension && c.key === sel.key && c.action === sel.action);
   if (!cand) return { ok: false as const, status: 422, error: 'That trail lesson no longer qualifies (evidence changed since the list was built). Refresh and check the current numbers.' };
@@ -236,7 +262,8 @@ export async function retireTrailGuard(userId: number, id: string, retiredBy: 'u
 }
 
 // ── Consults (hot path — cached, fail-open) ─────────────────────────────────
-function matchGuard(guards: TrailGuard[], engine: 'crypto' | 'sol', strategy: string | null | undefined, symbol: string | null | undefined): TrailGuard | null {
+// Exported for the check script (check-sol-trail-guard-keys.ts).
+export function matchGuard(guards: TrailGuard[], engine: 'crypto' | 'sol', strategy: string | null | undefined, symbol: string | null | undefined): TrailGuard | null {
   const active = guards.filter(g => g.active && g.engine === engine);
   const strat = strategy ? active.find(g => g.dimension === 'strategy' && g.key === strategy) : undefined;
   const sym = symbol ? active.find(g => g.dimension === 'symbol' && g.key === symbol) : undefined;
@@ -269,7 +296,11 @@ export async function cryptoTrailGuardFor(userId: number, strategy: string | nul
 export async function solTrailGuardFor(userId: number, strategyId: string | null | undefined, symbol: string | null | undefined): Promise<TrailGuard | null> {
   if (!trailGuardsOn()) return null;
   try {
-    return matchGuard(await getTrailGuards(userId), 'sol', strategyId, symbol);
+    // Strategy-only matching (see SOL KEYING in the header): the symbol
+    // argument is accepted so the engine's call sites stay as they are,
+    // but it is deliberately NOT matched — a per-token Sol guard can
+    // never govern an exit, however it got stored.
+    return matchGuard(await getTrailGuards(userId), 'sol', strategyId, null);
   } catch { return null; }
 }
 
