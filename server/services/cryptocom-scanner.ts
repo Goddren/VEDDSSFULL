@@ -1340,6 +1340,58 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
     }
     const chain = (cfg as any).defiChain || 'base';
     const slip = (cfg as any).defiSlippageBps ?? 100;
+    // ── Promoted crypto shadow lessons (2026-11-15) ────────────────────────
+    // A shadow 'avoid' bucket the owner promoted into a live guard blocks
+    // matching hot-wallet entries BEFORE any sizing or swap work. The
+    // bucket context is built exactly as the shadow lane builds it
+    // (crypto-shadow.ts bucketsOf over the same fields), so a promoted
+    // bucket means the same thing on both sides of the bridge. Paper is
+    // practice and is never blocked — it keeps generating the evidence.
+    // Fails open: any error and the entry proceeds as before. Kill switch
+    // CRYPTO_SHADOW_PROMOTIONS=off (inside the consult).
+    if (!(cfg as any)._paper) {
+      try {
+        const promo = await import('./crypto-shadow-promotions');
+        if (await promo.hasActiveCryptoPromotion(userId, result.strategy)) {
+          const { bucketsOf, oldestFirst, trendOf, pctChange } = await import('./crypto-shadow');
+          const { buyShare } = await import('./crypto-ports');
+          const discP0 = getDefiUniverseEntry(symbol, chain);
+          const ax0 = result.price ? await h1Atr(symbol, chain).catch(() => null) : null;
+          const bars0 = ax0 ? oldestFirst(ax0.bars) : [];
+          const closes0 = bars0.map((b) => b.c);
+          const h4Closes0 = closes0.filter((_, i) => (closes0.length - 1 - i) % 4 === 0);
+          const h4Trend0 = trendOf(h4Closes0, 5, 10);
+          const btc0 = await h1Atr('CBBTC', chain).catch(() => null);
+          const fl0 = discP0?.flow;
+          const created0 = fl0?.poolCreatedAt ? new Date(fl0.poolCreatedAt).getTime() : NaN;
+          const ctx0 = {
+            hour_utc: new Date().getUTCHours(),
+            liquidity_usd: discP0?.liquidityUsd ?? null,
+            change_24h: bars0.length ? pctChange(bars0, 24) : null,
+            atr_pct: ax0 && result.price ? (ax0.atr / result.price) * 100 : null,
+            htf_aligned: h4Trend0 == null ? null : h4Trend0 === 'BULLISH',
+            btc_change_24h: btc0 ? pctChange(oldestFirst(btc0.bars), 24) : null,
+            direction: 'long',
+            buy_share_h1: fl0 ? buyShare(fl0.h1) : null,
+            txns_h1: fl0 ? fl0.h1.buys + fl0.h1.sells : null,
+            market_cap_usd: fl0 ? (fl0.marketCapUsd ?? fl0.fdvUsd) : null,
+            token_age_hours: Number.isFinite(created0) ? (Date.now() - created0) / 3_600_000 : null,
+          };
+          const hit = await promo.checkCryptoPromotion(userId, result.strategy, bucketsOf(ctx0));
+          if (hit) {
+            const { logShadowLessonBlock } = await import('./shadow-lesson-gate');
+            void logShadowLessonBlock({
+              lane: 'crypto_promotion', userId, strategyKey: result.strategy,
+              bucket: hit.dim === 'all' ? 'strategy (all)' : `${hit.dim} ${hit.bucket}`,
+              n: hit.n, winRate: hit.winRate, medianPct: hit.medianNet,
+              reason: `live DeFi entry blocked by promoted shadow lesson: bucket verdict 'avoid' at promotion (n=${hit.n}, median net ${hit.medianNet.toFixed(2)}% over the rolling 60 days)`,
+            });
+            await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: 🛡️ entry blocked by a promoted shadow lesson — ${result.strategy} ${hit.dim === 'all' ? '(the whole strategy)' : `when ${hit.dim} is "${hit.bucket}"`} lost a median ${hit.medianNet.toFixed(1)}% across ${hit.n} shadow trades. You made this a guard on the Guards & Trails page; retire it there any time.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' }).catch(() => {});
+            return;
+          }
+        }
+      } catch { /* promoted shadow guards fail open */ }
+    }
     // Paper mode sizes from the paper balance (CRYPTO_PAPER_SIZE_PCT, 2%) so a
     // tiny real defiNotionalUsd (e.g. $3) doesn't push every ATR-widened paper
     // entry under the minimum. The real DeFi setting is untouched.
