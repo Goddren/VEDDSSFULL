@@ -12097,9 +12097,12 @@ __export(crypto_shadow_exports, {
   computeCryptoShadowStats: () => computeCryptoShadowStats,
   ensureCryptoShadowTables: () => ensureCryptoShadowTables,
   getCryptoShadowStatsText: () => getCryptoShadowStatsText,
+  oldestFirst: () => oldestFirst,
+  pctChange: () => pctChange,
   resolveCryptoShadowTrades: () => resolveCryptoShadowTrades,
   runCryptoShadowAll: () => runCryptoShadowAll,
-  shadowAllEnabled: () => shadowAllEnabled
+  shadowAllEnabled: () => shadowAllEnabled,
+  trendOf: () => trendOf
 });
 function ensureCryptoShadowTables() {
   if (!_ensured2) {
@@ -59964,6 +59967,111 @@ var init_trail_guard_learning = __esm({
   }
 });
 
+// server/services/crypto-shadow-promotions.ts
+var crypto_shadow_promotions_exports = {};
+__export(crypto_shadow_promotions_exports, {
+  checkCryptoPromotion: () => checkCryptoPromotion,
+  cryptoShadowPromotionsOn: () => cryptoShadowPromotionsOn,
+  getCryptoPromotionPanel: () => getCryptoPromotionPanel,
+  getCryptoPromotions: () => getCryptoPromotions,
+  hasActiveCryptoPromotion: () => hasActiveCryptoPromotion,
+  matchCryptoPromotion: () => matchCryptoPromotion,
+  promoteCryptoBucket: () => promoteCryptoBucket,
+  retireCryptoPromotion: () => retireCryptoPromotion
+});
+function cryptoShadowPromotionsOn() {
+  return process.env.CRYPTO_SHADOW_PROMOTIONS !== "off";
+}
+async function getCryptoPromotions(userId) {
+  const hit = _cache8.get(userId);
+  if (hit && Date.now() - hit.at < CACHE_MS4) return hit.promotions;
+  let promotions = [];
+  try {
+    const v = await getRuntimeStateStrict(SCOPE3, String(userId));
+    if (Array.isArray(v)) promotions = v;
+  } catch {
+  }
+  _cache8.set(userId, { at: Date.now(), promotions });
+  return promotions;
+}
+async function storePromotions(userId, promotions) {
+  _cache8.set(userId, { at: Date.now(), promotions });
+  saveRuntimeState(SCOPE3, String(userId), promotions);
+}
+async function getCryptoPromotionPanel(userId) {
+  const [stats, promotions] = await Promise.all([computeCryptoShadowStats(userId), getCryptoPromotions(userId)]);
+  const activeKeys = new Set(promotions.filter((p2) => p2.active).map((p2) => `${p2.strategy}|${p2.dim}|${p2.bucket}`));
+  const candidates = stats.filter((s) => s.verdict === "avoid").map((s) => ({ ...s, alreadyGuarded: activeKeys.has(`${s.strategy}|${s.dim}|${s.bucket}`) })).sort((a, b) => b.n - a.n);
+  return { candidates, promotions };
+}
+async function promoteCryptoBucket(userId, sel) {
+  const stats = await computeCryptoShadowStats(userId, true);
+  const stat = stats.find((s) => s.strategy === sel.strategy && s.dim === sel.dim && s.bucket === sel.bucket);
+  if (!stat || stat.verdict !== "avoid") {
+    return { ok: false, status: 422, error: "That shadow bucket no longer qualifies (its rolling 60-day record changed since the list was built). Refresh and check the current numbers." };
+  }
+  const promotions = await getCryptoPromotions(userId);
+  if (promotions.some((p2) => p2.active && p2.strategy === sel.strategy && p2.dim === sel.dim && p2.bucket === sel.bucket)) {
+    return { ok: false, status: 409, error: "An active guard already covers this bucket." };
+  }
+  const promotion = {
+    id: `csp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    strategy: stat.strategy,
+    dim: stat.dim,
+    bucket: stat.bucket,
+    n: stat.n,
+    medianNet: stat.medianNet,
+    winRate: stat.winRate,
+    promotedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    active: true
+  };
+  await storePromotions(userId, [...promotions, promotion]);
+  return { ok: true, promotion };
+}
+async function retireCryptoPromotion(userId, id) {
+  const promotions = await getCryptoPromotions(userId);
+  const p2 = promotions.find((x) => x.id === id);
+  if (!p2) return { ok: false, status: 404, error: "Guard not found." };
+  p2.active = false;
+  p2.retiredAt = (/* @__PURE__ */ new Date()).toISOString();
+  await storePromotions(userId, promotions);
+  return { ok: true };
+}
+function matchCryptoPromotion(promotions, strategy, buckets) {
+  const act = promotions.filter((p2) => p2.active && p2.strategy === strategy);
+  if (!act.length) return null;
+  const all = act.find((p2) => p2.dim === "all");
+  if (all) return all;
+  return act.find((p2) => buckets[p2.dim] === p2.bucket) ?? null;
+}
+async function hasActiveCryptoPromotion(userId, strategy) {
+  if (!cryptoShadowPromotionsOn()) return false;
+  try {
+    return (await getCryptoPromotions(userId)).some((p2) => p2.active && p2.strategy === strategy);
+  } catch {
+    return false;
+  }
+}
+async function checkCryptoPromotion(userId, strategy, buckets) {
+  if (!cryptoShadowPromotionsOn()) return null;
+  try {
+    return matchCryptoPromotion(await getCryptoPromotions(userId), strategy, buckets);
+  } catch {
+    return null;
+  }
+}
+var SCOPE3, _cache8, CACHE_MS4;
+var init_crypto_shadow_promotions = __esm({
+  "server/services/crypto-shadow-promotions.ts"() {
+    "use strict";
+    init_runtime_state();
+    init_crypto_shadow();
+    SCOPE3 = "crypto_shadow_promotions";
+    _cache8 = /* @__PURE__ */ new Map();
+    CACHE_MS4 = 3e4;
+  }
+});
+
 // server/services/kalshi-perps.ts
 var kalshi_perps_exports = {};
 __export(kalshi_perps_exports, {
@@ -63427,6 +63535,55 @@ async function executeSignalSingle(service, connection2, userId, symbol, result,
     }
     const chain = cfg.defiChain || "base";
     const slip = cfg.defiSlippageBps ?? 100;
+    if (!cfg._paper) {
+      try {
+        const promo = await Promise.resolve().then(() => (init_crypto_shadow_promotions(), crypto_shadow_promotions_exports));
+        if (await promo.hasActiveCryptoPromotion(userId, result.strategy)) {
+          const { bucketsOf: bucketsOf3, oldestFirst: oldestFirst2, trendOf: trendOf3, pctChange: pctChange2 } = await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports));
+          const { buyShare: buyShare2 } = await Promise.resolve().then(() => (init_crypto_ports(), crypto_ports_exports));
+          const discP0 = getDefiUniverseEntry(symbol, chain);
+          const ax0 = result.price ? await h1Atr(symbol, chain).catch(() => null) : null;
+          const bars0 = ax0 ? oldestFirst2(ax0.bars) : [];
+          const closes0 = bars0.map((b) => b.c);
+          const h4Closes0 = closes0.filter((_, i) => (closes0.length - 1 - i) % 4 === 0);
+          const h4Trend0 = trendOf3(h4Closes0, 5, 10);
+          const btc0 = await h1Atr("CBBTC", chain).catch(() => null);
+          const fl0 = discP0?.flow;
+          const created0 = fl0?.poolCreatedAt ? new Date(fl0.poolCreatedAt).getTime() : NaN;
+          const ctx0 = {
+            hour_utc: (/* @__PURE__ */ new Date()).getUTCHours(),
+            liquidity_usd: discP0?.liquidityUsd ?? null,
+            change_24h: bars0.length ? pctChange2(bars0, 24) : null,
+            atr_pct: ax0 && result.price ? ax0.atr / result.price * 100 : null,
+            htf_aligned: h4Trend0 == null ? null : h4Trend0 === "BULLISH",
+            btc_change_24h: btc0 ? pctChange2(oldestFirst2(btc0.bars), 24) : null,
+            direction: "long",
+            buy_share_h1: fl0 ? buyShare2(fl0.h1) : null,
+            txns_h1: fl0 ? fl0.h1.buys + fl0.h1.sells : null,
+            market_cap_usd: fl0 ? fl0.marketCapUsd ?? fl0.fdvUsd : null,
+            token_age_hours: Number.isFinite(created0) ? (Date.now() - created0) / 36e5 : null
+          };
+          const hit = await promo.checkCryptoPromotion(userId, result.strategy, bucketsOf3(ctx0));
+          if (hit) {
+            const { logShadowLessonBlock: logShadowLessonBlock2 } = await Promise.resolve().then(() => (init_shadow_lesson_gate(), shadow_lesson_gate_exports));
+            void logShadowLessonBlock2({
+              lane: "crypto_promotion",
+              userId,
+              strategyKey: result.strategy,
+              bucket: hit.dim === "all" ? "strategy (all)" : `${hit.dim} ${hit.bucket}`,
+              n: hit.n,
+              winRate: hit.winRate,
+              medianPct: hit.medianNet,
+              reason: `live DeFi entry blocked by promoted shadow lesson: bucket verdict 'avoid' at promotion (n=${hit.n}, median net ${hit.medianNet.toFixed(2)}% over the rolling 60 days)`
+            });
+            await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: \u{1F6E1}\uFE0F entry blocked by a promoted shadow lesson \u2014 ${result.strategy} ${hit.dim === "all" ? "(the whole strategy)" : `when ${hit.dim} is "${hit.bucket}"`} lost a median ${hit.medianNet.toFixed(1)}% across ${hit.n} shadow trades. You made this a guard on the Guards & Trails page; retire it there any time.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" }).catch(() => {
+            });
+            return;
+          }
+        }
+      } catch {
+      }
+    }
     const _baseN = cfg._paper ? Math.max(5, Number(cfg._paperBalance || 1e3) * Number(process.env.CRYPTO_PAPER_SIZE_PCT ?? 2) / 100) : Math.max(1, cfg.defiNotionalUsd ?? 25);
     let notionalD = _baseN * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
     let slPctD = Number(cfg.cefiStopLossPct ?? 2), tpPctD = Number(cfg.cefiTakeProfitPct ?? 3);
@@ -68502,7 +68659,7 @@ async function runRuinConeSimulation(userId, params = {}) {
     source
   };
   if (!params.noCache) {
-    const hit = _cache8.get(_cacheKey(userId, resolved));
+    const hit = _cache9.get(_cacheKey(userId, resolved));
     if (hit && hit.expires > Date.now()) return hit.result;
   }
   const rows = await db.select({ pnl: aiTradeResults.profitLoss, closedAt: aiTradeResults.closedAt }).from(aiTradeResults).where(and10(
@@ -68550,7 +68707,7 @@ async function runRuinConeSimulation(userId, params = {}) {
       },
       warning: `Only ${sourceTradeCount} closed '${source}' trade(s) on record \u2014 need at least 2 to simulate. Let the scanner build more history.`
     };
-    _cache8.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS8, result: result2 });
+    _cache9.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS8, result: result2 });
     return result2;
   }
   const paths = new Array(numSimulations);
@@ -68650,10 +68807,10 @@ async function runRuinConeSimulation(userId, params = {}) {
     },
     warning: sourceTradeCount < 20 ? `Thin history: only ${sourceTradeCount} closed '${source}' trade(s). Results are indicative only until more trades accumulate.` : void 0
   };
-  _cache8.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS8, result });
+  _cache9.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS8, result });
   return result;
 }
-var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS8, _cache8;
+var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS8, _cache9;
 var init_ruin_cone = __esm({
   "server/services/ruin-cone.ts"() {
     "use strict";
@@ -68674,7 +68831,7 @@ var init_ruin_cone = __esm({
     DEFAULT_NUM_TRADES = 100;
     DEFAULT_SOURCE_LIMIT = 200;
     CACHE_TTL_MS8 = 5 * 60 * 1e3;
-    _cache8 = /* @__PURE__ */ new Map();
+    _cache9 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -80099,9 +80256,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "703cd391-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-14T05:24:12.113Z";
+var BUILD_COMMIT = "0d963b10-dirty";
+var BUILD_BRANCH = "feat/crypto-shadow-promotions";
+var BUILT_AT = "2026-11-15T20:34:07.184Z";
 
 // server/stripe.ts
 init_db();
@@ -98125,6 +98282,41 @@ Rules:
       if (!symbol) return res2.status(400).json({ error: "symbol is required" });
       const out = await revertGateCalibration2(req.user.id, String(symbol), session3 ? String(session3) : null);
       if (!out.ok) return res2.status(out.status).json({ error: out.error });
+      res2.json(out);
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/engine/crypto-shadow-promotions", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { getCryptoPromotionPanel: getCryptoPromotionPanel2 } = await Promise.resolve().then(() => (init_crypto_shadow_promotions(), crypto_shadow_promotions_exports));
+      res2.json(await getCryptoPromotionPanel2(req.user.id));
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/engine/crypto-shadow-promotions", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { promoteCryptoBucket: promoteCryptoBucket2 } = await Promise.resolve().then(() => (init_crypto_shadow_promotions(), crypto_shadow_promotions_exports));
+      const { strategy, dim, bucket } = req.body || {};
+      if (!strategy || !dim || !bucket) return res2.status(400).json({ error: "strategy, dim and bucket are required" });
+      const out = await promoteCryptoBucket2(req.user.id, { strategy: String(strategy), dim: String(dim), bucket: String(bucket) });
+      if (!out.ok) return res2.status(out.status ?? 422).json({ error: out.error });
+      res2.json(out);
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/engine/crypto-shadow-promotions/retire", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { retireCryptoPromotion: retireCryptoPromotion2 } = await Promise.resolve().then(() => (init_crypto_shadow_promotions(), crypto_shadow_promotions_exports));
+      const { id } = req.body || {};
+      if (!id) return res2.status(400).json({ error: "id is required" });
+      const out = await retireCryptoPromotion2(req.user.id, String(id));
+      if (!out.ok) return res2.status(out.status ?? 404).json({ error: out.error });
       res2.json(out);
     } catch (err) {
       res2.status(500).json({ error: err.message });

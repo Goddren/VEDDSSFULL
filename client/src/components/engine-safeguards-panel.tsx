@@ -274,6 +274,89 @@ export function PromotedRulesPanel({ className = "" }: { className?: string }) {
   );
 }
 
+// Crypto shadow promotions (Nov 15, 2026): the crypto shadow lane's proven
+// losing buckets (15+ shadow closes, median net worse than −1% over the
+// rolling 60 days — the lane's own 'avoid' bar) can be promoted, one tap at
+// a time, into guards on the LIVE DeFi hot wallet. Nothing auto-promotes;
+// the server re-checks the evidence at tap time; retire any time.
+type CryptoCandidateT = { strategy: string; dim: string; bucket: string; n: number; medianNet: number; winRate: number; verdict: string; alreadyGuarded: boolean };
+type CryptoPromotionT = { id: string; strategy: string; dim: string; bucket: string; n: number; medianNet: number; winRate: number; promotedAt: string; active: boolean };
+export function CryptoShadowPromotionsPanel({ className = "" }: { className?: string }) {
+  const qc = useQueryClient();
+  const { data } = useQuery<{ candidates: CryptoCandidateT[]; promotions: CryptoPromotionT[] }>({
+    queryKey: ["/api/engine/crypto-shadow-promotions"],
+    refetchInterval: 60000,
+  });
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["/api/engine/crypto-shadow-promotions"] });
+  const promote = useMutation({
+    mutationFn: async (c: CryptoCandidateT) => apiRequest("POST", "/api/engine/crypto-shadow-promotions", { strategy: c.strategy, dim: c.dim, bucket: c.bucket }),
+    onSuccess: invalidate,
+  });
+  const retire = useMutation({
+    mutationFn: async (id: string) => apiRequest("POST", "/api/engine/crypto-shadow-promotions/retire", { id }),
+    onSuccess: invalidate,
+  });
+  const candidates = (data?.candidates || []).filter((c) => !c.alreadyGuarded);
+  const active = (data?.promotions || []).filter((p) => p.active);
+  const retiredCount = (data?.promotions || []).filter((p) => !p.active).length;
+  if (!candidates.length && !active.length) return null;
+  const label = (c: { strategy: string; dim: string; bucket: string }) => c.dim === "all" ? `${c.strategy} — the whole strategy` : `${c.strategy} · ${c.dim}: ${c.bucket}`;
+  return (
+    <div className={`rounded-md border border-white/10 bg-white/[0.03] p-2 overflow-hidden ${className}`}>
+      <PanelHeader
+        compact
+        icon={<Ban className="w-3.5 h-3.5" />}
+        tint="bg-amber-500/15 text-amber-300"
+        title="Crypto shadow lessons → hot-wallet guards"
+        subtitle="Setups your crypto shadow trading already proved losing (15+ shadow trades, median result worse than −1%) can become real guards on the live DeFi hot wallet."
+        explainer={<InfoExplainer title="Crypto shadow lessons → hot-wallet guards" accent="border-l-amber-300/60">
+          <p>Every crypto strategy also trades in <b>shadow mode</b> — virtual trades on the same DeFi tokens, scored net of costs. Grouped by strategy and situation (liquidity, market cap, token age, order flow and more), a group with 15 or more closed shadow trades and a median result worse than −1% is a proven loser — the shadow lane already refuses those trades itself.</p>
+          <p>Promoting one makes it a <b>real guard</b>: the live DeFi hot wallet will skip matching entries before any swap is sized or signed. Promotion is always your tap, one at a time, and the server re-checks the evidence when you tap. Paper trading is never blocked — it keeps gathering evidence. Retire a guard any time and matching entries flow again.</p>
+          <p>Guards cover the DeFi hot wallet only — the shadow evidence comes from DeFi tokens, so it does not gate the perps, Hyperliquid or exchange-spot arms.</p>
+        </InfoExplainer>}
+      />
+      {active.length > 0 && (
+        <div className="space-y-1 mb-2">
+          {active.map((p) => (
+            <div key={p.id} className="text-[10px] flex flex-wrap items-center gap-x-2 gap-y-1 rounded bg-amber-500/10 border border-amber-400/20 px-2 py-1.5">
+              <span className="min-w-0 break-words text-amber-200 font-semibold">GUARD: {label(p)}</span>
+              <span className="text-gray-400 tabular-nums">{p.n} shadow trades · median {p.medianNet.toFixed(1)}% · {Math.round(p.winRate * 100)}% wins</span>
+              <button
+                className="ml-auto shrink-0 text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-gray-200 hover:bg-white/20 disabled:opacity-50"
+                disabled={retire.isPending}
+                onClick={() => { if (window.confirm(`Retire this guard? The hot wallet will stop blocking "${label(p)}" right away.`)) retire.mutate(p.id); }}
+              >Retire</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {candidates.length > 0 ? (
+        <div className="space-y-1">
+          {candidates.map((c) => (
+            <div key={`${c.strategy}:${c.dim}:${c.bucket}`} className="text-[10px] flex flex-wrap items-center gap-x-2 gap-y-1 rounded bg-black/20 px-2 py-1.5">
+              <span className="min-w-0 flex-1 break-words text-gray-300">
+                <b className="text-gray-100">{label(c)}</b> — {c.n} shadow trades, median {c.medianNet.toFixed(1)}% net, {Math.round(c.winRate * 100)}% wins (rolling 60 days).
+              </span>
+              <button
+                className="ml-auto shrink-0 text-[10px] px-2 py-0.5 rounded-full bg-amber-500/30 text-amber-100 hover:bg-amber-500/50 disabled:opacity-50"
+                disabled={promote.isPending}
+                onClick={() => { if (window.confirm(`Make this a real guard?\n\n${label(c)} lost a median ${c.medianNet.toFixed(1)}% across ${c.n} shadow trades.\n\nThe live DeFi hot wallet will skip matching entries until you retire the guard. This changes live trading behavior.`)) promote.mutate(c); }}
+              >Make it a guard</button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-[10px] text-gray-500">
+          No new shadow bucket has cleared the bar right now.{retiredCount > 0 ? ` (${retiredCount} retired guard${retiredCount === 1 ? "" : "s"} on record.)` : ""}
+        </div>
+      )}
+      {(promote.isError || retire.isError) && (
+        <div className="text-[10px] text-red-300 mt-1">That didn't go through — the bucket may no longer qualify. The list refreshes automatically.</div>
+      )}
+    </div>
+  );
+}
+
 // Practice cost check (Nov 8, 2026): what practice trades actually get
 // charged vs what the cost model assumes — the evidence base for tuning
 // the model. Live fills carry their costs inside execution prices (no
