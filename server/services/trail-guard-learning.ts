@@ -180,7 +180,10 @@ export async function guardedStats(userId: number, guard: TrailGuard): Promise<G
  *  query runs on cryptocom_engine_trades, so it awaits the stamp-column
  *  ensure first even though it never names the columns itself. */
 export async function computedBaseline(userId: number, guard: TrailGuard): Promise<GuardPerf | null> {
-  const groupCol = guard.dimension === 'strategy'
+  // Sol groups by strategy_id unconditionally: Sol guards are
+  // strategy-keyed (trail-guards.ts, 2026-11-15), so the group a Sol
+  // guard is judged against is always its strategy, never a token.
+  const groupCol = guard.engine === 'sol' || guard.dimension === 'strategy'
     ? (guard.engine === 'crypto' ? 'strategy' : 'strategy_id')
     : 'symbol';
   try {

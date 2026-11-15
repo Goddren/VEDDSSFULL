@@ -4657,11 +4657,13 @@ var init_trail_study = __esm({
 // server/services/trail-guards.ts
 var trail_guards_exports = {};
 __export(trail_guards_exports, {
+  candidatesFrom: () => candidatesFrom,
   cryptoTrailGuardFor: () => cryptoTrailGuardFor,
   cryptoTrailProfileFor: () => cryptoTrailProfileFor,
   ensureTrailGuardStampColumns: () => ensureTrailGuardStampColumns,
   getTrailGuardCandidates: () => getTrailGuardCandidates,
   getTrailGuards: () => getTrailGuards,
+  matchGuard: () => matchGuard,
   promoteTrailGuard: () => promoteTrailGuard,
   retireTrailGuard: () => retireTrailGuard,
   solTrailGuardFor: () => solTrailGuardFor,
@@ -4777,12 +4779,18 @@ async function getTrailGuardCandidates(userId) {
   const candidates = [
     ...candidatesFrom("crypto", "strategy", report.crypto.byStrategy, guarded),
     ...candidatesFrom("crypto", "symbol", report.crypto.bySymbol, guarded),
-    ...candidatesFrom("sol", "strategy", report.sol.byStrategy, guarded),
-    ...candidatesFrom("sol", "symbol", report.sol.bySymbol, guarded)
+    // Sol: strategy grouping ONLY (see SOL KEYING in the header) — the
+    // bySymbol study groups are display-only and never become candidates,
+    // so a Sol candidate's record aggregates across all of the strategy's
+    // tokens by construction (the study groups by strategy_id).
+    ...candidatesFrom("sol", "strategy", report.sol.byStrategy, guarded)
   ];
   return { candidates, guards };
 }
 async function promoteTrailGuard(userId, sel) {
+  if (sel.engine === "sol" && sel.dimension === "symbol") {
+    return { ok: false, status: 422, error: "Sol trail guards key on strategy only \u2014 a guard for one token would outlive the token. Promote the strategy group instead." };
+  }
   const { candidates, guards } = await getTrailGuardCandidates(userId);
   const cand = candidates.find((c) => c.engine === sel.engine && c.dimension === sel.dimension && c.key === sel.key && c.action === sel.action);
   if (!cand) return { ok: false, status: 422, error: "That trail lesson no longer qualifies (evidence changed since the list was built). Refresh and check the current numbers." };
@@ -4853,7 +4861,7 @@ async function cryptoTrailGuardFor(userId, strategy, symbol) {
 async function solTrailGuardFor(userId, strategyId, symbol) {
   if (!trailGuardsOn()) return null;
   try {
-    return matchGuard(await getTrailGuards(userId), "sol", strategyId, symbol);
+    return matchGuard(await getTrailGuards(userId), "sol", strategyId, null);
   } catch {
     return null;
   }
@@ -59797,7 +59805,7 @@ async function guardedStats(userId, guard) {
   }
 }
 async function computedBaseline(userId, guard) {
-  const groupCol = guard.dimension === "strategy" ? guard.engine === "crypto" ? "strategy" : "strategy_id" : "symbol";
+  const groupCol = guard.engine === "sol" || guard.dimension === "strategy" ? guard.engine === "crypto" ? "strategy" : "strategy_id" : "symbol";
   try {
     if (guard.engine === "crypto") {
       await ensureTrailGuardStampColumns();
@@ -80099,9 +80107,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "703cd391-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-14T05:24:12.113Z";
+var BUILD_COMMIT = "0d963b10-dirty";
+var BUILD_BRANCH = "feat/sol-trail-guards-strategy-keyed";
+var BUILT_AT = "2026-11-15T21:09:34.730Z";
 
 // server/stripe.ts
 init_db();
