@@ -12503,6 +12503,55 @@ var init_ensure_kalshi_perp_shadow_tables = __esm({
   }
 });
 
+// server/services/ensure-kalshi-sports-shadow-tables.ts
+var ensure_kalshi_sports_shadow_tables_exports = {};
+__export(ensure_kalshi_sports_shadow_tables_exports, {
+  ensureKalshiSportsShadowTables: () => ensureKalshiSportsShadowTables
+});
+function ensureKalshiSportsShadowTables() {
+  if (!_ensured4) {
+    _ensured4 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_sports_shadow_trades (
+      id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL DEFAULT 'sports_odds_benchmark',
+      league text NOT NULL, series_ticker text NOT NULL,
+      event_ticker text NOT NULL, ticker text NOT NULL, team text NOT NULL, opponent text,
+      direction text NOT NULL DEFAULT 'LONG',
+      entry_price_cents int NOT NULL, entry_bid_cents int, entry_ask_cents int,
+      book_prob_pct double precision NOT NULL, divergence_cents double precision NOT NULL,
+      bookmaker text, odds_source text, confidence int,
+      contracts double precision NOT NULL, notional_usd double precision NOT NULL,
+      fee_pct double precision NOT NULL DEFAULT 0, cost_model text NOT NULL DEFAULT 'placeholder',
+      commence_time timestamptz,
+      status text NOT NULL DEFAULT 'open',
+      result text, exit_price_cents int, exit_reason text,
+      gross_return_pct double precision, return_pct double precision, r_multiple double precision,
+      exclude_from_stats boolean NOT NULL DEFAULT false,
+      opened_at timestamptz NOT NULL DEFAULT now(), closed_at timestamptz)`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_sports_shadow_trades_user_status ON kalshi_sports_shadow_trades (user_id, status)`)).then(() => pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS kalshi_sports_shadow_trades_open_uniq ON kalshi_sports_shadow_trades (user_id, ticker) WHERE status='open'`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS kalshi_sports_shadow_context (
+      trade_id int PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL DEFAULT 'sports_odds_benchmark',
+      league text NOT NULL, ticker text NOT NULL,
+      book_home_price_dec double precision, book_away_price_dec double precision,
+      book_prob_pct double precision, market_ask_cents int, divergence_cents double precision,
+      spread_cents int, bookmaker text, odds_source text, hour_utc int,
+      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision)`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS kalshi_sports_shadow_observations (
+      id serial PRIMARY KEY, user_id int NOT NULL, league text NOT NULL,
+      event_ticker text NOT NULL, market_ticker text NOT NULL, team text NOT NULL,
+      book_prob_pct double precision, kalshi_ask_cents int, divergence_cents double precision,
+      bookmaker text, odds_source text, commence_time timestamptz,
+      captured_at timestamptz NOT NULL DEFAULT now())`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_sports_shadow_obs_time ON kalshi_sports_shadow_observations (captured_at)`)).then(() => void 0).catch((e) => {
+      _ensured4 = null;
+      throw e;
+    });
+  }
+  return _ensured4;
+}
+var _ensured4;
+var init_ensure_kalshi_sports_shadow_tables = __esm({
+  "server/services/ensure-kalshi-sports-shadow-tables.ts"() {
+    "use strict";
+    init_db();
+    _ensured4 = null;
+  }
+});
+
 // server/services/strategy-deployments.ts
 var strategy_deployments_exports = {};
 __export(strategy_deployments_exports, {
@@ -12892,8 +12941,8 @@ __export(shadow_ledger_exports, {
   shadowLedgerSummary: () => shadowLedgerSummary
 });
 function ensureShadowLedger() {
-  if (!_ensured4) {
-    _ensured4 = (async () => {
+  if (!_ensured5) {
+    _ensured5 = (async () => {
       try {
         const { ensurePaperTable: ensurePaperTable2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
         await ensurePaperTable2();
@@ -12910,6 +12959,11 @@ function ensureShadowLedger() {
       } catch {
       }
       try {
+        const { ensureKalshiSportsShadowTables: ensureKalshiSportsShadowTables2 } = await Promise.resolve().then(() => (init_ensure_kalshi_sports_shadow_tables(), ensure_kalshi_sports_shadow_tables_exports));
+        await ensureKalshiSportsShadowTables2();
+      } catch {
+      }
+      try {
         const { ensureStrategyTables: ensureStrategyTables2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
         await ensureStrategyTables2();
       } catch {
@@ -12921,11 +12975,11 @@ function ensureShadowLedger() {
       }
       await pool.query(VIEW_SQL);
     })().catch((e) => {
-      _ensured4 = null;
+      _ensured5 = null;
       throw e;
     });
   }
-  return _ensured4;
+  return _ensured5;
 }
 async function shadowLedgerSummary(userId, days = 30) {
   await ensureShadowLedger();
@@ -12944,7 +12998,7 @@ async function shadowLedgerSummary(userId, days = 30) {
   ]);
   return { days, bySource, bySession, byDirection, best: slices.slice(0, 10), worst: slices.slice(-10).reverse(), h4Alignment: alignment };
 }
-var SESSION_SQL, VIEW_SQL, _ensured4;
+var SESSION_SQL, VIEW_SQL, _ensured5;
 var init_shadow_ledger = __esm({
   "server/services/shadow-ledger.ts"() {
     "use strict";
@@ -13042,6 +13096,23 @@ CREATE OR REPLACE VIEW shadow_ledger AS
    WHERE k.status = 'closed' AND k.return_pct IS NOT NULL AND k.exclude_from_stats IS NOT TRUE
      AND NOT (abs(k.return_pct) >= 40 AND extract(epoch from (k.closed_at - k.opened_at)) < 120)
   UNION ALL
+  -- Kalshi SPORTS odds-benchmark shadow lane (kalshi-sports-shadow.ts):
+  -- virtual YES buys on game-winner markets where the de-vigged book
+  -- probability beat Kalshi's ask by the divergence bar, graded at Kalshi
+  -- settlement. Binary shape: r_multiple is return_pct/100 as stamped at
+  -- close. Symbol = team backed. Expired/no-result rows carry
+  -- exclude_from_stats and never appear.
+  SELECT ('kalshi_sports_shadow:' || s.id)::text, 'kalshi_sports_shadow', 'kalshi', s.user_id,
+         s.strategy, s.team, 'LONG',
+         s.opened_at, s.closed_at,
+         extract(hour from s.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(s.opened_at AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN s.return_pct > 0 THEN 'WIN' WHEN s.return_pct < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         s.r_multiple::float, s.return_pct::float
+    FROM kalshi_sports_shadow_trades s
+   WHERE s.status = 'closed' AND s.return_pct IS NOT NULL AND s.exclude_from_stats IS NOT TRUE
+  UNION ALL
   -- Strategy Studio shadow deployments (strategy-shadow.ts): the runner
   -- trading saved spec strategies virtually \u2014 fills resolved from bar
   -- prices into strategy_trades rows with mode='shadow'. R comes from
@@ -13063,7 +13134,7 @@ CREATE OR REPLACE VIEW shadow_ledger AS
     LEFT JOIN wizard_strategies w ON w.id = t.strategy_id
    WHERE t.mode = 'shadow' AND t.status = 'closed' AND t.r_multiple IS NOT NULL
 `;
-    _ensured4 = null;
+    _ensured5 = null;
   }
 });
 
@@ -13082,8 +13153,8 @@ __export(shadow_lesson_gate_exports, {
   studioShadowLessonsOn: () => studioShadowLessonsOn
 });
 function ensureShadowLessonBlocksTable() {
-  if (!_ensured5) {
-    _ensured5 = pool.query(`CREATE TABLE IF NOT EXISTS shadow_lesson_blocks (
+  if (!_ensured6) {
+    _ensured6 = pool.query(`CREATE TABLE IF NOT EXISTS shadow_lesson_blocks (
       id serial PRIMARY KEY,
       lane text NOT NULL,
       user_id int NOT NULL,
@@ -13095,11 +13166,11 @@ function ensureShadowLessonBlocksTable() {
       median_pct double precision,
       reason text NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS shadow_lesson_blocks_lane_user_at ON shadow_lesson_blocks (lane, user_id, created_at DESC)`)).then(() => void 0).catch((e) => {
-      _ensured5 = null;
+      _ensured6 = null;
       throw e;
     });
   }
-  return _ensured5;
+  return _ensured6;
 }
 async function logShadowLessonBlock(b) {
   try {
@@ -13181,7 +13252,7 @@ async function getSolShadowLessonVerdicts(userId, force = false) {
   _solCache.set(userId, { at: Date.now(), verdicts });
   return verdicts;
 }
-var solShadowLessonsOn, cryptoShadowLessonsOn, studioShadowLessonsOn, fxModelsLessonGateOn, _ensured5, _solCache;
+var solShadowLessonsOn, cryptoShadowLessonsOn, studioShadowLessonsOn, fxModelsLessonGateOn, _ensured6, _solCache;
 var init_shadow_lesson_gate = __esm({
   "server/services/shadow-lesson-gate.ts"() {
     "use strict";
@@ -13190,7 +13261,7 @@ var init_shadow_lesson_gate = __esm({
     cryptoShadowLessonsOn = () => process.env.CRYPTO_SHADOW_LESSONS !== "off";
     studioShadowLessonsOn = () => process.env.STUDIO_SHADOW_LESSONS !== "off";
     fxModelsLessonGateOn = () => process.env.FX_MODELS_LESSON_GATE !== "off";
-    _ensured5 = null;
+    _ensured6 = null;
     _solCache = /* @__PURE__ */ new Map();
   }
 });
@@ -19256,7 +19327,7 @@ function logDecisionShadow(r) {
     _seen.set(k2, Date.now());
     if (_seen.size > 5e3) _seen.clear();
   }
-  const num13 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  const num14 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
   void ensureDecisionShadowTable().then(() => pool.query(
     `INSERT INTO fx_decision_shadow (user_id, scan_id, symbol, session, hour_utc, lane, mode, acted, picked, ai_status,
        direction, score, terms, entry, sl, tp, gate_result)
@@ -19273,11 +19344,11 @@ function logDecisionShadow(r) {
       !!r.picked,
       r.aiStatus ?? null,
       r.direction ?? null,
-      num13(r.score),
+      num14(r.score),
       r.terms == null ? null : JSON.stringify(r.terms),
-      num13(r.entry),
-      num13(r.sl),
-      num13(r.tp),
+      num14(r.entry),
+      num14(r.sl),
+      num14(r.tp),
       r.gateResult ?? null
     ]
   )).catch(() => {
@@ -42737,7 +42808,7 @@ function isFakeWinSignature(holdingMinutes, returnPct) {
   return holdingMinutes != null && holdingMinutes <= QUARANTINE_MAX_HOLD_MIN && returnPct != null && Math.abs(returnPct) >= QUARANTINE_MIN_ABS_RETURN_PCT;
 }
 async function ensureTable4() {
-  if (_ensured6) return;
+  if (_ensured7) return;
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS "sol_brain_outcomes" (
@@ -42759,7 +42830,7 @@ async function ensureTable4() {
       );
       CREATE INDEX IF NOT EXISTS "idx_sol_brain_outcomes_user_symbol" ON "sol_brain_outcomes" ("user_id", "symbol");
     `);
-    _ensured6 = true;
+    _ensured7 = true;
   } catch (err) {
     console.error("[sol-brain] ensureTable failed (non-fatal):", err?.message ?? err);
   }
@@ -42919,7 +42990,7 @@ async function recordSolBrainOutcome(o) {
     console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var MIN_TRADES6, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, BAD_PRICE_SYMBOLS, _ensured6, _cache4;
+var MIN_TRADES6, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, BAD_PRICE_SYMBOLS, _ensured7, _cache4;
 var init_sol_brain = __esm({
   "server/services/sol-brain.ts"() {
     "use strict";
@@ -42930,7 +43001,7 @@ var init_sol_brain = __esm({
     QUARANTINE_MAX_HOLD_MIN = 1;
     QUARANTINE_MIN_ABS_RETURN_PCT = 40;
     BAD_PRICE_SYMBOLS = ["RAY", "mSOL"];
-    _ensured6 = false;
+    _ensured7 = false;
     _cache4 = /* @__PURE__ */ new Map();
   }
 });
@@ -42977,8 +43048,8 @@ __export(sol_shadow_stats_exports, {
   sessionOf: () => sessionOf
 });
 function ensureSolShadowContextTable() {
-  if (!_ensured7) {
-    _ensured7 = pool.query(`CREATE TABLE IF NOT EXISTS sol_shadow_context (
+  if (!_ensured8) {
+    _ensured8 = pool.query(`CREATE TABLE IF NOT EXISTS sol_shadow_context (
       id serial PRIMARY KEY, user_id int NOT NULL, position_id text NOT NULL UNIQUE,
       strategy_id text NOT NULL, symbol text NOT NULL, mint text, dex text,
       liquidity_usd double precision, price_change_1h double precision, price_change_24h double precision,
@@ -42995,11 +43066,11 @@ function ensureSolShadowContextTable() {
           ADD COLUMN IF NOT EXISTS trail_guard_id text,
           ADD COLUMN IF NOT EXISTS trail_guard_action text,
           ADD COLUMN IF NOT EXISTS trail_guard_profile jsonb`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS sol_shadow_context_user_closed ON sol_shadow_context (user_id, closed_at)`)).then(() => void 0).catch((e) => {
-      _ensured7 = null;
+      _ensured8 = null;
       throw e;
     });
   }
-  return _ensured7;
+  return _ensured8;
 }
 function ensureSolTrailGuardColumns() {
   if (!_trailColsEnsured) {
@@ -43181,7 +43252,7 @@ async function getSolShadowStatsText(userId, max = 12) {
     return "";
   }
 }
-var num5, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured7, _trailColsEnsured, _cache5;
+var num5, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured8, _trailColsEnsured, _cache5;
 var init_sol_shadow_stats = __esm({
   "server/services/sol-shadow-stats.ts"() {
     "use strict";
@@ -43193,7 +43264,7 @@ var init_sol_shadow_stats = __esm({
     MIN_N = () => num5("SOL_SHADOW_STATS_MIN_N", 15);
     FAVOR_PCT = () => num5("SOL_SHADOW_FAVOR_MEDIAN_PCT", 1);
     AVOID_PCT = () => num5("SOL_SHADOW_AVOID_MEDIAN_PCT", 2);
-    _ensured7 = null;
+    _ensured8 = null;
     _trailColsEnsured = null;
     _cache5 = /* @__PURE__ */ new Map();
   }
@@ -49135,12 +49206,12 @@ function linregSlope(values) {
   const xs = values.map((_, i) => i);
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = values.reduce((a, b) => a + b, 0) / n;
-  let num13 = 0, den = 0;
+  let num14 = 0, den = 0;
   for (let i = 0; i < n; i++) {
-    num13 += (xs[i] - mx) * (values[i] - my);
+    num14 += (xs[i] - mx) * (values[i] - my);
     den += (xs[i] - mx) ** 2;
   }
-  return den === 0 ? 0 : num13 / den;
+  return den === 0 ? 0 : num14 / den;
 }
 function ensembleSignal(candles) {
   const price = candles[candles.length - 1].close;
@@ -50560,7 +50631,7 @@ async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC", timeframe =
   if (brainEnabled) await getOrRefreshKalshiBrain(userId).catch(() => {
   });
   const LONGSHOT_FLOOR_CENTS = Math.max(12, getKalshiEngineState(userId).config.minEntryPriceCents ?? 30);
-  const SPREAD_MAX_CENTS = 12;
+  const SPREAD_MAX_CENTS2 = 12;
   const EDGE_MIN_CENTS = 4;
   const picks = [];
   for (const b of event.brackets) {
@@ -50568,8 +50639,8 @@ async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC", timeframe =
     const ask = b.yesAsk > 0 ? b.yesAsk : b.yesProbability;
     if (ask <= 1 || ask >= 97) continue;
     if (ask < LONGSHOT_FLOOR_CENTS) continue;
-    const spread = b.yesBid > 0 ? ask - b.yesBid : SPREAD_MAX_CENTS + 1;
-    if (spread > SPREAD_MAX_CENTS) continue;
+    const spread = b.yesBid > 0 ? ask - b.yesBid : SPREAD_MAX_CENTS2 + 1;
+    if (spread > SPREAD_MAX_CENTS2) continue;
     if (brainGating && kalshiBrainGate(userId, coin, b.strikeType, (/* @__PURE__ */ new Date()).getUTCHours(), consensus.confidence).blocked) continue;
     const modelProb = _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice);
     const modelProbPct = Math.round(modelProb * 100);
@@ -55287,8 +55358,8 @@ async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilen
         analysis.takeProfit,
         ...supportResistanceLevels
       ].map((p2) => {
-        const num13 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
-        return isNaN(num13) ? 0 : num13;
+        const num14 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
+        return isNaN(num14) ? 0 : num14;
       }).filter((p2) => p2 > 0);
       if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
       const minPrice = Math.min(...prices);
@@ -60419,17 +60490,17 @@ function vpValueEdgeBlock(direction, entry, profile, atr3) {
   return direction === "short" ? entry - profile.val <= tol : profile.vah - entry <= tol;
 }
 function ensurePerpBrainTables() {
-  if (!_ensured8) {
-    _ensured8 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_brain_blocks (
+  if (!_ensured9) {
+    _ensured9 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_brain_blocks (
       id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, ticker text NOT NULL, underlying text,
       direction text, reason text NOT NULL, bucket_dim text, bucket_value text,
       median_net_pct double precision, bucket_n int,
       created_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_brain_blocks_user_created ON kalshi_perp_brain_blocks (user_id, created_at)`)).then(() => void 0).catch((e) => {
-      _ensured8 = null;
+      _ensured9 = null;
       throw e;
     });
   }
-  return _ensured8;
+  return _ensured9;
 }
 async function logPerpBrainBlocks(userId, rows) {
   if (!rows.length) return;
@@ -60502,7 +60573,7 @@ async function getPerpBrainBlockSummary(userId, days) {
     }))
   };
 }
-var perpBrainEnabled, perpVpEnabled, VP_EDGE_TOL_ATR_MULT, _ensured8;
+var perpBrainEnabled, perpVpEnabled, VP_EDGE_TOL_ATR_MULT, _ensured9;
 var init_kalshi_perp_brain = __esm({
   "server/services/kalshi-perp-brain.ts"() {
     "use strict";
@@ -60510,7 +60581,7 @@ var init_kalshi_perp_brain = __esm({
     perpBrainEnabled = () => process.env.KALSHI_PERP_BRAIN !== "off";
     perpVpEnabled = () => process.env.KALSHI_PERP_VP !== "off";
     VP_EDGE_TOL_ATR_MULT = 0.25;
-    _ensured8 = null;
+    _ensured9 = null;
   }
 });
 
@@ -67699,6 +67770,808 @@ var init_kalshi_stock_shadow = __esm({
   }
 });
 
+// server/services/kalshi-price-snapshots.ts
+function ensureKalshiPriceSnapshotTable() {
+  if (!_ensured10) {
+    _ensured10 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_price_snapshots (
+      id serial PRIMARY KEY, lane text NOT NULL, user_id int NOT NULL,
+      market_ticker text NOT NULL, event_ticker text, series_ticker text,
+      yes_bid_cents int, yes_ask_cents int, last_price_cents int,
+      volume double precision, kind text NOT NULL DEFAULT 'interval',
+      captured_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_price_snapshots_market_time ON kalshi_price_snapshots (market_ticker, captured_at)`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_price_snapshots_time ON kalshi_price_snapshots (captured_at)`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_price_snapshots_lane_user ON kalshi_price_snapshots (lane, user_id)`)).then(() => void 0).catch((e) => {
+      _ensured10 = null;
+      throw e;
+    });
+  }
+  return _ensured10;
+}
+async function recordKalshiPriceSnapshots(rows) {
+  if (!rows.length) return 0;
+  try {
+    await ensureKalshiPriceSnapshotTable();
+    const values = [];
+    const tuples = [];
+    rows.forEach((s, i) => {
+      const b = i * 10;
+      tuples.push(`($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10})`);
+      values.push(
+        s.lane,
+        s.userId,
+        s.marketTicker,
+        s.eventTicker ?? null,
+        s.seriesTicker ?? null,
+        centsOrNull(s.yesBidCents),
+        centsOrNull(s.yesAskCents),
+        centsOrNull(s.lastPriceCents),
+        s.volume == null || !Number.isFinite(s.volume) ? null : s.volume,
+        s.kind
+      );
+    });
+    await pool.query(
+      `INSERT INTO kalshi_price_snapshots (lane, user_id, market_ticker, event_ticker, series_ticker, yes_bid_cents, yes_ask_cents, last_price_cents, volume, kind)
+       VALUES ${tuples.join(",")}`,
+      values
+    );
+    return rows.length;
+  } catch {
+    return 0;
+  }
+}
+async function countKalshiPriceSnapshots(lane, userId) {
+  try {
+    await ensureKalshiPriceSnapshotTable();
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM kalshi_price_snapshots WHERE lane=$1 AND user_id=$2`,
+      [lane, userId]
+    );
+    return Number(rows[0]?.n ?? 0);
+  } catch {
+    return 0;
+  }
+}
+async function pruneKalshiPriceSnapshots(nowMs = Date.now()) {
+  if (nowMs - _lastPruneMs < 24 * 36e5) return -1;
+  _lastPruneMs = nowMs;
+  try {
+    await ensureKalshiPriceSnapshotTable();
+    const a = await pool.query(
+      `DELETE FROM kalshi_price_snapshots WHERE kind='interval' AND captured_at < now() - ($1::int * interval '1 day')`,
+      [INTERVAL_RETENTION_DAYS]
+    );
+    const b = await pool.query(
+      `DELETE FROM kalshi_price_snapshots WHERE kind IN ('decision','settlement') AND captured_at < now() - ($1::int * interval '1 day')`,
+      [DECISION_RETENTION_DAYS]
+    );
+    return (a.rowCount ?? 0) + (b.rowCount ?? 0);
+  } catch {
+    return -1;
+  }
+}
+var _ensured10, centsOrNull, INTERVAL_RETENTION_DAYS, DECISION_RETENTION_DAYS, _lastPruneMs;
+var init_kalshi_price_snapshots = __esm({
+  "server/services/kalshi-price-snapshots.ts"() {
+    "use strict";
+    init_db();
+    _ensured10 = null;
+    centsOrNull = (v) => v == null || !Number.isFinite(v) ? null : Math.round(v);
+    INTERVAL_RETENTION_DAYS = 45;
+    DECISION_RETENTION_DAYS = 180;
+    _lastPruneMs = 0;
+  }
+});
+
+// server/services/kalshi-sports-shadow.ts
+var kalshi_sports_shadow_exports = {};
+__export(kalshi_sports_shadow_exports, {
+  LANE: () => LANE,
+  LEAGUES: () => LEAGUES,
+  MIN_DIVERGENCE_PTS: () => MIN_DIVERGENCE_PTS,
+  STRATEGY: () => STRATEGY,
+  aggregateSportsStats: () => aggregateSportsStats,
+  bookSideIndexFor: () => bookSideIndexFor,
+  configuredOddsSource: () => configuredOddsSource,
+  devigTwoWay: () => devigTwoWay,
+  extractOddsPapiMoneyline: () => extractOddsPapiMoneyline,
+  fetchKalshiGames: () => fetchKalshiGames,
+  getKalshiSportsShadowReport: () => getKalshiSportsShadowReport,
+  kalshiTeamMatches: () => kalshiTeamMatches,
+  kalshiYesPriceCents: () => kalshiYesPriceCents,
+  lastSportsShadowCycle: () => lastSportsShadowCycle,
+  matchKalshiGame: () => matchKalshiGame,
+  normalizeOddsApiPayload: () => normalizeOddsApiPayload,
+  normalizeTeamName: () => normalizeTeamName,
+  resolveSportsShadowTrades: () => resolveSportsShadowTrades,
+  runKalshiSportsShadowCycle: () => runKalshiSportsShadowCycle,
+  sportsBucketsOf: () => sportsBucketsOf,
+  sportsEntryQualifies: () => sportsEntryQualifies,
+  sportsFeePct: () => sportsFeePct,
+  sportsOddsShadowEnabled: () => sportsOddsShadowEnabled,
+  sportsSettlementReturnPct: () => sportsSettlementReturnPct,
+  startKalshiSportsShadow: () => startKalshiSportsShadow
+});
+function sportsFeePct(entryPriceFrac) {
+  if (!Number.isFinite(entryPriceFrac) || entryPriceFrac <= 0 || entryPriceFrac >= 1) return 0;
+  return 7 * (1 - entryPriceFrac);
+}
+function sportsSettlementReturnPct(entryCents, resultYes, feePct) {
+  const gross = resultYes ? (100 - entryCents) / entryCents * 100 : -100;
+  return gross - feePct;
+}
+function devigTwoWay(priceA, priceB) {
+  if (!Number.isFinite(priceA) || !Number.isFinite(priceB) || priceA <= 1 || priceB <= 1) return null;
+  const ia = 1 / priceA, ib = 1 / priceB, s = ia + ib;
+  if (!(s > 0)) return null;
+  return [ia / s, ib / s];
+}
+function sportsEntryQualifies(args) {
+  return args.divergencePts >= args.minDivergencePts && args.askCents >= args.minEntryCents && args.askCents <= args.maxEntryCents && args.spreadCents <= args.spreadMaxCents;
+}
+function normalizeTeamName(s) {
+  return String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+}
+function kalshiTeamMatches(kalshiLabel, bookTeam) {
+  const a = normalizeTeamName(kalshiLabel), b = normalizeTeamName(bookTeam);
+  if (a.length < 3 || b.length < 3) return false;
+  return b.startsWith(a) || a.startsWith(b);
+}
+function matchKalshiGame(game, bookGames) {
+  const closeMs = new Date(game.closeTime).getTime();
+  const candidates = [];
+  for (const bg of bookGames) {
+    if (bg.league !== game.league) continue;
+    const startMs = new Date(bg.commenceTime).getTime();
+    if (!Number.isFinite(closeMs) || !Number.isFinite(startMs)) continue;
+    if (Math.abs(closeMs - startMs) > 36 * 36e5) continue;
+    const [k0, k1] = game.sides;
+    const direct = kalshiTeamMatches(k0.teamLabel, bg.sides[0].team) && kalshiTeamMatches(k1.teamLabel, bg.sides[1].team);
+    const crossed = kalshiTeamMatches(k0.teamLabel, bg.sides[1].team) && kalshiTeamMatches(k1.teamLabel, bg.sides[0].team);
+    if (direct || crossed) candidates.push(bg);
+  }
+  return candidates.length === 1 ? candidates[0] : null;
+}
+function bookSideIndexFor(game, sideIdx, bg) {
+  const label = game.sides[sideIdx].teamLabel;
+  if (kalshiTeamMatches(label, bg.sides[0].team)) return 0;
+  if (kalshiTeamMatches(label, bg.sides[1].team)) return 1;
+  return -1;
+}
+function normalizeOddsApiPayload(payload2, league) {
+  if (!Array.isArray(payload2)) return [];
+  const out = [];
+  for (const ev of payload2) {
+    const home = String(ev?.home_team ?? ""), away = String(ev?.away_team ?? "");
+    const commence = String(ev?.commence_time ?? "");
+    if (!home || !away || !commence) continue;
+    const books = Array.isArray(ev?.bookmakers) ? ev.bookmakers : [];
+    const withH2h = books.filter((b) => Array.isArray(b?.markets) && b.markets.some((m) => m?.key === "h2h"));
+    if (!withH2h.length) continue;
+    const chosen = [...withH2h].sort((a, b) => {
+      const ia = BOOK_PREFERENCE.indexOf(String(a?.key ?? "")), ib = BOOK_PREFERENCE.indexOf(String(b?.key ?? ""));
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    })[0];
+    const h2h = chosen.markets.find((m) => m?.key === "h2h");
+    const priceOf = (team) => {
+      const o = (h2h?.outcomes ?? []).find((x) => String(x?.name ?? "") === team);
+      const p2 = Number(o?.price);
+      return Number.isFinite(p2) && p2 > 1 ? p2 : null;
+    };
+    const hp = priceOf(home), ap = priceOf(away);
+    if (hp == null || ap == null) continue;
+    out.push({
+      source: "oddsapi",
+      league,
+      bookmaker: String(chosen.key ?? "unknown"),
+      commenceTime: commence,
+      sides: [{ team: home, priceDec: hp }, { team: away, priceDec: ap }]
+    });
+  }
+  return out;
+}
+function extractOddsPapiMoneyline(fixture, oddsPayload, marketNames, preferredBook = "pinnacle") {
+  const t1 = String(fixture?.participant1Name ?? ""), t2 = String(fixture?.participant2Name ?? "");
+  if (!t1 || !t2) return null;
+  const books = oddsPayload?.bookmakerOdds;
+  if (!books || typeof books !== "object") return null;
+  const slugs = Object.keys(books);
+  const slug = slugs.includes(preferredBook) ? preferredBook : slugs[0];
+  if (!slug) return null;
+  const markets = books[slug]?.markets;
+  if (!markets || typeof markets !== "object") return null;
+  for (const [marketId, market] of Object.entries(markets)) {
+    const name = (marketNames.get(marketId) ?? "").toLowerCase();
+    const isMl = name === "ml" || name.includes("moneyline") || name.includes("money line") || name.includes("match winner") || name.includes("full time result");
+    if (!isMl) continue;
+    const outcomes = market?.outcomes;
+    if (!outcomes || typeof outcomes !== "object") continue;
+    const entries = Object.entries(outcomes);
+    if (entries.length !== 2) continue;
+    const priceOf = (entry) => {
+      const p2 = Number(entry?.players?.["0"]?.price);
+      return Number.isFinite(p2) && p2 > 1 ? p2 : null;
+    };
+    const named = entries.map(([, o]) => String(o?.name ?? o?.outcomeName ?? ""));
+    let sides = null;
+    if (named.every((n) => n)) {
+      const i1 = named.findIndex((n) => kalshiTeamMatches(n, t1) || kalshiTeamMatches(t1, n));
+      const i2 = named.findIndex((n) => kalshiTeamMatches(n, t2) || kalshiTeamMatches(t2, n));
+      if (i1 < 0 || i2 < 0 || i1 === i2) return null;
+      const p1 = priceOf(entries[i1][1]), p2 = priceOf(entries[i2][1]);
+      if (p1 == null || p2 == null) return null;
+      sides = [{ team: t1, priceDec: p1 }, { team: t2, priceDec: p2 }];
+    } else {
+      const p1 = priceOf(entries[0][1]), p2 = priceOf(entries[1][1]);
+      if (p1 == null || p2 == null) return null;
+      sides = [{ team: t1, priceDec: p1 }, { team: t2, priceDec: p2 }];
+    }
+    return { bookmaker: slug, sides };
+  }
+  return null;
+}
+async function fetchKalshiGames(league, fetcher = defaultFetcher) {
+  const data = await fetcher(`${KALSHI_BASE3}/markets?series_ticker=${league.kalshiSeries}&status=open&limit=1000`);
+  const markets = Array.isArray(data?.markets) ? data.markets : [];
+  const byEvent = /* @__PURE__ */ new Map();
+  for (const m of markets) {
+    if (m?.status !== "active" && m?.status !== "open") continue;
+    const ev = String(m?.event_ticker ?? "");
+    if (!ev) continue;
+    (byEvent.get(ev) ?? byEvent.set(ev, []).get(ev)).push(m);
+  }
+  const games = [];
+  for (const [eventTicker, ms] of Array.from(byEvent.entries())) {
+    if (ms.length !== 2) continue;
+    const side = (m) => {
+      const bid = dollarsToCents(m.yes_bid_dollars), ask = dollarsToCents(m.yes_ask_dollars), last2 = dollarsToCents(m.last_price_dollars);
+      return {
+        ticker: String(m.ticker),
+        teamLabel: String(m.yes_sub_title ?? ""),
+        yesBid: bid,
+        yesAsk: ask,
+        lastPrice: last2,
+        volume: parseFloat(m.volume_fp ?? "0") || 0
+      };
+    };
+    const sides = ms.map(side);
+    if (!sides[0].teamLabel || !sides[1].teamLabel) continue;
+    games.push({
+      eventTicker,
+      seriesTicker: league.kalshiSeries,
+      league: league.key,
+      sides,
+      closeTime: String(ms[0].close_time ?? ms[1].close_time ?? "")
+    });
+  }
+  return games;
+}
+function kalshiYesPriceCents(s) {
+  if (s.lastPrice > 0) return s.lastPrice;
+  if (s.yesBid > 0 && s.yesAsk > 0) return Math.round((s.yesBid + s.yesAsk) / 2);
+  return Math.max(s.yesBid, s.yesAsk);
+}
+function configuredOddsSource() {
+  if (process.env.ODDSPAPI_KEY) return "oddspapi";
+  if (process.env.ODDS_API_KEY) return "oddsapi";
+  return null;
+}
+async function fetchOddsApiGames(league, fetcher) {
+  const key = process.env.ODDS_API_KEY;
+  const url = `https://api.the-odds-api.com/v4/sports/${league.oddsApiSportKey}/odds/?apiKey=${encodeURIComponent(key)}&regions=us&markets=h2h&oddsFormat=decimal`;
+  return normalizeOddsApiPayload(await fetcher(url), league.key);
+}
+async function oddspapiSportId(league, fetcher) {
+  if (Date.now() - _papiSportsCache.at > 24 * 36e5) {
+    const key = process.env.ODDSPAPI_KEY;
+    const sports = await fetcher(`https://api.oddspapi.io/v4/sports?apiKey=${encodeURIComponent(key)}`);
+    const list = Array.isArray(sports) ? sports : sports?.data ?? [];
+    const map = /* @__PURE__ */ new Map();
+    for (const s of list) {
+      const slug = String(s?.slug ?? s?.name ?? "").toLowerCase();
+      const id = Number(s?.id ?? s?.sportId);
+      if (slug && Number.isFinite(id)) map.set(slug, id);
+    }
+    _papiSportsCache.map = map;
+    _papiSportsCache.at = Date.now();
+  }
+  for (const [slug, id] of Array.from(_papiSportsCache.map.entries())) if (slug.includes(league.oddspapiSportSlug)) return id;
+  return null;
+}
+async function fetchOddsPapiGames(league, fetcher, oddsCallBudget) {
+  const key = process.env.ODDSPAPI_KEY;
+  const sportId = await oddspapiSportId(league, fetcher);
+  if (sportId == null) return [];
+  const from = new Date(Date.now() - 12 * 36e5).toISOString();
+  const to = new Date(Date.now() + 4 * 24 * 36e5).toISOString();
+  const fx = await fetcher(`https://api.oddspapi.io/v4/fixtures?sportId=${sportId}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&apiKey=${encodeURIComponent(key)}`);
+  const fixtures = (Array.isArray(fx) ? fx : fx?.data ?? []).filter((f) => f?.hasOdds !== false);
+  const catKey = `cat:${sportId}`;
+  let names = _papiCatalogCache.get(catKey);
+  if (!names) {
+    names = /* @__PURE__ */ new Map();
+    try {
+      const cat = await fetcher(`https://api.oddspapi.io/v4/markets?sportId=${sportId}&apiKey=${encodeURIComponent(key)}`);
+      const list = Array.isArray(cat) ? cat : cat?.data ?? cat?.markets ?? [];
+      for (const m of list) {
+        const id = String(m?.id ?? m?.marketId ?? "");
+        if (id) names.set(id, String(m?.name ?? ""));
+      }
+    } catch {
+    }
+    _papiCatalogCache.set(catKey, names);
+  }
+  const out = [];
+  for (const f of fixtures) {
+    if (oddsCallBudget.left <= 0) break;
+    const fixtureId = String(f?.fixtureId ?? f?.id ?? "");
+    if (!fixtureId) continue;
+    oddsCallBudget.left--;
+    try {
+      const odds = await fetcher(`https://api.oddspapi.io/v4/odds?fixtureId=${encodeURIComponent(fixtureId)}&apiKey=${encodeURIComponent(key)}`);
+      const ml = extractOddsPapiMoneyline(f, odds?.data ?? odds, names);
+      if (!ml) continue;
+      out.push({
+        source: "oddspapi",
+        league: league.key,
+        bookmaker: ml.bookmaker,
+        commenceTime: String(f?.startTime ?? f?.commenceTime ?? ""),
+        sides: ml.sides
+      });
+    } catch {
+    }
+  }
+  return out;
+}
+function lastSportsShadowCycle() {
+  return _lastCycle;
+}
+async function runKalshiSportsShadowCycle(userId) {
+  const result = {
+    opened: 0,
+    resolved: 0,
+    snapshots: 0,
+    matched: 0,
+    evaluated: 0,
+    source: configuredOddsSource(),
+    reasons: [],
+    at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  if (!sportsOddsShadowEnabled()) {
+    result.reasons.push("disabled (KALSHI_SPORTS_ODDS=off)");
+    _lastCycle = result;
+    return result;
+  }
+  await ensureKalshiSportsShadowTables();
+  result.resolved = await resolveSportsShadowTrades(userId).catch(() => 0);
+  await pruneKalshiPriceSnapshots().catch(() => -1);
+  const source = configuredOddsSource();
+  if (!source) {
+    result.reasons.push("idle \u2014 no odds API key configured (ODDSPAPI_KEY / ODDS_API_KEY); lane is built and dormant");
+    _lastCycle = result;
+    return result;
+  }
+  const { rows: openCountRows } = await pool.query(
+    `SELECT count(*)::int AS n FROM kalshi_sports_shadow_trades WHERE user_id=$1 AND status='open'`,
+    [userId]
+  );
+  let openTotal = Number(openCountRows[0]?.n ?? 0);
+  const oddsBudget = { left: ODDSPAPI_ODDS_CALL_CAP() };
+  const now = Date.now();
+  for (const league of LEAGUES) {
+    try {
+      const games = await fetchKalshiGames(league).catch((e) => {
+        result.reasons.push(`${league.key}: Kalshi markets unavailable (${e.message})`);
+        return [];
+      });
+      if (!games.length) continue;
+      const bookGames = source === "oddspapi" ? await fetchOddsPapiGames(league, defaultFetcher, oddsBudget).catch(() => []) : await fetchOddsApiGames(league, defaultFetcher).catch(() => []);
+      if (!bookGames.length) {
+        result.reasons.push(`${league.key}: no book games returned (${source})`);
+        continue;
+      }
+      for (const game of games) {
+        result.evaluated++;
+        const bg = matchKalshiGame(game, bookGames);
+        if (!bg) continue;
+        result.matched++;
+        const probs = devigTwoWay(bg.sides[0].priceDec, bg.sides[1].priceDec);
+        if (!probs) continue;
+        const startMs = new Date(bg.commenceTime).getTime();
+        if (Number.isFinite(startMs) && startMs < now - 15 * 6e4) continue;
+        const snapRows = [];
+        const openedTickers = /* @__PURE__ */ new Set();
+        for (const sideIdx of [0, 1]) {
+          const side = game.sides[sideIdx];
+          const bi = bookSideIndexFor(game, sideIdx, bg);
+          if (bi < 0) continue;
+          const bookProbPct = probs[bi] * 100;
+          const ask = side.yesAsk > 0 ? side.yesAsk : kalshiYesPriceCents(side);
+          const spread = side.yesBid > 0 ? ask - side.yesBid : SPREAD_MAX_CENTS() + 1;
+          const divergence = bookProbPct - ask;
+          await pool.query(
+            `INSERT INTO kalshi_sports_shadow_observations
+               (user_id, league, event_ticker, market_ticker, team, book_prob_pct, kalshi_ask_cents, divergence_cents, bookmaker, odds_source, commence_time)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            [
+              userId,
+              league.key,
+              game.eventTicker,
+              side.ticker,
+              bg.sides[bi].team,
+              bookProbPct,
+              ask,
+              divergence,
+              bg.bookmaker,
+              bg.source,
+              Number.isFinite(startMs) ? new Date(startMs).toISOString() : null
+            ]
+          ).catch(() => {
+          });
+          snapRows.push({
+            lane: LANE,
+            userId,
+            marketTicker: side.ticker,
+            eventTicker: game.eventTicker,
+            seriesTicker: game.seriesTicker,
+            yesBidCents: side.yesBid,
+            yesAskCents: side.yesAsk,
+            lastPriceCents: side.lastPrice,
+            volume: side.volume,
+            kind: "interval"
+          });
+          if (!sportsEntryQualifies({
+            divergencePts: divergence,
+            askCents: ask,
+            spreadCents: spread,
+            minDivergencePts: MIN_DIVERGENCE_PTS(),
+            minEntryCents: MIN_ENTRY_CENTS(),
+            maxEntryCents: MAX_ENTRY_CENTS(),
+            spreadMaxCents: SPREAD_MAX_CENTS()
+          })) continue;
+          if (result.opened >= MAX_PER_CYCLE() || openTotal >= MAX_OPEN3()) continue;
+          const { rows: dup } = await pool.query(
+            `SELECT id FROM kalshi_sports_shadow_trades WHERE user_id=$1 AND ticker=$2 AND status='open'`,
+            [userId, side.ticker]
+          );
+          if (dup.length) continue;
+          const feePct = sportsFeePct(ask / 100);
+          const notional = NOTIONAL_USD();
+          const ins = await pool.query(
+            `INSERT INTO kalshi_sports_shadow_trades
+               (user_id, strategy, league, series_ticker, event_ticker, ticker, team, opponent,
+                entry_price_cents, entry_bid_cents, entry_ask_cents, book_prob_pct, divergence_cents,
+                bookmaker, odds_source, contracts, notional_usd, fee_pct, cost_model, commence_time)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'placeholder',$19)
+             ON CONFLICT (user_id, ticker) WHERE status='open' DO NOTHING RETURNING id`,
+            [
+              userId,
+              STRATEGY,
+              league.key,
+              game.seriesTicker,
+              game.eventTicker,
+              side.ticker,
+              bg.sides[bi].team,
+              bg.sides[bi === 0 ? 1 : 0].team,
+              ask,
+              side.yesBid || null,
+              side.yesAsk || null,
+              bookProbPct,
+              divergence,
+              bg.bookmaker,
+              bg.source,
+              notional / (ask / 100),
+              notional,
+              feePct,
+              Number.isFinite(startMs) ? new Date(startMs).toISOString() : null
+            ]
+          ).catch(() => ({ rows: [] }));
+          const tradeId = ins.rows[0]?.id;
+          if (!tradeId) continue;
+          openedTickers.add(side.ticker);
+          await pool.query(
+            `INSERT INTO kalshi_sports_shadow_context
+               (trade_id, user_id, strategy, league, ticker, book_home_price_dec, book_away_price_dec,
+                book_prob_pct, market_ask_cents, divergence_cents, spread_cents, bookmaker, odds_source, hour_utc)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (trade_id) DO NOTHING`,
+            [
+              tradeId,
+              userId,
+              STRATEGY,
+              league.key,
+              side.ticker,
+              bg.sides[0].priceDec,
+              bg.sides[1].priceDec,
+              bookProbPct,
+              ask,
+              divergence,
+              spread,
+              bg.bookmaker,
+              bg.source,
+              (/* @__PURE__ */ new Date()).getUTCHours()
+            ]
+          ).catch(() => {
+          });
+          openTotal++;
+          result.opened++;
+        }
+        for (const s of snapRows) if (openedTickers.has(s.marketTicker)) s.kind = "decision";
+        result.snapshots += await recordKalshiPriceSnapshots(snapRows);
+      }
+      result.reasons.push(`${league.key}: ${games.length} Kalshi games, ${bookGames.length} book games (${source}/${bookGames[0]?.bookmaker ?? "\u2014"})`);
+    } catch (err) {
+      result.reasons.push(`${league.key}: ${err.message}`);
+    }
+  }
+  _lastCycle = result;
+  return result;
+}
+async function resolveSportsShadowTrades(userId) {
+  await ensureKalshiSportsShadowTables();
+  const { rows } = await pool.query(
+    `SELECT id, ticker, event_ticker, series_ticker, entry_price_cents, fee_pct, opened_at
+       FROM kalshi_sports_shadow_trades WHERE user_id=$1 AND status='open'`,
+    [userId]
+  );
+  let closed = 0;
+  for (const t of rows) {
+    try {
+      const st = await getKalshiMarketStatus(String(t.ticker));
+      if (!st) continue;
+      if (st.result === "yes" || st.result === "no") {
+        const yes = st.result === "yes";
+        const ret = sportsSettlementReturnPct(Number(t.entry_price_cents), yes, Number(t.fee_pct) || 0);
+        const gross = yes ? (100 - Number(t.entry_price_cents)) / Number(t.entry_price_cents) * 100 : -100;
+        await pool.query(
+          `UPDATE kalshi_sports_shadow_trades
+              SET status='closed', result=$2, exit_price_cents=$3, exit_reason='settlement',
+                  gross_return_pct=$4, return_pct=$5, r_multiple=$6, closed_at=now()
+            WHERE id=$1 AND status='open'`,
+          [t.id, st.result, yes ? 100 : 0, gross, ret, ret / 100]
+        );
+        await pool.query(
+          `UPDATE kalshi_sports_shadow_context
+              SET closed_at=now(), exit_reason='settlement',
+                  hold_minutes=extract(epoch from (now() - $2::timestamptz)) / 60, net_pct=$3
+            WHERE trade_id=$1`,
+          [t.id, t.opened_at, ret]
+        ).catch(() => {
+        });
+        await recordKalshiPriceSnapshots([{
+          lane: LANE,
+          userId,
+          marketTicker: String(t.ticker),
+          eventTicker: t.event_ticker,
+          seriesTicker: t.series_ticker,
+          yesBidCents: st.yesBid,
+          yesAskCents: st.yesAsk,
+          lastPriceCents: st.lastPrice,
+          kind: "settlement"
+        }]);
+        closed++;
+      } else if ((st.status === "closed" || st.status === "finalized") && Date.now() - new Date(t.opened_at).getTime() > 72 * 36e5) {
+        await pool.query(
+          `UPDATE kalshi_sports_shadow_trades
+              SET status='expired', exit_reason='no_result_72h', exclude_from_stats=true, closed_at=now()
+            WHERE id=$1 AND status='open'`,
+          [t.id]
+        );
+        closed++;
+      }
+    } catch {
+    }
+  }
+  return closed;
+}
+function sportsBucketsOf(c) {
+  const b = {};
+  if (c.league) b.league = c.league;
+  if (c.odds_source) b.source = c.odds_source;
+  if (c.bookmaker) b.book = c.bookmaker;
+  if (c.divergence_cents != null) b.divergence = c.divergence_cents < 6 ? "4-6pts" : c.divergence_cents < 10 ? "6-10pts" : "10pts+";
+  if (c.book_prob_pct != null) b.prob = c.book_prob_pct < 40 ? "<40%" : c.book_prob_pct < 60 ? "40-60%" : c.book_prob_pct < 80 ? "60-80%" : "80%+";
+  return b;
+}
+function quantile4(s, q) {
+  if (!s.length) return 0;
+  const p2 = (s.length - 1) * q, lo2 = Math.floor(p2), hi2 = Math.ceil(p2);
+  return s[lo2] + (s[hi2] - s[lo2]) * (p2 - lo2);
+}
+function aggregateSportsStats(rows) {
+  const g = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const v = Number(r.net_pct);
+    if (!Number.isFinite(v)) continue;
+    for (const [dim, bucket] of Object.entries({ ...sportsBucketsOf(r), all: "all" })) {
+      const k2 = `${STRATEGY}|${dim}|${bucket}`;
+      (g.get(k2) ?? g.set(k2, []).get(k2)).push(v);
+    }
+  }
+  return Array.from(g.entries()).map(([k2, v]) => {
+    const [strategy, dim, bucket] = k2.split("|");
+    const s = v.slice().sort((a, b) => a - b);
+    const med = quantile4(s, 0.5);
+    const verdict = s.length >= 15 ? med > 0.5 ? "favor" : med < -1 ? "avoid" : "learning" : "learning";
+    return { strategy, dim, bucket, n: s.length, medianNet: med, winRate: s.filter((x) => x > 0).length / s.length, verdict };
+  });
+}
+async function getKalshiSportsShadowReport(userId, days = 30) {
+  const windowDays = Number.isFinite(days) ? Math.max(1, Math.min(365, Math.floor(days))) : 30;
+  await ensureKalshiSportsShadowTables();
+  const validWhere = `user_id=$1 AND status='closed' AND exclude_from_stats IS NOT TRUE
+    AND return_pct IS NOT NULL AND closed_at >= now() - ($2::int * interval '1 day')`;
+  const [summaryRes, byLeagueRes, openRes, recentRes, statsRows, snapshots, obsRes] = await Promise.all([
+    pool.query(
+      `SELECT (SELECT count(*)::int FROM kalshi_sports_shadow_trades WHERE user_id=$1 AND status='open') AS open_count,
+         count(*)::int AS closed_count,
+         (count(*) FILTER (WHERE return_pct > 0))::int AS wins,
+         CASE WHEN count(*) > 0 THEN (count(*) FILTER (WHERE return_pct > 0))::float / count(*)::float END AS win_rate,
+         avg(return_pct)::float AS avg_return_pct, avg(r_multiple)::float AS avg_r,
+         COALESCE(sum(notional_usd * return_pct / 100), 0)::float AS est_net_pnl_usd,
+         (SELECT max(opened_at) FROM kalshi_sports_shadow_trades WHERE user_id=$1) AS last_opened_at,
+         max(closed_at) AS last_closed_at
+       FROM kalshi_sports_shadow_trades WHERE ${validWhere}`,
+      [userId, windowDays]
+    ),
+    pool.query(
+      `SELECT league, count(*)::int AS trades,
+         (count(*) FILTER (WHERE return_pct > 0))::int AS wins,
+         ((count(*) FILTER (WHERE return_pct > 0))::float / count(*)::float) AS win_rate,
+         avg(return_pct)::float AS avg_return_pct,
+         COALESCE(sum(notional_usd * return_pct / 100), 0)::float AS est_net_pnl_usd
+       FROM kalshi_sports_shadow_trades WHERE ${validWhere} GROUP BY league ORDER BY trades DESC`,
+      [userId, windowDays]
+    ),
+    pool.query(
+      `SELECT t.id, t.league, t.team, t.opponent, t.ticker, t.entry_price_cents,
+         t.book_prob_pct, t.divergence_cents, t.bookmaker, t.odds_source, t.contracts, t.notional_usd, t.opened_at, t.commence_time
+       FROM kalshi_sports_shadow_trades t
+       WHERE t.user_id=$1 AND t.status='open' ORDER BY t.opened_at DESC LIMIT 30`,
+      [userId]
+    ),
+    pool.query(
+      `SELECT t.id, t.league, t.team, t.opponent, t.ticker, t.entry_price_cents,
+         t.result, t.return_pct, t.r_multiple, t.exit_reason, t.closed_at, t.book_prob_pct, t.divergence_cents
+       FROM kalshi_sports_shadow_trades t
+       WHERE t.user_id=$1 AND t.status='closed' AND t.exclude_from_stats IS NOT TRUE AND t.return_pct IS NOT NULL
+         AND t.closed_at >= now() - ($2::int * interval '1 day')
+       ORDER BY t.closed_at DESC LIMIT 10`,
+      [userId, windowDays]
+    ),
+    pool.query(
+      `SELECT c.league, c.odds_source, c.bookmaker, c.divergence_cents, c.book_prob_pct, c.net_pct
+       FROM kalshi_sports_shadow_context c JOIN kalshi_sports_shadow_trades t ON t.id = c.trade_id
+       WHERE c.user_id=$1 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL AND t.exclude_from_stats IS NOT TRUE
+         AND c.closed_at >= now() - interval '60 days'`,
+      [userId]
+    ),
+    countKalshiPriceSnapshots(LANE, userId),
+    pool.query(`SELECT count(*)::int AS n FROM kalshi_sports_shadow_observations WHERE user_id=$1`, [userId]).catch(() => ({ rows: [{ n: 0 }] }))
+  ]);
+  const s = summaryRes.rows[0] || {};
+  return {
+    enabled: sportsOddsShadowEnabled(),
+    strategy: STRATEGY,
+    minDivergencePts: MIN_DIVERGENCE_PTS(),
+    activation: {
+      oddspapiKeyConfigured: !!process.env.ODDSPAPI_KEY,
+      oddsApiKeyConfigured: !!process.env.ODDS_API_KEY,
+      activeSource: configuredOddsSource()
+    },
+    summary: {
+      openCount: Number(s.open_count ?? 0),
+      closedCount: Number(s.closed_count ?? 0),
+      wins: Number(s.wins ?? 0),
+      winRate: s.win_rate == null ? null : Number(s.win_rate),
+      avgReturnPct: s.avg_return_pct == null ? null : Number(s.avg_return_pct),
+      avgR: s.avg_r == null ? null : Number(s.avg_r),
+      estNetPnlUsd: Number(s.est_net_pnl_usd ?? 0),
+      snapshots,
+      observations: Number(obsRes.rows[0]?.n ?? 0),
+      lastOpenedAt: s.last_opened_at ?? null,
+      lastClosedAt: s.last_closed_at ?? null
+    },
+    byLeague: byLeagueRes.rows.map((r) => ({
+      league: r.league,
+      trades: Number(r.trades),
+      wins: Number(r.wins),
+      win_rate: r.win_rate == null ? null : Number(r.win_rate),
+      avg_return_pct: r.avg_return_pct == null ? null : Number(r.avg_return_pct),
+      est_net_pnl_usd: Number(r.est_net_pnl_usd ?? 0)
+    })),
+    openPositions: openRes.rows,
+    recentCloses: recentRes.rows,
+    bucketStats: aggregateSportsStats(statsRows.rows),
+    lastCycle: _lastCycle
+  };
+}
+async function resolveOwnerUserId2() {
+  if (_ownerId2) return _ownerId2;
+  const env = Number(process.env.KALSHI_SPORTS_SHADOW_USER_ID);
+  if (Number.isFinite(env) && env > 0) {
+    _ownerId2 = env;
+    return _ownerId2;
+  }
+  try {
+    const { rows } = await pool.query(`SELECT id FROM users WHERE is_admin = true ORDER BY id LIMIT 1`);
+    _ownerId2 = rows[0]?.id ?? 1;
+  } catch {
+    _ownerId2 = 1;
+  }
+  return _ownerId2;
+}
+function startKalshiSportsShadow() {
+  if (_started4) return;
+  _started4 = true;
+  if (!sportsOddsShadowEnabled()) {
+    console.log("[kalshi-sports-shadow] disabled (KALSHI_SPORTS_ODDS=off).");
+    return;
+  }
+  if (!configuredOddsSource() && !_idleLogged) {
+    _idleLogged = true;
+    console.log("[kalshi-sports-shadow] idle \u2014 no odds API key configured (ODDSPAPI_KEY / ODDS_API_KEY). Lane is built and visible; add a free key to activate.");
+  }
+  const tick3 = async () => {
+    try {
+      const uid2 = await resolveOwnerUserId2();
+      if (uid2) await runKalshiSportsShadowCycle(uid2);
+    } catch (e) {
+      console.error("[kalshi-sports-shadow] tick failed (non-fatal):", e?.message ?? e);
+    }
+  };
+  setTimeout(tick3, 5 * 6e4).unref?.();
+  setInterval(tick3, EVERY_MS3()).unref?.();
+  console.log("[kalshi-sports-shadow] started \u2014 SHADOW lane on de-vigged book odds vs public Kalshi prices (no Kalshi credentials, no orders).");
+}
+var LANE, STRATEGY, sportsOddsShadowEnabled, num11, MIN_DIVERGENCE_PTS, MIN_ENTRY_CENTS, MAX_ENTRY_CENTS, SPREAD_MAX_CENTS, MAX_OPEN3, MAX_PER_CYCLE, ODDSPAPI_ODDS_CALL_CAP, NOTIONAL_USD, EVERY_MS3, LEAGUES, BOOK_PREFERENCE, defaultFetcher, KALSHI_BASE3, dollarsToCents, _papiSportsCache, _papiCatalogCache, _lastCycle, _ownerId2, _started4, _idleLogged;
+var init_kalshi_sports_shadow = __esm({
+  "server/services/kalshi-sports-shadow.ts"() {
+    "use strict";
+    init_db();
+    init_ensure_kalshi_sports_shadow_tables();
+    init_kalshi();
+    init_kalshi_price_snapshots();
+    LANE = "kalshi_sports_shadow";
+    STRATEGY = "sports_odds_benchmark";
+    sportsOddsShadowEnabled = () => process.env.KALSHI_SPORTS_ODDS !== "off";
+    num11 = (n, d) => {
+      const v = Number(process.env[n]);
+      return Number.isFinite(v) && v > 0 ? v : d;
+    };
+    MIN_DIVERGENCE_PTS = () => num11("KALSHI_SPORTS_SHADOW_MIN_DIVERGENCE_PTS", 4);
+    MIN_ENTRY_CENTS = () => Math.floor(num11("KALSHI_SPORTS_SHADOW_MIN_ENTRY_CENTS", 5));
+    MAX_ENTRY_CENTS = () => Math.floor(num11("KALSHI_SPORTS_SHADOW_MAX_ENTRY_CENTS", 96));
+    SPREAD_MAX_CENTS = () => Math.floor(num11("KALSHI_SPORTS_SHADOW_SPREAD_MAX_CENTS", 10));
+    MAX_OPEN3 = () => Math.floor(num11("KALSHI_SPORTS_SHADOW_MAX_OPEN", 40));
+    MAX_PER_CYCLE = () => Math.floor(num11("KALSHI_SPORTS_SHADOW_MAX_PER_CYCLE", 10));
+    ODDSPAPI_ODDS_CALL_CAP = () => Math.floor(num11("KALSHI_SPORTS_ODDSPAPI_CALL_CAP", 8));
+    NOTIONAL_USD = () => num11("KALSHI_SPORTS_SHADOW_NOTIONAL_USD", 100);
+    EVERY_MS3 = () => num11("KALSHI_SPORTS_SHADOW_EVERY_MIN", 360) * 6e4;
+    LEAGUES = [
+      { key: "NFL", kalshiSeries: "KXNFLGAME", oddsApiSportKey: "americanfootball_nfl", oddspapiSportSlug: "american-football" },
+      { key: "NBA", kalshiSeries: "KXNBAGAME", oddsApiSportKey: "basketball_nba", oddspapiSportSlug: "basketball" },
+      { key: "MLB", kalshiSeries: "KXMLBGAME", oddsApiSportKey: "baseball_mlb", oddspapiSportSlug: "baseball" },
+      { key: "NHL", kalshiSeries: "KXNHLGAME", oddsApiSportKey: "icehockey_nhl", oddspapiSportSlug: "ice-hockey" },
+      { key: "NCAAF", kalshiSeries: "KXNCAAFBGAME", oddsApiSportKey: "americanfootball_ncaaf", oddspapiSportSlug: "american-football" },
+      { key: "NCAAB", kalshiSeries: "KXNCAAMBGAME", oddsApiSportKey: "basketball_ncaab", oddspapiSportSlug: "basketball" }
+    ];
+    BOOK_PREFERENCE = ["pinnacle", "draftkings", "fanduel", "betmgm", "bet365", "williamhill_us", "betrivers", "espnbet"];
+    defaultFetcher = async (url) => {
+      const res2 = await fetch(url, { headers: { "User-Agent": "VEDD-Trading-AI/1.0", Accept: "application/json" }, signal: AbortSignal.timeout(12e3) });
+      if (!res2.ok) throw new Error(`fetch ${res2.status} for ${url.split("?")[0]}`);
+      return res2.json();
+    };
+    KALSHI_BASE3 = "https://api.elections.kalshi.com/trade-api/v2";
+    dollarsToCents = (v) => {
+      const n = parseFloat(String(v ?? ""));
+      return Number.isFinite(n) ? Math.round(n * 100) : 0;
+    };
+    _papiSportsCache = { at: 0, map: /* @__PURE__ */ new Map() };
+    _papiCatalogCache = /* @__PURE__ */ new Map();
+    _lastCycle = null;
+    _ownerId2 = null;
+    _started4 = false;
+    _idleLogged = false;
+  }
+});
+
 // server/services/all-time-performance.ts
 var all_time_performance_exports = {};
 __export(all_time_performance_exports, {
@@ -68884,12 +69757,12 @@ async function getSettingsOverview(userId) {
   }
   return { engines };
 }
-var num11, bool, text2, secs, ENGINES;
+var num12, bool, text2, secs, ENGINES;
 var init_settings_overview = __esm({
   "server/services/settings-overview.ts"() {
     "use strict";
     init_db();
-    num11 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
+    num12 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
     bool = (key, label, standard, from) => ({ key, from, label, standard, fmt: "bool" });
     text2 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "text" });
     secs = (key, label, standard, from) => ({ key, from, label, standard, fmt: "secs" });
@@ -68899,24 +69772,24 @@ var init_settings_overview = __esm({
         name: "FX Engine",
         // Standards: getDefaultConfig() literal in live-trading-engine.ts.
         fields: [
-          num11("minConfidence", "Minimum confidence to trade", 70),
+          num12("minConfidence", "Minimum confidence to trade", 70),
           text2("strategyMode", "Strategy mode", "aggressive"),
-          num11("maxOpenTrades", "Max open trades at once", 5),
-          num11("riskPerTrade", "Risk per trade (%)", 1),
-          num11("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
-          num11("maxDailyLossPct", "Daily loss breaker (%)", 4),
-          num11("dailyLossLimit", "Daily loss limit (%)", 5),
-          num11("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
-          num11("drawdownShieldThreshold", "Drawdown shield (%)", 3),
-          num11("maxLotSize", "Max lot size", 0.1),
-          num11("maxLot", "Absolute lot ceiling (0 = none)", 0),
-          num11("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num11("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
+          num12("maxOpenTrades", "Max open trades at once", 5),
+          num12("riskPerTrade", "Risk per trade (%)", 1),
+          num12("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
+          num12("maxDailyLossPct", "Daily loss breaker (%)", 4),
+          num12("dailyLossLimit", "Daily loss limit (%)", 5),
+          num12("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
+          num12("drawdownShieldThreshold", "Drawdown shield (%)", 3),
+          num12("maxLotSize", "Max lot size", 0.1),
+          num12("maxLot", "Absolute lot ceiling (0 = none)", 0),
+          num12("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num12("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
           bool("trailingStopEnabled", "Trailing stops", true),
           bool("profitLockEnabled", "Profit lock from +1R", true),
-          num11("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
+          num12("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
           bool("propFirmMode", "Prop firm mode", false),
-          num11("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
+          num12("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
           bool("autoFlattenOnBreach", "Close trades when a breaker trips", false),
           bool("brainLearningMode", "Brain learning", true),
           bool("brainShadowEnabled", "Practice results feed the brain", true),
@@ -68933,12 +69806,12 @@ var init_settings_overview = __esm({
         name: "Sol Engine",
         // Standards: DEFAULT_CONFIG in sol-engine.ts.
         fields: [
-          num11("minConfidence", "Minimum confidence to trade", 65),
-          num11("riskPerTradePct", "Risk per trade (%)", 1),
-          num11("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num11("maxTokens", "Max tokens tracked at once", 10),
+          num12("minConfidence", "Minimum confidence to trade", 65),
+          num12("riskPerTradePct", "Risk per trade (%)", 1),
+          num12("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num12("maxTokens", "Max tokens tracked at once", 10),
           bool("shieldEnabled", "Loss shield", true),
-          num11("shieldThreshold", "Shield trips at drawdown (%)", 10),
+          num12("shieldThreshold", "Shield trips at drawdown (%)", 10),
           bool("useKelly", "Kelly position sizing", false),
           text2("directionFilter", "Direction filter", "buy_only"),
           bool("stopOrdersEnabled", "Stop orders", false),
@@ -68957,22 +69830,22 @@ var init_settings_overview = __esm({
         name: "Kalshi Engine",
         // Standards: DEFAULT_CONFIG in kalshi-engine.ts.
         fields: [
-          num11("minConfidence", "Minimum confidence to trade", 70),
-          num11("maxOpenTrades", "Max open trades at once", 3),
-          num11("maxTradesPerDay", "Max trades per day", 10),
-          num11("contractsPerTrade", "Contracts per trade", 5),
-          num11("riskPctPerTrade", "Risk per trade (%)", 5),
-          num11("takeProfitCents", "Take profit (%)", 50),
-          num11("stopLossCents", "Stop loss (%)", 40),
-          num11("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
+          num12("minConfidence", "Minimum confidence to trade", 70),
+          num12("maxOpenTrades", "Max open trades at once", 3),
+          num12("maxTradesPerDay", "Max trades per day", 10),
+          num12("contractsPerTrade", "Contracts per trade", 5),
+          num12("riskPctPerTrade", "Risk per trade (%)", 5),
+          num12("takeProfitCents", "Take profit (%)", 50),
+          num12("stopLossCents", "Stop loss (%)", 40),
+          num12("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
           bool("requireConfluence", "Requires confluence", true),
           bool("ruinGuardEnabled", "Ruin guard (bad-day halt)", true),
-          num11("dailyLossLimitPct", "Daily loss limit (%)", 5),
-          num11("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
+          num12("dailyLossLimitPct", "Daily loss limit (%)", 5),
+          num12("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
           bool("kalshiBrainGating", "Brain can hard-block setups", true),
           bool("brainLearningMode", "Brain learning", true),
           bool("weatherEnabled", "Weather engine", false),
-          num11("cooldownMinutes", "Cooldown between trades (min)", 20)
+          num12("cooldownMinutes", "Cooldown between trades (min)", 20)
         ],
         load: async (userId) => {
           const { getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
@@ -68984,17 +69857,17 @@ var init_settings_overview = __esm({
         name: "Crypto Engine",
         // Standards: column defaults in ensure-cryptocom-engine-tables.ts.
         fields: [
-          num11("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
-          num11("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
-          num11("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
-          num11("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
-          num11("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
-          num11("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
-          num11("leverage", "Leverage", 3, "leverage"),
+          num12("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
+          num12("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
+          num12("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
+          num12("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
+          num12("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
+          num12("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
+          num12("leverage", "Leverage", 3, "leverage"),
           text2("directionFilter", "Direction filter", "both", "direction_filter"),
           bool("brainLearning", "Brain learning", true, "brain_learning_mode"),
           bool("cryptoBrain", "Crypto brain", true, "crypto_brain_enabled"),
-          num11("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
+          num12("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
           bool("autoExecution", "Auto execution", false, "enable_auto_execution"),
           bool("kelly", "Kelly position sizing", false, "use_kelly_criterion"),
           secs("scanInterval", "Scan interval", 12e4, "scan_interval_ms"),
@@ -69022,13 +69895,13 @@ __export(practice_costs_report_exports, {
 });
 function costModelConstants() {
   return {
-    cryptoFeeBps: num12("CRYPTO_PAPER_FEE_BPS", 30),
-    cryptoFeeDeepBps: num12("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
-    cryptoFloorMult: num12("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
-    solSlippagePct: num12("SOL_PAPER_SLIPPAGE_PCT", 0.5),
-    solFeePumpfunPct: num12("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
-    solFeeDefaultPct: num12("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
-    solImpactFallbackPct: num12("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
+    cryptoFeeBps: num13("CRYPTO_PAPER_FEE_BPS", 30),
+    cryptoFeeDeepBps: num13("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
+    cryptoFloorMult: num13("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
+    solSlippagePct: num13("SOL_PAPER_SLIPPAGE_PCT", 0.5),
+    solFeePumpfunPct: num13("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
+    solFeeDefaultPct: num13("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
+    solImpactFallbackPct: num13("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
   };
 }
 async function practiceCostReport(userId, days = 90) {
@@ -69062,12 +69935,12 @@ async function practiceCostReport(userId, days = 90) {
   }
   return out;
 }
-var num12, BANDS;
+var num13, BANDS;
 var init_practice_costs_report = __esm({
   "server/services/practice-costs-report.ts"() {
     "use strict";
     init_db();
-    num12 = (name, dflt) => {
+    num13 = (name, dflt) => {
       const v = Number(process.env[name]);
       return Number.isFinite(v) && v >= 0 ? v : dflt;
     };
@@ -80264,9 +81137,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "d1018a07-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-15T21:25:18.546Z";
+var BUILD_COMMIT = "9abe3f36-dirty";
+var BUILD_BRANCH = "feat/kalshi-sports-odds-shadow";
+var BUILT_AT = "2026-11-15T22:12:49.422Z";
 
 // server/stripe.ts
 init_db();
@@ -98350,6 +99223,17 @@ Rules:
       res2.status(500).json({ error: err.message });
     }
   });
+  app2.get("/api/kalshi-sports-shadow", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const rawDays = Number(req.query.days);
+      const days = Number.isFinite(rawDays) ? Math.max(1, Math.min(365, Math.floor(rawDays))) : 30;
+      const { getKalshiSportsShadowReport: getKalshiSportsShadowReport2 } = await Promise.resolve().then(() => (init_kalshi_sports_shadow(), kalshi_sports_shadow_exports));
+      res2.json(await getKalshiSportsShadowReport2(req.user.id, days));
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
   app2.get("/api/crypto-paper", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     try {
@@ -102922,16 +103806,16 @@ Respond with ONLY valid JSON:
     try {
       const { runRuinConeSimulation: runRuinConeSimulation2 } = await Promise.resolve().then(() => (init_ruin_cone(), ruin_cone_exports));
       const q = req.query;
-      const num13 = (v) => v != null && v !== "" ? Number(v) : void 0;
+      const num14 = (v) => v != null && v !== "" ? Number(v) : void 0;
       const result = await runRuinConeSimulation2(userId, {
-        numSimulations: num13(q.numSimulations),
-        numTrades: num13(q.numTrades),
-        startingEquity: num13(q.startingEquity),
-        dailyLossLimit: num13(q.dailyLossLimit),
-        maxDrawdownLimit: num13(q.maxDrawdownLimit),
-        consistencyRuleThreshold: num13(q.consistencyRuleThreshold),
-        profitTarget: num13(q.profitTarget),
-        sourceLimit: num13(q.sourceLimit),
+        numSimulations: num14(q.numSimulations),
+        numTrades: num14(q.numTrades),
+        startingEquity: num14(q.startingEquity),
+        dailyLossLimit: num14(q.dailyLossLimit),
+        maxDrawdownLimit: num14(q.maxDrawdownLimit),
+        consistencyRuleThreshold: num14(q.consistencyRuleThreshold),
+        profitTarget: num14(q.profitTarget),
+        sourceLimit: num14(q.sourceLimit),
         source: q.source ? String(q.source) : void 0,
         noCache: q.nocache === "1" || q.noCache === "true"
       });
@@ -115658,6 +116542,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startTrailGuardLearning2();
     const { startKalshiStockShadow: startKalshiStockShadow2 } = await Promise.resolve().then(() => (init_kalshi_stock_shadow(), kalshi_stock_shadow_exports));
     startKalshiStockShadow2();
+    const { startKalshiSportsShadow: startKalshiSportsShadow2 } = await Promise.resolve().then(() => (init_kalshi_sports_shadow(), kalshi_sports_shadow_exports));
+    startKalshiSportsShadow2();
     try {
       const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { rows } = await pool2.query(`SELECT user_id FROM sol_engine_settings WHERE auto_trade_enabled = true`);

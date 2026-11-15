@@ -126,6 +126,23 @@ CREATE OR REPLACE VIEW shadow_ledger AS
    WHERE k.status = 'closed' AND k.return_pct IS NOT NULL AND k.exclude_from_stats IS NOT TRUE
      AND NOT (abs(k.return_pct) >= 40 AND extract(epoch from (k.closed_at - k.opened_at)) < 120)
   UNION ALL
+  -- Kalshi SPORTS odds-benchmark shadow lane (kalshi-sports-shadow.ts):
+  -- virtual YES buys on game-winner markets where the de-vigged book
+  -- probability beat Kalshi's ask by the divergence bar, graded at Kalshi
+  -- settlement. Binary shape: r_multiple is return_pct/100 as stamped at
+  -- close. Symbol = team backed. Expired/no-result rows carry
+  -- exclude_from_stats and never appear.
+  SELECT ('kalshi_sports_shadow:' || s.id)::text, 'kalshi_sports_shadow', 'kalshi', s.user_id,
+         s.strategy, s.team, 'LONG',
+         s.opened_at, s.closed_at,
+         extract(hour from s.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(s.opened_at AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN s.return_pct > 0 THEN 'WIN' WHEN s.return_pct < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         s.r_multiple::float, s.return_pct::float
+    FROM kalshi_sports_shadow_trades s
+   WHERE s.status = 'closed' AND s.return_pct IS NOT NULL AND s.exclude_from_stats IS NOT TRUE
+  UNION ALL
   -- Strategy Studio shadow deployments (strategy-shadow.ts): the runner
   -- trading saved spec strategies virtually — fills resolved from bar
   -- prices into strategy_trades rows with mode='shadow'. R comes from
@@ -156,6 +173,7 @@ export function ensureShadowLedger(): Promise<void> {
       try { const { ensurePaperTable } = await import('./crypto-paper'); await ensurePaperTable(); } catch { /* table may already exist */ }
       try { const { ensureCryptoShadowTables } = await import('./crypto-shadow'); await ensureCryptoShadowTables(); } catch { /* table may already exist */ }
       try { const { ensureKalshiPerpShadowTables } = await import('./ensure-kalshi-perp-shadow-tables'); await ensureKalshiPerpShadowTables(); } catch { /* table may already exist */ }
+      try { const { ensureKalshiSportsShadowTables } = await import('./ensure-kalshi-sports-shadow-tables'); await ensureKalshiSportsShadowTables(); } catch { /* table may already exist */ }
       try { const { ensureStrategyTables } = await import('./strategy-deployments'); await ensureStrategyTables(); } catch { /* table may already exist */ }
       try { const { ensureWizardStrategiesTable } = await import('./wizard-spec-strategies'); await ensureWizardStrategiesTable(); } catch { /* table may already exist */ }
       await pool.query(VIEW_SQL);
