@@ -1659,6 +1659,13 @@ async function withRetry<T>(
     const { startKalshiStockShadow } = await import('./services/kalshi-stock-shadow');
     startKalshiStockShadow();
 
+    // Kalshi WEATHER ensemble SHADOW lane — virtual KXHIGH positions from
+    // the GFS+ECMWF ensemble model vs public Kalshi prices, with a price-
+    // snapshot recorder. No credentials, no orders; kill switch
+    // KALSHI_WEATHER_ENSEMBLE=off.
+    const { startKalshiWeatherShadow } = await import('./services/kalshi-weather-shadow');
+    startKalshiWeatherShadow();
+
     // SOL engine — AUTO-RESUME for users who left auto-trade on. Previously the
     // Sol engine had NO boot-resume (unlike FX/futures/options), so its scan loop
     // silently died on every deploy and stayed dark until manually re-Started —

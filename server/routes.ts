@@ -17683,6 +17683,18 @@ Rules:
       res.json(await getKalshiStockShadowReport((req.user as User).id, days));
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
+  // Kalshi WEATHER ensemble SHADOW lane: read-only panel report — virtual
+  // KXHIGH positions from the GFS+ECMWF ensemble model, graded at Kalshi
+  // settlement, plus the lane's price-snapshot count. ?days=30 (1–365).
+  app.get("/api/kalshi-weather-shadow", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const rawDays = Number(req.query.days);
+      const days = Number.isFinite(rawDays) ? Math.max(1, Math.min(365, Math.floor(rawDays))) : 30;
+      const { getKalshiWeatherShadowReport } = await import('./services/kalshi-weather-shadow');
+      res.json(await getKalshiWeatherShadowReport((req.user as User).id, days));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
   app.get("/api/crypto-paper", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {

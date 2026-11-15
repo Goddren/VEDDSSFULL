@@ -126,6 +126,23 @@ CREATE OR REPLACE VIEW shadow_ledger AS
    WHERE k.status = 'closed' AND k.return_pct IS NOT NULL AND k.exclude_from_stats IS NOT TRUE
      AND NOT (abs(k.return_pct) >= 40 AND extract(epoch from (k.closed_at - k.opened_at)) < 120)
   UNION ALL
+  -- Kalshi WEATHER ensemble shadow lane (kalshi-weather-shadow.ts): virtual
+  -- YES buys on KXHIGH daily-high buckets, graded at Kalshi settlement.
+  -- Binary shape: the whole stake is the unit of risk, so r_multiple is
+  -- return_pct/100 as stamped at close. Symbol = city code (the slice the
+  -- lane learns per), strategy = the lane's model name. Expired/no-result
+  -- rows carry exclude_from_stats and never appear.
+  SELECT ('kalshi_weather_shadow:' || w.id)::text, 'kalshi_weather_shadow', 'kalshi', w.user_id,
+         w.strategy, w.city_code, 'LONG',
+         w.opened_at, w.closed_at,
+         extract(hour from w.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(w.opened_at AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN w.return_pct > 0 THEN 'WIN' WHEN w.return_pct < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         w.r_multiple::float, w.return_pct::float
+    FROM kalshi_weather_shadow_trades w
+   WHERE w.status = 'closed' AND w.return_pct IS NOT NULL AND w.exclude_from_stats IS NOT TRUE
+  UNION ALL
   -- Strategy Studio shadow deployments (strategy-shadow.ts): the runner
   -- trading saved spec strategies virtually — fills resolved from bar
   -- prices into strategy_trades rows with mode='shadow'. R comes from
@@ -156,6 +173,7 @@ export function ensureShadowLedger(): Promise<void> {
       try { const { ensurePaperTable } = await import('./crypto-paper'); await ensurePaperTable(); } catch { /* table may already exist */ }
       try { const { ensureCryptoShadowTables } = await import('./crypto-shadow'); await ensureCryptoShadowTables(); } catch { /* table may already exist */ }
       try { const { ensureKalshiPerpShadowTables } = await import('./ensure-kalshi-perp-shadow-tables'); await ensureKalshiPerpShadowTables(); } catch { /* table may already exist */ }
+      try { const { ensureKalshiWeatherShadowTables } = await import('./ensure-kalshi-weather-shadow-tables'); await ensureKalshiWeatherShadowTables(); } catch { /* table may already exist */ }
       try { const { ensureStrategyTables } = await import('./strategy-deployments'); await ensureStrategyTables(); } catch { /* table may already exist */ }
       try { const { ensureWizardStrategiesTable } = await import('./wizard-spec-strategies'); await ensureWizardStrategiesTable(); } catch { /* table may already exist */ }
       await pool.query(VIEW_SQL);
