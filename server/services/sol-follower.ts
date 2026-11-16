@@ -194,7 +194,7 @@ export function parseLeaderEvents(tx: any, wallet: string): LeaderEvent[] {
   const eventAt = Number(tx?.blockTime) > 0 ? Number(tx.blockTime) * 1000 : 0;
   const signature = tx?.transaction?.signatures?.[0] ?? '';
   const out: LeaderEvent[] = [];
-  for (const mint of new Set([...pre.keys(), ...post.keys()])) {
+  for (const mint of Array.from(new Set(Array.from(pre.keys()).concat(Array.from(post.keys()))))) {
     if (mint === WSOL_MINT) continue;
     const delta = (post.get(mint) ?? 0) - (pre.get(mint) ?? 0);
     if (!delta || !Number.isFinite(delta)) continue;
@@ -663,7 +663,7 @@ export async function getSolFollowerReport(userId: number): Promise<any> {
       weeks.set(wk, (weeks.get(wk) ?? 0) + Number(c.net_pct));
     }
     const lags = mine.map((c: any) => c.entry_lag_sec).filter((x: any) => x != null).map(Number);
-    const stats: WalletBarStats = { trades, wins, avgNetPct, avgR, weeklyNetPct: [...weeks.values()] };
+    const stats: WalletBarStats = { trades, wins, avgNetPct, avgR, weeklyNetPct: Array.from(weeks.values()) };
     const v = walletVerdict(stats);
     return {
       ...stats, wallet: w.wallet, label: w.label,
