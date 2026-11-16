@@ -57,7 +57,7 @@ async function closeCascade(t: any, exit: number, pnl: number, pips: number, hit
           brokerOrderId: log.broker_order_id ?? null,
           lotSize: parseFloat(String(log.lot_size)) || 0.01,
         };
-        const copierPnl = await executeCopyTradeClose(rel, logForClose, exit, pnl, srcLot).catch(() => 0);
+        const copierPnl = await executeCopyTradeClose(rel, logForClose, exit, pnl, srcLot, { pair: t.pair, direction: t.direction }).catch(() => 0);
         await db.execute(sql`UPDATE copy_trade_logs SET status='closed', exit_price=${exit}, pnl=${copierPnl}, closed_at=now() WHERE id=${log.id}`);
       }
     }

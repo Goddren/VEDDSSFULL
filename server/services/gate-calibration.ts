@@ -61,6 +61,7 @@
 
 import { pool } from '../db';
 import { canonSession } from '../utils/session';
+import { basePairKey } from '../utils/pair-key';
 import { getRuntimeStateStrict, saveRuntimeState } from './runtime-state';
 import { logShadowLessonBlock } from './shadow-lesson-gate';
 
@@ -139,7 +140,14 @@ export interface SliceStats {
 }
 
 export function sliceKey(symbol: string, session: string | null): string {
-  return `${symbol}|${session ?? '*'}`;
+  // Normalise the symbol to its base pair key. The two evidence sides spell
+  // symbols differently — taken rows come from fx_brain_outcomes, which
+  // retains broker suffixes ('XAUUSD.PRO'), while blocked rows come from
+  // fx_model_decisions (normalised 'XAUUSD') — so raw keys split one
+  // instrument's evidence across two slices, each too thin to qualify, and
+  // an override applied under a suffixed key was invisible to the engine
+  // consult (clean symbol). Sessions were already canonicalised both sides.
+  return `${basePairKey(symbol)}|${session ?? '*'}`;
 }
 
 export function aggregateSlices(taken: TakenRow[], blocked: BlockedRow[]): SliceStats[] {

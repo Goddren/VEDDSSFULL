@@ -105,6 +105,16 @@ export async function resolveDecisionShadow(): Promise<void> {
       `UPDATE fx_decision_shadow SET resolved_at = now(), outcome = 'unpriced'
         WHERE resolved_at IS NULL AND picked AND (entry IS NULL OR sl IS NULL OR tp IS NULL OR entry = sl)`,
     ).catch(() => {});
+    // Unpriceable rows (a symbol whose bars never come back) used to stay
+    // unresolved forever: selection is oldest-first and capped per run, so
+    // a dead symbol's backlog could starve newer symbols indefinitely —
+    // fx_model_decisions force-expires its equivalent rows at 50h, this
+    // lane had no such path. Expire at 48h into the same 'unpriced' bucket
+    // (no R recorded — nothing was ever priced).
+    await pool.query(
+      `UPDATE fx_decision_shadow SET resolved_at = now(), outcome = 'unpriced'
+        WHERE resolved_at IS NULL AND picked AND created_at < now() - interval '48 hours'`,
+    ).catch(() => {});
     const { rows } = await pool.query(
       `SELECT id, symbol, direction, entry, sl, tp, created_at FROM fx_decision_shadow
         WHERE resolved_at IS NULL AND picked AND created_at < now() - interval '15 minutes'

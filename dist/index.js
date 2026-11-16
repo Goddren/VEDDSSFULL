@@ -8625,6 +8625,171 @@ var init_ai_usage = __esm({
   }
 });
 
+// server/utils/pipUtils.ts
+var pipUtils_exports = {};
+__export(pipUtils_exports, {
+  computePips: () => computePips,
+  getPipSize: () => getPipSize,
+  getPipValue: () => getPipValue,
+  setFxRate: () => setFxRate
+});
+function matchesAny(symbol, patterns) {
+  const s = symbol.toUpperCase();
+  return patterns.some((p2) => s.includes(p2.toUpperCase()));
+}
+function getPipSize(symbol) {
+  if (!symbol) return 1e-4;
+  if (matchesAny(symbol, ["JPY"])) return 0.01;
+  if (matchesAny(symbol, ["XAU", "GOLD"])) return 0.1;
+  if (matchesAny(symbol, ["XAG", "SILVER"])) return 1e-3;
+  if (matchesAny(symbol, ["XPT", "XPD"])) return 0.01;
+  if (matchesAny(symbol, [
+    "US30",
+    "DJ30",
+    "WALLST",
+    "DOW",
+    "NAS100",
+    "USTEC",
+    "US100",
+    "NDX",
+    "NASDAQ",
+    "US500",
+    "SPX",
+    "SP500",
+    "GER40",
+    "GER30",
+    "DAX",
+    "DE40",
+    "UK100",
+    "FTSE",
+    "UKX",
+    "JP225",
+    "NKY",
+    "NIKKEI",
+    "JPN225",
+    "N225",
+    "AUS200",
+    "ASX",
+    "HK50",
+    "HSI",
+    "FRA40",
+    "CAC",
+    "ESP35",
+    "IBEX",
+    "EUSTX50",
+    "SWI20"
+  ])) return 1;
+  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 0.01;
+  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 1e-3;
+  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
+  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 0.01;
+  if (matchesAny(symbol, ["XRP", "DOGE", "SHIB", "LTC", "TRX"])) return 1e-4;
+  return 1e-4;
+}
+function computePips(symbol, entryPrice, exitPrice, direction) {
+  const entry = Number(entryPrice), exit = Number(exitPrice);
+  if (!Number.isFinite(entry) || !Number.isFinite(exit) || entry <= 0 || exit <= 0) return null;
+  const pipSize2 = getPipSize(symbol);
+  if (!(pipSize2 > 0)) return null;
+  const isSell = /sell|short/i.test(String(direction ?? ""));
+  const diff = isSell ? entry - exit : exit - entry;
+  return Math.round(diff / pipSize2 * 10) / 10;
+}
+function getPipValue(symbol) {
+  if (!symbol) return 10;
+  if (matchesAny(symbol, ["XAU", "GOLD"])) return 10;
+  if (matchesAny(symbol, ["XAG", "SILVER"])) return 5;
+  if (matchesAny(symbol, ["XPT", "XPD"])) return 10;
+  if (matchesAny(symbol, [
+    "US30",
+    "DJ30",
+    "WALLST",
+    "DOW",
+    "NAS100",
+    "USTEC",
+    "US100",
+    "NDX",
+    "NASDAQ",
+    "US500",
+    "SPX",
+    "SP500",
+    "GER40",
+    "GER30",
+    "DAX",
+    "DE40",
+    "UK100",
+    "FTSE",
+    "JP225",
+    "NKY",
+    "NIKKEI",
+    "JPN225",
+    "AUS200",
+    "ASX",
+    "HK50",
+    "FRA40",
+    "CAC",
+    "ESP35",
+    "EUSTX50"
+  ])) return 1;
+  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 10;
+  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 10;
+  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
+  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 1;
+  let s = symbol.toUpperCase().split(".")[0].replace(/[^A-Z]/g, "");
+  if (s.length > 6) {
+    for (let i = 0; i + 6 <= s.length; i++) {
+      const cand = s.slice(i, i + 6);
+      if (quoteToUsd(cand.slice(3)) !== null) {
+        s = cand;
+        break;
+      }
+    }
+  }
+  if (/^[A-Z]{6}$/.test(s)) {
+    const quote = s.slice(3);
+    const perLotQuote = 1e5 * getPipSize(symbol);
+    const rate = quoteToUsd(quote);
+    if (rate !== null) return perLotQuote * rate;
+  }
+  return 10;
+}
+function setFxRate(pair, rate) {
+  const p2 = String(pair || "").toUpperCase().replace(/[^A-Z]/g, "");
+  const r = Number(rate);
+  if (!/^[A-Z]{6}$/.test(p2) || !isFinite(r) || r <= 0) return;
+  _fxLive.set(p2, { rate: r, at: Date.now() });
+}
+function rateOf(pair) {
+  const live = _fxLive.get(pair);
+  if (live && Date.now() - live.at < FX_LIVE_TTL_MS) return live.rate;
+  return FX_FALLBACK[pair];
+}
+function quoteToUsd(quote) {
+  if (quote === "USD") return 1;
+  const direct = rateOf(`${quote}USD`);
+  if (direct > 0) return direct;
+  const inverse = rateOf(`USD${quote}`);
+  if (inverse > 0) return 1 / inverse;
+  return null;
+}
+var FX_FALLBACK, _fxLive, FX_LIVE_TTL_MS;
+var init_pipUtils = __esm({
+  "server/utils/pipUtils.ts"() {
+    "use strict";
+    FX_FALLBACK = {
+      USDJPY: 140,
+      GBPUSD: 1.36,
+      EURUSD: 1.17,
+      AUDUSD: 0.7,
+      NZDUSD: 0.63,
+      USDCHF: 0.8,
+      USDCAD: 1.3
+    };
+    _fxLive = /* @__PURE__ */ new Map();
+    FX_LIVE_TTL_MS = 6 * 60 * 60 * 1e3;
+  }
+});
+
 // server/utils/smcUtils.ts
 var smcUtils_exports = {};
 __export(smcUtils_exports, {
@@ -9031,14 +9196,17 @@ __export(ictMacroUtils_exports, {
   detectOTEZone: () => detectOTEZone,
   detectStopHunt: () => detectStopHunt,
   getICTMacroContext: () => getICTMacroContext,
+  getNYOffset: () => getNYOffset,
   getPremiumDiscountContext: () => getPremiumDiscountContext
 });
 function getNYOffset(date2) {
   const year = date2.getUTCFullYear();
   const dstStart = new Date(Date.UTC(year, 2, 1));
-  dstStart.setUTCDate(8 - (dstStart.getUTCDay() + 7) % 7 + 7);
+  dstStart.setUTCDate(1 + (7 - dstStart.getUTCDay()) % 7 + 7);
+  dstStart.setUTCHours(7, 0, 0, 0);
   const dstEnd = new Date(Date.UTC(year, 10, 1));
   dstEnd.setUTCDate(1 + (7 - dstEnd.getUTCDay()) % 7);
+  dstEnd.setUTCHours(6, 0, 0, 0);
   return date2 >= dstStart && date2 < dstEnd ? -4 : -5;
 }
 function toNYTime(date2) {
@@ -9774,8 +9942,12 @@ async function checkFxBrainHealth(windowHours = 24) {
   const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
   const [{ rows: closes }, { rows: brainRows }, { rows: lastRow }] = await Promise.all([
     pool2.query(
+      // All engine close sources, not just TradeLocker: DXtrade/MT5 closes
+      // never write fx_brain_outcomes at all, and a TradeLocker-only
+      // denominator baked that invisibility into the watchdog — it could
+      // report "3/3 recorded" while every DX close went unrecorded.
       `SELECT count(*)::int AS n FROM ai_trade_results
-        WHERE source IN ('tradelocker','tradelocker_auto')
+        WHERE source IN ('tradelocker','tradelocker_auto','dxtrade','mt5_ea','mt5_copier','manual','brain_autoexec')
           AND result IN ('WIN','LOSS','BREAKEVEN')
           AND closed_at > now() - ($1 || ' hours')::interval`,
       [windowHours]
@@ -9790,8 +9962,8 @@ async function checkFxBrainHealth(windowHours = 24) {
   const brainRowsInWindow = brainRows[0]?.n ?? 0;
   const lastAt = lastRow[0]?.last_at ? new Date(lastRow[0].last_at) : null;
   const hoursSinceLastBrainRow = lastAt ? Math.round((Date.now() - lastAt.getTime()) / 36e5 * 10) / 10 : null;
-  const stalled = realClosesInWindow > 0 && brainRowsInWindow === 0;
-  const message = stalled ? `FX BRAIN STALLED: ${realClosesInWindow} real TradeLocker close(s) in the last ${windowHours}h, 0 recorded to fx_brain_outcomes. Last successful brain row was ${hoursSinceLastBrainRow ?? "?"}h ago. The gate and AI prompt are running on stale data \u2014 check _recordFxBrainOutcome in tradelocker-sync.ts.` : `FX brain OK \u2014 ${brainRowsInWindow}/${realClosesInWindow} closes recorded in the last ${windowHours}h.`;
+  const stalled = realClosesInWindow > 0 && brainRowsInWindow === 0 || realClosesInWindow >= 3 && brainRowsInWindow / realClosesInWindow < 0.5;
+  const message = stalled ? `FX BRAIN STALLED: ${realClosesInWindow} real close(s) in the last ${windowHours}h, only ${brainRowsInWindow} recorded to fx_brain_outcomes. Last successful brain row was ${hoursSinceLastBrainRow ?? "?"}h ago. The gate and AI prompt are running on stale data \u2014 check _recordFxBrainOutcome in tradelocker-sync.ts (note: DXtrade/MT5 closes currently have no brain writer).` : `FX brain OK \u2014 ${brainRowsInWindow}/${realClosesInWindow} closes recorded in the last ${windowHours}h.`;
   return { stalled, windowHours, realClosesInWindow, brainRowsInWindow, lastBrainRowAt: lastAt?.toISOString() ?? null, hoursSinceLastBrainRow, message };
 }
 async function _logGateBlock(userId, symbol, direction, dimension, patternValue, reason, source) {
@@ -10359,6 +10531,7 @@ var init_twelve_data = __esm({
   "server/market-data/providers/twelve-data.ts"() {
     "use strict";
     init_rate_limiter();
+    init_pipUtils();
     TWELVE_DATA_BASE_URL = "https://api.twelvedata.com";
     FOREX_PAIRS = [
       "EUR/USD",
@@ -10558,6 +10731,7 @@ var init_twelve_data = __esm({
         url.searchParams.set("interval", interval);
         url.searchParams.set("outputsize", outputSize.toString());
         url.searchParams.set("apikey", this.apiKey);
+        url.searchParams.set("timezone", "UTC");
         try {
           rateLimiter.recordRequest(this.name);
           const response = await fetch(url.toString());
@@ -10578,7 +10752,12 @@ var init_twelve_data = __esm({
             throw new Error("Invalid response from Twelve Data");
           }
           return data.values.map((bar) => ({
-            timestamp: new Date(bar.datetime).getTime(),
+            // Parse as UTC (see the timezone=UTC request above): a bare
+            // "YYYY-MM-DD HH:mm:ss" would otherwise be read as server-local.
+            timestamp: (() => {
+              const d = String(bar.datetime || "");
+              return /(?:Z|[+-]\d{2}:?\d{2})$/.test(d) ? new Date(d).getTime() : (/* @__PURE__ */ new Date(d.replace(" ", "T") + "Z")).getTime();
+            })(),
             open: parseFloat(bar.open),
             high: parseFloat(bar.high),
             low: parseFloat(bar.low),
@@ -10633,12 +10812,11 @@ var init_twelve_data = __esm({
           };
           let suggestedSLPips;
           if (assetType === "forex") {
-            const isJPYPair = normalizedSymbol.includes("JPY");
-            const pipMultiplier = isJPYPair ? 100 : 1e4;
+            const pipSize2 = getPipSize(normalizedSymbol);
             suggestedSLPips = {
-              conservative: Math.round(suggestedSL.conservative * pipMultiplier),
-              moderate: Math.round(suggestedSL.moderate * pipMultiplier),
-              aggressive: Math.round(suggestedSL.aggressive * pipMultiplier)
+              conservative: Math.round(suggestedSL.conservative / pipSize2),
+              moderate: Math.round(suggestedSL.moderate / pipSize2),
+              aggressive: Math.round(suggestedSL.aggressive / pipSize2)
             };
           }
           return {
@@ -13404,19 +13582,19 @@ __export(gate_calibration_exports, {
 function gateCalibrationOn() {
   return process.env.GATE_CALIBRATION !== "off";
 }
-function bandIndexFor(confidence2) {
+function bandIndexFor(confidence) {
   for (let i = 0; i < CONF_BANDS.length; i++) {
     const b = CONF_BANDS[i];
-    if (confidence2 >= b.lo && (b.hi == null || confidence2 < b.hi)) return i;
+    if (confidence >= b.lo && (b.hi == null || confidence < b.hi)) return i;
   }
   return CONF_BANDS.length - 1;
 }
 function emptyBands() {
   return CONF_BANDS.map((b) => ({ band: b.key, n: 0, wins: 0, winRate: null, sumR: 0, avgR: null }));
 }
-function addToBand(bands, confidence2, win, r) {
-  if (confidence2 == null || !Number.isFinite(confidence2) || r == null || !Number.isFinite(r)) return;
-  const s = bands[bandIndexFor(confidence2)];
+function addToBand(bands, confidence, win, r) {
+  if (confidence == null || !Number.isFinite(confidence) || r == null || !Number.isFinite(r)) return;
+  const s = bands[bandIndexFor(confidence)];
   s.n++;
   if (win) s.wins++;
   s.sumR += r;
@@ -13432,7 +13610,7 @@ function finishBands(bands) {
   return bands;
 }
 function sliceKey(symbol, session3) {
-  return `${symbol}|${session3 ?? "*"}`;
+  return `${basePairKey(symbol)}|${session3 ?? "*"}`;
 }
 function aggregateSlices(taken, blocked) {
   const map = /* @__PURE__ */ new Map();
@@ -13759,6 +13937,7 @@ var init_gate_calibration = __esm({
     "use strict";
     init_db();
     init_session();
+    init_pair_key();
     init_runtime_state();
     init_shadow_lesson_gate();
     GC_WINDOW_DAYS = 90;
@@ -14235,6 +14414,21 @@ function pick(src, keys) {
   }
   return void 0;
 }
+function coerceEpochSeconds(tRaw) {
+  if (typeof tRaw === "number" && isFinite(tRaw)) {
+    return tRaw >= 1e12 ? Math.floor(tRaw / 1e3) : tRaw;
+  }
+  if (typeof tRaw === "string") {
+    const s = tRaw.trim();
+    if (/^\d+(\.\d+)?$/.test(s)) {
+      const n = Number(s);
+      return n >= 1e12 ? Math.floor(n / 1e3) : n;
+    }
+    const parsed = Date.parse(s);
+    if (isFinite(parsed)) return Math.floor(parsed / 1e3);
+  }
+  return tRaw;
+}
 function normalizeCandle(raw) {
   if (!raw || typeof raw !== "object") return raw;
   const o = pick(raw, O), h = pick(raw, H), l = pick(raw, L), c = pick(raw, C);
@@ -14247,7 +14441,7 @@ function normalizeCandle(raw) {
   const v = pick(raw, V);
   if (v !== void 0) out.v = v;
   const tRaw = raw.t ?? raw.time ?? raw.Time ?? raw.timestamp ?? raw.T;
-  if (tRaw !== void 0) out.t = tRaw;
+  if (tRaw !== void 0) out.t = coerceEpochSeconds(tRaw);
   return out;
 }
 function normalizeCandles(raw) {
@@ -14314,6 +14508,8 @@ function priceDecimals(symbol) {
   if (/^XAG/.test(s)) return 3;
   if (/^(US30|DJ30|WS30|US100|NAS100|USTEC|US500|SPX500|GER40|DE40|UK100|JP225|AUS200|HK50|FRA40|EU50)/.test(s)) return 2;
   if (/^(BTC|ETH|SOL|LTC|XRP)/.test(s)) return 2;
+  if (/^(USOIL|UKOIL|WTI|XTI|BRENT)/.test(s)) return 2;
+  if (/^(NGAS|NATGAS|XNG)/.test(s)) return 3;
   if (/JPY/.test(s)) return 3;
   return 5;
 }
@@ -16336,6 +16532,27 @@ var init_tradelocker = __esm({
         }
         const url = `${this.baseUrl}/trade/positions/${positionId}`;
         console.log(`[TradeLocker Modify] PATCH ${url} | SL=${stopLoss} TP=${takeProfit} accNum=${this.accNum}`);
+        const checkBody = async (resp, verb) => {
+          const text3 = await resp.text().catch(() => "");
+          let data = null;
+          try {
+            data = text3 ? JSON.parse(text3) : null;
+          } catch {
+          }
+          if (data && data.s !== void 0 && data.s !== "ok") {
+            const details = [];
+            if (data.errmsg) details.push(String(data.errmsg));
+            if (data.d?.errmsg) details.push(String(data.d.errmsg));
+            if (data.d?.message) details.push(String(data.d.message));
+            if (Array.isArray(data.d?.messages)) details.push(...data.d.messages.map(String));
+            if (data.message) details.push(String(data.message));
+            const msg = details.length ? details.join(" | ") : `Rejected (status: ${data.s}, raw: ${text3.slice(0, 200)})`;
+            console.log(`[TradeLocker Modify] ${verb} rejected in body: ${msg}`);
+            return { success: false, error: `Modify rejected: ${msg}` };
+          }
+          console.log(`[TradeLocker Modify] ${verb} success`);
+          return { success: true };
+        };
         try {
           const response = await fetch(url, {
             method: "PATCH",
@@ -16362,16 +16579,14 @@ var init_tradelocker = __esm({
               console.log(`[TradeLocker Modify] PUT failed: ${putResponse.status} - ${errText}`);
               return { success: false, error: `Modify failed: ${putResponse.status} - ${errText}` };
             }
-            console.log("[TradeLocker Modify] PUT success");
-            return { success: true };
+            return await checkBody(putResponse, "PUT");
           }
           if (!response.ok) {
             const errText = await response.text();
             console.log(`[TradeLocker Modify] PATCH failed: ${response.status} - ${errText}`);
             return { success: false, error: `Modify failed: ${response.status} - ${errText}` };
           }
-          console.log("[TradeLocker Modify] PATCH success");
-          return { success: true };
+          return await checkBody(response, "PATCH");
         } catch (error) {
           const msg = error instanceof Error ? error.message : "Unknown error";
           console.error("[TradeLocker Modify] Exception:", msg);
@@ -16385,162 +16600,6 @@ var init_tradelocker = __esm({
     GUARD_CACHE_MS = Number(process.env.TL_GUARD_CACHE_MS ?? 5e3);
     guardCache = /* @__PURE__ */ new Map();
     _isRateLimit = (e) => /\b(429|1015)\b|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
-  }
-});
-
-// server/utils/pipUtils.ts
-var pipUtils_exports = {};
-__export(pipUtils_exports, {
-  computePips: () => computePips,
-  getPipSize: () => getPipSize,
-  getPipValue: () => getPipValue,
-  setFxRate: () => setFxRate
-});
-function matchesAny(symbol, patterns) {
-  const s = symbol.toUpperCase();
-  return patterns.some((p2) => s.includes(p2.toUpperCase()));
-}
-function getPipSize(symbol) {
-  if (!symbol) return 1e-4;
-  if (matchesAny(symbol, ["JPY"])) return 0.01;
-  if (matchesAny(symbol, ["XAU", "GOLD"])) return 0.1;
-  if (matchesAny(symbol, ["XAG", "SILVER"])) return 1e-3;
-  if (matchesAny(symbol, ["XPT", "XPD"])) return 0.01;
-  if (matchesAny(symbol, [
-    "US30",
-    "DJ30",
-    "WALLST",
-    "DOW",
-    "NAS100",
-    "USTEC",
-    "US100",
-    "NDX",
-    "NASDAQ",
-    "US500",
-    "SPX",
-    "SP500",
-    "GER40",
-    "GER30",
-    "DAX",
-    "DE40",
-    "UK100",
-    "FTSE",
-    "UKX",
-    "JP225",
-    "NKY",
-    "NIKKEI",
-    "JPN225",
-    "N225",
-    "AUS200",
-    "ASX",
-    "HK50",
-    "HSI",
-    "FRA40",
-    "CAC",
-    "ESP35",
-    "IBEX",
-    "EUSTX50",
-    "SWI20"
-  ])) return 1;
-  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 0.01;
-  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 1e-3;
-  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
-  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 0.01;
-  if (matchesAny(symbol, ["XRP", "DOGE", "SHIB", "LTC", "TRX"])) return 1e-4;
-  return 1e-4;
-}
-function computePips(symbol, entryPrice, exitPrice, direction) {
-  const entry = Number(entryPrice), exit = Number(exitPrice);
-  if (!Number.isFinite(entry) || !Number.isFinite(exit) || entry <= 0 || exit <= 0) return null;
-  const pipSize2 = getPipSize(symbol);
-  if (!(pipSize2 > 0)) return null;
-  const isSell = /sell|short/i.test(String(direction ?? ""));
-  const diff = isSell ? entry - exit : exit - entry;
-  return Math.round(diff / pipSize2 * 10) / 10;
-}
-function getPipValue(symbol) {
-  if (!symbol) return 10;
-  if (matchesAny(symbol, ["XAU", "GOLD"])) return 10;
-  if (matchesAny(symbol, ["XAG", "SILVER"])) return 5;
-  if (matchesAny(symbol, ["XPT", "XPD"])) return 10;
-  if (matchesAny(symbol, [
-    "US30",
-    "DJ30",
-    "WALLST",
-    "DOW",
-    "NAS100",
-    "USTEC",
-    "US100",
-    "NDX",
-    "NASDAQ",
-    "US500",
-    "SPX",
-    "SP500",
-    "GER40",
-    "GER30",
-    "DAX",
-    "DE40",
-    "UK100",
-    "FTSE",
-    "JP225",
-    "NKY",
-    "NIKKEI",
-    "JPN225",
-    "AUS200",
-    "ASX",
-    "HK50",
-    "FRA40",
-    "CAC",
-    "ESP35",
-    "EUSTX50"
-  ])) return 1;
-  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 10;
-  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 10;
-  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
-  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 1;
-  const s = symbol.toUpperCase().split(".")[0].replace(/[^A-Z]/g, "");
-  if (/^[A-Z]{6}$/.test(s)) {
-    const quote = s.slice(3);
-    const perLotQuote = 1e5 * getPipSize(symbol);
-    const rate = quoteToUsd(quote);
-    if (rate !== null) return perLotQuote * rate;
-  }
-  return 10;
-}
-function setFxRate(pair, rate) {
-  const p2 = String(pair || "").toUpperCase().replace(/[^A-Z]/g, "");
-  const r = Number(rate);
-  if (!/^[A-Z]{6}$/.test(p2) || !isFinite(r) || r <= 0) return;
-  _fxLive.set(p2, { rate: r, at: Date.now() });
-}
-function rateOf(pair) {
-  const live = _fxLive.get(pair);
-  if (live && Date.now() - live.at < FX_LIVE_TTL_MS) return live.rate;
-  return FX_FALLBACK[pair];
-}
-function quoteToUsd(quote) {
-  if (quote === "USD") return 1;
-  const direct = rateOf(`${quote}USD`);
-  if (direct > 0) return direct;
-  const inverse = rateOf(`USD${quote}`);
-  if (inverse > 0) return 1 / inverse;
-  return null;
-}
-var FX_FALLBACK, _fxLive, FX_LIVE_TTL_MS;
-var init_pipUtils = __esm({
-  "server/utils/pipUtils.ts"() {
-    "use strict";
-    FX_FALLBACK = {
-      USDJPY: 140,
-      GBPUSD: 1.36,
-      EURUSD: 1.17,
-      AUDUSD: 0.7,
-      NZDUSD: 0.63,
-      USDCHF: 0.8,
-      USDCAD: 1.3
-    };
-    _fxLive = /* @__PURE__ */ new Map();
-    FX_LIVE_TTL_MS = 6 * 60 * 60 * 1e3;
   }
 });
 
@@ -19511,6 +19570,11 @@ async function resolveDecisionShadow() {
         WHERE resolved_at IS NULL AND picked AND (entry IS NULL OR sl IS NULL OR tp IS NULL OR entry = sl)`
     ).catch(() => {
     });
+    await pool.query(
+      `UPDATE fx_decision_shadow SET resolved_at = now(), outcome = 'unpriced'
+        WHERE resolved_at IS NULL AND picked AND created_at < now() - interval '48 hours'`
+    ).catch(() => {
+    });
     const { rows } = await pool.query(
       `SELECT id, symbol, direction, entry, sl, tp, created_at FROM fx_decision_shadow
         WHERE resolved_at IS NULL AND picked AND created_at < now() - interval '15 minutes'
@@ -20126,6 +20190,8 @@ var init_dxtrade = __esm({
             const sym2 = normW(wo.instrument ?? wo.symbol);
             const effect = String(wo.positionEffect ?? wo.legs?.[0]?.positionEffect ?? "").toUpperCase();
             if (sym2 !== target || effect !== "CLOSE") continue;
+            const woPos = wo.positionCode ?? wo.positionId ?? wo.legs?.[0]?.positionCode;
+            if (code && woPos != null && String(woPos) !== String(code)) continue;
             const id = wo.orderId ?? wo.id ?? wo.orderCode ?? wo.code;
             if (id == null) continue;
             const t = String(wo.type ?? wo.orderType ?? "").toUpperCase();
@@ -20326,7 +20392,8 @@ var init_dxtrade = __esm({
           openTime: (() => {
             const v = p2.openTime ?? p2.openDate ?? p2.createdAt ?? p2.creationTime ?? p2.timestamp;
             if (v == null) return void 0;
-            const t = typeof v === "number" ? v > 1e12 ? v : v * 1e3 : new Date(v).getTime();
+            const vn = typeof v === "string" && /^\d+(\.\d+)?$/.test(v.trim()) ? Number(v) : v;
+            const t = typeof vn === "number" ? vn > 1e12 ? vn : vn * 1e3 : new Date(vn).getTime();
             return Number.isFinite(t) ? Math.floor(t / 1e3) : void 0;
           })(),
           raw: p2
@@ -20767,20 +20834,20 @@ function computeOrderFlow(candles, lookback = 20) {
   }
   const THRESHOLD = 3;
   let direction = "NEUTRAL";
-  let confidence2 = 0;
+  let confidence = 0;
   let reason = "No order flow edge detected";
   if (bullScore >= THRESHOLD && bullScore > bearScore) {
     direction = "BUY";
-    confidence2 = Math.min(91, 53 + bullScore * 4);
+    confidence = Math.min(91, 53 + bullScore * 4);
     reason = confluences.filter((c) => /bull|buyer|CVD ris|selling abs/i.test(c)).join(" | ") || "Bullish order flow";
   } else if (bearScore >= THRESHOLD && bearScore > bullScore) {
     direction = "SELL";
-    confidence2 = Math.min(91, 53 + bearScore * 4);
+    confidence = Math.min(91, 53 + bearScore * 4);
     reason = confluences.filter((c) => /bear|seller|CVD fall|buying abs/i.test(c)).join(" | ") || "Bearish order flow";
   }
   return {
     direction,
-    confidence: confidence2,
+    confidence,
     reason,
     confluences,
     cvd: currentCVD,
@@ -21939,6 +22006,7 @@ __export(live_trading_engine_exports, {
   INDEX_BROKER_ALIASES: () => INDEX_BROKER_ALIASES,
   adxOrNull: () => adxOrNull,
   broadcastMT5Signal: () => broadcastMT5Signal,
+  computeChandelierSL: () => computeChandelierSL,
   computeHtfBias: () => computeHtfBias,
   computeOrbStateFromCandles: () => computeOrbStateFromCandles,
   computeVolumeMetrics: () => computeVolumeMetrics,
@@ -21965,6 +22033,7 @@ __export(live_trading_engine_exports, {
   isOrbOriginDecision: () => isOrbOriginDecision,
   newsBlackoutVerdicts: () => newsBlackoutVerdicts,
   newsGateBlocks: () => newsGateBlocks,
+  parseNewsEventTime: () => parseNewsEventTime,
   recordTradeResult: () => recordTradeResult,
   registerMT5Account: () => registerMT5Account,
   restoreFxEngineStateFromDb: () => restoreFxEngineStateFromDb,
@@ -22049,6 +22118,21 @@ function newsGateBlocks(newsCtx, orbOrigin) {
   if (orbOrigin && typeof newsCtx.highImpactSoonOrb === "boolean") return newsCtx.highImpactSoonOrb;
   return newsCtx.highImpactSoon === true;
 }
+function parseNewsEventTime(time, nowMs = Date.now()) {
+  const s = String(time ?? "").trim();
+  if (!s) return null;
+  const hm = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (hm) {
+    const h = Number(hm[1]), m = Number(hm[2]), sec = Number(hm[3] || 0);
+    if (h > 23 || m > 59 || sec > 59) return null;
+    const d = new Date(nowMs);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h, m, sec);
+  }
+  const iso = s.includes("T") ? s : s.replace(" ", "T");
+  const hasOffset = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso);
+  const t = Date.parse(hasOffset ? iso : `${iso}Z`);
+  return Number.isFinite(t) ? t : null;
+}
 async function fetchNewsContext(pairs) {
   const context = {
     headlines: [],
@@ -22056,7 +22140,8 @@ async function fetchNewsContext(pairs) {
     highImpactSoon: false,
     highImpactSoonOrb: false,
     marketSentiment: "neutral",
-    tradingWindowWarning: null
+    tradingWindowWarning: null,
+    lastEventAt: null
   };
   try {
     if (!newsService.isInitialized()) {
@@ -22090,25 +22175,23 @@ async function fetchNewsContext(pairs) {
         const eventStr = `[${event.impact?.toUpperCase() || "LOW"}] ${event.country || ""} ${event.event || ""} (${event.time || "TBD"})${event.forecast ? ` F:${event.forecast}` : ""}${event.previous ? ` P:${event.previous}` : ""}`;
         context.economicEvents.push(eventStr);
         if (event.impact === "high") {
-          const timeStr = event.time || "";
-          if (timeStr) {
-            const [h, m] = timeStr.split(":").map(Number);
-            if (!isNaN(h) && h >= 0 && h <= 23) {
-              const today = /* @__PURE__ */ new Date();
-              const eventDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), h, m || 0, 0, 0));
-              const diff = eventDate.getTime() - now;
-              const verdicts = newsBlackoutVerdicts(diff, event.event || "");
-              if (verdicts.orb) context.highImpactSoonOrb = true;
-              if (verdicts.standard) {
-                const major = newsWidenEnabled() && isMajorNewsRelease(event.event || "");
-                const majorPostMin = newsMajorPostMinutes();
-                context.highImpactSoon = true;
-                const minsAway = Math.round(diff / 6e4);
-                if (major && minsAway < 0) {
-                  context.tradingWindowWarning = `MAJOR RELEASE EXTENDED BLACKOUT: ${event.event} (${eventCurrency}) released ${-minsAway} min ago \u2014 no new entries until ${majorPostMin} min after the print (post-print chop protection).`;
-                } else {
-                  context.tradingWindowWarning = `HIGH IMPACT EVENT ${minsAway > 0 ? `in ${minsAway} minutes` : "HAPPENING NOW"}: ${event.event} (${eventCurrency}). Consider widening stops or avoiding new entries for affected pairs.`;
-                }
+          const eventMs = parseNewsEventTime(event.time, now);
+          if (eventMs != null) {
+            const diff = eventMs - now;
+            if (diff <= 0 && (!context.lastEventAt || eventMs > Date.parse(context.lastEventAt))) {
+              context.lastEventAt = new Date(eventMs).toISOString();
+            }
+            const verdicts = newsBlackoutVerdicts(diff, event.event || "");
+            if (verdicts.orb) context.highImpactSoonOrb = true;
+            if (verdicts.standard) {
+              const major = newsWidenEnabled() && isMajorNewsRelease(event.event || "");
+              const majorPostMin = newsMajorPostMinutes();
+              context.highImpactSoon = true;
+              const minsAway = Math.round(diff / 6e4);
+              if (major && minsAway < 0) {
+                context.tradingWindowWarning = `MAJOR RELEASE EXTENDED BLACKOUT: ${event.event} (${eventCurrency}) released ${-minsAway} min ago \u2014 no new entries until ${majorPostMin} min after the print (post-print chop protection).`;
+              } else {
+                context.tradingWindowWarning = `HIGH IMPACT EVENT ${minsAway > 0 ? `in ${minsAway} minutes` : "HAPPENING NOW"}: ${event.event} (${eventCurrency}). Consider widening stops or avoiding new entries for affected pairs.`;
               }
             }
           }
@@ -22234,7 +22317,7 @@ function applyBrainEnforcement(userId, symbol, proposedDirection, currentATR, ne
   if (sessionData && sessionData.total >= _minN && sessionData.winRate < _sessWR && _blendWR >= _sessWR) {
     logGuard(userId, "brain_block_shadow_lift", symbol, `${session3} real ${sessionData.winRate}%/${sessionData.total}${_shadowTxt} \u2014 unblocked by shadow results`);
   }
-  if (sessionData && sessionData.total >= _minN && _blendWR < _sessWR) {
+  if (sessionData && sessionData.total >= _minN && _blendWR < _sessWR && (sessionData.winRate < _sessWR || _shN >= 5)) {
     const msg = `\u{1F9E0} Brain block: ${symbol} ${session3} session only ${sessionData.winRate}% WR (${sessionData.total} trades)${_shadowTxt} \u2014 below ${_sessWR}% threshold, skipping`;
     pushEnforcementLog(userId, { symbol, rule: "session_block", direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
@@ -22422,8 +22505,18 @@ function getAdaptiveScanInterval(config) {
 }
 function fxMarketClosedFor(symbol, now = /* @__PURE__ */ new Date()) {
   if (/^(BTC|ETH|SOL|LTC|XRP|DOGE|ADA|BNB)/i.test(String(symbol || ""))) return false;
-  const d = now.getUTCDay(), h = now.getUTCHours();
-  return d === 6 || d === 5 && h >= 21 || d === 0 && h < 21;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(now);
+  const wd = parts.find((p2) => p2.type === "weekday")?.value || "";
+  const hr = Number(parts.find((p2) => p2.type === "hour")?.value ?? NaN);
+  if (wd === "Sat") return true;
+  if (wd === "Fri" && hr >= 17) return true;
+  if (wd === "Sun" && hr < 17) return true;
+  return false;
 }
 function getAdaptiveScanIntervalBase(config) {
   if (!config.adaptiveScanInterval) return config.scanIntervalMs;
@@ -22444,12 +22537,12 @@ function calculateKellyFraction(wins, losses, totalRR) {
   const fractionalKelly = kelly * 0.25;
   return Math.min(0.03, Math.max(5e-3, fractionalKelly));
 }
-function getConfidenceLotMultiplier(confidence2) {
-  if (confidence2 >= 93) return { mult: 1.5, label: `A+ (${confidence2}% \u226593%) \u2192 1.5\xD7` };
-  if (confidence2 >= 88) return { mult: 1.25, label: `A  (${confidence2}% \u226588%) \u2192 1.25\xD7` };
-  if (confidence2 >= 83) return { mult: 1, label: `B  (${confidence2}% \u226583%) \u2192 1.0\xD7` };
-  if (confidence2 >= 78) return { mult: 0.75, label: `C  (${confidence2}% \u226578%) \u2192 0.75\xD7` };
-  return { mult: 0.5, label: `D  (${confidence2}%  <78%) \u2192 0.5\xD7` };
+function getConfidenceLotMultiplier(confidence) {
+  if (confidence >= 93) return { mult: 1.5, label: `A+ (${confidence}% \u226593%) \u2192 1.5\xD7` };
+  if (confidence >= 88) return { mult: 1.25, label: `A  (${confidence}% \u226588%) \u2192 1.25\xD7` };
+  if (confidence >= 83) return { mult: 1, label: `B  (${confidence}% \u226583%) \u2192 1.0\xD7` };
+  if (confidence >= 78) return { mult: 0.75, label: `C  (${confidence}% \u226578%) \u2192 0.75\xD7` };
+  return { mult: 0.5, label: `D  (${confidence}%  <78%) \u2192 0.5\xD7` };
 }
 function getStrategyLotMultiplier(strategy) {
   const s = strategy.toLowerCase();
@@ -23462,7 +23555,7 @@ function computeStagedVolumeSL(position, config) {
 function computeChandelierSL(position, atr3, multiplier, trailState) {
   const price = position.currentPrice;
   if (!price || price <= 0) return position.sl || 0;
-  const effectiveATR = atr3 > 0 ? atr3 : position.symbol?.includes("JPY") ? 0.5 : 5e-3;
+  const effectiveATR = atr3 > 0 ? atr3 : 50 * getPipSize(position.symbol || "");
   if (position.direction === "BUY") {
     if (price > (trailState.highestHigh || 0)) trailState.highestHigh = price;
     return (trailState.highestHigh || price) - effectiveATR * multiplier;
@@ -24200,7 +24293,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       if (pipsInProfit < activationPips) continue;
     }
     const symData = marketAnalysis[pos.symbol?.replace("/", "")] || marketAnalysis[pos.symbol] || {};
-    const atr3 = symData.atr?.value ?? symData.atr ?? 0;
+    const atr3 = symData.volatilityContext?.currentATR ?? symData.atr?.value ?? symData.atr ?? 0;
     const multiplier = config.trailingStopATRMultiplier || 3;
     let newSL = 0;
     switch (config.trailMethod) {
@@ -24500,15 +24593,15 @@ function generateRuleBasedSignals(indicators, config, symbol) {
   }
   const direction = bull >= bear ? "BUY" : "SELL";
   const winningScore = Math.max(bull, bear);
-  const confidence2 = Math.round(winningScore / 7 * 100);
+  const confidence = Math.round(winningScore / 7 * 100);
   const entry = currentPrice;
   const pipSize2 = getPipSize(symbol);
   const isJpy = symbol.includes("JPY");
   const isXau2 = symbol.includes("XAU");
   const minSlPips = isXau2 ? 300 : isJpy ? 22 : 16;
   const minSlDist = minSlPips * pipSize2;
-  const slMult = confidence2 >= 86 ? 2 : 1.8;
-  const tpMult = confidence2 >= 86 ? 4 : 3.6;
+  const slMult = confidence >= 86 ? 2 : 1.8;
+  const tpMult = confidence >= 86 ? 4 : 3.6;
   const rawSlDist = atr3 * slMult;
   const effectiveSlDist = Math.max(rawSlDist, minSlDist);
   const effectiveTpDist = Math.max(atr3 * tpMult, effectiveSlDist * 2);
@@ -24525,7 +24618,7 @@ function generateRuleBasedSignals(indicators, config, symbol) {
     strategy: "momentum",
     symbol,
     direction,
-    confidence: confidence2,
+    confidence,
     reason: `Rule-based consensus \u2014 ${winningScore}/7 indicators agree. Votes: ${votes.join("; ")}`,
     confluences: votes,
     entryPrice: entry,
@@ -24541,7 +24634,7 @@ function generateRuleBasedSignals(indicators, config, symbol) {
     positionUpdates: [],
     marketOverview: `Rule-based ${direction} on ${symbol}: ${winningScore}/7 indicators aligned. No AI API call used.`,
     nextScanFocus: `Monitor ${symbol} ${direction} for follow-through`,
-    engineConfidence: confidence2,
+    engineConfidence: confidence,
     activeStrategies: ["momentum"],
     tradingWindowQuality: "good"
   };
@@ -25187,8 +25280,8 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
         }
       }
     }
-    if (newsContext?.highImpactSoon) {
-      state.lastHighImpactNewsAt = (/* @__PURE__ */ new Date()).toISOString();
+    if (newsContext?.lastEventAt) {
+      state.lastHighImpactNewsAt = newsContext.lastEventAt;
     }
     const nowForStrategy = /* @__PURE__ */ new Date();
     const utcHourForStrategy = nowForStrategy.getUTCHours();
@@ -25226,7 +25319,7 @@ ${stratSummaryLines.join("\n")}`
       const vm = data.volumeMetrics;
       const asiaH = state.asiaRangeHigh[sym2];
       const asiaL = state.asiaRangeLow[sym2];
-      const asiaRangeStr = asiaH && asiaL ? `, AsiaHigh=${asiaH}, AsiaLow=${asiaL}, AsiaRange=${(Math.abs(asiaH - asiaL) * (sym2.includes("JPY") ? 100 : 1e4)).toFixed(1)}pips` : "";
+      const asiaRangeStr = asiaH && asiaL ? `, AsiaHigh=${asiaH}, AsiaLow=${asiaL}, AsiaRange=${(Math.abs(asiaH - asiaL) / getPipSize(sym2)).toFixed(1)}pips` : "";
       const vwapVal = data.vwap?.value;
       const vwapDev = vwapVal && data.currentPrice ? ((data.currentPrice - vwapVal) / vwapVal * 100).toFixed(3) : "N/A";
       const htf = htfMarketData?.[sym2];
@@ -26009,13 +26102,13 @@ async function processDecision(userId, decision, newsCtx) {
     }
     return void 0;
   };
-  const confidence2 = typeof decision.confidence === "number" ? decision.confidence : parseFloat(decision.confidence) || 0;
+  const confidence = typeof decision.confidence === "number" ? decision.confidence : parseFloat(decision.confidence) || 0;
   if (decision.action === "NO_ACTION") {
     addActivity(userId, {
       type: "info",
       symbol: decision.symbol,
       message: `No action: ${decision.reason || "Conditions not met"}`,
-      confidence: confidence2
+      confidence
     });
     return;
   }
@@ -26035,6 +26128,7 @@ async function processDecision(userId, decision, newsCtx) {
           return;
         }
         state.orbDailyFired[decision.symbol] = _orbTodayKey;
+        void persistDailyFired(userId, state);
         decision.orbContext = { orb: true, phase: "retest" };
         if (Array.isArray(decision.confluences) && !decision.confluences.includes("ORB breakout+retest")) {
           decision.confluences = [...decision.confluences, "ORB breakout+retest"];
@@ -26159,11 +26253,11 @@ async function processDecision(userId, decision, newsCtx) {
         });
         return;
       }
-      if (confidence2 < 80) {
+      if (confidence < 80) {
         addActivity(userId, {
           type: "info",
           symbol: decision.symbol,
-          message: `\u{1F6E1}\uFE0F SHIELD BLOCK: ${confidence2}% confidence too low during shield mode (need 80%+). Skipping.`
+          message: `\u{1F6E1}\uFE0F SHIELD BLOCK: ${confidence}% confidence too low during shield mode (need 80%+). Skipping.`
         });
         return;
       }
@@ -26183,48 +26277,48 @@ async function processDecision(userId, decision, newsCtx) {
         }
         const pairBlock = mind.softBlockedPairs?.[decision.symbol];
         if (pairBlock && pairBlock.until > Date.now()) {
-          if (confidence2 < 90) {
+          if (confidence < 90) {
             addActivity(userId, {
               type: "info",
               symbol: decision.symbol,
-              message: `\u{1F9E0} PAIR BLOCK: ${decision.symbol} requires 90%+ confidence (${confidence2}% given). Reason: ${pairBlock.reason}`
+              message: `\u{1F9E0} PAIR BLOCK: ${decision.symbol} requires 90%+ confidence (${confidence}% given). Reason: ${pairBlock.reason}`
             });
             state.signalsGenerated++;
             return;
           }
         }
         const adaptedFloor = mind.adaptedConfidenceFloor || state.config.minConfidence || 70;
-        if (adaptedFloor > (state.config.minConfidence || 70) && confidence2 < adaptedFloor) {
+        if (adaptedFloor > (state.config.minConfidence || 70) && confidence < adaptedFloor) {
           addActivity(userId, {
             type: "info",
             symbol: decision.symbol,
-            message: `\u{1F9E0} CONFIDENCE FLOOR: Session win rate ${(mind.sessionWinRate * 100).toFixed(0)}% \u2014 engine raised minimum to ${adaptedFloor}%. Signal at ${confidence2}% rejected.`
+            message: `\u{1F9E0} CONFIDENCE FLOOR: Session win rate ${(mind.sessionWinRate * 100).toFixed(0)}% \u2014 engine raised minimum to ${adaptedFloor}%. Signal at ${confidence}% rejected.`
           });
-          recordBlockedTrade(userId, "confidence_floor_skip", decision.symbol, { direction: decision.direction, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence: confidence2, model: decision.fxModel || decision.model, setup: decision.setup, session: sessionForHour((/* @__PURE__ */ new Date()).getUTCHours()) }, `adapted floor ${adaptedFloor}%`);
+          recordBlockedTrade(userId, "confidence_floor_skip", decision.symbol, { direction: decision.direction, entryPrice: decision.entryPrice, stopLoss: decision.stopLoss, takeProfit: decision.takeProfit, confidence, model: decision.fxModel || decision.model, setup: decision.setup, session: sessionForHour((/* @__PURE__ */ new Date()).getUTCHours()) }, `adapted floor ${adaptedFloor}%`);
           state.signalsGenerated++;
           return;
         }
       }
     }
     const htfBias = state.htfBiasCache?.[decision.symbol];
-    let adjustedConfidence = confidence2;
+    let adjustedConfidence = confidence;
     if (htfBias && htfBias.trend !== "NEUTRAL" && decision.direction) {
       const signalDir = decision.direction.toUpperCase();
       const htfTFLabel = (config.primaryTimeframe || "M15") === "H1" ? "H4" : "H1";
       const htfAligns = signalDir === "BUY" && htfBias.trend === "BULLISH" || signalDir === "SELL" && htfBias.trend === "BEARISH";
       if (htfAligns) {
-        adjustedConfidence = Math.min(100, confidence2 + 5);
+        adjustedConfidence = Math.min(100, confidence + 5);
         addActivity(userId, {
           type: "info",
           symbol: decision.symbol,
           message: `\u{1F4CA} HTF bias: ${htfTFLabel} ${htfBias.trend} \u2014 aligns with ${signalDir} (+5% confidence \u2192 ${adjustedConfidence}%)`
         });
       } else {
-        if (confidence2 < 90) {
+        if (confidence < 90) {
           addActivity(userId, {
             type: "info",
             symbol: decision.symbol,
-            message: `\u{1F4CA} HTF CONFLICT BLOCK: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} \u2014 ${confidence2}% < 90% required for counter-trend. Trade blocked.`
+            message: `\u{1F4CA} HTF CONFLICT BLOCK: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} \u2014 ${confidence}% < 90% required for counter-trend. Trade blocked.`
           });
           state.signalsGenerated++;
           return;
@@ -26232,7 +26326,7 @@ async function processDecision(userId, decision, newsCtx) {
         addActivity(userId, {
           type: "info",
           symbol: decision.symbol,
-          message: `\u{1F4CA} HTF CONFLICT: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} \u2014 ${confidence2}% \u2265 90% threshold cleared. Allowing high-confidence counter-trend.`
+          message: `\u{1F4CA} HTF CONFLICT: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} \u2014 ${confidence}% \u2265 90% threshold cleared. Allowing high-confidence counter-trend.`
         });
       }
     }
@@ -26646,13 +26740,14 @@ async function processDecision(userId, decision, newsCtx) {
     if (decision.__markStrategyFired) {
       if (!state.strategyDailyFired) state.strategyDailyFired = {};
       state.strategyDailyFired[decision.__markStrategyFired] = true;
+      void persistDailyFired(userId, state);
     }
     addActivity(userId, {
       type: "signal",
       symbol: decision.symbol,
       direction: decision.direction,
       confidence: adjustedConfidence,
-      message: `LIVE SIGNAL [${(decision.strategy || "auto").toUpperCase()}]: ${decision.direction} ${decision.symbol} @ ${adjustedConfidence}% confidence${adjustedConfidence !== confidence2 ? ` (HTF-adjusted from ${confidence2}%)` : ""}`,
+      message: `LIVE SIGNAL [${(decision.strategy || "auto").toUpperCase()}]: ${decision.direction} ${decision.symbol} @ ${adjustedConfidence}% confidence${adjustedConfidence !== confidence ? ` (HTF-adjusted from ${confidence}%)` : ""}`,
       details: {
         strategy: decision.strategy,
         confluences: decision.confluences,
@@ -27189,7 +27284,7 @@ async function processDecision(userId, decision, newsCtx) {
     if (isDynamicSizingEnabled) {
       const confTier = getConfidenceLotMultiplier(adjustedConfidence);
       const stratTier = getStrategyLotMultiplier(decision.strategy || "auto");
-      const openCount = global.mt5OpenPositions?.[userId]?.positions?.length ?? state.openPositionCount;
+      const openCount = _mergedPositionsForGates.length;
       const expTier = getExposureLotMultiplier(openCount);
       const combinedMult = confTier.mult * stratTier.mult * expTier.mult;
       dynamicLot = Math.round(compoundedLot * combinedMult * 100) / 100;
@@ -27274,8 +27369,11 @@ async function processDecision(userId, decision, newsCtx) {
           }
         }
       }
-      const _posAgg = global.mt5OpenPositions?.[userId]?.positions ?? [];
-      const _openLots = _posAgg.reduce((s, p2) => s + (p2.lots || p2.volume || p2.size || 0), 0);
+      const _posAgg = _mergedPositionsForGates;
+      const _openLots = _posAgg.reduce((s, p2) => {
+        const v = p2.lots || p2.volume || p2.size || 0;
+        return s + (p2.source === "dx" ? v / 1e5 : v);
+      }, 0);
       const _aggCap = safeMaxLot * (config.maxOpenTrades || 3) * 1.5;
       if (_openLots + lotSize > _aggCap) {
         addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: aggregate exposure ${(_openLots + lotSize).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)} \u2014 trade skipped` });
@@ -27432,7 +27530,10 @@ async function processDecision(userId, decision, newsCtx) {
               }
             }
             const _dxMult = (Number(dc.lot_multiplier) || 1) * _dxConsistencyMult;
-            const _dxIncr = Number(spec?.quantityIncrement) > 0 ? Number(spec.quantityIncrement) : Number(spec?.lotSize) > 0 ? Number(spec.lotSize) : 0;
+            const _dxSpecIncr = Number(spec?.quantityIncrement) > 0 ? Number(spec.quantityIncrement) : 0;
+            const _dxLotSize = Number(spec?.lotSize) > 0 ? Number(spec.lotSize) : 0;
+            const _dxIsFx = /forex|fx/i.test(String(spec?.type ?? spec?.assetClass ?? "")) || _dxLotSize >= 1e3;
+            const _dxIncr = _dxIsFx && _dxLotSize > 0 ? Math.max(_dxSpecIncr, _dxLotSize / 100) : _dxSpecIncr;
             if (qty > 0 && _dxMult !== 1) {
               qty = qty * _dxMult;
               if (_dxIncr > 0) qty = Math.floor(qty / _dxIncr) * _dxIncr;
@@ -27444,14 +27545,44 @@ async function processDecision(userId, decision, newsCtx) {
               logDxtradeSkip(userId, dc.id, dxSymbol, "zero_qty", `qty=${qty} entry=${entryPrice} stop=${stopLoss} riskPct=${dc.risk_percent}`);
               continue;
             }
-            const r = await svc.placeOrder(acct, { instrument: dxSymbol, side: _dxSide, quantity: qty, type: "MARKET" });
+            const _preDxQty = /* @__PURE__ */ new Map();
+            try {
+              const _prePoss = await svc.getPositions(acct);
+              for (const pp of _prePoss) {
+                if (pp.instrument === _dxSymNorm && pp.side === _dxSide && pp.positionId != null) {
+                  _preDxQty.set(String(pp.positionId), Number(pp.quantity) || 0);
+                }
+              }
+            } catch {
+            }
+            let r;
+            try {
+              r = await svc.placeOrder(acct, { instrument: dxSymbol, side: _dxSide, quantity: qty, type: "MARKET" });
+            } catch (oe) {
+              let _oeClosed = false;
+              if (_preDxQty.size === 0) {
+                try {
+                  await svc.closePosition(acct, dxSymbol, _dxSide, qty);
+                  _oeClosed = true;
+                } catch {
+                }
+              }
+              try {
+                const _rcTicket2 = `dx_${acct}_reconcile_${Date.now()}`;
+                await storage.createAiTradeResult({ userId, symbol: dxSymbol, direction: _dxSide, entryPrice: entryPrice || 0, exitPrice: 0, stopLoss: stopLoss || 0, takeProfit: takeProfit || 0, aiConfidence: adjustedConfidence || 0, result: "NEEDS_RECONCILE", profitLoss: 0, source: "dxtrade", connectionId: dc.id, mt5Ticket: _rcTicket2, notes: `DXtrade order call FAILED ambiguously (${oe?.message ?? oe}) \u2014 fill unknown; emergency close ${_oeClosed ? "sent" : "not sent"}; verify on Velotrade` });
+              } catch {
+              }
+              addActivity(userId, { type: "error", symbol: decision.symbol, message: `\u{1F6A8} DXtrade [${acct}] ${dxSymbol}: order call failed ambiguously (${oe?.message ?? oe}) \u2014 the order MAY have filled. Flagged NEEDS_RECONCILE${_preDxQty.size === 0 ? `; emergency close ${_oeClosed ? "sent" : "FAILED"}` : " (pre-existing position present \u2014 no blind close sent)"} \u2014 CHECK Velotrade manually.` });
+              logDxtradeSkip(userId, dc.id, dxSymbol, "order_call_ambiguous", String(oe?.message ?? oe));
+              continue;
+            }
             let _pos = null;
             let _verifyError = false;
             for (let _att = 0; _att < 5 && !_pos; _att++) {
               await new Promise((res2) => setTimeout(res2, 1e3));
               try {
                 const _poss = await svc.getPositions(acct);
-                _pos = _poss.find((p2) => p2.instrument === _dxSymNorm && p2.side === _dxSide) || null;
+                _pos = _poss.find((p2) => p2.instrument === _dxSymNorm && p2.side === _dxSide && !(_preDxQty.has(String(p2.positionId)) && (Number(p2.quantity) || 0) <= (_preDxQty.get(String(p2.positionId)) || 0))) || null;
                 _verifyError = false;
               } catch (ve) {
                 _verifyError = true;
@@ -27472,6 +27603,14 @@ async function processDecision(userId, decision, newsCtx) {
                 }
                 addActivity(userId, { type: "error", symbol: decision.symbol, message: `\u{1F6A8} DXtrade [${acct}] ${dxSymbol}: could NOT verify fill (broker read failed). Emergency close ${_emClosed ? "sent" : "FAILED"} + flagged NEEDS_RECONCILE \u2014 CHECK Velotrade manually.` });
                 logDxtradeSkip(userId, dc.id, dxSymbol, "verify_fill_failed", `emergency_close=${_emClosed ? "sent" : "FAILED"}`);
+              } else if (_preDxQty.size > 0) {
+                try {
+                  const _rcTicket3 = `dx_${acct}_reconcile_${Date.now()}`;
+                  await storage.createAiTradeResult({ userId, symbol: dxSymbol, direction: _dxSide, entryPrice: entryPrice || 0, exitPrice: 0, stopLoss: stopLoss || 0, takeProfit: takeProfit || 0, aiConfidence: adjustedConfidence || 0, result: "NEEDS_RECONCILE", profitLoss: 0, source: "dxtrade", connectionId: dc.id, mt5Ticket: _rcTicket3, notes: `DXtrade fill could not be distinguished from a pre-existing ${dxSymbol} position \u2014 verify size/protection on Velotrade` });
+                } catch {
+                }
+                addActivity(userId, { type: "error", symbol: decision.symbol, message: `\u26A0\uFE0F DXtrade [${acct}] ${dxSymbol}: no new position verified and a pre-existing ${dxSymbol} position exists \u2014 fill ambiguous, flagged NEEDS_RECONCILE. CHECK Velotrade manually.` });
+                logDxtradeSkip(userId, dc.id, dxSymbol, "fill_ambiguous_preexisting", `qty=${qty} side=${_dxSide} orderResp=${JSON.stringify(r?.result ?? r).slice(0, 380)}`);
               } else {
                 let _lateClosed = false;
                 try {
@@ -27524,6 +27663,8 @@ async function processDecision(userId, decision, newsCtx) {
                   notes: `DXtrade open (qty ${qty}) SL ${stopLoss}${takeProfit ? ` TP ${takeProfit}` : ""} \u2014 protection attached, awaiting close sync`
                 });
                 state.tradesOpenedToday++;
+                global.recentTrades = global.recentTrades || {};
+                global.recentTrades[`last_trade_${userId}_${_dxSymNorm}`] = Date.now();
               }
             } catch (_dxRec) {
               console.error("[live-engine] DXtrade open-record failed (non-fatal):", _dxRec?.message ?? _dxRec);
@@ -28030,7 +28171,15 @@ async function processDecision(userId, decision, newsCtx) {
           const acctLabel = tlConn.email ? `[${tlConn.email}]` : `[Account ${tlConn.id}]`;
           try {
             const svc = await getOrCreateService(tlConn);
-            const tlPositions = await svc.getPositionsNormalized().catch(() => []);
+            let _tlMgmtReadErr = null;
+            const tlPositions = await svc.getPositionsNormalized().catch((e) => {
+              _tlMgmtReadErr = e;
+              return [];
+            });
+            if (_tlMgmtReadErr) {
+              addActivity(userId, { type: "error", symbol: decision.symbol, message: `\u26A0\uFE0F ${acctLabel}: TradeLocker position read failed (${_tlMgmtReadErr?.message || _tlMgmtReadErr}) \u2014 management action for ${decision.symbol} NOT applied this pass.` });
+              return;
+            }
             const matchDir = decision.direction ? String(decision.direction).toUpperCase() : null;
             const _symMatches = tlPositions.filter((p2) => (p2.symbol || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", ""));
             if (!matchDir && new Set(_symMatches.map((p2) => String(p2.side || "").toUpperCase())).size > 1) {
@@ -28150,7 +28299,15 @@ async function processDecision(userId, decision, newsCtx) {
             await svc.ensureLoggedIn();
             const acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
             if (!acct) return;
-            const positions = await svc.getPositions(acct).catch(() => []);
+            let _dxMgmtReadErr = null;
+            const positions = await svc.getPositions(acct).catch((e) => {
+              _dxMgmtReadErr = e;
+              return [];
+            });
+            if (_dxMgmtReadErr) {
+              addActivity(userId, { type: "error", symbol: decision.symbol, message: `\u26A0\uFE0F ${acctLabel}: DXtrade position read failed (${_dxMgmtReadErr?.message || _dxMgmtReadErr}) \u2014 management action for ${decision.symbol} NOT applied this pass.` });
+              return;
+            }
             const matchDir = decision.direction ? String(decision.direction).toUpperCase() : null;
             const symMatches = positions.filter((p2) => (p2.instrument || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", ""));
             if (!matchDir && new Set(symMatches.map((p2) => String(p2.side || "").toUpperCase())).size > 1) {
@@ -28458,6 +28615,7 @@ async function runORBAutonomousScan(userId) {
         confidence: aiScore
       });
       state.orbDailyFired[symbol] = todayKey;
+      void persistDailyFired(userId, state);
       await processDecision(userId, {
         action: "OPEN_TRADE",
         strategy: "orb_breakout",
@@ -28514,17 +28672,17 @@ async function runSundayGapScanner(userId) {
       const slPipCount = isGold ? 300 : isJPY ? 20 : 20;
       const slDist = slPipCount * pipSz;
       const sl = direction === "BUY" ? sundayOpen - slDist : sundayOpen + slDist;
-      const confidence2 = Math.min(88, 72 + gapPips * 0.8);
+      const confidence = Math.min(88, 72 + gapPips * 0.8);
       addActivity(userId, {
         type: "info",
         symbol,
-        message: `\u{1F319} SUNDAY GAP: ${symbol} opened ${gapPips.toFixed(1)} pips ${sundayOpen > fridayClose ? "above" : "below"} Friday close \u2192 gap fill ${direction} (confidence: ${confidence2.toFixed(0)}%)`
+        message: `\u{1F319} SUNDAY GAP: ${symbol} opened ${gapPips.toFixed(1)} pips ${sundayOpen > fridayClose ? "above" : "below"} Friday close \u2192 gap fill ${direction} (confidence: ${confidence.toFixed(0)}%)`
       });
       await processDecision(userId, {
         action: "OPEN_TRADE",
         symbol,
         direction,
-        confidence: confidence2,
+        confidence,
         strategy: "sunday_gap",
         entryPrice: sundayOpen,
         stopLoss: sl,
@@ -28800,7 +28958,18 @@ function startLiveEngine(userId, config) {
       const { pool: _cPool } = await Promise.resolve().then(() => (init_db(), db_exports));
       const days = Math.max(15, (fullConfig.consistencyPeriodDays || 15) + 5);
       const cutoff = new Date(Date.now() - days * 864e5).toISOString();
-      const _sources = `('tradelocker','tradelocker_auto','mt5_ea','mt5_copier','manual','brain_autoexec')`;
+      try {
+        const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+        const _st0 = engineStates[userId];
+        if (_st0) {
+          const _orbStored = await getRuntimeStateStrict2("fx_orb_daily_fired", String(userId));
+          if (_orbStored && typeof _orbStored === "object") _st0.orbDailyFired = { ..._orbStored };
+          const _stratStored = await getRuntimeStateStrict2("fx_strategy_daily_fired", String(userId));
+          if (_stratStored && typeof _stratStored === "object") _st0.strategyDailyFired = { ..._stratStored };
+        }
+      } catch {
+      }
+      const _sources = `('tradelocker','tradelocker_auto','mt5_ea','mt5_copier','manual','brain_autoexec','dxtrade')`;
       const rows = (await _cPool.query(
         `SELECT (closed_at AT TIME ZONE 'UTC')::date AS d, COALESCE(SUM(profit_loss),0) AS pnl
            FROM ai_trade_results
@@ -29355,6 +29524,14 @@ function confirmMT5Signal(userId, signalId, executed, accountAlias = "default") 
   _postConfirmActivity(userId, signal, executed);
   return signal;
 }
+async function persistDailyFired(userId, state) {
+  try {
+    const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    saveRuntimeState2("fx_orb_daily_fired", String(userId), state?.orbDailyFired || {});
+    saveRuntimeState2("fx_strategy_daily_fired", String(userId), state?.strategyDailyFired || {});
+  } catch {
+  }
+}
 function _postConfirmActivity(userId, signal, executed) {
   addActivity(userId, {
     type: executed ? "trade_open" : "info",
@@ -29369,6 +29546,8 @@ function _postConfirmActivity(userId, signal, executed) {
       state.tradesExecuted++;
       state.openPositionCount++;
     }
+    global.recentTrades = global.recentTrades || {};
+    global.recentTrades[`last_trade_${userId}_${String(signal.symbol || "").toUpperCase().replace("/", "")}`] = Date.now();
   }
 }
 function getAllMT5Signals(userId, limit = 50) {
@@ -30545,14 +30724,14 @@ function propSimulate(decisions, opts = {}) {
     const r = Number(d?.r_multiple ?? d?.rMultiple);
     const sliceKey2 = `${d?.model || ""}|${d?.day_type ?? d?.dayType ?? ""}|${String(d?.symbol || "").toUpperCase()}|${d?.session || ""}`;
     const confRaw = Number(d?.confidence);
-    const confidence2 = Number.isFinite(confRaw) ? confRaw : null;
+    const confidence = Number.isFinite(confRaw) ? confRaw : null;
     if (dayPnl <= -(dailyCapPct / 100) * dayStartBalance + 1e-9) {
       skippedByDailyCap++;
-      if (opts.includeDetail) detail.push({ at: new Date(ts).toISOString(), day, sliceKey: sliceKey2, confidence: confidence2, riskPct: 0, riskDollars: 0, r, pnl: 0, balanceAfter: balance, skipped: true, skipReason: "daily loss cap" });
+      if (opts.includeDetail) detail.push({ at: new Date(ts).toISOString(), day, sliceKey: sliceKey2, confidence, riskPct: 0, riskDollars: 0, r, pnl: 0, balanceAfter: balance, skipped: true, skipReason: "daily loss cap" });
       continue;
     }
     const prior = slicePrior.get(sliceKey2) || { n: 0, wins: 0 };
-    const confFactor = clampNum((confidence2 ?? 50) / 100, 0.4, 1);
+    const confFactor = clampNum((confidence ?? 50) / 100, 0.4, 1);
     const accFactor = prior.n >= 10 ? clampNum(prior.wins / prior.n, 0.5, 1) : 0.75;
     const riskPct = clampNum(baseRiskPct * confFactor * accFactor, minRiskPct, maxRiskPct);
     const riskDollars = balance * (riskPct / 100);
@@ -30569,7 +30748,7 @@ function propSimulate(decisions, opts = {}) {
         at: new Date(ts).toISOString(),
         day,
         sliceKey: sliceKey2,
-        confidence: confidence2,
+        confidence,
         riskPct: Math.round(riskPct * 1e6) / 1e6,
         riskDollars: round22(riskDollars),
         r,
@@ -30729,6 +30908,15 @@ async function runFxModelsCycle(userId, ctx) {
     const day = now.toISOString().slice(0, 10);
     const hour = now.getUTCHours();
     const pairs = [];
+    const _decidedHours = /* @__PURE__ */ new Set();
+    try {
+      const { rows: _regRows } = await pool.query(
+        `SELECT symbol, hour_utc FROM fx_day_regimes WHERE user_id = $1 AND day = $2`,
+        [userId, day]
+      );
+      for (const r of _regRows) _decidedHours.add(`${r.symbol}|${r.hour_utc}`);
+    } catch {
+    }
     for (const [symbol, a] of Object.entries(ctx.marketAnalysis || {})) {
       const snap = ctx.snapshot?.[symbol] || {};
       const { h1, h4 } = ctx.mtf(symbol);
@@ -30758,7 +30946,7 @@ async function runFxModelsCycle(userId, ctx) {
       });
       const candle = Math.floor(now.getTime() / 36e5);
       const key = `${userId}|${symbol}`;
-      if (lastShadowCandle.get(key) !== candle && Number(features.price) > 0) {
+      if (lastShadowCandle.get(key) !== candle && !_decidedHours.has(`${symbol}|${hour}`) && Number(features.price) > 0) {
         lastShadowCandle.set(key, candle);
         pairs.push({ symbol, ctx: { ...features, dayType: cls.dayType, autoModel: cls.autoModel, trendScore: cls.score } });
       }
@@ -31949,6 +32137,7 @@ var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
     init_db();
+    init_pipUtils();
     init_service();
     init_markov_chain();
     init_shadow_lesson_gate();
@@ -32010,7 +32199,7 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
       }
     };
     barsFor = (engine) => barsProviders[engine] || barsProviders.fx;
-    pipSize = (sym2) => /JPY/.test(sym2) ? 0.01 : /^XAU/.test(sym2) ? 0.1 : /^(BTC|ETH)/.test(sym2) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym2) ? 1 : 1e-4;
+    pipSize = (sym2) => getPipSize(sym2);
     modelsEnrichOn = () => process.env.FX_MODELS_ENRICH !== "off";
     MODELS_EPOCH = 3;
     PREVIOUS_MODELS_EPOCH = 2;
@@ -32432,7 +32621,7 @@ function getAssetSpecificPrompt(symbol) {
        - If unsure, signal should be NEUTRAL with reduced confidence
        
     6. STOP LOSS RULES FOR GOLD:
-       - Minimum 200-300 pips from entry (gold pips are 0.01)
+       - Minimum 200-300 pips from entry (gold pips are 0.10, so 300 pips = $30)
        - Place below/above significant swing points
        - Never use tight stops on gold - they will get hunted`;
   }
@@ -32790,12 +32979,7 @@ function getAiConfirmationLogs(userId) {
   return aiConfirmationLogs2.get(userId) || [];
 }
 function estimatePipSize(symbol) {
-  const s = symbol.toUpperCase();
-  if (s.includes("XAU") || s.includes("GOLD")) return 0.1;
-  if (s.includes("JPY")) return 0.01;
-  if (["US30", "NAS100", "GER40", "UK100", "SPX500", "DAX", "AUS200", "HK50", "JP225", "FRA40"].some((idx) => s.includes(idx))) return 1;
-  if (s.includes("BTC") || s.includes("ETH") || s.includes("XBT")) return 1;
-  return 1e-4;
+  return getPipSize(symbol);
 }
 function buildTrailSignalSummary(symbol, proposedSignal, tradePlan, ictContext, smcContext) {
   if (!ictContext && !smcContext) return "\u25BA No ICT/SMC context available \u2014 use ADX/ATR baseline only";
@@ -33468,9 +33652,9 @@ ${"\u2550".repeat(47)}`;
 \u26A0 DAILY BUFFER LOW: Only ${remainingDailyBuffer.toFixed(2)}% remaining \u2014 micro lot only or skip this trade.`;
     }
     if (tradePlan?.entry && tradePlan?.stopLoss && tradePlan?.lotSize && propFirmContext.accountBalance > 0) {
-      const pipSize2 = symbol.includes("JPY") ? 0.01 : symbol.includes("XAU") || symbol.includes("GOLD") ? 0.1 : 1e-4;
+      const pipSize2 = getPipSize(symbol);
       const pipDist = Math.abs(tradePlan.entry - tradePlan.stopLoss) / pipSize2;
-      const pipValuePerLot = symbol.includes("JPY") ? 1e3 : symbol.includes("XAU") || symbol.includes("GOLD") ? 10 : 10;
+      const pipValuePerLot = getPipValue(symbol);
       const dollarRisk = pipDist * pipValuePerLot * tradePlan.lotSize;
       computedRiskPct = dollarRisk / propFirmContext.accountBalance * 100;
     }
@@ -36364,6 +36548,7 @@ var init_openai = __esm({
     init_github_strategy_context();
     init_confirmation_learning();
     init_ai_usage();
+    init_pipUtils();
     TOP_PROFITABLE_STRATEGIES = [
       { name: "ICT AMD Kill Zone", pairs: ["XAUUSD", "GBPUSD", "EURUSD"], description: "Asian Range defined 02:00\u201305:00 UTC. London open (06:00\u201308:00) raids Asian low, price reverses. Entry on M15 OB inside Asian boundary + FVG fill. NY session sweeps AMD high.", winConditions: "FVG fill + bullish engulf at OB, ADX > 25, ictMacroValid = true", riskNote: "Avoid if NFP/FOMC within 4h" },
       { name: "SMC Order Block Raid", pairs: ["GBPJPY", "USDJPY", "XAUUSD"], description: "Weekly/Daily OB identified. H4 price sweeps below OB, wicks back inside. Enter on M15 BOS above OB bottom.", winConditions: "Volume spike on wick, RSI divergence on M15, BOS confirmed", riskNote: "Invalid if OB broken on close" },
@@ -42845,17 +43030,17 @@ async function analyzeToken(token, options = {}) {
   const sentimentScore = calculateSentimentScore(token);
   const tokenomicsScore = calculateTokenomicsScore(token);
   const whaleScore = calculateWhaleScore(token);
-  let { signal, confidence: confidence2 } = determineSignal(sentimentScore, tokenomicsScore, whaleScore);
+  let { signal, confidence } = determineSignal(sentimentScore, tokenomicsScore, whaleScore);
   if (signalWeights) {
     const dexKey = (token.dexId || "").toLowerCase().split("_")[0];
     const weight = signalWeights[dexKey] || 1;
-    confidence2 = Math.round(Math.min(98, Math.max(10, confidence2 * weight)));
+    confidence = Math.round(Math.min(98, Math.max(10, confidence * weight)));
   }
   if (macro) {
     if (macro.bias === "RISK_ON" && (signal === "STRONG_BUY" || signal === "BUY")) {
-      confidence2 = Math.min(98, confidence2 + 5);
+      confidence = Math.min(98, confidence + 5);
     } else if (macro.bias === "RISK_OFF" && (signal === "STRONG_BUY" || signal === "BUY")) {
-      confidence2 = Math.max(10, confidence2 - 8);
+      confidence = Math.max(10, confidence - 8);
     }
   }
   const riskLevel = determineRiskLevel(token, tokenomicsScore);
@@ -42867,7 +43052,7 @@ async function analyzeToken(token, options = {}) {
   } else try {
     const macroBlock = macro ? ` Macro: BTC${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}%/ETH${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}%/SOL${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% (${macro.bias}).` : "";
     const weightsBlock = signalWeights ? ` DEX weights: ${buildDexWeightsBlock(signalWeights)}.` : "";
-    const prompt = `Solana token: ${token.symbol} | DEX: ${token.dexId || "?"} | Price: $${token.priceUsd} | 24h: ${token.priceChange24h.toFixed(1)}% | Vol: $${(token.volume24h / 1e3).toFixed(0)}K | Liq: $${(token.liquidity / 1e3).toFixed(0)}K | Buys/Sells: ${token.txns24h.buys}/${token.txns24h.sells} | Traders: ${token.makers24h} | Scores: sent=${sentimentScore} tok=${tokenomicsScore} whale=${whaleScore} | Signal: ${signal} ${confidence2}% | Risk: ${riskLevel}.${macroBlock}${weightsBlock} Give a sharp 2-sentence trade analysis. Be direct.`;
+    const prompt = `Solana token: ${token.symbol} | DEX: ${token.dexId || "?"} | Price: $${token.priceUsd} | 24h: ${token.priceChange24h.toFixed(1)}% | Vol: $${(token.volume24h / 1e3).toFixed(0)}K | Liq: $${(token.liquidity / 1e3).toFixed(0)}K | Buys/Sells: ${token.txns24h.buys}/${token.txns24h.sells} | Traders: ${token.makers24h} | Scores: sent=${sentimentScore} tok=${tokenomicsScore} whale=${whaleScore} | Signal: ${signal} ${confidence}% | Risk: ${riskLevel}.${macroBlock}${weightsBlock} Give a sharp 2-sentence trade analysis. Be direct.`;
     let openaiClient = openaiOverride;
     let fallbackModel = "gpt-4o-mini";
     if (!openaiClient) {
@@ -42911,7 +43096,7 @@ async function analyzeToken(token, options = {}) {
   return {
     token,
     signal,
-    confidence: confidence2,
+    confidence,
     holdDuration,
     reasoning,
     sentimentScore,
@@ -49106,7 +49291,7 @@ function buildPrediction(candles, fromCache, source = "binance", binanceSymbol =
   const rawScore = signals.reduce((s, x) => s + x.score, 0);
   const maxScore = 9;
   const normalised = (rawScore / maxScore + 1) / 2;
-  const confidence2 = Math.min(95, Math.max(30, Math.round(normalised * 100)));
+  const confidence = Math.min(95, Math.max(30, Math.round(normalised * 100)));
   let direction;
   if (rawScore >= 2) direction = "BUY";
   else if (rawScore <= -2) direction = "SELL";
@@ -49114,7 +49299,7 @@ function buildPrediction(candles, fromCache, source = "binance", binanceSymbol =
   const sorted = signals.sort((a, b) => direction === "BUY" ? b.score - a.score : a.score - b.score).slice(0, 3).map((s) => s.reason);
   return {
     direction,
-    confidence: direction === "NEUTRAL" ? Math.round(50 + Math.abs(rawScore) * 5) : confidence2,
+    confidence: direction === "NEUTRAL" ? Math.round(50 + Math.abs(rawScore) * 5) : confidence,
     currentPrice,
     priceChange5m: Math.round(priceChange5m * 1e3) / 1e3,
     priceChange1h: Math.round(priceChange1h * 1e3) / 1e3,
@@ -49240,28 +49425,28 @@ function volumeProfileSignal(candles) {
   const recentVol = window.slice(-3).reduce((s, c) => s + c.volume, 0) / 3;
   const volConfirm = recentVol > avgVol;
   let direction = "NEUTRAL";
-  let confidence2 = 50;
+  let confidence = 50;
   let reason;
   if (price > VAH && volConfirm) {
     direction = "BUY";
     const dist2 = (price - VAH) / binSize;
-    confidence2 = clamp4(Math.round(60 + dist2 * 8), 55, 90);
+    confidence = clamp4(Math.round(60 + dist2 * 8), 55, 90);
     reason = `VP breakout: price $${price.toFixed(0)} above value-area-high $${VAH.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
   } else if (price < VAL && volConfirm) {
     direction = "SELL";
     const dist2 = (VAL - price) / binSize;
-    confidence2 = clamp4(Math.round(60 + dist2 * 8), 55, 90);
+    confidence = clamp4(Math.round(60 + dist2 * 8), 55, 90);
     reason = `VP breakdown: price $${price.toFixed(0)} below value-area-low $${VAL.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
   } else if (price > VAH || price < VAL) {
     direction = "NEUTRAL";
-    confidence2 = 48;
+    confidence = 48;
     reason = `VP: price outside value area but volume NOT confirming \u2014 likely false breakout, skip`;
   } else {
     direction = "NEUTRAL";
-    confidence2 = 45;
+    confidence = 45;
     reason = `VP: price $${price.toFixed(0)} inside value area $${VAL.toFixed(0)}\u2013$${VAH.toFixed(0)} (POC $${pocPrice.toFixed(0)}) \u2014 no breakout edge`;
   }
-  return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "volume_profile" };
+  return { direction, confidence, currentPrice: price, priceChange1h, reason, strategy: "volume_profile" };
 }
 function markovSignal(candles) {
   const price = candles[candles.length - 1].close;
@@ -49281,22 +49466,22 @@ function markovSignal(candles) {
   const pU = row[0] / rowSum;
   const pD = row[1] / rowSum;
   let direction = "NEUTRAL";
-  let confidence2 = 50;
+  let confidence = 50;
   const MIN_PROB = 0.55;
   const MIN_MARGIN = 0.12;
   const enoughSamples = rowSum >= 8;
   if (enoughSamples && pU >= MIN_PROB && pU - pD >= MIN_MARGIN) {
     direction = "BUY";
-    confidence2 = clamp4(Math.round(pU * 100), 55, 92);
+    confidence = clamp4(Math.round(pU * 100), 55, 92);
   } else if (enoughSamples && pD >= MIN_PROB && pD - pU >= MIN_MARGIN) {
     direction = "SELL";
-    confidence2 = clamp4(Math.round(pD * 100), 55, 92);
+    confidence = clamp4(Math.round(pD * 100), 55, 92);
   } else {
     direction = "NEUTRAL";
-    confidence2 = clamp4(Math.round(Math.max(pU, pD) * 100), 40, 54);
+    confidence = clamp4(Math.round(Math.max(pU, pD) * 100), 40, 54);
   }
   const reason = `Markov from '${cur}' state: P(up)=${(pU * 100).toFixed(0)}%, P(down)=${(pD * 100).toFixed(0)}% (${rowSum} samples)`;
-  return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "markov" };
+  return { direction, confidence, currentPrice: price, priceChange1h, reason, strategy: "markov" };
 }
 function orderFlowSignal(candles) {
   const price = candles[candles.length - 1].close;
@@ -49424,19 +49609,19 @@ function ensembleSignal(candles) {
   else if (slope < 0) bear++;
   const total = bull + bear;
   let direction = "NEUTRAL";
-  let confidence2 = 50;
+  let confidence = 50;
   if (bull >= 4 && bull > bear) {
     direction = "BUY";
-    confidence2 = clamp4(60 + bull * 6, 60, 92);
+    confidence = clamp4(60 + bull * 6, 60, 92);
   } else if (bear >= 4 && bear > bull) {
     direction = "SELL";
-    confidence2 = clamp4(60 + bear * 6, 60, 92);
+    confidence = clamp4(60 + bear * 6, 60, 92);
   } else {
     direction = "NEUTRAL";
-    confidence2 = clamp4(45 + Math.max(bull, bear) * 3, 40, 58);
+    confidence = clamp4(45 + Math.max(bull, bear) * 3, 40, 58);
   }
   const reason = `Ensemble ${direction}: ${Math.max(bull, bear)}/5 factors agree (${notes.join(", ")}). Trending regime confirmed.`;
-  return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "ensemble" };
+  return { direction, confidence, currentPrice: price, priceChange1h, reason, strategy: "ensemble" };
 }
 function orbSignal(candles) {
   const price = candles.length ? candles[candles.length - 1].close : 0;
@@ -49513,23 +49698,23 @@ async function getKalshiConsensus(coin = "BTC") {
   }
   const totalWeight = buyWeight + sellWeight;
   let direction = "NEUTRAL";
-  let confidence2 = 0;
+  let confidence = 0;
   let agreement = 0;
   if (totalWeight > 0) {
     if (buyWeight > sellWeight) {
       direction = "BUY";
       agreement = buyWeight / totalWeight;
       const buyers = signals.filter((s) => s.direction === "BUY");
-      confidence2 = Math.round(buyers.reduce((a, b) => a + b.confidence, 0) / buyers.length);
+      confidence = Math.round(buyers.reduce((a, b) => a + b.confidence, 0) / buyers.length);
     } else if (sellWeight > buyWeight) {
       direction = "SELL";
       agreement = sellWeight / totalWeight;
       const sellers = signals.filter((s) => s.direction === "SELL");
-      confidence2 = Math.round(sellers.reduce((a, b) => a + b.confidence, 0) / sellers.length);
+      confidence = Math.round(sellers.reduce((a, b) => a + b.confidence, 0) / sellers.length);
     }
   }
   const reasons = signals.map((s) => `${s.strategy}: ${s.direction} ${s.confidence}%`);
-  return { direction, confidence: confidence2, agreement, currentPrice: price, priceChange1h, signals, reasons };
+  return { direction, confidence, agreement, currentPrice: price, priceChange1h, signals, reasons };
 }
 var clamp4;
 var init_kalshi_strategies = __esm({
@@ -49801,7 +49986,7 @@ function kalshiBrainSizeMultiplier(userId, coin) {
   const k2 = b?.coinKnowledge[coin];
   return k2 ? k2.recommendedSizeMultiplier : 1;
 }
-function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
+function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence) {
   const k2 = _cache7.get(userId)?.brain?.coinKnowledge[coin];
   if (!k2) return { blocked: false, reason: "" };
   const decided = k2.wins + k2.losses;
@@ -49820,10 +50005,10 @@ function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
       return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin} @ ${hourUtc}:00 UTC win rate ${h.winRate}% over ${h.trades} \u2014 skipping this hour` };
     }
   }
-  if (confidence2 != null) {
-    const cb = k2.byConfidenceBand[_band(confidence2, 10)];
+  if (confidence != null) {
+    const cb = k2.byConfidenceBand[_band(confidence, 10)];
     if (cb && cb.trades >= 8 && cb.winRate < 30) {
-      return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin} at ${_band(confidence2, 10)} confidence win rate ${cb.winRate}% over ${cb.trades} \u2014 skipping` };
+      return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin} at ${_band(confidence, 10)} confidence win rate ${cb.winRate}% over ${cb.trades} \u2014 skipping` };
     }
   }
   return { blocked: false, reason: "" };
@@ -52104,83 +52289,83 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
       const candles = data.candles || [];
       let direction = null;
       let confluences = [];
-      let confidence2 = 0;
+      let confidence = 0;
       let strategy = "rule_based";
       if (adx > 25 && plusDI > minusDI && rsi5 < 65 && macdCross) {
         direction = "BUY";
         confluences = [`ADX ${adx.toFixed(1)} trend`, "DI+ dominant", "MACD bullish"];
-        confidence2 = 65;
+        confidence = 65;
         strategy = "adx_macd";
       } else if (adx > 25 && minusDI > plusDI && rsi5 > 35 && !macdCross) {
         direction = "SELL";
         confluences = [`ADX ${adx.toFixed(1)} trend`, "DI- dominant", "MACD bearish"];
-        confidence2 = 65;
+        confidence = 65;
         strategy = "adx_macd";
       }
       const sm = computeSmartMoney(candles);
       if (!direction && sm.liqSweepBull) {
         direction = "BUY";
-        confidence2 = 63;
+        confidence = 63;
         strategy = "smart_money";
         confluences = ["Liquidity sweep reversal (bull)"];
       } else if (!direction && sm.liqSweepBear) {
         direction = "SELL";
-        confidence2 = 63;
+        confidence = 63;
         strategy = "smart_money";
         confluences = ["Liquidity sweep reversal (bear)"];
       }
       if (direction) {
         const isBull = direction === "BUY";
         if (sm.orderBlockBull && isBull) {
-          confidence2 += 4;
+          confidence += 4;
           confluences.push("Bullish order block");
         }
         if (sm.orderBlockBear && !isBull) {
-          confidence2 += 4;
+          confidence += 4;
           confluences.push("Bearish order block");
         }
         if (sm.fvgBull && isBull) {
-          confidence2 += 3;
+          confidence += 3;
           confluences.push("Bullish FVG");
         }
         if (sm.fvgBear && !isBull) {
-          confidence2 += 3;
+          confidence += 3;
           confluences.push("Bearish FVG");
         }
         if (sm.liqSweepBull && isBull) {
-          confidence2 += 5;
+          confidence += 5;
           confluences.push("Liquidity sweep (bull)");
         }
         if (sm.liqSweepBear && !isBull) {
-          confidence2 += 5;
+          confidence += 5;
           confluences.push("Liquidity sweep (bear)");
         }
         const vp = computeVolumeProfile(candles, data.currentPrice);
         if (vp.poc > 0) {
           if (isBull && vp.priceNearVAL) {
-            confidence2 += 4;
+            confidence += 4;
             confluences.push("Price at VAL (vol support)");
           }
           if (!isBull && vp.priceNearVAH) {
-            confidence2 += 4;
+            confidence += 4;
             confluences.push("Price at VAH (vol resistance)");
           }
           if (vp.priceNearPOC) confluences.push(`Near POC $${vp.poc.toFixed(2)}`);
         }
         const delta = computeVolumeDelta(candles);
         if (isBull && delta > 0) {
-          confidence2 += 3;
+          confidence += 3;
           confluences.push(`Vol delta: buyer aggression`);
         } else if (!isBull && delta < 0) {
-          confidence2 += 3;
+          confidence += 3;
           confluences.push(`Vol delta: seller aggression`);
         } else if (delta !== 0) {
-          confidence2 -= 4;
+          confidence -= 4;
           confluences.push("Vol delta opposing signal");
         }
         if (candles.length >= 10) {
           const markov = getMarkovSignal(symbol, direction, candles.map((c) => ({ open: c.o, close: c.c })));
-          confidence2 += markov.confidenceAdjustment;
+          confidence += markov.confidenceAdjustment;
           confluences.push(markov.reason);
           if (markov.confidenceAdjustment !== 0) {
             strategy = strategy === "rule_based" ? "markov_enhanced" : strategy + "+markov";
@@ -52192,37 +52377,37 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
           if (of.direction !== "NEUTRAL") {
             if (of.direction === direction) {
               if (of.divergence) {
-                confidence2 += 5;
+                confidence += 5;
                 confluences.push(`OF delta divergence (${of.divergenceType})`);
               }
               if (of.absorption) {
-                confidence2 += 4;
+                confidence += 4;
                 confluences.push(`OF absorption (${of.absorptionType})`);
               }
               if (of.imbalance) {
-                confidence2 += 3;
+                confidence += 3;
                 confluences.push(`OF imbalance (${of.imbalanceType})`);
               }
               if (of.cvdTrend !== "flat") {
-                confidence2 += 2;
+                confidence += 2;
                 confluences.push(`CVD ${of.cvdTrend}`);
               }
               strategy = strategy.includes("order_flow") ? strategy : strategy + "+order_flow";
             } else {
-              confidence2 -= 8;
+              confidence -= 8;
               confluences.push(`OF opposing: ${of.reason.split("|")[0].trim()}`);
             }
           } else if (!direction) {
             if (of.confidence >= 65) {
               direction = of.direction;
-              confidence2 = of.confidence;
+              confidence = of.confidence;
               strategy = "order_flow";
               confluences = of.confluences;
             }
           }
         }
         if (newsBlock) {
-          confidence2 -= 15;
+          confidence -= 15;
           confluences.push("News window penalty");
         }
       }
@@ -52235,9 +52420,9 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
         const recentForSymbol = (await storage.getUserFuturesEngineTrades(userId, 50)).filter((t) => t.symbol === symbol && t.status === "closed").sort((a, b) => new Date(b.closedAt ?? 0).getTime() - new Date(a.closedAt ?? 0).getTime());
         if (recentForSymbol[0] && (recentForSymbol[0].realizedPnl ?? 0) > 0) minConf = Math.max(50, minConf - 5);
       }
-      const compositeEligible = config.enableCompositeAutonomous && confluences.length >= 4 && confidence2 >= config.compositeMinEdgeScore;
-      const highConfidenceEligible = config.highConfidenceOverride && confidence2 >= 90;
-      if (confidence2 < minConf && !compositeEligible && !highConfidenceEligible) continue;
+      const compositeEligible = config.enableCompositeAutonomous && confluences.length >= 4 && confidence >= config.compositeMinEdgeScore;
+      const highConfidenceEligible = config.highConfidenceOverride && confidence >= 90;
+      if (confidence < minConf && !compositeEligible && !highConfidenceEligible) continue;
       const atr3 = data.volatilityContext?.currentATR || inst.typicalDailyRange * inst.tickSize * 10;
       const slTicks = Math.max(4, Math.round(atr3 / inst.tickSize * 0.5));
       const tpTicks = slTicks * 2;
@@ -52245,7 +52430,7 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
       const sl = direction === "BUY" ? entryPrice - slTicks * inst.tickSize : entryPrice + slTicks * inst.tickSize;
       const tp = direction === "BUY" ? entryPrice + tpTicks * inst.tickSize : entryPrice - tpTicks * inst.tickSize;
       const maxContracts = config.symbolContractOverrides[symbol] || void 0;
-      const sizing = await computeFuturesContractSize(userId, config, config.accountBalance, config.riskPerTrade, entryPrice, sl, symbol, confidence2);
+      const sizing = await computeFuturesContractSize(userId, config, config.accountBalance, config.riskPerTrade, entryPrice, sl, symbol, confidence);
       const contracts = maxContracts ? Math.min(sizing.contracts, maxContracts) : sizing.contracts;
       const signal = {
         id: uid(),
@@ -52258,7 +52443,7 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
         takeProfit: tp,
         stopLossTicks: slTicks,
         takeProfitTicks: tpTicks,
-        confidence: Math.min(100, Math.max(0, confidence2)),
+        confidence: Math.min(100, Math.max(0, confidence)),
         reason: confluences.filter((c) => !c.startsWith("Markov")).join(" | ") + (sizing.reasoning ? ` | ${sizing.reasoning}` : ""),
         strategy,
         confluences,
@@ -54128,7 +54313,7 @@ async function processSport(sport) {
     const modelProbHome = Math.round(rawProb * 100 * 10) / 10;
     const modelProbAway = Math.round((1 - rawProb) * 100 * 10) / 10;
     const eloDiff = Math.abs(eloHome - eloAway);
-    const confidence2 = eloDiff > 100 ? "high" : eloDiff > 50 ? "medium" : "low";
+    const confidence = eloDiff > 100 ? "high" : eloDiff > 50 ? "medium" : "low";
     const reasons = [
       `ELO: ${homeComp.team.displayName} ${eloHome.toFixed(0)} vs ${awayComp.team.displayName} ${eloAway.toFixed(0)} \u2192 ${(eloProb * 100).toFixed(1)}% home`,
       `Win%: ${homeComp.team.displayName} ${(homeWinPct * 100).toFixed(1)}% vs ${awayComp.team.displayName} ${(awayWinPct * 100).toFixed(1)}%`,
@@ -54154,7 +54339,7 @@ async function processSport(sport) {
       status,
       modelProbHome,
       modelProbAway,
-      confidence: confidence2,
+      confidence,
       reasons,
       homeRecord: homeRecord ? `${homeRecord.w}-${homeRecord.l}` : void 0,
       awayRecord: awayRecord ? `${awayRecord.w}-${awayRecord.l}` : void 0,
@@ -63029,13 +63214,13 @@ Would you independently confirm this ${opts.direction} setup on its own merits a
         };
       }
     }
-    const confidence2 = coerceConfidence(parsed.confidence);
-    noteConfidenceSample(confidence2);
+    const confidence = coerceConfidence(parsed.confidence);
+    noteConfidenceSample(confidence);
     const direction = ["BUY", "SELL", "NEUTRAL"].includes(parsed.direction) ? parsed.direction : "NEUTRAL";
     const verdict = {
       confirmed: !!parsed.confirmed,
       aiDirection: direction,
-      aiConfidence: confidence2,
+      aiConfidence: confidence,
       reasoning: String(parsed.reasoning || "no reasoning returned"),
       modelUsed: client2.defaultModel
     };
@@ -77986,22 +78171,48 @@ async function executeCopyTradeOpen(rel, source, copyLogId) {
     }).where(eq16(copyTradeLogs.id, copyLogId));
   }
 }
-async function executeCopyTradeClose(rel, log2, sourceExitPrice, sourcePnl, sourceLotSize) {
+async function executeCopyTradeClose(rel, log2, sourceExitPrice, sourcePnl, sourceLotSize, source) {
   const lotRatio = sourceLotSize > 0 ? log2.lotSize / sourceLotSize : 1;
   const copierPnl = sourcePnl * lotRatio;
   if (rel.account_type === "real") {
-    if (log2.brokerOrderId && rel.copier_connection_id) {
+    if (rel.copier_connection_id) {
       try {
         const conn = await storage.getTradelockerConnection(rel.copier_connection_id);
-        await executeMT5SignalOnTradeLocker(conn, {
+        let positionId;
+        if (source?.pair) {
+          try {
+            const { getOrCreateService: getOrCreateService2 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+            const svc = await getOrCreateService2(conn);
+            const positions = await svc.getPositionsNormalized({ fresh: true });
+            const wantSym = source.pair.toUpperCase().replace("/", "");
+            const wantDir = (source.direction || "").toUpperCase();
+            const match = positions.find((p2) => (p2.symbol || "").toUpperCase().replace("/", "") === wantSym && (!wantDir || (p2.side || "").toUpperCase() === wantDir));
+            if (match) positionId = String(match.id);
+          } catch {
+          }
+        }
+        positionId = positionId ?? (log2.brokerOrderId || void 0);
+        if (!positionId) throw new Error("No copier position could be resolved for the close");
+        const closeRes = await executeMT5SignalOnTradeLocker(conn, {
           action: "CLOSE",
-          symbol: "",
-          direction: "",
+          symbol: source?.pair || "",
+          direction: source?.direction || "",
           volume: 0,
-          positionId: log2.brokerOrderId
+          positionId
         });
+        if (!closeRes?.success) {
+          throw new Error(closeRes?.error || "Broker close was not confirmed");
+        }
       } catch (e) {
-        console.error(`[copy-trade-execution] Real-mode close failed for copy log ${log2.id} (non-fatal, position may need manual close):`, e.message);
+        console.error(`[copy-trade-execution] Real-mode close failed for copy log ${log2.id} \u2014 P&L NOT booked, position may need manual close:`, e.message);
+        try {
+          await db.update(copyTradeLogs).set({
+            executionStatus: "close_failed",
+            executionError: String(e?.message || e).slice(0, 500)
+          }).where(eq16(copyTradeLogs.id, log2.id));
+        } catch {
+        }
+        return 0;
       }
     }
     return copierPnl;
@@ -82987,7 +83198,7 @@ async function closeCascade(t, exit, pnl, pips, hit) {
           brokerOrderId: log2.broker_order_id ?? null,
           lotSize: parseFloat(String(log2.lot_size)) || 0.01
         };
-        const copierPnl = await executeCopyTradeClose2(rel, logForClose, exit, pnl, srcLot).catch(() => 0);
+        const copierPnl = await executeCopyTradeClose2(rel, logForClose, exit, pnl, srcLot, { pair: t.pair, direction: t.direction }).catch(() => 0);
         await db.execute(sql16`UPDATE copy_trade_logs SET status='closed', exit_price=${exit}, pnl=${copierPnl}, closed_at=now() WHERE id=${log2.id}`);
       }
     }
@@ -83692,9 +83903,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "f27e110e-dirty";
+var BUILD_COMMIT = "b25de2c4-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-16T07:58:04.335Z";
+var BUILT_AT = "2026-11-16T08:10:15.846Z";
 
 // server/stripe.ts
 init_db();
@@ -87065,9 +87276,19 @@ function isInTradingSession(symbol, hourUTC) {
   }
   return windows.some(([start, end]) => hourUTC >= start && hourUTC < end);
 }
+function etOffsetHours(atMs) {
+  const d = new Date(atMs);
+  const ny = new Date(d.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const utc = new Date(d.toLocaleString("en-US", { timeZone: "UTC" }));
+  return Math.round((ny.getTime() - utc.getTime()) / 36e5);
+}
+function etWeekdayHour(atMs) {
+  const shifted = new Date(atMs + etOffsetHours(atMs) * 36e5);
+  return { dow: shifted.getUTCDay(), hour: shifted.getUTCHours() };
+}
 function tlSignalGuard(params) {
   const {
-    confidence: confidence2 = 0,
+    confidence = 0,
     entryPrice,
     stopLoss,
     takeProfit,
@@ -87079,8 +87300,8 @@ function tlSignalGuard(params) {
   } = params;
   const sym2 = params.symbol || "";
   const dir = (params.direction || "").toUpperCase();
-  if (confidence2 < minConfidence) {
-    return { allow: false, reason: `Confidence ${confidence2}% below ${minConfidence}% minimum \u2014 blocked` };
+  if (confidence < minConfidence) {
+    return { allow: false, reason: `Confidence ${confidence}% below ${minConfidence}% minimum \u2014 blocked` };
   }
   if (requireSLTP && (!stopLoss || stopLoss <= 0)) {
     return { allow: false, reason: `No stop loss on ${sym2} \u2014 undefined risk, blocked` };
@@ -90556,7 +90777,7 @@ data: ${JSON.stringify(data)}
           const tds = Math.floor(Date.now() / 864e5) * 86400;
           const tc = ce.candles.filter((c) => (c.t || c.time || 0) >= tds).sort((a, b) => (a.t || a.time) - (b.t || b.time));
           let oh = 0, ol = 0;
-          for (const off of [-5, -4]) {
+          for (const off of [etOffsetHours(Date.now())]) {
             const oc = tc.find((c) => {
               const ts = c.t || c.time || 0;
               if (!ts) return false;
@@ -92021,7 +92242,7 @@ Return ONLY a JSON object with this structure:
         isShared,
         price,
         direction,
-        confidence: confidence2,
+        confidence,
         entryPoint,
         stopLoss,
         takeProfit,
@@ -92040,7 +92261,7 @@ Return ONLY a JSON object with this structure:
         isShared: isShared || false,
         price: price ? Math.round(price * 100) : null,
         direction: direction || null,
-        confidence: confidence2 || null,
+        confidence: confidence || null,
         entryPoint: entryPoint || null,
         stopLoss: stopLoss || null,
         takeProfit: takeProfit || null,
@@ -92854,12 +93075,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         return res2.status(400).json({ error: "Symbol is required" });
       }
       const direction = (chartDirection || "NEUTRAL").toUpperCase();
-      const confidence2 = typeof chartConfidence === "number" ? chartConfidence : 50;
-      const timingAnalysis = await newsService.analyzeTradingTiming(symbol, direction, confidence2);
+      const confidence = typeof chartConfidence === "number" ? chartConfidence : 50;
+      const timingAnalysis = await newsService.analyzeTradingTiming(symbol, direction, confidence);
       res2.json({
         symbol,
         chartDirection: direction,
-        chartConfidence: confidence2,
+        chartConfidence: confidence,
         ...timingAnalysis
       });
     } catch (error) {
@@ -93446,7 +93667,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       if (!token.isActive) {
         return res2.status(403).json({ error: "API key is disabled" });
       }
-      const { action, symbol, direction, volume, entryPrice, ticket, magic, comment, openTime, platform, profit, exitPrice, closePrice } = req.body;
+      const { action: _actionRaw, symbol, direction: _directionRaw, volume, entryPrice, ticket, magic, comment, openTime, platform, profit, exitPrice, closePrice } = req.body;
+      const action = String(_actionRaw ?? "").toUpperCase();
+      const _dirUp = String(_directionRaw ?? "").toUpperCase();
+      const direction = _dirUp === "LONG" ? "BUY" : _dirUp === "SHORT" ? "SELL" : _dirUp;
       const _num = (v) => {
         const n = Number(v);
         return Number.isFinite(n) && n > 0 ? n : null;
@@ -93749,14 +93973,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         console.log(`[TradeLocker] Executing on account ${tlConn.accountId} (id=${tlConn.id}):`, { action, symbol, direction, volume: relayVolume });
         let connResult = null;
         if (action === "OPEN") {
+          const _relayConfRaw = req.body?.confidence;
+          const _relayConf = typeof _relayConfRaw === "number" ? _relayConfRaw : typeof _relayConfRaw === "string" ? parseFloat(_relayConfRaw) : NaN;
           const guard = tlSignalGuard({
-            confidence: typeof confidence === "number" ? confidence : typeof confidence === "string" ? parseFloat(confidence) : 0,
+            confidence: Number.isFinite(_relayConf) ? _relayConf : 0,
             entryPrice: entryPrice ?? null,
             stopLoss: stopLoss ?? null,
             takeProfit: takeProfit ?? null,
             symbol,
             direction,
-            minConfidence: 65,
+            minConfidence: Number.isFinite(_relayConf) ? 65 : 0,
             requireSLTP: true
           });
           if (!guard.allow) {
@@ -95762,9 +95988,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       };
       const _fxMarketClosed = (() => {
         if (/^(BTC|ETH|SOL|LTC|XRP|DOGE|ADA|BNB)/i.test(sanitizedSymbol)) return false;
-        const _n = /* @__PURE__ */ new Date();
-        const _d = _n.getUTCDay(), _h = _n.getUTCHours();
-        return _d === 6 || _d === 5 && _h >= 21 || _d === 0 && _h < 21;
+        const { dow: _d, hour: _h } = etWeekdayHour(Date.now());
+        return _d === 6 || _d === 5 && _h >= 17 || _d === 0 && _h < 17;
       })();
       if (_fxMarketClosed) _cdiag.stage = "market_closed";
       const _aiCreditsOut = !_fxMarketClosed && await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports)).then((m) => m.fxShouldPauseForCredits()).catch(() => false);
@@ -95899,7 +96124,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                         l: b.low,
                         c: b.close,
                         v: b.volume,
-                        t: b.timestamp
+                        t: Math.floor(b.timestamp / 1e3)
                       }));
                       htfLevels.push({ timeframe: stack[idx], candles: mapped, role: roles[idx] });
                       console.log(`[HTF] Fetched ${mapped.length} ${stack[idx]} (${roles[idx]}) candles for bias injection`);
@@ -95952,7 +96177,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                             l: b.low,
                             c: b.close,
                             v: b.volume,
-                            t: b.timestamp
+                            t: Math.floor(b.timestamp / 1e3)
+                            // ms → s, as above
                           }));
                           multiTFCandles[key] = mapped;
                           console.log(`[Breakout Master] Fetched ${mapped.length} ${key} candles for engine`);
@@ -97202,6 +97428,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                 _markTlSkip("fan-out", `SIGNAL GUARD: ${analysisGuard.reason}`);
                 tradelockerResult = null;
                 global.recentTrades[recentTradeKey] = _prevCooldown;
+                analysis.tradePlan = null;
               } else {
                 const _eaSym = sanitizedSymbol.toUpperCase();
                 const _eaAcctBal = accountBalance || 0;
@@ -102251,21 +102478,21 @@ Rules:
           const tradeDir = trade.direction.toUpperCase();
           const analysisDir = latestAnalysis.direction.toUpperCase();
           if (tradeDir === "BUY" && analysisDir === "SELL" || tradeDir === "SELL" && analysisDir === "BUY") {
-            const confidence2 = parseConfidence(latestAnalysis.confidence);
+            const confidence = parseConfidence(latestAnalysis.confidence);
             let reversalStrength = "LOW";
-            if (confidence2 >= 80) reversalStrength = "CRITICAL";
-            else if (confidence2 >= 65) reversalStrength = "HIGH";
-            else if (confidence2 >= 50) reversalStrength = "MEDIUM";
+            if (confidence >= 80) reversalStrength = "CRITICAL";
+            else if (confidence >= 65) reversalStrength = "HIGH";
+            else if (confidence >= 50) reversalStrength = "MEDIUM";
             reversals.push({
               tradeId: trade.id,
               symbol: trade.symbol,
               tradeDirection: tradeDir,
               newSignal: analysisDir,
-              confidence: confidence2,
+              confidence,
               reversalStrength,
               timeframe: latestAnalysis.timeframe || "Unknown",
               analysisTime: latestAnalysis.createdAt?.toISOString() || (/* @__PURE__ */ new Date()).toISOString(),
-              message: `AI now signals ${analysisDir} on ${trade.symbol} (${confidence2}% confidence) - you have an open ${tradeDir} position!`
+              message: `AI now signals ${analysisDir} on ${trade.symbol} (${confidence}% confidence) - you have an open ${tradeDir} position!`
             });
           }
         }
@@ -102743,7 +102970,7 @@ Format each recommendation as a clear, concise action item.`;
         winFraction - (1 - winFraction) / Math.max(rrRatio, 0.5)
       ));
       const optimalTrailPips = Math.max(5, Math.round(avgWinPips * 0.4));
-      const _pip = /JPY/.test(sym2) ? 0.01 : /^XAU/.test(sym2) ? 0.1 : /^(BTC|ETH)/.test(sym2) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym2) ? 1 : 1e-4;
+      const _pip = getPipSize(sym2);
       const minProfitableATR = avgWinPips > 0 ? avgWinPips * _pip / 10 : 0;
       pairKnowledge[sym2] = {
         totalTrades: totalCompleted,
@@ -103571,7 +103798,7 @@ RULES: 1) Only trade instruments where ORB High/Low is in the ORB DATA section. 
           const todayUTCStart = Math.floor(Date.now() / 864e5) * 86400;
           const todayC = candles.filter((c) => (c.t || c.time || 0) >= todayUTCStart).sort((a, b) => (a.t || a.time) - (b.t || b.time));
           let orbH = 0, orbL = 0;
-          for (const off of [-5, -4]) {
+          for (const off of [etOffsetHours(Date.now())]) {
             const oc = todayC.find((c) => {
               const ts = c.t || c.time || 0;
               if (!ts) return false;
@@ -103801,7 +104028,7 @@ Respond with ONLY valid JSON:
             const sig = signals.signals[sigIdx];
             if (!sig.symbol || !sig.direction) continue;
             const sigId = `${sig.symbol}_${sig.direction}_${sigIdx}`;
-            const confidence2 = typeof sig.confidence === "number" ? sig.confidence : parseFloat(sig.confidence) || 0;
+            const confidence = typeof sig.confidence === "number" ? sig.confidence : parseFloat(sig.confidence) || 0;
             const entryPrice = parseNum(sig.entryZone);
             const stopLoss = parseNum(sig.stopLoss);
             const takeProfit = parseNum(sig.takeProfit);
@@ -103871,7 +104098,10 @@ Respond with ONLY valid JSON:
               } else if (sym2.includes("BTC") || sym2.includes("ETH") || sym2.includes("NAS") || sym2.includes("US30") || sym2.includes("SPX")) {
                 baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
               } else {
-                const estimatedLot = slDistance > 0 ? riskAmount / (slDistance * 1e5 * 1e-4 * 10) : userBaseLotSize;
+                const _pipSz = getPipSize(sym2);
+                const _slPips = _pipSz > 0 ? slDistance / _pipSz : 0;
+                const _pipVal = getPipValue(sym2);
+                const estimatedLot = _slPips > 0 && _pipVal > 0 ? riskAmount / (_slPips * _pipVal) : userBaseLotSize;
                 baseLotSize = Math.max(userBaseLotSize, Math.min(estimatedLot, userMaxLotSize));
               }
             } else {
@@ -103881,7 +104111,7 @@ Respond with ONLY valid JSON:
             const pairOptimalConf = brain.optimalMinConfidence?.[sym2] ?? userMinConfidence;
             const effectiveMinConf = Math.max(pairOptimalConf, userMinConfidence - 5);
             const brainGuard = tlSignalGuard({
-              confidence: confidence2,
+              confidence,
               entryPrice: entryPrice ?? null,
               stopLoss: stopLoss ?? null,
               takeProfit: takeProfit ?? null,
@@ -103910,7 +104140,7 @@ Respond with ONLY valid JSON:
                 entryPrice: entryPrice || null,
                 stopLoss: stopLoss || null,
                 takeProfit: takeProfit || null,
-                confidence: confidence2,
+                confidence,
                 source: "vedd_brain_autonomous"
               });
               signalLogId = signalLog.id;
@@ -103965,7 +104195,7 @@ Respond with ONLY valid JSON:
                       entryPrice: sigEntryPrice || entryPrice || 0,
                       stopLoss: stopLoss || null,
                       takeProfit: takeProfit || null,
-                      aiConfidence: confidence2,
+                      aiConfidence: confidence,
                       result: "PENDING",
                       source: "brain_autoexec",
                       mt5Ticket: tradeResult.orderId ? String(tradeResult.orderId) : null,
@@ -107012,6 +107242,29 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
           error: `Position direction mismatch. Expected ${currentDirection} but found ${positionSide}.`
         });
       }
+      const _posSl = Number(matchingPosition.stopLoss ?? matchingPosition.sl ?? matchingPosition.stopLossPrice) || 0;
+      const _posTp = Number(matchingPosition.takeProfit ?? matchingPosition.tp ?? matchingPosition.takeProfitPrice) || 0;
+      const _posEntry = Number(matchingPosition.avgPrice ?? matchingPosition.openPrice ?? matchingPosition.price) || 0;
+      if (!(_posSl > 0) || !(_posEntry > 0)) {
+        return res2.status(400).json({
+          error: `Cannot flip ${symbol}: the open position has no stop loss to mirror onto the recovery trade. Add a stop to the position first, or close it and re-enter manually.`
+        });
+      }
+      let _anchorPx = _posEntry;
+      try {
+        const { marketDataService: marketDataService2 } = await Promise.resolve().then(() => (init_market_data(), market_data_exports));
+        if (marketDataService2.isInitialized()) {
+          const _md = await marketDataService2.fetchMarketData({ symbol, assetType: marketDataService2.detectAssetType(symbol), timeframe: "5m", limit: 5 });
+          const _lastBar = _md?.bars?.[_md.bars.length - 1];
+          if (Number(_lastBar?.close) > 0) _anchorPx = Number(_lastBar.close);
+        }
+      } catch {
+      }
+      const _flipSlDist = Math.abs(_posEntry - _posSl);
+      const _flipTpDist = _posTp > 0 ? Math.abs(_posTp - _posEntry) : 0;
+      const _flipIsBuy = newDirection === "BUY";
+      const flipStopLoss = _flipIsBuy ? _anchorPx - _flipSlDist : _anchorPx + _flipSlDist;
+      const flipTakeProfit = _flipTpDist > 0 ? _flipIsBuy ? _anchorPx + _flipTpDist : _anchorPx - _flipTpDist : void 0;
       console.log(`[Flip Trade] Closing position ${closedPositionId} for ${symbol}`);
       try {
         await tlService.closePosition(closedPositionId);
@@ -107037,7 +107290,10 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
         action: "OPEN",
         symbol,
         direction: newDirection,
-        volume: recoveryLotSize
+        volume: recoveryLotSize,
+        entryPrice: _anchorPx,
+        stopLoss: flipStopLoss,
+        takeProfit: flipTakeProfit
       });
       if (tradeResult.success) {
         if (tradeId) {
@@ -114100,7 +114356,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const ts = c.t || c.time || 0;
       return ts >= todayUTCStart;
     }).sort((a, b) => (a.t || a.time) - (b.t || b.time));
-    const estOffsets = [-5, -4];
+    const estOffsets = [etOffsetHours(Date.now())];
     const fallbackH1Hours = [9, 10];
     let orbHigh = 0, orbLow = 0, orbOpen = 0;
     let foundOrbCandle = false;
@@ -114334,7 +114590,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const nowMs = Date.now();
       const todayUTCStart = Math.floor(nowMs / 864e5) * 86400;
       const todayCandles = candles.filter((c) => (c.t || 0) >= todayUTCStart);
-      const estOffsets = [-5, -4];
+      const estOffsets = [etOffsetHours(Date.now())];
       let orbHigh = 0, orbLow = 0, foundOrbCandle = false;
       let orbCandle = null;
       for (const off of estOffsets) {
@@ -115330,7 +115586,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.post("/api/fx-paper/trades", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
-    const { pair, direction, entryPrice, stopLoss, takeProfit, lotSize = 0.01, confidence: confidence2, source = "fx_paper_engine" } = req.body;
+    const { pair, direction, entryPrice, stopLoss, takeProfit, lotSize = 0.01, confidence, source = "fx_paper_engine" } = req.body;
     if (!pair || !direction || typeof entryPrice !== "number") {
       return res2.status(400).json({ error: "pair, direction, and entryPrice are required" });
     }
@@ -115342,7 +115598,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       }
       const tradeRows = await db.execute(sql13`
         INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, confidence, source, status, opened_at)
-        VALUES (${userId}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${lotSize}, ${confidence2 ?? null}, ${source}, 'open', now())
+        VALUES (${userId}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${lotSize}, ${confidence ?? null}, ${source}, 'open', now())
         RETURNING id
       `);
       const newTradeId = (Array.isArray(tradeRows) ? tradeRows[0] : tradeRows.rows?.[0])?.id;
@@ -115410,7 +115666,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         `);
       }
       try {
-        const sourceTradeRows = await db.execute(sql13`SELECT lot_size FROM fx_paper_trades WHERE id=${tradeId} LIMIT 1`);
+        const sourceTradeRows = await db.execute(sql13`SELECT lot_size, pair, direction FROM fx_paper_trades WHERE id=${tradeId} LIMIT 1`);
         const sourceTrade = Array.isArray(sourceTradeRows) ? sourceTradeRows[0] : sourceTradeRows.rows?.[0];
         const sourceLotSize = parseFloat(sourceTrade?.lot_size) || 0.01;
         const copyLogs = await db.execute(sql13`
@@ -115441,7 +115697,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
             brokerOrderId: log2.broker_order_id ?? null,
             lotSize: parseFloat(String(log2.lot_size)) || 0.01
           };
-          const copierPnl = typeof pnl === "number" ? await executeCopyTradeClose2(rel, logForClose, exitPrice, pnl, sourceLotSize) : 0;
+          const copierPnl = typeof pnl === "number" ? await executeCopyTradeClose2(rel, logForClose, exitPrice, pnl, sourceLotSize, { pair: sourceTrade?.pair, direction: sourceTrade?.direction }) : 0;
           await db.execute(sql13`
             UPDATE copy_trade_logs
             SET status='closed', exit_price=${exitPrice}, pnl=${copierPnl}, pnl_pips=${pnlPips ?? null}, closed_at=now()

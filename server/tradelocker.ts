@@ -93,6 +93,11 @@ export function priceDecimals(symbol: string): number {
   if (/^XAG/.test(s)) return 3;
   if (/^(US30|DJ30|WS30|US100|NAS100|USTEC|US500|SPX500|GER40|DE40|UK100|JP225|AUS200|HK50|FRA40|EU50)/.test(s)) return 2;
   if (/^(BTC|ETH|SOL|LTC|XRP)/.test(s)) return 2;
+  // Oil / natural gas trade on 2–3dp grids — they used to fall through to
+  // the 5dp FX default, so SL/TP were sent off-grid (the documented cause
+  // of TradeLocker "SL price is not valid" rejections).
+  if (/^(USOIL|UKOIL|WTI|XTI|BRENT)/.test(s)) return 2;
+  if (/^(NGAS|NATGAS|XNG)/.test(s)) return 3;
   if (/JPY/.test(s)) return 3;
   return 5;
 }
@@ -2024,6 +2029,33 @@ export class TradeLockerService {
     const url = `${this.baseUrl}/trade/positions/${positionId}`;
     console.log(`[TradeLocker Modify] PATCH ${url} | SL=${stopLoss} TP=${takeProfit} accNum=${this.accNum}`);
 
+    // TradeLocker answers some rejections as HTTP 200 with an error BODY
+    // (s !== 'ok') — placeOrderRaw and closePosition both parse it for
+    // exactly that reason ("a body check is required or a broker-rejected
+    // close gets reported back as a successful close"). This method used
+    // to trust the HTTP status alone, so a rejected stop move reported
+    // success — and modifyPosition then wrote it to lastStopSet, whose
+    // 30-min dedupe suppressed the corrective re-send while the position
+    // kept its old (or no) stop.
+    const checkBody = async (resp: Response, verb: string): Promise<{ success: boolean; error?: string }> => {
+      const text = await resp.text().catch(() => '');
+      let data: any = null;
+      try { data = text ? JSON.parse(text) : null; } catch { /* non-JSON body */ }
+      if (data && data.s !== undefined && data.s !== 'ok') {
+        const details: string[] = [];
+        if (data.errmsg) details.push(String(data.errmsg));
+        if (data.d?.errmsg) details.push(String(data.d.errmsg));
+        if (data.d?.message) details.push(String(data.d.message));
+        if (Array.isArray(data.d?.messages)) details.push(...data.d.messages.map(String));
+        if (data.message) details.push(String(data.message));
+        const msg = details.length ? details.join(' | ') : `Rejected (status: ${data.s}, raw: ${text.slice(0, 200)})`;
+        console.log(`[TradeLocker Modify] ${verb} rejected in body: ${msg}`);
+        return { success: false, error: `Modify rejected: ${msg}` };
+      }
+      console.log(`[TradeLocker Modify] ${verb} success`);
+      return { success: true };
+    };
+
     try {
       const response = await fetch(url, {
         method: 'PATCH',
@@ -2051,8 +2083,7 @@ export class TradeLockerService {
           console.log(`[TradeLocker Modify] PUT failed: ${putResponse.status} - ${errText}`);
           return { success: false, error: `Modify failed: ${putResponse.status} - ${errText}` };
         }
-        console.log('[TradeLocker Modify] PUT success');
-        return { success: true };
+        return await checkBody(putResponse, 'PUT');
       }
 
       if (!response.ok) {
@@ -2061,8 +2092,7 @@ export class TradeLockerService {
         return { success: false, error: `Modify failed: ${response.status} - ${errText}` };
       }
 
-      console.log('[TradeLocker Modify] PATCH success');
-      return { success: true };
+      return await checkBody(response, 'PATCH');
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       console.error('[TradeLocker Modify] Exception:', msg);

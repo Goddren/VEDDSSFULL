@@ -1,5 +1,6 @@
 import { MarketDataProvider, MarketDataRequest, OHLCVBar, AssetType } from '../types';
 import { rateLimiter } from '../rate-limiter';
+import { getPipSize } from '../../utils/pipUtils';
 
 const TWELVE_DATA_BASE_URL = 'https://api.twelvedata.com';
 
@@ -147,6 +148,12 @@ export class TwelveDataProvider implements MarketDataProvider {
     url.searchParams.set('interval', interval);
     url.searchParams.set('outputsize', outputSize.toString());
     url.searchParams.set('apikey', this.apiKey);
+    // Ask for UTC stamps: TwelveData defaults to the EXCHANGE timezone for
+    // stocks/indices (and always for 1day/1week bars), returning offset-less
+    // datetime strings that JS then parses as server-local — US indices
+    // landed +4/+5h in the future (DST-varying). With UTC requested, the
+    // parse below (explicit Z) is correct on any host.
+    url.searchParams.set('timezone', 'UTC');
     
     try {
       rateLimiter.recordRequest(this.name);
@@ -175,7 +182,9 @@ export class TwelveDataProvider implements MarketDataProvider {
       }
       
       return data.values.map((bar: any) => ({
-        timestamp: new Date(bar.datetime).getTime(),
+        // Parse as UTC (see the timezone=UTC request above): a bare
+        // "YYYY-MM-DD HH:mm:ss" would otherwise be read as server-local.
+        timestamp: (() => { const d = String(bar.datetime || ''); return /(?:Z|[+-]\d{2}:?\d{2})$/.test(d) ? new Date(d).getTime() : new Date(d.replace(' ', 'T') + 'Z').getTime(); })(),
         open: parseFloat(bar.open),
         high: parseFloat(bar.high),
         low: parseFloat(bar.low),
@@ -270,14 +279,15 @@ export class TwelveDataProvider implements MarketDataProvider {
       let suggestedSLPips: { conservative: number; moderate: number; aggressive: number } | undefined;
       
       if (assetType === 'forex') {
-        // Most pairs: 1 pip = 0.0001, JPY pairs: 1 pip = 0.01
-        const isJPYPair = normalizedSymbol.includes('JPY');
-        const pipMultiplier = isJPYPair ? 100 : 10000;
-        
+        // Canonical pip size. The old JPY-vs-everything multiplier also
+        // covered metals (detectAssetType maps them to 'forex'), so a
+        // $3.00 gold ATR read as ~30,000 suggested pips instead of 30
+        // (XAG 10x over as well). Display/API-only, but wrong by 1000x.
+        const pipSize = getPipSize(normalizedSymbol);
         suggestedSLPips = {
-          conservative: Math.round(suggestedSL.conservative * pipMultiplier),
-          moderate: Math.round(suggestedSL.moderate * pipMultiplier),
-          aggressive: Math.round(suggestedSL.aggressive * pipMultiplier)
+          conservative: Math.round(suggestedSL.conservative / pipSize),
+          moderate: Math.round(suggestedSL.moderate / pipSize),
+          aggressive: Math.round(suggestedSL.aggressive / pipSize)
         };
       }
       

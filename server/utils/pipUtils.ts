@@ -150,7 +150,18 @@ export function getPipValue(symbol: string): number {
   //   USDJPY  true ~$6.8  -> assumed $10 => lots ~32% too SMALL (under-risked)
   //   EURGBP  true ~$13.4 -> assumed $10 => lots ~34% too LARGE (OVER-risked)
   // since lots = riskUSD / (slPips * pipValue).
-  const s = symbol.toUpperCase().split('.')[0].replace(/[^A-Z]/g, '');
+  let s = symbol.toUpperCase().split('.')[0].replace(/[^A-Z]/g, '');
+  if (s.length > 6) {
+    // Broker suffix/prefix LETTERS ('EURUSDm', 'EURUSDpro', 'aEURUSD'):
+    // the cleaned string isn't exactly 6 letters, so the strict test below
+    // used to fail and every such symbol silently got the flat $10 —
+    // wrong for any non-USD quote (USDJPYm sized ~32% small, EURGBPm ~34%
+    // large). Scan for the 6-letter window whose quote currency converts.
+    for (let i = 0; i + 6 <= s.length; i++) {
+      const cand = s.slice(i, i + 6);
+      if (quoteToUsd(cand.slice(3)) !== null) { s = cand; break; }
+    }
+  }
   if (/^[A-Z]{6}$/.test(s)) {
     const quote = s.slice(3);
     const perLotQuote = 100000 * getPipSize(symbol); // pip value in QUOTE currency

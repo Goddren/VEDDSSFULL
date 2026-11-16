@@ -194,7 +194,8 @@ export async function executeCopyTradeClose(
   log: { id: number; copierFxTradeId: number | null; brokerOrderId: string | null; lotSize: number },
   sourceExitPrice: number,
   sourcePnl: number,
-  sourceLotSize: number
+  sourceLotSize: number,
+  source?: { pair?: string; direction?: string }
 ): Promise<number> {
   // P&L scales linearly by lot ratio — no cap. A copier running a bigger lot
   // than the source trader should earn/lose proportionally more, not be
@@ -203,16 +204,50 @@ export async function executeCopyTradeClose(
   const copierPnl = sourcePnl * lotRatio;
 
   if (rel.account_type === 'real') {
-    if (log.brokerOrderId && rel.copier_connection_id) {
+    if (rel.copier_connection_id) {
       try {
         const conn = await storage.getTradelockerConnection(rel.copier_connection_id);
-        await executeMT5SignalOnTradeLocker(conn as any, {
+        // brokerOrderId is the OPEN's ORDER id — TradeLocker position ids
+        // are a different namespace (the relay handler documents the same
+        // trap), so closing by it failed while the P&L below was booked
+        // anyway. Resolve the copier's actual open position by
+        // symbol/direction, the same way the relay resolves CLOSEs.
+        let positionId: string | undefined;
+        if (source?.pair) {
+          try {
+            const { getOrCreateService } = await import('../tradelocker');
+            const svc = await getOrCreateService(conn as any);
+            const positions = await svc.getPositionsNormalized({ fresh: true });
+            const wantSym = source.pair.toUpperCase().replace('/', '');
+            const wantDir = (source.direction || '').toUpperCase();
+            const match = positions.find((p: any) =>
+              (p.symbol || '').toUpperCase().replace('/', '') === wantSym &&
+              (!wantDir || (p.side || '').toUpperCase() === wantDir));
+            if (match) positionId = String(match.id);
+          } catch { /* fall through to the stored id */ }
+        }
+        positionId = positionId ?? (log.brokerOrderId || undefined);
+        if (!positionId) throw new Error('No copier position could be resolved for the close');
+        const closeRes: any = await executeMT5SignalOnTradeLocker(conn as any, {
           action: 'CLOSE',
-          symbol: '', direction: '', volume: 0,
-          positionId: log.brokerOrderId,
+          symbol: source?.pair || '', direction: source?.direction || '', volume: 0,
+          positionId,
         });
+        if (!closeRes?.success) {
+          throw new Error(closeRes?.error || 'Broker close was not confirmed');
+        }
       } catch (e: any) {
-        console.error(`[copy-trade-execution] Real-mode close failed for copy log ${log.id} (non-fatal, position may need manual close):`, e.message);
+        // Do NOT book the copier's P&L when the broker position is still
+        // open — profit-share accounting was crediting closes that never
+        // happened. Mark the log so the stuck position stays visible.
+        console.error(`[copy-trade-execution] Real-mode close failed for copy log ${log.id} — P&L NOT booked, position may need manual close:`, e.message);
+        try {
+          await db.update(copyTradeLogs).set({
+            executionStatus: 'close_failed',
+            executionError: String(e?.message || e).slice(0, 500),
+          }).where(eq(copyTradeLogs.id, log.id));
+        } catch { /* best-effort */ }
+        return 0;
       }
     }
     return copierPnl;

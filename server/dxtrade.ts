@@ -314,6 +314,14 @@ export class DxtradeService {
         const sym = normW(wo.instrument ?? wo.symbol);
         const effect = String(wo.positionEffect ?? wo.legs?.[0]?.positionEffect ?? '').toUpperCase();
         if (sym !== target || effect !== 'CLOSE') continue;
+        // Scope the cancel to THIS position: the snapshot used to collect
+        // every working CLOSE order on the instrument, so a trail/modify
+        // for position A cancelled position B's resting stop/TP too,
+        // leaving B unprotected with no error anywhere. Only filter when
+        // both sides carry a position code — an order with no code can't
+        // be attributed, so it keeps the prior treatment.
+        const woPos = wo.positionCode ?? wo.positionId ?? wo.legs?.[0]?.positionCode;
+        if (code && woPos != null && String(woPos) !== String(code)) continue;
         const id = wo.orderId ?? wo.id ?? wo.orderCode ?? wo.code;
         if (id == null) continue;
         const t = String(wo.type ?? wo.orderType ?? '').toUpperCase();
@@ -520,7 +528,7 @@ export class DxtradeService {
       sl: posNum(p.stopLoss, p.sl, p.stopPrice, p.stopLossPrice),
       tp: posNum(p.takeProfit, p.tp, p.takeProfitPrice, p.limitPrice),
       unrealizedPnl: (() => { const v = p.unrealizedPnl ?? p.unrealizedPnL ?? p.profit ?? p.pnl ?? p.floatingPnl; const n = Number(v); return v != null && Number.isFinite(n) ? n : undefined; })(),
-      openTime: (() => { const v = p.openTime ?? p.openDate ?? p.createdAt ?? p.creationTime ?? p.timestamp; if (v == null) return undefined; const t = typeof v === 'number' ? (v > 1e12 ? v : v * 1000) : new Date(v).getTime(); return Number.isFinite(t) ? Math.floor(t / 1000) : undefined; })(),
+      openTime: (() => { const v = p.openTime ?? p.openDate ?? p.createdAt ?? p.creationTime ?? p.timestamp; if (v == null) return undefined; const vn = typeof v === 'string' && /^\d+(\.\d+)?$/.test(v.trim()) ? Number(v) : v; const t = typeof vn === 'number' ? (vn > 1e12 ? vn : vn * 1000) : new Date(vn).getTime(); return Number.isFinite(t) ? Math.floor(t / 1000) : undefined; })(),
       raw: p,
     }));
   }

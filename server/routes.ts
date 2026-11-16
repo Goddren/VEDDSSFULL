@@ -287,6 +287,25 @@ function isInTradingSession(symbol: string, hourUTC: number): boolean {
   return windows.some(([start, end]) => hourUTC >= start && hourUTC < end);
 }
 
+/**
+ * Current America/New_York offset from UTC, in hours (-4 EDT / -5 EST),
+ * DST-aware via Intl. Several ORB helpers used to "try -5 then -4 and take
+ * the first match" — in EDT the -5 probe matches the 10:30 ET candle as if
+ * it were the 9:30 ORB candle, all summer, every year.
+ */
+function etOffsetHours(atMs: number): number {
+  const d = new Date(atMs);
+  const ny = new Date(d.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const utc = new Date(d.toLocaleString('en-US', { timeZone: 'UTC' }));
+  return Math.round((ny.getTime() - utc.getTime()) / 3600000);
+}
+
+/** Weekday (0=Sun) and hour on the New York wall clock at an instant. */
+function etWeekdayHour(atMs: number): { dow: number; hour: number } {
+  const shifted = new Date(atMs + etOffsetHours(atMs) * 3600000);
+  return { dow: shifted.getUTCDay(), hour: shifted.getUTCHours() };
+}
+
 function tlSignalGuard(params: {
   confidence?: number;
   entryPrice?: number | null;
@@ -4404,7 +4423,7 @@ Respond ONLY in valid JSON format with these exact keys:
           const tds = Math.floor(Date.now() / 86400000) * 86400;
           const tc = ce.candles.filter((c: any) => (c.t||c.time||0) >= tds).sort((a: any, b: any) => (a.t||a.time)-(b.t||b.time));
           let oh = 0, ol = 0;
-          for (const off of [-5,-4]) {
+          for (const off of [etOffsetHours(Date.now())]) { // single DST-correct ET offset — trying -5 first matched the 10:30 ET candle as the 9:30 ORB candle all EDT summer
             const oc = tc.find((c: any) => { const ts=c.t||c.time||0; if(!ts)return false; const d=new Date(ts*1000); const h=((d.getUTCHours()+off)%24+24)%24; return h===9&&d.getUTCMinutes()===30; });
             if (oc) { oh=oc.h||oc.high||0; ol=oc.l||oc.low||0; break; }
           }
@@ -7771,7 +7790,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         return res.status(403).json({ error: "API key is disabled" });
       }
       
-      const { action, symbol, direction, volume, entryPrice, ticket, magic, comment, openTime, platform, profit, exitPrice, closePrice } = req.body;
+      const { action: _actionRaw, symbol, direction: _directionRaw, volume, entryPrice, ticket, magic, comment, openTime, platform, profit, exitPrice, closePrice } = req.body;
+      // Normalise case/synonyms ONCE, here: every gate below keys on exact
+      // 'OPEN'/'CLOSE'/'MODIFY' while the TradeLocker dispatcher accepts
+      // any case — a lowercase 'open' from a third-party/custom sender
+      // used to bypass ALL gates (blocklist, cooldown, quality guard) and
+      // still execute, and a 'LONG'/'SHORT' direction was forwarded toward
+      // the broker verbatim as the order side.
+      const action = String(_actionRaw ?? '').toUpperCase();
+      const _dirUp = String(_directionRaw ?? '').toUpperCase();
+      const direction = _dirUp === 'LONG' ? 'BUY' : _dirUp === 'SHORT' ? 'SELL' : _dirUp;
       // The EA does not agree with itself on field names: the closed-trades
       // handler below reads `sl`/`tp`, while this one only ever read
       // `stopLoss`/`takeProfit`. When the payload used the short form the values
@@ -8148,14 +8176,23 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         let connResult: any = null;
         // ── Signal quality gate for relay path ──────────────────────────
         if (action === 'OPEN') {
+          // `confidence` here used to reference a variable that is never in
+          // scope in this handler (typeof on it yielded 0), so the guard
+          // blocked EVERY relayed OPEN with "Confidence 0% below 65%". The
+          // first-party copier EA sends no confidence at all — it relays
+          // the user's own manual MT5 deals — so the confidence floor now
+          // applies only when a sender actually supplies one; the SL/TP,
+          // direction-sanity and R:R checks always apply.
+          const _relayConfRaw = (req.body as any)?.confidence;
+          const _relayConf = typeof _relayConfRaw === 'number' ? _relayConfRaw : (typeof _relayConfRaw === 'string' ? parseFloat(_relayConfRaw) : NaN);
           const guard = tlSignalGuard({
-            confidence: typeof confidence === 'number' ? confidence : (typeof confidence === 'string' ? parseFloat(confidence) : 0),
+            confidence: Number.isFinite(_relayConf) ? _relayConf : 0,
             entryPrice: entryPrice ?? null,
             stopLoss: stopLoss ?? null,
             takeProfit: takeProfit ?? null,
             symbol,
             direction,
-            minConfidence: 65,
+            minConfidence: Number.isFinite(_relayConf) ? 65 : 0,
             requireSLTP: true,
           });
           if (!guard.allow) {
@@ -10651,15 +10688,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           } catch { /* diag only */ }
         })();
       };
-      // Weekend: the FX market is closed Fri 21:00 → Sun 21:00 UTC, but the EA keeps
+      // Weekend: the FX market is closed Fri 17:00 ET → Sun 17:00 ET, but the EA keeps
       // posting candles. Every post still bought an AI confirmation that could
       // never trade (~1,300 calls/hour on 2026-10-11, all rejected). Skip the AI
-      // call then. Crypto symbols trade 24/7 and are left alone.
+      // call then. Crypto symbols trade 24/7 and are left alone. (The old
+      // fixed 21:00 UTC window matched only EDT weeks — same fix as the
+      // engine's fxMarketClosedFor.)
       const _fxMarketClosed = (() => {
         if (/^(BTC|ETH|SOL|LTC|XRP|DOGE|ADA|BNB)/i.test(sanitizedSymbol)) return false;
-        const _n = new Date();
-        const _d = _n.getUTCDay(), _h = _n.getUTCHours();
-        return _d === 6 || (_d === 5 && _h >= 21) || (_d === 0 && _h < 21);
+        const { dow: _d, hour: _h } = etWeekdayHour(Date.now());
+        return _d === 6 || (_d === 5 && _h >= 17) || (_d === 0 && _h < 17);
       })();
       if (_fxMarketClosed) _cdiag.stage = 'market_closed';
       // Every AI provider just returned 402 (no credits): a confirmation now can
@@ -10798,8 +10836,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   const roles: HtfRole[] = ['INTERMEDIATE', 'MACRO'];
                   results.forEach((r, idx) => {
                     if (r.status === 'fulfilled' && r.value?.bars && r.value.bars.length >= 10) {
+                      // OHLCVBar.timestamp is MILLISECONDS; the breakout
+                      // engine (and the EA's own candles, mixed into the
+                      // same multiTFCandles map below) read t as SECONDS —
+                      // ms bars landed in year ~57000 and the Asian-range /
+                      // opening-range strategies silently never matched.
                       const mapped = r.value.bars.map((b: { open: number; high: number; low: number; close: number; volume: number; timestamp: number }) => ({
-                        o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume, t: b.timestamp,
+                        o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume, t: Math.floor(b.timestamp / 1000),
                       }));
                       htfLevels.push({ timeframe: stack[idx], candles: mapped, role: roles[idx] });
                       console.log(`[HTF] Fetched ${mapped.length} ${stack[idx]} (${roles[idx]}) candles for bias injection`);
@@ -10850,7 +10893,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                         });
                         if (result?.bars && result.bars.length >= 5) {
                           const mapped = result.bars.map((b: { open: number; high: number; low: number; close: number; volume: number; timestamp: number }) => ({
-                            o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume, t: b.timestamp,
+                            o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume, t: Math.floor(b.timestamp / 1000), // ms → s, as above
                           }));
                           multiTFCandles[key] = mapped;
                           console.log(`[Breakout Master] Fetched ${mapped.length} ${key} candles for engine`);
@@ -12479,6 +12522,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 _markTlSkip('fan-out', `SIGNAL GUARD: ${analysisGuard.reason}`);
                 tradelockerResult = null;
                 (global as any).recentTrades[recentTradeKey] = _prevCooldown; // blocked — no trade opened, don't lock the symbol
+                // This is a SIGNAL-quality gate (confidence floor incl. the
+                // post-loss escalation, SL/TP presence, direction sanity,
+                // R:R) — not a TradeLocker-specific one, despite living in
+                // the fan-out section. It used to skip only the TL fan-out,
+                // so a plan it rejected (inverted levels, no TP, sub-floor
+                // R:R, revenge setup under the 86% post-loss floor) still
+                // executed on the MT5 EA, whose own check uses only the
+                // base confidence floor. Clear the plan like every other
+                // signal-level block (see the belt-and-suspenders note at
+                // the shouldMT5Execute computation) so no venue acts on it.
+                analysis.tradePlan = null;
               } else {
 
               // ── Volatile-pair lot cap for EA path — account-size scaled ────
@@ -18908,7 +18962,7 @@ Format each recommendation as a clear, concise action item.`;
       // >= 0.01 (blocks EURUSD forever) once wins averaged 50+ pips; JPY's
       // 0.01 pip was ignored. Now in price units with the pair's pip size,
       // set so a market moving < 1/20 of the average win per bar is "dead".
-      const _pip = /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 0.0001;
+      const _pip = getPipSize(sym); // canonical — the verbatim regex copy that lived here mis-scaled XAG/oil/index variants (see fx-models pipSize)
       const minProfitableATR = avgWinPips > 0 ? (avgWinPips * _pip) / 10 : 0;
 
       pairKnowledge[sym] = {
@@ -19821,7 +19875,7 @@ RULES: 1) Only trade instruments where ORB High/Low is in the ORB DATA section. 
             .sort((a: any, b: any) => (a.t || a.time) - (b.t || b.time));
 
           let orbH = 0, orbL = 0;
-          for (const off of [-5, -4]) {
+          for (const off of [etOffsetHours(Date.now())]) { // single DST-correct ET offset, as above
             const oc = todayC.find((c: any) => {
               const ts = c.t || c.time || 0;
               if (!ts) return false;
@@ -20170,8 +20224,15 @@ Respond with ONLY valid JSON:
               // Indices/Crypto: use AI suggestion capped to user max
               baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
             } else {
-              // Forex pairs: pip value ~$10/pip per 1.0 lot for USD pairs
-              const estimatedLot = slDistance > 0 ? riskAmount / (slDistance * 100000 * 0.0001 * 10) : userBaseLotSize;
+              // Forex pairs: canonical risk sizing, lots = risk$ / (SL pips
+              // × pip value). The old formula divided by slDistance × 100
+              // (a mangled 100000 × 0.0001 × 10), overstating the lot by
+              // ~1000x on majors — every AutoExec FX trade silently clamped
+              // to the user's MAX lot regardless of stop or risk %.
+              const _pipSz = getPipSize(sym);
+              const _slPips = _pipSz > 0 ? slDistance / _pipSz : 0;
+              const _pipVal = getPipValue(sym);
+              const estimatedLot = _slPips > 0 && _pipVal > 0 ? riskAmount / (_slPips * _pipVal) : userBaseLotSize;
               baseLotSize = Math.max(userBaseLotSize, Math.min(estimatedLot, userMaxLotSize));
             }
           } else {
@@ -23791,7 +23852,39 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
           error: `Position direction mismatch. Expected ${currentDirection} but found ${positionSide}.` 
         });
       }
-      
+
+      // ── Flip recovery levels ────────────────────────────────────────────
+      // The recovery OPEN below used to carry no SL/TP, and the TradeLocker
+      // dispatcher hard-blocks any OPEN without a valid stop — so every
+      // flip closed the position, then failed the recovery with HTTP 400,
+      // stranding the user flat. Mirror the ORIGINAL position's risk/reward
+      // distances onto the flipped direction, anchored at the current price
+      // (the dispatcher re-anchors to the real fill, preserving distances).
+      // If the original position has no stop to mirror, refuse BEFORE
+      // closing anything.
+      const _posSl = Number((matchingPosition as any).stopLoss ?? (matchingPosition as any).sl ?? (matchingPosition as any).stopLossPrice) || 0;
+      const _posTp = Number((matchingPosition as any).takeProfit ?? (matchingPosition as any).tp ?? (matchingPosition as any).takeProfitPrice) || 0;
+      const _posEntry = Number((matchingPosition as any).avgPrice ?? (matchingPosition as any).openPrice ?? (matchingPosition as any).price) || 0;
+      if (!(_posSl > 0) || !(_posEntry > 0)) {
+        return res.status(400).json({
+          error: `Cannot flip ${symbol}: the open position has no stop loss to mirror onto the recovery trade. Add a stop to the position first, or close it and re-enter manually.`
+        });
+      }
+      let _anchorPx = _posEntry;
+      try {
+        const { marketDataService } = await import('./market-data');
+        if (marketDataService.isInitialized()) {
+          const _md = await marketDataService.fetchMarketData({ symbol, assetType: marketDataService.detectAssetType(symbol), timeframe: '5m', limit: 5 });
+          const _lastBar = _md?.bars?.[_md.bars.length - 1];
+          if (Number(_lastBar?.close) > 0) _anchorPx = Number(_lastBar.close);
+        }
+      } catch { /* keep the entry anchor */ }
+      const _flipSlDist = Math.abs(_posEntry - _posSl);
+      const _flipTpDist = _posTp > 0 ? Math.abs(_posTp - _posEntry) : 0;
+      const _flipIsBuy = newDirection === 'BUY';
+      const flipStopLoss = _flipIsBuy ? _anchorPx - _flipSlDist : _anchorPx + _flipSlDist;
+      const flipTakeProfit = _flipTpDist > 0 ? (_flipIsBuy ? _anchorPx + _flipTpDist : _anchorPx - _flipTpDist) : undefined;
+
       // Close the existing position
       console.log(`[Flip Trade] Closing position ${closedPositionId} for ${symbol}`);
       try {
@@ -23818,12 +23911,17 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       // But enforce a hard lot cap and log the recovery details for audit trail.
       console.log(`[Flip Trade] Opening recovery ${newDirection} ${symbol} | Original lot: ${originalVolume} | Loss: ${currentLoss} | Multiplier: ${lossMultiplier.toFixed(2)} | Recovery lot: ${recoveryLotSize}`);
 
-      // Execute the reverse trade on TradeLocker
+      // Execute the reverse trade on TradeLocker — WITH the mirrored
+      // stop/target computed above (an OPEN without a stop is hard-blocked
+      // by the dispatcher, which is what stranded flips before).
       const tradeResult = await executeMT5SignalOnTradeLocker(connection, {
         action: 'OPEN',
         symbol: symbol,
         direction: newDirection,
         volume: recoveryLotSize,
+        entryPrice: _anchorPx,
+        stopLoss: flipStopLoss,
+        takeProfit: flipTakeProfit,
       });
       
       if (tradeResult.success) {
@@ -32364,7 +32462,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }).sort((a: any, b: any) => (a.t || a.time) - (b.t || b.time)); // oldest first
 
     // ── Find the 9:30 AM ORB candle ──────────────────────────────────────────
-    const estOffsets = [-5, -4]; // try EST then EDT
+    const estOffsets = [etOffsetHours(Date.now())]; // the one DST-correct ET offset (trying -5 first matched the 10:30 ET candle as the 9:30 ORB candle all EDT summer)
     // For H1 candles: also try 9:00 AM EST = 13:00 UTC (EDT) or 14:00 UTC (EST)
     // and 10:00 AM EST = 14:00 UTC (EDT) or 15:00 UTC (EST)
     const fallbackH1Hours = [9, 10]; // EST hours for H1 fallback
@@ -32634,7 +32732,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const todayCandles = candles.filter((c: any) => (c.t || 0) >= todayUTCStart);
 
       // ── Find 9:30 AM ORB candle ──
-      const estOffsets = [-5, -4];
+      const estOffsets = [etOffsetHours(Date.now())]; // the one DST-correct ET offset, as in the mt5-live route
       let orbHigh = 0, orbLow = 0, foundOrbCandle = false;
       let orbCandle: any = null;
       for (const off of estOffsets) {
@@ -33863,7 +33961,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       // row / real broker position, not just a DB log) and pay profit share
       // to the source trader in VEDD tokens, scaled to each copier's OWN P&L.
       try {
-        const sourceTradeRows = await db.execute(sql`SELECT lot_size FROM fx_paper_trades WHERE id=${tradeId} LIMIT 1`);
+        const sourceTradeRows = await db.execute(sql`SELECT lot_size, pair, direction FROM fx_paper_trades WHERE id=${tradeId} LIMIT 1`);
         const sourceTrade = (Array.isArray(sourceTradeRows) ? sourceTradeRows[0] : (sourceTradeRows as any).rows?.[0]);
         const sourceLotSize = parseFloat(sourceTrade?.lot_size) || 0.01;
 
@@ -33898,7 +33996,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             lotSize: parseFloat(String(log.lot_size)) || 0.01,
           };
           const copierPnl = typeof pnl === 'number'
-            ? await executeCopyTradeClose(rel, logForClose, exitPrice, pnl, sourceLotSize)
+            ? await executeCopyTradeClose(rel, logForClose, exitPrice, pnl, sourceLotSize, { pair: sourceTrade?.pair, direction: sourceTrade?.direction })
             : 0;
 
           await db.execute(sql`
