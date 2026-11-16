@@ -383,7 +383,7 @@ double PipSize()
    if(StringFind(s, "JPY") >= 0) return 0.01;
    if(StringFind(s, "XAU") >= 0) return 0.1;
    if(StringFind(s, "XAG") >= 0) return 0.001;
-   if(StringFind(s, "US30") >= 0 || StringFind(s, "NAS100") >= 0 || StringFind(s, "USTEC") >= 0 || StringFind(s, "US500") >= 0) return 1.0;
+   if(StringFind(s, "US30") >= 0 || StringFind(s, "NAS100") >= 0 || StringFind(s, "USTEC") >= 0 || StringFind(s, "US500") >= 0 || StringFind(s, "SP500") >= 0 || StringFind(s, "SPX") >= 0) return 1.0;
    if(StringFind(s, "BTC") >= 0) return 1.0;
    if(StringFind(s, "ETH") >= 0 || StringFind(s, "SOL") >= 0) return 0.01;
    if(StringFind(s, "XRP") >= 0) return 0.0001;

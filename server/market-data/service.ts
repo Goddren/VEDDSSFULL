@@ -151,7 +151,7 @@ class MarketDataService {
     // Twelve Data index symbol map. US30 was detected correctly; NAS100
     // was not, so the two indices behaved differently for no reason.
     const indices = ['SPX', 'NDX', 'DJI', 'VIX', 'FTSE', 'DAX', 'NI225',
-      'US30', 'US500', 'US100', 'NAS100', 'USTEC', 'WS30', 'DJ30', 'UK100', 'GER40', 'DE40', 'FRA40', 'JP225', 'JPN225', 'AU200', 'HK50'];
+      'US30', 'US500', 'SP500', 'SPX500', 'US100', 'NAS100', 'USTEC', 'WS30', 'DJ30', 'UK100', 'GER40', 'DE40', 'FRA40', 'JP225', 'JPN225', 'AU200', 'HK50'];
     if (indices.some(i => upper.includes(i))) {
       return 'index';
     }

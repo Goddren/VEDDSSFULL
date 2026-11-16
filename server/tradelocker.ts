@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { toEpochSeconds } from './utils/candleNormalize';
+import { canonicalIndexSymbol, indexSymbolVariants, INDEX_SYMBOL_ALIASES } from './utils/symbolAliases';
 
 const IV_LENGTH = 16;
 
@@ -81,10 +82,29 @@ const SERVICE_CACHE_TTL = 50 * 60 * 1000;
  */
 export const TL_CANDLE_SYMBOL_ALIASES: Record<string, string[]> = {
   'XAUUSD': ['GOLD', 'XAU/USD'],
-  'NAS100': ['USTEC', 'US100', 'NDX100', 'NASDAQ100', 'NQ100'],
-  'US30': ['DJ30', 'WALLST30', 'DJI30', 'WS30'],
-  'US500': ['SPX500', 'SP500', 'SPX'],
+  'NAS100': INDEX_SYMBOL_ALIASES.NAS100.filter(n => n !== 'NAS100'),
+  'US30': INDEX_SYMBOL_ALIASES.US30.filter(n => n !== 'US30'),
+  'US500': INDEX_SYMBOL_ALIASES.US500.filter(n => n !== 'US500'),
 };
+
+/**
+ * Candle-lookup variants for ANY caller name: the table above is keyed by
+ * canonical symbol, so a caller asking for 'SP500' (or 'SPX500', 'WS30',
+ * 'USTEC') used to get NO variants at all — the broker's differently-named
+ * instrument never matched, the history call threw "Instrument not found",
+ * and ORB skipped silently. Resolve through the canonical symbol so every
+ * name for the same index tries the full variant set.
+ */
+export function tlCandleVariants(symbol: string): string[] {
+  const sym = String(symbol || '').toUpperCase();
+  const canonical = canonicalIndexSymbol(sym);
+  const fromTable = TL_CANDLE_SYMBOL_ALIASES[canonical] || TL_CANDLE_SYMBOL_ALIASES[sym] || [];
+  const out: string[] = [];
+  for (const name of [sym, canonical, ...fromTable]) {
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
 
 /** Price decimals by instrument class (TradeLocker CFD conventions). */
 export function priceDecimals(symbol: string): number {
@@ -1045,17 +1065,25 @@ export class TradeLockerService {
             'SILVER': ['XAGUSD', 'XAG/USD'],
             'USOIL':  ['WTI', 'CRUDE', 'OIL', 'USOUSD'],
             'UKOIL':  ['BRENT', 'BRENTOIL'],
-            'NAS100': ['USTEC', 'NDX100', 'NASDAQ100', 'US100', 'NQ100'],
+            'NAS100': ['USTEC', 'NDX100', 'NASDAQ100', 'US100', 'NQ100', 'NQ'],
             'US500':  ['SPX500', 'SP500', 'US500', 'SPX'],
-            'US30':   ['DJ30', 'WALLST30', 'DJI30'],
+            'US30':   ['DJ30', 'WALLST30', 'DJI30', 'WS30'],
             'GER40':  ['DAX40', 'DE40', 'GER30', 'GER'],
             'UK100':  ['FTSE100', 'UKX'],
             'JP225':  ['JPN225', 'NIKKEI', 'N225'],
           };
-          const knownAliases = ALIASES[sym] || [];
+          // The table is keyed by canonical name — a caller asking for the
+          // S&P as 'SP500' or 'SPX500' (or the Dow as 'WS30') used to match
+          // NO row and try only its own name + suffixes, so the order died
+          // on brokers naming the instrument differently. Resolve through
+          // the canonical symbol and try the full shared variant set.
+          const knownAliases = ALIASES[canonicalIndexSymbol(sym)] || ALIASES[sym] || [];
           for (const alias of knownAliases) {
             symVariants.push(alias);
             symVariants.push(alias.replace('/', ''));
+          }
+          for (const alias of indexSymbolVariants(sym)) {
+            if (!knownAliases.includes(alias)) symVariants.push(alias);
           }
 
           const seen = new Set<string>();
@@ -1334,7 +1362,7 @@ export class TradeLockerService {
       // symbol, so polling many ORB symbols doesn't hammer /instruments into a 429.
       const { instruments } = await this.fetchInstrumentsPayload();
       const sym = symbol.toUpperCase();
-      const variants = [sym, ...(TL_CANDLE_SYMBOL_ALIASES[sym] || [])];
+      const variants = tlCandleVariants(sym);
       let matched: any = null;
       for (const v of variants) {
         matched = instruments.find((i: any) => (i.name || i.symbol || '').toUpperCase().replace(/\s/g, '') === v.replace(/\s/g, ''));
