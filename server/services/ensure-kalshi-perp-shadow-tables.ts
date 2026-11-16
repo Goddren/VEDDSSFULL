@@ -61,6 +61,8 @@ export function ensureKalshiPerpShadowTables(): Promise<void> {
       // reason here ('entry_price' | 'exit_price' | 'gross_return' |
       // 'funding' | 'net_return'), so the quarantine is auditable row by
       // row instead of a silent drop. NULL on every valid close.
+      // Reasons: 'entry_price' | 'notional' | 'exit_price' |
+      // 'gross_return' | 'funding' | 'net_return'.
       .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS stats_invalid_reason text`))
       .then(() => undefined)
       .catch((e) => { _ensured = null; throw e; });

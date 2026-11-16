@@ -32,7 +32,8 @@
  */
 import { readFileSync } from 'node:fs';
 import {
-  isValidShadowReturnPct, shadowCloseInvalidReason, accountReplay, aggregateKalshiStats,
+  isValidShadowReturnPct, isValidShadowNotional, maxValidNotionalUsd,
+  shadowCloseInvalidReason, accountReplay, aggregateKalshiStats,
 } from '../server/services/kalshi-stock-shadow';
 
 let failures = 0;
@@ -173,6 +174,65 @@ const rows = [...sanePcts.map((p) => ({ notional: 250, pct: p })), { notional: 2
   check('F13 lazy column for the invalid stamp', ensure.includes('ADD COLUMN IF NOT EXISTS stats_invalid_reason text'));
   check('F14 panel renders the quarantine note', panel.includes('invalidExcludedCount') && panel.includes('quarantined'));
   check('F15 aggregateKalshiStats filters by the validity helper', lane.includes('if (!isValidShadowReturnPct(v)) continue;'));
+}
+
+// ── H. the production shape: off-scale ENTRY, corrupt notional ──────────
+// Per-strategy attribution from the signed-in survey: the whole blow-up
+// sits in opt_volume_profile (−$924,181,878,092,900.50 of the
+// −$924,181,878,093,150.60 total) with a SANE avg −1.75R — so the corrupt
+// field is notional_usd, not return_pct. Reconstruction: one trade whose
+// entry print was ~9.24e14 (contracts = max(1, round(250/entry)) = 1, so
+// notional = entry), closed at a sane exit: gross ≈ −100.00, net ≈
+// −100.05 (matching that strategy's $100 view: $100 → −$0.05, −100.05%),
+// r = net/sl_pct ≈ −25 (one such row among ~15 sane rows ⇒ avg ≈ −1.75R).
+{
+  const entry = 924_181_878_092_900;
+  const exit = 92.42;
+  const gross = ((exit - entry) / entry) * 100;
+  const net = gross + 0.19 - 0.24; // funding +0.19, exact-era cost 0.24
+  const contribution = (entry * net) / 100; // notional = entry (1 contract)
+  check('H1 reconstructed row reproduces the strategy blow-up within 1%',
+    Math.abs(contribution - -924_181_878_092_900.5) / 924_181_878_092_900.5 < 0.01, `contribution=${contribution}`);
+  check('H2 its return_pct is a plausible-looking ≈ −100.05 (return-only guards nearly miss it)',
+    Math.abs(net - -100.05) < 0.1, `net=${net}`);
+  check('H3 shadowCloseInvalidReason names the root field: entry_price (above the $1M ceiling)', shadowCloseInvalidReason({
+    entryPrice: entry, exitPrice: exit, grossPct: gross, fundingPct: 0.19, netPct: net,
+    notionalUsd: entry, targetNotionalUsd: 250,
+  }) === 'entry_price');
+  check('H4 a notional inconsistent with its own sane entry => notional', !isValidShadowNotional(100, entry, 250)
+    && shadowCloseInvalidReason({
+      entryPrice: 100, exitPrice: 96, grossPct: -4, fundingPct: 0, netPct: -4.24,
+      notionalUsd: entry, targetNotionalUsd: 250,
+    }) === 'notional');
+  check('H5 BTC-class row stays valid (entry 97000, 1 contract, notional = entry)',
+    isValidShadowNotional(97_000, 97_000, 250) && shadowCloseInvalidReason({
+      entryPrice: 97_000, exitPrice: 93_120, grossPct: -4, fundingPct: -0.1, netPct: -4.34,
+      notionalUsd: 97_000, targetNotionalUsd: 250,
+    }) === null);
+  check('H6 ordinary row stays valid (entry 412.50, 1 contract, notional = entry)',
+    isValidShadowNotional(412.5, 412.5, 250));
+  check('H7 rounded-up sizing stays valid (entry 100, 3 contracts, notional 300)',
+    isValidShadowNotional(100, 300, 250));
+  check('H8 an entry above the $1M ceiling (2e6) => entry_price', shadowCloseInvalidReason({
+    entryPrice: 2_000_000, exitPrice: 100, grossPct: -99.99, fundingPct: 0, netPct: -100.23,
+    notionalUsd: 2_000_000, targetNotionalUsd: 250,
+  }) === 'entry_price');
+  // Documented boundary: an off-scale-but-sub-ceiling entry (999,999 for
+  // a $100 asset) whose net lands inside ±100 passes close validation —
+  // its defense is the entry-time touch-vs-candle cross-check (F12),
+  // which compares two independent price sources before any row exists.
+  check('H8b sub-ceiling boundary is the cross-check\u2019s job, not the close validator\u2019s', shadowCloseInvalidReason({
+    entryPrice: 999_999, exitPrice: 500_000, grossPct: -50, fundingPct: 0, netPct: -50.24,
+    notionalUsd: 999_999, targetNotionalUsd: 250,
+  }) === null);
+  check('H9 maxValidNotionalUsd follows the sizing construction',
+    maxValidNotionalUsd(100, 250) === 500 && maxValidNotionalUsd(97_000, 250) === 145_500);
+  const lane = readFileSync(new URL('../server/services/kalshi-stock-shadow.ts', import.meta.url), 'utf8');
+  check('H10 report queries carry the SQL notional bound', lane.includes('notional_usd <= greatest($4::float, entry_price * 1.5)'));
+  check('H11 invalid count includes read-time notional + entry failures',
+    lane.includes('notional_usd > greatest($4::float, entry_price * 1.5)') && lane.includes('entry_price > $5::float'));
+  check('H13 report queries carry the SQL entry ceiling', lane.includes('entry_price <= $5::float'));
+  check('H12 closeTrade passes the row notional into the validator', lane.includes('notionalUsd: t.notional_usd, targetNotionalUsd: NOTIONAL()'));
 }
 
 // ── G. PR #94 exact-cost semantics untouched ─────────────────────────────
