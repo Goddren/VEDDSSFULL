@@ -46239,7 +46239,7 @@ function sanitizeProposal(p2) {
 async function currentSettings(userId) {
   const fx = getEffectiveEngineConfig(userId);
   const fxState = getLiveEngineState(userId);
-  const crypto17 = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
+  const crypto18 = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
   const sol = getSolEngineStatus(userId);
   const models = await getFxModelSettings(userId).catch(() => ({}));
   return {
@@ -46254,7 +46254,7 @@ async function currentSettings(userId) {
       pairDirectionOverrides: fx.pairDirectionOverrides || {},
       weeklyProfitTarget: fx.weeklyProfitTarget
     },
-    crypto: crypto17 ? { running: !!crypto17.isActive, symbols: crypto17.symbols, riskPerTrade: crypto17.riskPerTrade, minConfidence: crypto17.minConfidence, maxDailyTrades: crypto17.maxDailyTrades, directionFilter: crypto17.directionFilter } : null,
+    crypto: crypto18 ? { running: !!crypto18.isActive, symbols: crypto18.symbols, riskPerTrade: crypto18.riskPerTrade, minConfidence: crypto18.minConfidence, maxDailyTrades: crypto18.maxDailyTrades, directionFilter: crypto18.directionFilter } : null,
     sol: { running: !!sol?.running, riskPerTradePct: sol?.config?.riskPerTradePct, minConfidence: sol?.config?.minConfidence, maxDailyTrades: sol?.config?.maxDailyTrades },
     models: { live: !!models.live, m1DailyCap: models.m1DailyCap, m2DailyCap: models.m2DailyCap }
   };
@@ -69225,7 +69225,7 @@ async function getAllTimePerformance(userId) {
      GROUP BY day`,
     [userId]
   );
-  const [atr3, opt, crypto17, futures] = await Promise.all([
+  const [atr3, opt, crypto18, futures] = await Promise.all([
     atrQuery.catch(() => ({ rows: [] })),
     optQuery.catch(() => ({ rows: [] })),
     cryptoQuery.catch(() => ({ rows: [] })),
@@ -69244,7 +69244,7 @@ async function getAllTimePerformance(userId) {
   };
   addRows(atr3.rows);
   addRows(opt.rows, "options");
-  addRows(crypto17.rows, "cryptocom");
+  addRows(crypto18.rows, "cryptocom");
   addRows(futures.rows, "futures");
   const dailyHistory = Object.entries(byDay).map(([date2, engines]) => {
     const byEngine = Object.entries(engines).map(([engine, v]) => ({
@@ -75948,6 +75948,8 @@ __export(clipper_core_exports, {
   frameForAspect: () => frameForAspect,
   normalizeSubscores: () => normalizeSubscores,
   parseSilenceDetect: () => parseSilenceDetect,
+  parseYouTubeCookies: () => parseYouTubeCookies,
+  redactSecrets: () => redactSecrets,
   silenceRatio: () => silenceRatio,
   snapOutOfSilence: () => snapOutOfSilence,
   snapToWordEnd: () => snapToWordEnd,
@@ -76319,7 +76321,7 @@ function ytdlpClientChain(envValue) {
   const parts = String(envValue || "").split(",").map((s) => s.trim()).filter((s) => YT_CLIENT_OK.test(s));
   return parts.length ? parts.slice(0, 8) : [...YTDLP_DEFAULT_CLIENTS];
 }
-function buildYtdlpInfoArgs(url, clients, noCheckCerts2 = false) {
+function buildYtdlpInfoArgs(url, clients, noCheckCerts2 = false, cookiesFile) {
   return [
     "--no-warnings",
     "--no-playlist",
@@ -76329,6 +76331,7 @@ function buildYtdlpInfoArgs(url, clients, noCheckCerts2 = false) {
     "3",
     "--extractor-args",
     `youtube:player_client=${clients.join(",")}`,
+    ...cookiesFile ? ["--cookies", cookiesFile] : [],
     ...noCheckCerts2 ? ["--no-check-certificates"] : [],
     "--dump-single-json",
     url
@@ -76347,6 +76350,7 @@ function buildYtdlpDownloadArgs(url, opts) {
     "10",
     "--extractor-args",
     `youtube:player_client=${opts.clients.join(",")}`,
+    ...opts.cookiesFile ? ["--cookies", opts.cookiesFile] : [],
     "--max-filesize",
     String(opts.maxBytes),
     // Best muxed-or-mergeable mp4 at ≤720p (the old ytdl-core pick),
@@ -76372,9 +76376,12 @@ function classifyYtdlpError(text3) {
   if (/timed out|timeout|connection|network|ssl|certificate|eof occurred|HTTP Error 5\d\d|urlopen error/i.test(m)) return "network";
   return "unknown";
 }
-function ytdlpErrorMessage(code) {
+function ytdlpErrorMessage(code, opts) {
   switch (code) {
     case "bot-blocked":
+      if (opts?.cookiesConfigured) {
+        return "YouTube rejected the saved login for this download \u2014 that login session has likely expired or been signed out. Refresh the saved YouTube login cookies and try again \u2014 or upload the video file instead; uploads always work.";
+      }
       return "YouTube blocked this download from our server \u2014 it asked for a sign-in to confirm we are not a bot, which a server can't do. Upload the video file instead; uploads always work.";
     case "unavailable":
       return "That YouTube video is unavailable (removed, or the link is wrong), so there was nothing to download. Check the link \u2014 or upload the video file instead.";
@@ -76391,6 +76398,42 @@ function ytdlpErrorMessage(code) {
     default:
       return "The YouTube download failed for a reason we couldn't identify. Try again \u2014 or upload the video file instead; uploads always work.";
   }
+}
+function parseYouTubeCookies(raw) {
+  try {
+    let content = String(raw ?? "");
+    if (!content.trim()) return { ok: false };
+    if (!content.includes("\n") && content.includes("\\n")) {
+      content = content.replace(/\\n/g, "\n").replace(/\\t/g, "	");
+    }
+    if (content.length > 1024 * 1024) return { ok: false };
+    let cookieCount = 0;
+    let youtubeCount = 0;
+    for (const line2 of content.split(/\r?\n/)) {
+      const trimmed = line2.trim();
+      if (!trimmed) continue;
+      const isHttpOnly = trimmed.startsWith("#HttpOnly_");
+      if (trimmed.startsWith("#") && !isHttpOnly) continue;
+      const body = isHttpOnly ? trimmed.slice("#HttpOnly_".length) : trimmed;
+      const fields = body.split("	");
+      if (fields.length < 7) continue;
+      const domain = fields[0].trim().toLowerCase().replace(/^\./, "");
+      if (!domain || !/^\d+$/.test(fields[4].trim()) || !fields[5].trim()) continue;
+      cookieCount++;
+      if (domain === "youtube.com" || domain.endsWith(".youtube.com")) youtubeCount++;
+    }
+    if (!cookieCount || !youtubeCount) return { ok: false };
+    return { ok: true, content, cookieCount };
+  } catch {
+    return { ok: false };
+  }
+}
+function redactSecrets(text3, secrets) {
+  let out = String(text3 || "");
+  for (const s of secrets) {
+    if (s && s.length >= 4) out = out.split(s).join("[redacted]");
+  }
+  return out;
 }
 function validateClipperUpload(input) {
   const size = Number(input?.size || 0);
@@ -76521,6 +76564,7 @@ var init_clipper_core = __esm({
 
 // server/services/ytdlp.ts
 import { spawn as spawn3 } from "child_process";
+import crypto16 from "crypto";
 import fs16 from "fs";
 import path16 from "path";
 function resolveYtdlpBin() {
@@ -76538,10 +76582,39 @@ function resolveYtdlpBin() {
 function noCheckCerts() {
   return process.env.CLIPPER_YTDLP_NO_CHECK_CERTS === "1";
 }
-function runYtdlp(args, timeoutMs) {
+function loadYouTubeCookies() {
+  const raw = process.env.YOUTUBE_COOKIES;
+  if (cookiesCache && cookiesCache.raw === raw) return cookiesCache.parsed;
+  const parsed = parseYouTubeCookies(raw);
+  if (raw && raw.trim() && !parsed.ok) {
+    console.warn("[ytdlp] YOUTUBE_COOKIES is set but is not a valid Netscape cookies.txt with youtube.com entries \u2014 ignoring it; downloads will run without a login.");
+  }
+  cookiesCache = { raw, parsed };
+  return parsed;
+}
+function youtubeCookiesConfigured() {
+  return loadYouTubeCookies().ok;
+}
+function writeYouTubeCookiesFile(dir) {
+  const parsed = loadYouTubeCookies();
+  if (!parsed.ok) return null;
+  const file = path16.join(dir, `.yt-cookies-${crypto16.randomBytes(6).toString("hex")}.txt`);
+  fs16.writeFileSync(file, parsed.content, { mode: 384 });
+  return file;
+}
+function removeYouTubeCookiesFile(file) {
+  if (!file) return;
+  try {
+    fs16.unlinkSync(file);
+  } catch {
+  }
+}
+function runYtdlp(args, timeoutMs, scrub = []) {
   return new Promise((resolve, reject) => {
     const bin = resolveYtdlpBin();
-    const p2 = spawn3(bin, args, { env: process.env });
+    const childEnv = { ...process.env };
+    delete childEnv.YOUTUBE_COOKIES;
+    const p2 = spawn3(bin, args, { env: childEnv });
     let stdout = "", stderr = "";
     const cap = (s) => s.length > 4e5 ? s.slice(-2e5) : s;
     const t = setTimeout(() => {
@@ -76564,15 +76637,20 @@ function runYtdlp(args, timeoutMs) {
       clearTimeout(t);
       if (code === 0) resolve({ stdout, stderr });
       else {
-        const detail = (stderr || stdout).trim().slice(-1500);
-        reject(new YtdlpError(classifyYtdlpError(detail), detail || `yt-dlp exited ${code}`));
+        const raw = (stderr || stdout).trim().slice(-1500);
+        const detail = redactSecrets(raw, scrub);
+        reject(new YtdlpError(classifyYtdlpError(raw), detail || `yt-dlp exited ${code}`));
       }
     });
   });
 }
-async function fetchYouTubeInfo(url) {
+async function fetchYouTubeInfo(url, cookiesFile) {
   const clients = ytdlpClientChain(process.env.CLIPPER_YTDLP_CLIENTS);
-  const { stdout } = await runYtdlp(buildYtdlpInfoArgs(url, clients, noCheckCerts()), 24e4);
+  const { stdout } = await runYtdlp(
+    buildYtdlpInfoArgs(url, clients, noCheckCerts(), cookiesFile),
+    24e4,
+    [cookiesFile]
+  );
   let parsed = null;
   try {
     parsed = JSON.parse(stdout.trim());
@@ -76585,30 +76663,37 @@ async function fetchYouTubeInfo(url) {
   };
 }
 async function downloadYouTubeVideo(url, destDir, opts) {
-  const info2 = await fetchYouTubeInfo(url);
-  if (info2.lengthSec && info2.lengthSec > opts.maxMinutes * 60) {
-    throw new Error(`Video too long: exceeds the ${opts.maxMinutes} minute limit`);
+  const cookiesFile = writeYouTubeCookiesFile(destDir) || void 0;
+  try {
+    const info2 = await fetchYouTubeInfo(url, cookiesFile);
+    if (info2.lengthSec && info2.lengthSec > opts.maxMinutes * 60) {
+      throw new Error(`Video too long: exceeds the ${opts.maxMinutes} minute limit`);
+    }
+    const clients = ytdlpClientChain(process.env.CLIPPER_YTDLP_CLIENTS);
+    const outputTemplate = path16.join(destDir, "source.%(ext)s");
+    await runYtdlp(
+      buildYtdlpDownloadArgs(url, {
+        outputTemplate,
+        maxBytes: opts.maxBytes,
+        clients,
+        ffmpegLocation: ffmpegBin(),
+        noCheckCerts: noCheckCerts(),
+        cookiesFile
+      }),
+      9e5,
+      [cookiesFile]
+    );
+    const produced = fs16.readdirSync(destDir).filter((f) => /^source\.(mp4|webm|mov|m4v|mkv)$/i.test(f)).sort((a, b) => (a.endsWith(".mp4") ? 0 : 1) - (b.endsWith(".mp4") ? 0 : 1));
+    if (!produced.length) throw new YtdlpError("unknown", "yt-dlp finished but produced no video file");
+    const file = path16.join(destDir, produced[0]);
+    const size = fs16.statSync(file).size;
+    if (size > opts.maxBytes) throw new Error("Video file too large to process");
+    return { file, title: info2.title, lengthSec: info2.lengthSec };
+  } finally {
+    removeYouTubeCookiesFile(cookiesFile || null);
   }
-  const clients = ytdlpClientChain(process.env.CLIPPER_YTDLP_CLIENTS);
-  const outputTemplate = path16.join(destDir, "source.%(ext)s");
-  await runYtdlp(
-    buildYtdlpDownloadArgs(url, {
-      outputTemplate,
-      maxBytes: opts.maxBytes,
-      clients,
-      ffmpegLocation: ffmpegBin(),
-      noCheckCerts: noCheckCerts()
-    }),
-    9e5
-  );
-  const produced = fs16.readdirSync(destDir).filter((f) => /^source\.(mp4|webm|mov|m4v|mkv)$/i.test(f)).sort((a, b) => (a.endsWith(".mp4") ? 0 : 1) - (b.endsWith(".mp4") ? 0 : 1));
-  if (!produced.length) throw new YtdlpError("unknown", "yt-dlp finished but produced no video file");
-  const file = path16.join(destDir, produced[0]);
-  const size = fs16.statSync(file).size;
-  if (size > opts.maxBytes) throw new Error("Video file too large to process");
-  return { file, title: info2.title, lengthSec: info2.lengthSec };
 }
-var YtdlpError;
+var YtdlpError, cookiesCache;
 var init_ytdlp = __esm({
   "server/services/ytdlp.ts"() {
     "use strict";
@@ -76622,6 +76707,7 @@ var init_ytdlp = __esm({
         this.ytdlpCode = code;
       }
     };
+    cookiesCache = null;
   }
 });
 
@@ -76646,7 +76732,7 @@ async function insertJob2(userId, payload2) {
 }
 function friendlyError3(e) {
   const ytCode = e?.ytdlpCode;
-  if (ytCode) return ytdlpErrorMessage(ytCode);
+  if (ytCode) return ytdlpErrorMessage(ytCode, { cookiesConfigured: youtubeCookiesConfigured() });
   const m = String(e?.message || e || "");
   if (/too long|exceeds the/i.test(m)) return `That video is longer than the ${MAX_MINUTES}-minute limit for clipping. Try a shorter video.`;
   if (/no audio/i.test(m)) return "That video has no audio track, so there is nothing to transcribe or caption.";
@@ -78262,7 +78348,7 @@ __export(ambassador_prime_exports, {
   runAmbassadorPrime: () => runAmbassadorPrime,
   startAmbassadorPrimeScheduler: () => startAmbassadorPrimeScheduler
 });
-import crypto16 from "crypto";
+import crypto17 from "crypto";
 import { eq as eq17, sql as drizzleSql } from "drizzle-orm";
 import { OpenAI as OpenAI8 } from "openai";
 async function logStep(runDate, stepName, status, error) {
@@ -78279,7 +78365,7 @@ function buildOAuthHeader(method, url, params) {
   if (!apiKey || !apiSecret || !accessToken || !accessSecret) return "";
   const oauthParams = {
     oauth_consumer_key: apiKey,
-    oauth_nonce: crypto16.randomBytes(16).toString("hex"),
+    oauth_nonce: crypto17.randomBytes(16).toString("hex"),
     oauth_signature_method: "HMAC-SHA1",
     oauth_timestamp: Math.floor(Date.now() / 1e3).toString(),
     oauth_token: accessToken,
@@ -78290,7 +78376,7 @@ function buildOAuthHeader(method, url, params) {
   const paramStr = sortedKeys.map((k2) => `${encodeURIComponent(k2)}=${encodeURIComponent(allParams[k2])}`).join("&");
   const sigBase = [method.toUpperCase(), encodeURIComponent(url), encodeURIComponent(paramStr)].join("&");
   const sigKey = `${encodeURIComponent(apiSecret)}&${encodeURIComponent(accessSecret)}`;
-  const signature = crypto16.createHmac("sha1", sigKey).update(sigBase).digest("base64");
+  const signature = crypto17.createHmac("sha1", sigKey).update(sigBase).digest("base64");
   oauthParams["oauth_signature"] = signature;
   const headerValue = Object.keys(oauthParams).sort().map((k2) => `${encodeURIComponent(k2)}="${encodeURIComponent(oauthParams[k2])}"`).join(", ");
   return `OAuth ${headerValue}`;
@@ -83153,9 +83239,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "1e75669b-dirty";
+var BUILD_COMMIT = "dfd79b36-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-16T03:51:06.142Z";
+var BUILT_AT = "2026-11-16T04:37:00.559Z";
 
 // server/stripe.ts
 init_db();

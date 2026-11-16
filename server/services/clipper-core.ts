@@ -530,10 +530,11 @@ export function ytdlpClientChain(envValue?: string): string[] {
   return parts.length ? parts.slice(0, 8) : [...YTDLP_DEFAULT_CLIENTS];
 }
 
-export function buildYtdlpInfoArgs(url: string, clients: string[], noCheckCerts = false): string[] {
+export function buildYtdlpInfoArgs(url: string, clients: string[], noCheckCerts = false, cookiesFile?: string): string[] {
   return [
     '--no-warnings', '--no-playlist', '--socket-timeout', '30', '--retries', '3',
     '--extractor-args', `youtube:player_client=${clients.join(',')}`,
+    ...(cookiesFile ? ['--cookies', cookiesFile] : []),
     ...(noCheckCerts ? ['--no-check-certificates'] : []),
     '--dump-single-json', url,
   ];
@@ -541,12 +542,13 @@ export function buildYtdlpInfoArgs(url: string, clients: string[], noCheckCerts 
 
 export function buildYtdlpDownloadArgs(
   url: string,
-  opts: { outputTemplate: string; maxBytes: number; clients: string[]; ffmpegLocation?: string; noCheckCerts?: boolean },
+  opts: { outputTemplate: string; maxBytes: number; clients: string[]; ffmpegLocation?: string; noCheckCerts?: boolean; cookiesFile?: string },
 ): string[] {
   return [
     '--no-warnings', '--no-playlist', '--no-progress',
     '--socket-timeout', '30', '--retries', '5', '--fragment-retries', '10',
     '--extractor-args', `youtube:player_client=${opts.clients.join(',')}`,
+    ...(opts.cookiesFile ? ['--cookies', opts.cookiesFile] : []),
     '--max-filesize', String(opts.maxBytes),
     // Best muxed-or-mergeable mp4 at ≤720p (the old ytdl-core pick),
     // loosening step by step rather than failing on a strict filter.
@@ -573,10 +575,16 @@ export function classifyYtdlpError(text: string): YtdlpErrorCode {
 }
 
 /** The exact user-facing sentence for each code — every one names the
- *  cause and points at the upload path, which always works. */
-export function ytdlpErrorMessage(code: YtdlpErrorCode): string {
+ *  cause and points at the upload path, which always works. When the
+ *  server has a saved YouTube login (YOUTUBE_COOKIES) and STILL gets
+ *  bot-blocked, the login itself was rejected — say that instead, so
+ *  the owner knows to refresh the cookies rather than retry blindly. */
+export function ytdlpErrorMessage(code: YtdlpErrorCode, opts?: { cookiesConfigured?: boolean }): string {
   switch (code) {
     case 'bot-blocked':
+      if (opts?.cookiesConfigured) {
+        return 'YouTube rejected the saved login for this download — that login session has likely expired or been signed out. Refresh the saved YouTube login cookies and try again — or upload the video file instead; uploads always work.';
+      }
       return 'YouTube blocked this download from our server — it asked for a sign-in to confirm we are not a bot, which a server can\'t do. Upload the video file instead; uploads always work.';
     case 'unavailable':
       return 'That YouTube video is unavailable (removed, or the link is wrong), so there was nothing to download. Check the link — or upload the video file instead.';
@@ -593,6 +601,68 @@ export function ytdlpErrorMessage(code: YtdlpErrorCode): string {
     default:
       return 'The YouTube download failed for a reason we couldn\'t identify. Try again — or upload the video file instead; uploads always work.';
   }
+}
+
+// ─── YouTube login cookies (pure validation) ────────────────────────────────
+// Optional server-side login for yt-dlp: the owner exports cookies.txt
+// (Netscape format) from a browser logged into youtube.com and stores it
+// in the YOUTUBE_COOKIES env var; the runner (ytdlp.ts) writes it to a
+// per-job temp file and passes --cookies. The cookie file is effectively
+// a login token for that account — it is a SECRET: never logged, never
+// returned in any response, never committed. These helpers only validate
+// shape; they never surface content in errors.
+
+export type YouTubeCookiesParse =
+  | { ok: true; content: string; cookieCount: number }
+  | { ok: false };
+
+/** Validate Netscape cookies.txt content from the YOUTUBE_COOKIES env
+ *  var. Accepts only content with at least one parseable cookie line for
+ *  youtube.com (or a subdomain). A pasted value with literal "\n" escapes
+ *  instead of real newlines is normalized first (a common dashboard
+ *  paste artifact). NEVER throws — garbage in, { ok: false } out. */
+export function parseYouTubeCookies(raw: string | undefined | null): YouTubeCookiesParse {
+  try {
+    let content = String(raw ?? '');
+    if (!content.trim()) return { ok: false };
+    if (!content.includes('\n') && content.includes('\\n')) {
+      content = content.replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+    }
+    if (content.length > 1024 * 1024) return { ok: false };
+    let cookieCount = 0;
+    let youtubeCount = 0;
+    for (const line of content.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      // '#HttpOnly_' lines are real cookie lines with a comment-style
+      // prefix; every other '#' line is a comment/header.
+      const isHttpOnly = trimmed.startsWith('#HttpOnly_');
+      if (trimmed.startsWith('#') && !isHttpOnly) continue;
+      const body = isHttpOnly ? trimmed.slice('#HttpOnly_'.length) : trimmed;
+      const fields = body.split('\t');
+      // Netscape row: domain, flag, path, secure, expiry, name, value.
+      if (fields.length < 7) continue;
+      const domain = fields[0].trim().toLowerCase().replace(/^\./, '');
+      if (!domain || !/^\d+$/.test(fields[4].trim()) || !fields[5].trim()) continue;
+      cookieCount++;
+      if (domain === 'youtube.com' || domain.endsWith('.youtube.com')) youtubeCount++;
+    }
+    if (!cookieCount || !youtubeCount) return { ok: false };
+    return { ok: true, content, cookieCount };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** Scrub secret strings (cookie file path, cookie values) out of text
+ *  destined for an error surface. Pure string surgery — the runner uses
+ *  it on yt-dlp stderr before the detail can reach a job record. */
+export function redactSecrets(text: string, secrets: (string | undefined | null)[]): string {
+  let out = String(text || '');
+  for (const s of secrets) {
+    if (s && s.length >= 4) out = out.split(s).join('[redacted]');
+  }
+  return out;
 }
 
 // ─── Upload fallback (pure validation) ──────────────────────────────────────

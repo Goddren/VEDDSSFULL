@@ -21,8 +21,14 @@
  * L. yt-dlp ingestion (the ytdl-core replacement): client chain, CLI
  *    args, error classification → specific user messages, the pinned
  *    provisioning script, and the upload fallback's validation + wiring.
+ * M. YouTube login cookies (YOUTUBE_COOKIES env): Netscape validation,
+ *    --cookies arg wiring, per-job temp file (0600 + deletion), secret
+ *    redaction from error text, and the bot-blocked message split
+ *    (saved login rejected vs no login configured). FAKE fixtures only.
  */
-import { readFileSync } from 'fs';
+import fs, { readFileSync } from 'fs';
+import os from 'os';
+import path from 'path';
 import {
   classifySourceUrl, validateClipperSettings, viralityScore, normalizeSubscores,
   parseSilenceDetect, silenceRatio, finalizeMoments, buildCaptionCues,
@@ -31,9 +37,13 @@ import {
   CLIPPER_STEPS, clipperStepProgress, LENGTH_PRESETS,
   ytdlpClientChain, buildYtdlpInfoArgs, buildYtdlpDownloadArgs,
   classifyYtdlpError, ytdlpErrorMessage, validateClipperUpload,
+  parseYouTubeCookies, redactSecrets,
   CLIPPER_UPLOAD_MAX_BYTES, YTDLP_DEFAULT_CLIENTS, type YtdlpErrorCode,
   type WordTiming, type MomentSeed,
 } from '../server/services/clipper-core';
+import {
+  youtubeCookiesConfigured, writeYouTubeCookiesFile, removeYouTubeCookiesFile,
+} from '../server/services/ytdlp';
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean, detail?: string) {
@@ -276,6 +286,95 @@ console.log('L. yt-dlp ingestion + upload fallback');
   check('L25 upload job carries the asset id', clipper.includes('uploadAssetId') && clipper.includes('getPersistedAsset'));
   check('L26 client offers the upload path', maker.includes('clipper-mode-upload') && maker.includes('clipper-file') && maker.includes('/api/content-studio/clipper/upload'));
   check('L27 friendlyError honors yt codes first', clipper.includes('ytdlpCode') && clipper.includes('ytdlpErrorMessage'));
+}
+
+// ─── M. YouTube login cookies (YOUTUBE_COOKIES) ─────────────────────────────
+console.log('M. YouTube login cookies');
+{
+  // FAKE fixture — invented values, no real account anywhere near this.
+  const FAKE_COOKIES = [
+    '# Netscape HTTP Cookie File',
+    '#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t1893456000\tFAKE_SAPISID\tfake-sapisid-value',
+    '.youtube.com\tTRUE\t/\tTRUE\t1893456000\tFAKE_LOGIN_INFO\tfake-login-info-value',
+    '.google.com\tTRUE\t/\tTRUE\t1893456000\tFAKE_NID\tfake-nid-value',
+    '',
+  ].join('\n');
+
+  // Validation: shape + a youtube.com entry are both required.
+  const good = parseYouTubeCookies(FAKE_COOKIES);
+  check('M1 valid Netscape fixture accepted', good.ok && good.cookieCount === 3);
+  check('M2 garbage rejected without throwing', !parseYouTubeCookies('definitely not a cookie file').ok
+    && !parseYouTubeCookies('').ok && !parseYouTubeCookies(undefined).ok && !parseYouTubeCookies(null).ok);
+  check('M3 no youtube.com entry rejected', !parseYouTubeCookies('.google.com\tTRUE\t/\tTRUE\t1893456000\tFAKE_NID\tx').ok);
+  check('M4 malformed rows rejected', !parseYouTubeCookies('.youtube.com\tTRUE\t/').ok
+    && !parseYouTubeCookies('.youtube.com\tTRUE\t/\tTRUE\tnotanumber\tNAME\tv').ok);
+  check('M5 literal \\n paste normalized', parseYouTubeCookies(FAKE_COOKIES.replace(/\n/g, '\\n')).ok);
+
+  // Arg wiring: --cookies present ONLY when a file is configured.
+  const infoCk = buildYtdlpInfoArgs('https://youtu.be/x', ['tv'], false, '/job/.yt-cookies-ab12cd.txt');
+  check('M6 info args carry --cookies when configured', infoCk[infoCk.indexOf('--cookies') + 1] === '/job/.yt-cookies-ab12cd.txt');
+  check('M7 info args omit --cookies by default', !buildYtdlpInfoArgs('https://youtu.be/x', ['tv']).includes('--cookies'));
+  const dlCk = buildYtdlpDownloadArgs('https://youtu.be/x', {
+    outputTemplate: '/tmp/source.%(ext)s', maxBytes: 1, clients: ['tv'], cookiesFile: '/job/.yt-cookies-ab12cd.txt',
+  });
+  check('M8 download args carry --cookies when configured', dlCk[dlCk.indexOf('--cookies') + 1] === '/job/.yt-cookies-ab12cd.txt'
+    && !buildYtdlpDownloadArgs('u', { outputTemplate: 'o', maxBytes: 1, clients: ['tv'] }).includes('--cookies'));
+
+  // Message split: no-login wording is byte-identical to PR #84; with a
+  // configured login the bot-block message blames the login instead.
+  const noLogin = ytdlpErrorMessage('bot-blocked');
+  check('M9 no-login bot-block message unchanged', noLogin
+    === 'YouTube blocked this download from our server — it asked for a sign-in to confirm we are not a bot, which a server can\'t do. Upload the video file instead; uploads always work.');
+  const withLogin = ytdlpErrorMessage('bot-blocked', { cookiesConfigured: true });
+  const allDefault = (['bot-blocked', 'unavailable', 'private', 'age-restricted', 'geo-blocked', 'network', 'binary-missing', 'unknown'] as YtdlpErrorCode[])
+    .map((c) => ytdlpErrorMessage(c));
+  check('M10 with-login message: refresh the login, upload still offered', withLogin !== noLogin
+    && /rejected the saved login/i.test(withLogin) && /refresh/i.test(withLogin) && /upload/i.test(withLogin)
+    && !allDefault.includes(withLogin));
+  check('M11 other codes ignore the cookies flag', ytdlpErrorMessage('unavailable', { cookiesConfigured: true }) === ytdlpErrorMessage('unavailable'));
+
+  // Redaction: paths/values never survive into error text.
+  const dirty = 'ERROR: could not read /job/.yt-cookies-ab12cd.txt (value fake-login-info-value) Sign in to confirm';
+  const clean = redactSecrets(dirty, ['/job/.yt-cookies-ab12cd.txt', 'fake-login-info-value']);
+  check('M12 redactSecrets scrubs path + value', !clean.includes('.yt-cookies') && !clean.includes('fake-login-info-value')
+    && clean.includes('Sign in to confirm'));
+
+  // Runner behavior against the REAL env var (fake fixture only).
+  const prevEnv = process.env.YOUTUBE_COOKIES;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'clipper-ck-'));
+  try {
+    process.env.YOUTUBE_COOKIES = FAKE_COOKIES;
+    check('M13 configured with a valid fixture', youtubeCookiesConfigured() === true);
+    const f = writeYouTubeCookiesFile(tmp);
+    check('M14 temp file written 0600 with content intact', !!f && fs.existsSync(f)
+      && (fs.statSync(f).mode & 0o777) === 0o600
+      && fs.readFileSync(f, 'utf8').includes('FAKE_LOGIN_INFO'));
+    removeYouTubeCookiesFile(f);
+    check('M15 temp file deleted after the step', !!f && !fs.existsSync(f));
+    process.env.YOUTUBE_COOKIES = 'garbage, not cookies';
+    check('M16 malformed env → no file, not configured', youtubeCookiesConfigured() === false
+      && writeYouTubeCookiesFile(tmp) === null && fs.readdirSync(tmp).length === 0);
+    delete process.env.YOUTUBE_COOKIES;
+    check('M17 unset env → off by default', youtubeCookiesConfigured() === false
+      && writeYouTubeCookiesFile(tmp) === null);
+  } finally {
+    if (prevEnv === undefined) delete process.env.YOUTUBE_COOKIES;
+    else process.env.YOUTUBE_COOKIES = prevEnv;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+
+  // Source pins: env-only secret handling, no UI, no stray logging.
+  const ytdlp = readFileSync('server/services/ytdlp.ts', 'utf8');
+  const clipper = readFileSync('server/services/clipper.ts', 'utf8');
+  const routes = readFileSync('server/routes.ts', 'utf8');
+  const maker = readFileSync('client/src/components/content-studio/clipper-maker.tsx', 'utf8');
+  check('M18 runner reads env, warns statically, writes 0600', ytdlp.includes('YOUTUBE_COOKIES')
+    && ytdlp.includes('not a valid Netscape') && ytdlp.includes('0o600')
+    && (ytdlp.match(/console\.(warn|log|error)/g) || []).length === 1);
+  check('M19 clipper splits the bot-block message on the login state',
+    clipper.includes('cookiesConfigured: youtubeCookiesConfigured()'));
+  check('M20 env-only: no route or UI touches the secret', !routes.includes('YOUTUBE_COOKIES')
+    && !maker.includes('YOUTUBE_COOKIES'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
