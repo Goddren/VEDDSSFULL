@@ -59,25 +59,58 @@ export async function trailBrainGroupEvidence(userId: number, g: TrailBrainGroup
   try {
     let brain: Perf = EMPTY, base: Perf = EMPTY;
     if (g.engine === 'crypto') {
+      // Two close tables feed one group: the live engine's trades and
+      // the all-strategy shadow lane's (same group key, same R units —
+      // the shadow resolver converts through each trade's own stop %).
+      // SUM/COUNT pairs so the two sources merge exactly.
       await ensureTrailBrainColumns('cryptocom_engine_trades');
-      const cond = g.condition !== 'all' ? `AND t.symbol = $4` : '';
-      const args = (extra: any[]) => [userId, String(WINDOW_DAYS), g.strategy, ...extra];
-      const brainRows = await pool.query(
-        `SELECT COUNT(*)::int AS trades, AVG(${CRYPTO_FINAL_R}) AS avg_final,
-                AVG(CASE WHEN t.peak_r_multiple > 0 THEN t.peak_r_multiple - ${CRYPTO_FINAL_R} END) AS avg_giveback
+      await ensureTrailBrainColumns('crypto_shadow_trades');
+      interface Sums { trades: number; sumFinal: number; nFinal: number; sumGb: number; nGb: number }
+      const zero: Sums = { trades: 0, sumFinal: 0, nFinal: 0, sumGb: 0, nGb: 0 };
+      const toSums = (r: any): Sums => ({
+        trades: Number(r?.trades) || 0, sumFinal: Number(r?.sum_final) || 0, nFinal: Number(r?.n_final) || 0,
+        sumGb: Number(r?.sum_gb) || 0, nGb: Number(r?.n_gb) || 0,
+      });
+      const merge = (a: Sums, b: Sums): Perf => ({
+        trades: a.trades + b.trades,
+        avgFinal: (a.nFinal + b.nFinal) > 0 ? num((a.sumFinal + b.sumFinal) / (a.nFinal + b.nFinal)) : null,
+        avgGiveback: (a.nGb + b.nGb) > 0 ? num((a.sumGb + b.sumGb) / (a.nGb + b.nGb)) : null,
+      });
+      const liveBrain = await pool.query(
+        `SELECT COUNT(*)::int AS trades, SUM(${CRYPTO_FINAL_R}) AS sum_final, COUNT(${CRYPTO_FINAL_R})::int AS n_final,
+                SUM(CASE WHEN t.peak_r_multiple > 0 THEN t.peak_r_multiple - ${CRYPTO_FINAL_R} END) AS sum_gb,
+                COUNT(CASE WHEN t.peak_r_multiple > 0 THEN 1 END)::int AS n_gb
            FROM cryptocom_engine_trades t
-          WHERE t.user_id = $1 AND t.trail_brain_group = $5 AND t.status = 'closed'
+          WHERE t.user_id = $1 AND t.trail_brain_group = $3 AND t.status = 'closed'
             AND t.closed_at >= now() - ($2 || ' days')::interval`,
-        [userId, String(WINDOW_DAYS), g.strategy, g.condition, g.key]).then(r => r.rows);
-      const baseRows = await pool.query(
-        `SELECT COUNT(*)::int AS trades, AVG(${CRYPTO_FINAL_R}) AS avg_final,
-                AVG(CASE WHEN t.peak_r_multiple > 0 THEN t.peak_r_multiple - ${CRYPTO_FINAL_R} END) AS avg_giveback
+        [userId, String(WINDOW_DAYS), g.key]).then(r => toSums(r.rows[0]));
+      const liveBase = await pool.query(
+        `SELECT COUNT(*)::int AS trades, SUM(${CRYPTO_FINAL_R}) AS sum_final, COUNT(${CRYPTO_FINAL_R})::int AS n_final,
+                SUM(CASE WHEN t.peak_r_multiple > 0 THEN t.peak_r_multiple - ${CRYPTO_FINAL_R} END) AS sum_gb,
+                COUNT(CASE WHEN t.peak_r_multiple > 0 THEN 1 END)::int AS n_gb
            FROM cryptocom_engine_trades t
-          WHERE t.user_id = $1 AND t.strategy = $3 ${cond} AND t.trail_brain_version IS NULL AND t.status = 'closed'
+          WHERE t.user_id = $1 AND t.strategy = $3 AND t.symbol = $4 AND t.trail_brain_version IS NULL AND t.status = 'closed'
             AND t.closed_at >= now() - ($2 || ' days')::interval`,
-        args(g.condition !== 'all' ? [g.condition] : [])).then(r => r.rows);
-      brain = { trades: Number(brainRows[0]?.trades) || 0, avgFinal: num(brainRows[0]?.avg_final), avgGiveback: num(brainRows[0]?.avg_giveback) };
-      base = { trades: Number(baseRows[0]?.trades) || 0, avgFinal: num(baseRows[0]?.avg_final), avgGiveback: num(baseRows[0]?.avg_giveback) };
+        [userId, String(WINDOW_DAYS), g.strategy, g.condition]).then(r => toSums(r.rows[0]));
+      const shadowBrain = await pool.query(
+        `SELECT COUNT(*)::int AS trades, SUM(r_multiple) AS sum_final, COUNT(r_multiple)::int AS n_final,
+                SUM(CASE WHEN peak_gain_pct IS NOT NULL AND sl_pct > 0 THEN peak_gain_pct / sl_pct - r_multiple END) AS sum_gb,
+                COUNT(CASE WHEN peak_gain_pct IS NOT NULL AND sl_pct > 0 AND r_multiple IS NOT NULL THEN 1 END)::int AS n_gb
+           FROM crypto_shadow_trades
+          WHERE user_id = $1 AND trail_brain_group = $3 AND status = 'closed'
+            AND closed_at >= now() - ($2 || ' days')::interval`,
+        [userId, String(WINDOW_DAYS), g.key]).then(r => toSums(r.rows[0]));
+      const shadowBase = await pool.query(
+        `SELECT COUNT(*)::int AS trades, SUM(r_multiple) AS sum_final, COUNT(r_multiple)::int AS n_final,
+                SUM(CASE WHEN peak_gain_pct IS NOT NULL AND sl_pct > 0 THEN peak_gain_pct / sl_pct - r_multiple END) AS sum_gb,
+                COUNT(CASE WHEN peak_gain_pct IS NOT NULL AND sl_pct > 0 AND r_multiple IS NOT NULL THEN 1 END)::int AS n_gb
+           FROM crypto_shadow_trades
+          WHERE user_id = $1 AND strategy = $3 AND symbol = $4 AND trail_brain_version IS NULL AND status = 'closed'
+            AND closed_at >= now() - ($2 || ' days')::interval`,
+        [userId, String(WINDOW_DAYS), g.strategy, g.condition]).then(r => toSums(r.rows[0]));
+      void zero;
+      brain = merge(liveBrain, shadowBrain);
+      base = merge(liveBase, shadowBase);
     } else if (g.engine === 'fx') {
       await ensureTrailBrainColumns('fx_brain_outcomes');
       const peakR = `CASE WHEN entry_price IS NULL OR stop_loss IS NULL OR mfe_price IS NULL OR ABS(entry_price - stop_loss) <= 0 THEN NULL
@@ -94,6 +127,24 @@ export async function trailBrainGroupEvidence(userId: number, g: TrailBrainGroup
         [userId, g.key, String(WINDOW_DAYS)]);
       base = await q(`user_id = $1 AND strategy_mode = $2 AND symbol = $3 AND trail_brain_version IS NULL AND closed_at >= now() - ($4 || ' days')::interval`,
         [userId, g.strategy, g.condition, String(WINDOW_DAYS)]);
+    } else if (g.engine === 'sol' && g.strategy === 'sol_follower') {
+      // The follower lane's closes live in their own table; peak gain is
+      // derived from the persisted peak price. One group for the whole
+      // lane — never per token, never per wallet.
+      await ensureTrailBrainColumns('sol_follower_positions');
+      const q = async (where: string, params: any[]): Promise<Perf> => {
+        const { rows } = await pool.query(
+          `SELECT COUNT(*)::int AS trades, AVG(net_pct) AS avg_final,
+                  AVG(CASE WHEN peak_price IS NOT NULL AND entry_price > 0 AND gross_pct IS NOT NULL
+                           THEN ((peak_price - entry_price) / entry_price) * 100 - gross_pct END) AS avg_giveback
+             FROM sol_follower_positions WHERE ${where}`, params);
+        const r = rows[0] ?? {};
+        return { trades: Number(r.trades) || 0, avgFinal: num(r.avg_final), avgGiveback: num(r.avg_giveback) };
+      };
+      brain = await q(`user_id = $1 AND trail_brain_group = $2 AND status = 'closed' AND closed_at >= now() - ($3 || ' days')::interval`,
+        [userId, g.key, String(WINDOW_DAYS)]);
+      base = await q(`user_id = $1 AND trail_brain_version IS NULL AND status = 'closed' AND closed_at >= now() - ($2 || ' days')::interval`,
+        [userId, String(WINDOW_DAYS)]);
     } else if (g.engine === 'sol') {
       await ensureTrailBrainColumns('sol_shadow_context');
       const q = async (where: string, params: any[]): Promise<Perf> => {
@@ -145,8 +196,10 @@ export async function trailBrainGroupEvidence(userId: number, g: TrailBrainGroup
 async function stampedGroupKeys(userId: number): Promise<string[]> {
   const tables: Array<[string, string]> = [
     ['cryptocom_engine_trades', `status = 'closed'`],
+    ['crypto_shadow_trades', `status = 'closed'`],
     ['fx_brain_outcomes', `1 = 1`],
     ['sol_shadow_context', `closed_at IS NOT NULL`],
+    ['sol_follower_positions', `status = 'closed'`],
     ['kalshi_perp_shadow_trades', `status = 'closed'`],
   ];
   const keys = new Set<string>();

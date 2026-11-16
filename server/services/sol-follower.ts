@@ -58,6 +58,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
 import { estimateSolRoundTripCost } from './paper-costs';
+import { trailBrainSolConsult, trailBrainDecide, stampTrailBrainTrade } from './trail-brain';
 
 // ── Config ───────────────────────────────────────────────────────────────
 const _envInt = (n: string, d: number) => { const v = Number(process.env[n]); return Number.isFinite(v) && v > 0 ? Math.floor(v) : d; };
@@ -596,7 +597,24 @@ async function monitorFollowerPositions(): Promise<void> {
     const newPeak = !pos.peak_price || price > Number(pos.peak_price) ? price : Number(pos.peak_price);
     await pool.query(`UPDATE sol_follower_positions SET peak_price=$2, last_price=$3 WHERE id=$1`, [pos.id, newPeak, price]);
     const gross = ((price - Number(pos.entry_price)) / Number(pos.entry_price)) * 100;
-    if (gross >= FOLLOWER_TP_PCT) await closePositionFully(pos, gross, 'tp');
+    // Trail Brain: the follower lane's learned trail parameters (one
+    // strategy group for the whole lane — never per token, never per
+    // wallet) can close a mirror at their floor before the fixed
+    // backstops. The floor is clamped at the position's own stop
+    // inside trailBrainDecide; leader-sell exits in pollWallet are
+    // untouched and still take precedence (they run first each tick).
+    let brainExit = false;
+    const tb = await trailBrainSolConsult(Number(pos.user_id), 'sol_follower');
+    if (tb) {
+      const peakGain = ((newPeak - Number(pos.entry_price)) / Number(pos.entry_price)) * 100;
+      const d = trailBrainDecide(tb.params, { peak: Math.max(peakGain, gross), current: gross, stopFloor: -(Number(pos.sl_pct) || FOLLOWER_SL_PCT) });
+      if (d.binding) {
+        void stampTrailBrainTrade('sol_follower_positions', pos.id, tb);
+        brainExit = d.exitNow;
+      }
+    }
+    if (brainExit) await closePositionFully(pos, gross, 'trail_brain');
+    else if (gross >= FOLLOWER_TP_PCT) await closePositionFully(pos, gross, 'tp');
     else if (gross <= -FOLLOWER_SL_PCT) await closePositionFully(pos, gross, 'sl');
     else if (isMaxHold) await closePositionFully(pos, gross, 'max_hold');
   }

@@ -31,6 +31,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
 import { cryptoShadowLessonsOn, logShadowLessonBlock, matchingAvoidBucket } from './shadow-lesson-gate';
+import { trailBrainConsult, trailBrainDecide, stampTrailBrainTrade } from './trail-brain';
 
 type Bar = { t: number; o: number; h: number; l: number; c: number; v: number };
 export interface ShadowRunnerResult { decision: string; reasoning: string; score: number | null; price: number | null; dailyChangePercent: number | null; strategy: string; direction?: 'BUY' | 'SELL' }
@@ -189,7 +190,24 @@ export async function resolveCryptoShadowTrades(userId: number): Promise<number>
       // Gap-through fills at the worse of price and level (no optimistic stop fills).
       if (short ? px >= t.stop_loss : px <= t.stop_loss) { exit = short ? Math.max(px, t.stop_loss) : Math.min(px, t.stop_loss); why = 'stop'; }
       else if (short ? px <= t.take_profit : px >= t.take_profit) { exit = t.take_profit; why = 'target'; }
-      else if (ageH >= t.max_hours) { exit = px; why = 'time limit'; }
+      // Trail Brain: the same group (crypto × strategy × symbol) the
+      // live lane learns on, in R (peak/current gain ÷ the trade's own
+      // stop %). The floor is clamped at the trade's stop inside
+      // trailBrainDecide, so the trailed stop can only tighten.
+      if (!why) {
+        const tb = await trailBrainConsult(userId, 'crypto', String(t.strategy || 'all'), String(t.symbol || 'all'));
+        if (tb && Number(t.sl_pct) > 0) {
+          const peakGain = Math.max(Number(t.peak_gain_pct) || -Infinity, move);
+          const d = trailBrainDecide(tb.params, { peak: peakGain / Number(t.sl_pct), current: move / Number(t.sl_pct), stopFloor: -1 });
+          if (d.binding) {
+            void stampTrailBrainTrade('crypto_shadow_trades', t.id, tb);
+            const floorPct = d.floor * Number(t.sl_pct);
+            const ts = short ? Number(t.entry_price) * (1 - floorPct / 100) : Number(t.entry_price) * (1 + floorPct / 100);
+            if (short ? px >= ts : px <= ts) { exit = short ? Math.max(px, ts) : Math.min(px, ts); why = 'trail'; }
+          }
+        }
+      }
+      if (!why && ageH >= t.max_hours) { exit = px; why = 'time limit'; }
     } else if (ageH >= t.max_hours + 24) { exit = null; why = 'no price'; }
     if (!why) continue;
     const gross = exit != null ? ((short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price) * 100 : null;
