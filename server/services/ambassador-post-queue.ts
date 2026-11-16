@@ -45,6 +45,11 @@ export function ensurePostQueueTables(): Promise<void> {
       )`);
       // Content Studio link (2026-10-31): the post's branded video.
       await pool.query(`ALTER TABLE ambassador_post_queue ADD COLUMN IF NOT EXISTS video_url TEXT, ADD COLUMN IF NOT EXISTS video_shot TEXT, ADD COLUMN IF NOT EXISTS video_aspect TEXT`);
+      // Durable link to the in-flight render job (2026-11-15): the Today
+      // page re-attaches to this job after any page leave/return, and the
+      // job's own runner writes video_url when it finishes — the page
+      // never has to stay open for the video to land.
+      await pool.query(`ALTER TABLE ambassador_post_queue ADD COLUMN IF NOT EXISTS video_job_id INTEGER`);
     })().catch((e) => { _ready = null; throw e; });
   }
   return _ready;
@@ -86,6 +91,23 @@ export async function getQueue(userId: number, date: string) {
   const { rows } = await pool.query(
     `SELECT * FROM ambassador_post_queue WHERE user_id=$1 AND queue_date=$2 ORDER BY array_position($3::text[], platform)`,
     [userId, date, PLATFORMS as unknown as string[]]);
+  // Attach the linked render job's state (read-only) so the Today page can
+  // re-attach to an in-flight video — and show its error — after the user
+  // left and came back. The job itself finishes server-side regardless.
+  const jobIds = rows.filter((r: any) => r.video_job_id && !r.video_url).map((r: any) => r.video_job_id as number);
+  if (jobIds.length) {
+    const jobs = await pool.query(
+      `SELECT id, status, error, result_url FROM content_video_jobs WHERE id = ANY($1)`, [jobIds])
+      .then((r) => r.rows).catch(() => [] as any[]);
+    const byId = new Map(jobs.map((j: any) => [j.id, j]));
+    for (const r of rows as any[]) {
+      const j = r.video_job_id ? byId.get(r.video_job_id) : null;
+      if (!j) continue;
+      r.video_job_status = j.status;
+      r.video_job_error = j.error ?? null;
+      if (j.status === 'done' && j.result_url && !r.video_url) r.video_url = j.result_url;
+    }
+  }
   return rows;
 }
 
@@ -222,11 +244,13 @@ export async function makePostVideo(userId: number, postId: number, aspect?: '9:
   ].filter(Boolean).join('\n');
   const { startExplainerJob } = await import('./explainer-video');
   const size = aspect || VIDEO_ASPECT[post.platform] || '9:16';
-  const jobId = await startExplainerJob(userId, idea, size, {
-    onDone: async (url) => {
-      await pool.query(`UPDATE ambassador_post_queue SET video_url=$2, video_shot=NULL, video_aspect=$3 WHERE id=$1`, [postId, url, size]);
-    },
-  });
+  // Daily videos are info-ADS narrated by the shared audio stage, and the
+  // post link is durable: postId rides in the job row, the runner writes
+  // video_url itself when it finishes (even if this process restarts and
+  // the watchdog resumes the job), and the post row remembers the job id
+  // so the page can re-attach as a viewer whenever the user returns.
+  const jobId = await startExplainerJob(userId, idea, size, { postId, dailyAd: true });
+  await pool.query(`UPDATE ambassador_post_queue SET video_job_id=$2 WHERE id=$1`, [postId, jobId]);
   return { jobId };
 }
 

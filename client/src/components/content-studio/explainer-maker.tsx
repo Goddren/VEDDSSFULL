@@ -13,6 +13,12 @@ export interface ExplainerJob {
   id: number; status: 'queued' | 'running' | 'done' | 'failed'; step: string | null; progress: number;
   url: string | null; error: string | null; aspect: string;
   script: { title: string; caption: string; scenes: { narration: string; visual: string }[] } | null;
+  /** Sound that landed on the clip (daily info-ads): narration is
+   *  'openrouter:<model>' when Yusuf's voiceover mixed in, 'none' with a
+   *  human-readable `reason` when it couldn't be added. */
+  audio?: { narration: string; musicBed: string; reason?: string } | null;
+  /** Set when the video finished but its Saved-library record failed. */
+  libraryError?: string | null;
 }
 
 export function useExplainerJob(jobId: number | null, onDone?: (job: ExplainerJob) => void) {

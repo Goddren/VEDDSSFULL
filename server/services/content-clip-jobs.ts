@@ -17,9 +17,16 @@
  * + music bed; reels pass their script as the narration text) → durable
  * store), and the generation-history record is written exactly as the
  * sync routes wrote it, so the Saved library sees the same data.
+ *
+ * DURABILITY (2026-11-15): the runners are named functions registered in
+ * the shared in-flight set, and the job row stores the full payload — so
+ * the explainer-video watchdog can restart a clip/reel job whose process
+ * died mid-render (resumeContentJob below) instead of the row sitting at
+ * "running" forever. A render that finishes but cannot be stored durably
+ * records meta.libraryError rather than silently skipping Saved.
  */
 import { pool } from '../db';
-import { ensureJobTable, updateContentJob } from './explainer-video';
+import { ensureJobTable, updateContentJob, trackJobStart, trackJobEnd } from './explainer-video';
 import { renderContentVideo, type RenderOptions } from './content-video';
 
 export interface ClipJobPayload {
@@ -80,9 +87,8 @@ async function saveGeneration(userId: number, rec: Record<string, unknown>): Pro
   }
 }
 
-export async function startClipJob(userId: number, payload: ClipJobPayload): Promise<number> {
-  const id = await insertJob(userId, 'clip', payload.aspect || '9:16', payload, 'Planning the shot');
-  (async () => {
+async function runClipJob(id: number, userId: number, payload: ClipJobPayload): Promise<void> {
+  try {
     await updateContentJob(id, { step: 'Rendering the clip', progress: 25 });
     const video = await renderContentVideo(payload.prompt || payload.shot || '', {
       userId,
@@ -101,20 +107,32 @@ export async function startClipJob(userId: number, payload: ClipJobPayload): Pro
         contentType: 'video', prompt: payload.prompt || payload.shot, title: video.hook || null, assetUrl: video.url,
         metadata: { provider: video.provider, shot: video.shot, aspect: video.aspect, branded: video.branded, ...(video.audio ? { audio: video.audio } : {}) },
       });
+    } else {
+      console.error(`[content-jobs] clip job ${id} finished unpersisted — it will not be in the Saved library`);
+      await updateContentJob(id, { meta: { libraryError: 'The clip finished but could not be stored permanently, so it was not added to your Saved library.' } });
     }
     await updateContentJob(id, {
       status: 'done', step: 'Ready', progress: 100, result_url: video.url,
       meta: { result: video },
     });
-  })().catch((e) => failJob(id, e));
+  } catch (e) {
+    await failJob(id, e);
+  } finally {
+    trackJobEnd(id);
+  }
+}
+
+export async function startClipJob(userId: number, payload: ClipJobPayload): Promise<number> {
+  const id = await insertJob(userId, 'clip', payload.aspect || '9:16', payload, 'Planning the shot');
+  trackJobStart(id);
+  void runClipJob(id, userId, payload);
   return id;
 }
 
-export async function startReelJob(userId: number, payload: ReelJobPayload): Promise<number> {
-  const id = await insertJob(userId, 'reel', payload.aspect || '9:16', payload, 'Writing the script');
-  (async () => {
+async function runReelJob(id: number, userId: number, payload: ReelJobPayload, existingScript?: any): Promise<void> {
+  try {
     const { generateReelScript } = await import('../openai');
-    const script = await generateReelScript(payload.topic, userId, payload.format, payload.syncStyleNote);
+    const script = existingScript ?? await generateReelScript(payload.topic, userId, payload.format, payload.syncStyleNote);
     await updateContentJob(id, { step: 'Rendering the clip', progress: 40, script });
     // The reel script IS a voiceover script (hook + beats, written to be
     // read over the clip): hand it to the audio stage as the narration
@@ -136,12 +154,42 @@ export async function startReelJob(userId: number, payload: ReelJobPayload): Pro
         assetUrl: video.url,
         metadata: { provider: video.provider, script, shot: video.shot, aspect: video.aspect, branded: video.branded, ...(video.audio ? { audio: video.audio } : {}) },
       });
+    } else {
+      console.error(`[content-jobs] reel job ${id} finished unpersisted — it will not be in the Saved library`);
+      await updateContentJob(id, { meta: { libraryError: 'The reel finished but could not be stored permanently, so it was not added to your Saved library.' } });
     }
     const result = { ...script, url: video.url, persisted: video.persisted, branded: video.branded, shot: video.shot, aspect: video.aspect, ...(video.audio ? { audio: video.audio } : {}) };
     await updateContentJob(id, {
       status: 'done', step: 'Ready', progress: 100, result_url: video.url,
       meta: { result },
     });
-  })().catch((e) => failJob(id, e));
+  } catch (e) {
+    await failJob(id, e);
+  } finally {
+    trackJobEnd(id);
+  }
+}
+
+export async function startReelJob(userId: number, payload: ReelJobPayload): Promise<number> {
+  const id = await insertJob(userId, 'reel', payload.aspect || '9:16', payload, 'Writing the script');
+  trackJobStart(id);
+  void runReelJob(id, userId, payload);
   return id;
+}
+
+/** Watchdog entry point (explainer-video.ts resumeStaleJobs): restart a
+ *  clip/reel job whose process died mid-render, from the payload stored in
+ *  the job row. A reel whose script already exists reuses it. */
+export async function resumeContentJob(job: { id: number; user_id: number; kind: string; input: string; script?: unknown }): Promise<void> {
+  let payload: any;
+  try {
+    payload = JSON.parse(job.input || '{}');
+  } catch {
+    await failJob(job.id, new Error('The stored job details were unreadable — please try again.'));
+    return;
+  }
+  trackJobStart(job.id);
+  if (job.kind === 'clip') await runClipJob(job.id, job.user_id, payload as ClipJobPayload);
+  else if (job.kind === 'reel') await runReelJob(job.id, job.user_id, payload as ReelJobPayload, job.script ?? undefined);
+  else trackJobEnd(job.id);
 }
