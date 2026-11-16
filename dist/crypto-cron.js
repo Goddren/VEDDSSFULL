@@ -14741,6 +14741,624 @@ var init_ensure_kalshi_sports_shadow_tables = __esm({
   }
 });
 
+// server/services/sol-follower.ts
+var sol_follower_exports = {};
+__export(sol_follower_exports, {
+  FOLLOWER_LIVE_BAR: () => FOLLOWER_LIVE_BAR,
+  FOLLOWER_MAX_EVENT_AGE_SEC: () => FOLLOWER_MAX_EVENT_AGE_SEC,
+  FOLLOWER_MAX_HOLD_MIN: () => FOLLOWER_MAX_HOLD_MIN,
+  FOLLOWER_MAX_OPEN: () => FOLLOWER_MAX_OPEN,
+  FOLLOWER_MAX_PER_WALLET: () => FOLLOWER_MAX_PER_WALLET,
+  FOLLOWER_POLL_MS: () => FOLLOWER_POLL_MS,
+  FOLLOWER_SIZE_SOL: () => FOLLOWER_SIZE_SOL,
+  FOLLOWER_SL_PCT: () => FOLLOWER_SL_PCT,
+  FOLLOWER_TP_PCT: () => FOLLOWER_TP_PCT,
+  PUMP_FUN_PROGRAM_ID: () => PUMP_FUN_PROGRAM_ID,
+  WSOL_MINT: () => WSOL_MINT,
+  addFollowedWallet: () => addFollowedWallet,
+  blendRealizedPct: () => blendRealizedPct,
+  decodeBase58: () => decodeBase58,
+  ensureSolFollowerTables: () => ensureSolFollowerTables,
+  eventIsFresh: () => eventIsFresh,
+  fetchMintQuotes: () => fetchMintQuotes,
+  finalGrossPct: () => finalGrossPct,
+  getSolFollowerReport: () => getSolFollowerReport,
+  isPumpFunMint: () => isPumpFunMint,
+  isValidSolanaAddress: () => isValidSolanaAddress,
+  leaderPriceUsd: () => leaderPriceUsd,
+  listFollowedWallets: () => listFollowedWallets,
+  mirrorClosePlan: () => mirrorClosePlan,
+  parseLeaderEvents: () => parseLeaderEvents,
+  removeFollowedWallet: () => removeFollowedWallet,
+  solFollowerShadowOn: () => solFollowerShadowOn,
+  startSolFollowerShadow: () => startSolFollowerShadow,
+  txInvolvesPumpFun: () => txInvolvesPumpFun,
+  walletVerdict: () => walletVerdict
+});
+function decodeBase58(s) {
+  if (!s || typeof s !== "string") return null;
+  const le = [0];
+  for (const ch of s) {
+    const v = B58_MAP.get(ch);
+    if (v === void 0) return null;
+    let carry = v;
+    for (let i = 0; i < le.length; i++) {
+      const x = le[i] * 58 + carry;
+      le[i] = x & 255;
+      carry = x >> 8;
+    }
+    while (carry > 0) {
+      le.push(carry & 255);
+      carry >>= 8;
+    }
+  }
+  let n = le.length;
+  while (n > 0 && le[n - 1] === 0) n--;
+  let zeros = 0;
+  while (zeros < s.length && s[zeros] === "1") zeros++;
+  const out = new Uint8Array(zeros + n);
+  for (let i = 0; i < n; i++) out[zeros + n - 1 - i] = le[i];
+  return out;
+}
+function isValidSolanaAddress(s) {
+  if (typeof s !== "string") return false;
+  const t = s.trim();
+  if (t.length < 32 || t.length > 44) return false;
+  const decoded = decodeBase58(t);
+  return !!decoded && decoded.length === 32;
+}
+function isPumpFunMint(mint) {
+  return typeof mint === "string" && mint.endsWith("pump");
+}
+function txInvolvesPumpFun(tx) {
+  const msg = tx?.transaction?.message;
+  if (!msg) return false;
+  const keys = (msg.accountKeys ?? []).map(keyStr);
+  const hits = (ix) => {
+    if (!ix) return false;
+    if (ix.programId) return ix.programId === PUMP_FUN_PROGRAM_ID;
+    if (typeof ix.programIdIndex === "number") return keys[ix.programIdIndex] === PUMP_FUN_PROGRAM_ID;
+    return false;
+  };
+  if ((msg.instructions ?? []).some(hits)) return true;
+  for (const inner of tx?.meta?.innerInstructions ?? []) {
+    if ((inner?.instructions ?? []).some(hits)) return true;
+  }
+  return false;
+}
+function parseLeaderEvents(tx, wallet) {
+  if (!tx || tx?.meta?.err) return [];
+  const msg = tx?.transaction?.message;
+  if (!msg) return [];
+  const keys = (msg.accountKeys ?? []).map(keyStr);
+  const walletIdx = keys.indexOf(wallet);
+  const pumpInvolved = txInvolvesPumpFun(tx);
+  const balOf = (list) => {
+    const m = /* @__PURE__ */ new Map();
+    for (const b of list ?? []) {
+      const owner = b?.owner ?? (typeof b?.accountIndex === "number" ? keys[b.accountIndex] : void 0);
+      if (owner !== wallet) continue;
+      const amt = Number(b?.uiTokenAmount?.uiAmount ?? 0) || 0;
+      m.set(b.mint, amt);
+    }
+    return m;
+  };
+  const pre = balOf(tx?.meta?.preTokenBalances);
+  const post2 = balOf(tx?.meta?.postTokenBalances);
+  let solDelta = null;
+  if (walletIdx >= 0 && Array.isArray(tx?.meta?.preBalances) && Array.isArray(tx?.meta?.postBalances)) {
+    const d = (Number(tx.meta.postBalances[walletIdx]) || 0) - (Number(tx.meta.preBalances[walletIdx]) || 0);
+    solDelta = d / 1e9;
+  }
+  const eventAt = Number(tx?.blockTime) > 0 ? Number(tx.blockTime) * 1e3 : 0;
+  const signature = tx?.transaction?.signatures?.[0] ?? "";
+  const out = [];
+  for (const mint of Array.from(new Set(Array.from(pre.keys()).concat(Array.from(post2.keys()))))) {
+    if (mint === WSOL_MINT) continue;
+    const delta = (post2.get(mint) ?? 0) - (pre.get(mint) ?? 0);
+    if (!delta || !Number.isFinite(delta)) continue;
+    if (!pumpInvolved && !isPumpFunMint(mint)) continue;
+    if (delta > 0) {
+      out.push({ signature, wallet, side: "buy", mint, tokenAmount: delta, sellFraction: null, solAmount: solDelta != null && solDelta < 0 ? -solDelta : null, eventAt });
+    } else {
+      const preAmt = pre.get(mint) ?? 0;
+      const frac = preAmt > 0 ? Math.min(1, -delta / preAmt) : 1;
+      out.push({ signature, wallet, side: "sell", mint, tokenAmount: -delta, sellFraction: frac, solAmount: solDelta != null && solDelta > 0 ? solDelta : null, eventAt });
+    }
+  }
+  return out;
+}
+function leaderPriceUsd(ev, solUsd) {
+  if (ev.solAmount == null || !(ev.solAmount > 0) || !(ev.tokenAmount > 0) || solUsd == null || !(solUsd > 0)) return null;
+  return ev.solAmount / ev.tokenAmount * solUsd;
+}
+function eventIsFresh(eventAtMs, nowMs, maxAgeSec) {
+  if (!eventAtMs) return true;
+  if (eventAtMs > nowMs + 3e4) return true;
+  return nowMs - eventAtMs <= maxAgeSec * 1e3;
+}
+function mirrorClosePlan(remainingFraction, sellFraction) {
+  const rem = Math.max(0, Math.min(1, remainingFraction));
+  const f = Math.max(0, Math.min(1, sellFraction));
+  if (f >= 0.99 || rem - rem * f < 0.01) return { closeFractionOfOriginal: rem, fullExit: true };
+  return { closeFractionOfOriginal: rem * f, fullExit: false };
+}
+function blendRealizedPct(realizedPct, closeFractionOfOriginal, grossPctAtClose) {
+  return realizedPct + closeFractionOfOriginal * grossPctAtClose;
+}
+function finalGrossPct(realizedPct, remainingFraction, grossPctAtClose) {
+  return realizedPct + remainingFraction * grossPctAtClose;
+}
+function walletVerdict(s) {
+  const wr = s.trades > 0 ? s.wins / s.trades : 0;
+  if (s.trades < 10) return { verdict: "learning", line: `Learning \u2014 only ${s.trades} closed mirror${s.trades === 1 ? "" : "s"} so far; too early to judge this wallet.` };
+  const noLosingWeek = s.weeklyNetPct.length > 0 && s.weeklyNetPct.every((w) => w >= 0);
+  if (s.trades >= FOLLOWER_LIVE_BAR.trades && wr >= FOLLOWER_LIVE_BAR.winRate && s.avgNetPct > 0 && noLosingWeek) {
+    return { verdict: "proven", line: `Proven so far \u2014 clears the go-live bar (${s.trades} mirrors, ${Math.round(wr * 100)}% wins, avg ${s.avgNetPct >= 0 ? "+" : ""}${s.avgNetPct.toFixed(1)}% net).` };
+  }
+  if (s.trades >= FOLLOWER_LIVE_BAR.trades && s.avgNetPct < 0 && wr <= FOLLOWER_LIVE_BAR.winRate) {
+    return { verdict: "losing", line: `Losing \u2014 ${s.trades} mirrors at ${Math.round(wr * 100)}% wins and ${s.avgNetPct.toFixed(1)}% average net. Copying this wallet has cost money on paper.` };
+  }
+  return { verdict: "proving", line: `Proving \u2014 ${s.trades}/${FOLLOWER_LIVE_BAR.trades} mirrors toward the bar, ${Math.round(wr * 100)}% wins, avg ${s.avgNetPct >= 0 ? "+" : ""}${s.avgNetPct.toFixed(1)}% net.` };
+}
+function ensureSolFollowerTables() {
+  if (!_ensured6) {
+    _ensured6 = (async () => {
+      await pool.query(`CREATE TABLE IF NOT EXISTS sol_follower_wallets (
+        id serial PRIMARY KEY, user_id int NOT NULL, wallet text NOT NULL, label text,
+        last_signature text, last_polled_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (user_id, wallet))`);
+      await pool.query(`CREATE TABLE IF NOT EXISTS sol_follower_positions (
+        id text PRIMARY KEY, user_id int NOT NULL, wallet_id int, leader_wallet text NOT NULL, leader_label text,
+        mint text NOT NULL, symbol text NOT NULL, status text NOT NULL DEFAULT 'open',
+        size_sol double precision NOT NULL, entry_price double precision NOT NULL,
+        leader_entry_price double precision, leader_entry_at timestamptz, leader_signature text, leader_size_sol double precision,
+        opened_at timestamptz NOT NULL DEFAULT now(), entry_lag_sec double precision,
+        remaining_fraction double precision NOT NULL DEFAULT 1, realized_gross_pct double precision NOT NULL DEFAULT 0,
+        cost_pct double precision, sl_pct double precision NOT NULL DEFAULT ${FOLLOWER_SL_PCT}, peak_price double precision, last_price double precision,
+        closed_at timestamptz, close_reason text, gross_pct double precision, net_pct double precision)`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS sol_follower_positions_user_status ON sol_follower_positions (user_id, status)`);
+      await pool.query(`CREATE TABLE IF NOT EXISTS sol_follower_events (
+        id serial PRIMARY KEY, user_id int NOT NULL, leader_wallet text NOT NULL, signature text,
+        side text NOT NULL, mint text NOT NULL, symbol text,
+        leader_token_amount double precision, leader_sol double precision, leader_price_usd double precision,
+        sell_fraction double precision, event_at timestamptz, detected_at timestamptz NOT NULL DEFAULT now(),
+        entry_lag_sec double precision, action text NOT NULL, detail text,
+        UNIQUE (user_id, signature, mint, side))`);
+    })().catch((e) => {
+      _ensured6 = null;
+      throw e;
+    });
+  }
+  return _ensured6;
+}
+async function listFollowedWallets(userId) {
+  await ensureSolFollowerTables();
+  const { rows } = await pool.query(
+    `SELECT id, user_id, wallet, label, created_at FROM sol_follower_wallets WHERE user_id=$1 ORDER BY id`,
+    [userId]
+  );
+  return rows.map((r) => ({ id: r.id, userId: r.user_id, wallet: r.wallet, label: r.label, createdAt: r.created_at }));
+}
+async function addFollowedWallet(userId, walletRaw, labelRaw) {
+  const wallet = String(walletRaw ?? "").trim();
+  if (!isValidSolanaAddress(wallet)) throw new Error("That does not look like a Solana wallet address.");
+  const label = String(labelRaw ?? "").trim().slice(0, 60) || null;
+  await ensureSolFollowerTables();
+  const { rows } = await pool.query(
+    `INSERT INTO sol_follower_wallets (user_id, wallet, label) VALUES ($1,$2,$3)
+     ON CONFLICT (user_id, wallet) DO UPDATE SET label = COALESCE(EXCLUDED.label, sol_follower_wallets.label)
+     RETURNING id, user_id, wallet, label, created_at`,
+    [userId, wallet, label]
+  );
+  const r = rows[0];
+  return { id: r.id, userId: r.user_id, wallet: r.wallet, label: r.label, createdAt: r.created_at };
+}
+async function removeFollowedWallet(userId, id) {
+  await ensureSolFollowerTables();
+  const { rowCount } = await pool.query(`DELETE FROM sol_follower_wallets WHERE user_id=$1 AND id=$2`, [userId, id]);
+  return (rowCount ?? 0) > 0;
+}
+async function fetchMintQuotes(mints) {
+  const out = {};
+  const unique2 = Array.from(new Set(mints.filter(Boolean)));
+  for (let i = 0; i < unique2.length; i += 30) {
+    const batch = unique2.slice(i, i + 30);
+    try {
+      const resp = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batch.join(",")}`);
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const bestLiq = {};
+      for (const pair of data?.pairs ?? []) {
+        if (pair?.chainId && pair.chainId !== "solana") continue;
+        const mint = pair?.baseToken?.address;
+        const price = parseFloat(pair?.priceUsd) || 0;
+        if (!mint || price <= 0) continue;
+        const liq = pair?.liquidity?.usd || 0;
+        if (out[mint] === void 0 || liq > (bestLiq[mint] ?? -1)) {
+          out[mint] = { price, symbol: pair?.baseToken?.symbol ?? null, liquidityUsd: liq || null };
+          bestLiq[mint] = liq;
+        }
+      }
+    } catch {
+    }
+  }
+  return out;
+}
+async function solUsdCached() {
+  if (_solUsdCache && Date.now() - _solUsdCache.at < 10 * 6e4) return _solUsdCache.v;
+  const q = (await fetchMintQuotes([WSOL_MINT]).catch(() => ({})))[WSOL_MINT];
+  if (q?.price > 0) {
+    _solUsdCache = { v: q.price, at: Date.now() };
+    return q.price;
+  }
+  return _solUsdCache?.v ?? null;
+}
+function rpcUrl() {
+  return process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+}
+async function rpcCall(method, params) {
+  const resp = await fetch(rpcUrl(), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
+  });
+  if (resp.status === 429) {
+    const e = new Error("solana rpc rate limited (429)");
+    e.status = 429;
+    throw e;
+  }
+  if (!resp.ok) throw new Error(`solana rpc http ${resp.status}`);
+  const j = await resp.json();
+  if (j?.error) throw new Error(`solana rpc ${method}: ${j.error.message ?? "error"}`);
+  return j.result;
+}
+async function recordEvent(userId, ev, action, detail, symbol) {
+  try {
+    await ensureSolFollowerTables();
+    const now = Date.now();
+    await pool.query(
+      `INSERT INTO sol_follower_events (user_id, leader_wallet, signature, side, mint, symbol, leader_token_amount, leader_sol, sell_fraction, event_at, entry_lag_sec, action, detail)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (user_id, signature, mint, side) DO NOTHING`,
+      [
+        userId,
+        ev.wallet,
+        ev.signature || null,
+        ev.side,
+        ev.mint,
+        symbol ?? null,
+        ev.tokenAmount,
+        ev.solAmount,
+        ev.sellFraction,
+        ev.eventAt ? new Date(ev.eventAt) : null,
+        ev.eventAt ? Math.max(0, (now - ev.eventAt) / 1e3) : null,
+        action,
+        String(detail).slice(0, 500)
+      ]
+    );
+  } catch (e) {
+    console.error("[sol-follower] event write failed (non-fatal):", e?.message ?? e);
+  }
+}
+async function openPositionsFor(userId) {
+  const { rows } = await pool.query(
+    `SELECT * FROM sol_follower_positions WHERE user_id=$1 AND status='open' ORDER BY opened_at`,
+    [userId]
+  );
+  return rows;
+}
+async function closePositionFully(pos, grossPct, reason) {
+  const gross = finalGrossPct(Number(pos.realized_gross_pct) || 0, Number(pos.remaining_fraction) || 0, grossPct);
+  const net = gross - (Number(pos.cost_pct) || 0);
+  await pool.query(
+    `UPDATE sol_follower_positions SET status='closed', closed_at=now(), close_reason=$2, gross_pct=$3, net_pct=$4, remaining_fraction=0 WHERE id=$1`,
+    [pos.id, reason, Math.round(gross * 100) / 100, Math.round(net * 100) / 100]
+  );
+}
+async function handleLeaderEvent(fw, ev) {
+  const userId = fw.user_id;
+  const now = Date.now();
+  if (ev.side === "sell") {
+    const open2 = await openPositionsFor(userId);
+    const pos = open2.find((p) => p.leader_wallet === ev.wallet && p.mint === ev.mint);
+    if (!pos) {
+      await recordEvent(userId, ev, "no_open_mirror", "leader sold a token with no open mirror");
+      return;
+    }
+    const quote2 = (await fetchMintQuotes([ev.mint]))[ev.mint];
+    if (!quote2?.price) {
+      await recordEvent(userId, ev, "skipped_no_price", "no reference price at leader sell \u2014 mirror left to its backstops", pos.symbol);
+      return;
+    }
+    const grossNow = (quote2.price - Number(pos.entry_price)) / Number(pos.entry_price) * 100;
+    const plan = mirrorClosePlan(Number(pos.remaining_fraction) || 0, ev.sellFraction ?? 1);
+    if (plan.fullExit) {
+      await closePositionFully(pos, grossNow, "leader_exit");
+      await recordEvent(userId, ev, "mirrored_exit", `leader sold ${Math.round((ev.sellFraction ?? 1) * 100)}% \u2014 mirror closed at ${grossNow >= 0 ? "+" : ""}${grossNow.toFixed(1)}% gross`, pos.symbol);
+    } else {
+      const realized = blendRealizedPct(Number(pos.realized_gross_pct) || 0, plan.closeFractionOfOriginal, grossNow);
+      await pool.query(
+        `UPDATE sol_follower_positions SET remaining_fraction=$2, realized_gross_pct=$3 WHERE id=$1`,
+        [pos.id, Math.max(0, (Number(pos.remaining_fraction) || 0) - plan.closeFractionOfOriginal), realized]
+      );
+      await recordEvent(userId, ev, "mirrored_partial_close", `leader sold ${Math.round((ev.sellFraction ?? 0) * 100)}% \u2014 mirror banked that fraction at ${grossNow >= 0 ? "+" : ""}${grossNow.toFixed(1)}% gross`, pos.symbol);
+    }
+    return;
+  }
+  if (!eventIsFresh(ev.eventAt, now, FOLLOWER_MAX_EVENT_AGE_SEC)) {
+    await recordEvent(userId, ev, "skipped_stale", `leader buy was ${Math.round((now - ev.eventAt) / 1e3)}s old at detection (max ${FOLLOWER_MAX_EVENT_AGE_SEC}s) \u2014 not chased`);
+    return;
+  }
+  try {
+    const gate = await Promise.resolve().then(() => (init_shadow_lesson_gate(), shadow_lesson_gate_exports));
+    if (gate.solShadowLessonsOn()) {
+      const verdict = await gate.getSolFollowerLessonVerdict(userId);
+      if (verdict?.blocked) {
+        void gate.logShadowLessonBlock({
+          lane: "sol_follower_shadow",
+          userId,
+          strategyKey: "wallet_follower",
+          bucket: "lane (all wallets)",
+          n: verdict.trades,
+          winRate: verdict.trades ? verdict.wins / verdict.trades : null,
+          avgR: verdict.avgR,
+          reason: `follower lane proven losing on the lesson bar: ${verdict.trades} resolved, avg ${verdict.avgR.toFixed(2)}R, win ${Math.round(verdict.wins / Math.max(1, verdict.trades) * 100)}%`
+        });
+        await recordEvent(userId, ev, "blocked_lesson_gate", "the follower lane is paused by its own lesson gate (proven-losing rolling record)");
+        return;
+      }
+    }
+  } catch {
+  }
+  const open = await openPositionsFor(userId);
+  if (open.length >= FOLLOWER_MAX_OPEN) {
+    await recordEvent(userId, ev, "skipped_cap_open", `lane cap reached (${FOLLOWER_MAX_OPEN} open mirrors)`);
+    return;
+  }
+  if (open.filter((p) => p.leader_wallet === ev.wallet).length >= FOLLOWER_MAX_PER_WALLET) {
+    await recordEvent(userId, ev, "skipped_cap_wallet", `per-wallet cap reached (${FOLLOWER_MAX_PER_WALLET} open mirrors for this leader)`);
+    return;
+  }
+  if (open.some((p) => p.leader_wallet === ev.wallet && p.mint === ev.mint)) {
+    await recordEvent(userId, ev, "skipped_already_open", "a mirror for this leader + token is already open (v1 does not add to mirrors)");
+    return;
+  }
+  const quote = (await fetchMintQuotes([ev.mint]))[ev.mint];
+  if (!quote?.price) {
+    await recordEvent(userId, ev, "skipped_no_price", "no reference price for the token at detection \u2014 no mirror opened");
+    return;
+  }
+  const solUsd = await solUsdCached();
+  const cost = estimateSolRoundTripCost({ dex: "pumpfun", sizeSol: FOLLOWER_SIZE_SOL, solUsd, liquidityUsd: quote.liquidityUsd });
+  const costPct = Math.round(cost.roundTripPct * 100) / 100;
+  const id = `follower_${userId}_${now}_${ev.mint.slice(0, 6)}`;
+  const lagSec = ev.eventAt ? Math.max(0, (now - ev.eventAt) / 1e3) : null;
+  await pool.query(
+    `INSERT INTO sol_follower_positions (id, user_id, wallet_id, leader_wallet, leader_label, mint, symbol, size_sol, entry_price,
+       leader_entry_price, leader_entry_at, leader_signature, leader_size_sol, entry_lag_sec, cost_pct, sl_pct, peak_price, last_price)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17)`,
+    [
+      id,
+      userId,
+      fw.id,
+      ev.wallet,
+      fw.label,
+      ev.mint,
+      quote.symbol || ev.mint.slice(0, 8),
+      FOLLOWER_SIZE_SOL,
+      quote.price,
+      leaderPriceUsd(ev, solUsd),
+      ev.eventAt ? new Date(ev.eventAt) : null,
+      ev.signature || null,
+      ev.solAmount,
+      lagSec,
+      costPct,
+      FOLLOWER_SL_PCT,
+      quote.price
+    ]
+  );
+  await recordEvent(userId, ev, "mirrored_open", `mirror opened at $${quote.price} (${lagSec != null ? `${lagSec.toFixed(0)}s` : "?"} behind the leader)`, quote.symbol);
+}
+async function pollWallet(fw) {
+  const key = `${fw.user_id}:${fw.wallet}`;
+  const bo = _backoff.get(key);
+  if (bo && bo.until > Date.now()) return;
+  try {
+    if (!fw.last_signature) {
+      const sigs = await rpcCall("getSignaturesForAddress", [fw.wallet, { limit: 1 }]);
+      if (Array.isArray(sigs) && sigs.length) {
+        await pool.query(`UPDATE sol_follower_wallets SET last_signature=$2, last_polled_at=now() WHERE id=$1`, [fw.id, sigs[0].signature]);
+      } else {
+        await pool.query(`UPDATE sol_follower_wallets SET last_polled_at=now() WHERE id=$1`, [fw.id]);
+      }
+      _backoff.delete(key);
+      return;
+    }
+    const batch = [];
+    let before;
+    for (let page = 0; page < 4; page++) {
+      const sigs = await rpcCall("getSignaturesForAddress", [
+        fw.wallet,
+        { limit: 50, until: fw.last_signature, ...before ? { before } : {} }
+      ]);
+      if (!Array.isArray(sigs) || !sigs.length) break;
+      batch.push(...sigs);
+      if (sigs.length < 50) break;
+      before = sigs[sigs.length - 1].signature;
+    }
+    if (!batch.length) {
+      await pool.query(`UPDATE sol_follower_wallets SET last_polled_at=now() WHERE id=$1`, [fw.id]);
+      _backoff.delete(key);
+      return;
+    }
+    for (const info2 of [...batch].reverse()) {
+      if (!info2.err) {
+        const tx = await rpcCall("getParsedTransaction", [info2.signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0, commitment: "confirmed" }]);
+        if (!tx) {
+          if (!(info2.blockTime && info2.blockTime * 1e3 < Date.now() - 10 * 6e4)) break;
+        } else {
+          if (!tx.blockTime && info2.blockTime) tx.blockTime = info2.blockTime;
+          if (!tx.transaction?.signatures?.length) tx.transaction = { ...tx.transaction ?? {}, signatures: [info2.signature] };
+          for (const ev of parseLeaderEvents(tx, fw.wallet)) {
+            await handleLeaderEvent(fw, ev);
+          }
+        }
+      }
+      await pool.query(`UPDATE sol_follower_wallets SET last_signature=$2, last_polled_at=now() WHERE id=$1`, [fw.id, info2.signature]);
+    }
+    _backoff.delete(key);
+  } catch (e) {
+    const fails = (_backoff.get(key)?.fails ?? 0) + 1;
+    const delayMs = e?.status === 429 ? Math.min(10 * 6e4, 3e4 * 2 ** Math.min(fails, 5)) : 3e4;
+    _backoff.set(key, { until: Date.now() + delayMs, fails });
+    console.warn(`[sol-follower] poll failed for a followed wallet (attempt ${fails}, backing off ${Math.round(delayMs / 1e3)}s):`, e?.message ?? e);
+  }
+}
+async function monitorFollowerPositions() {
+  const { rows } = await pool.query(`SELECT * FROM sol_follower_positions WHERE status='open'`);
+  if (!rows.length) return;
+  const quotes = await fetchMintQuotes(rows.map((p) => p.mint));
+  const now = Date.now();
+  for (const pos of rows) {
+    const quote = quotes[pos.mint];
+    const heldMin = (now - new Date(pos.opened_at).getTime()) / 6e4;
+    const isMaxHold = heldMin >= FOLLOWER_MAX_HOLD_MIN;
+    if (!quote?.price) {
+      if (isMaxHold && Number(pos.last_price) > 0) {
+        const lastMark = Number(pos.last_price);
+        await closePositionFully(pos, (lastMark - Number(pos.entry_price)) / Number(pos.entry_price) * 100, "max_hold");
+      }
+      continue;
+    }
+    const price = quote.price;
+    const newPeak = !pos.peak_price || price > Number(pos.peak_price) ? price : Number(pos.peak_price);
+    await pool.query(`UPDATE sol_follower_positions SET peak_price=$2, last_price=$3 WHERE id=$1`, [pos.id, newPeak, price]);
+    const gross = (price - Number(pos.entry_price)) / Number(pos.entry_price) * 100;
+    if (gross >= FOLLOWER_TP_PCT) await closePositionFully(pos, gross, "tp");
+    else if (gross <= -FOLLOWER_SL_PCT) await closePositionFully(pos, gross, "sl");
+    else if (isMaxHold) await closePositionFully(pos, gross, "max_hold");
+  }
+}
+async function followerTick() {
+  if (_tickRunning) return;
+  _tickRunning = true;
+  try {
+    await ensureSolFollowerTables();
+    const { rows } = await pool.query(`SELECT id, user_id, wallet, label, last_signature FROM sol_follower_wallets ORDER BY user_id, id`);
+    for (const fw of rows) await pollWallet(fw);
+    await monitorFollowerPositions();
+  } catch (e) {
+    console.error("[sol-follower] tick failed (non-fatal):", e?.message ?? e);
+  } finally {
+    _tickRunning = false;
+  }
+}
+function startSolFollowerShadow() {
+  if (!solFollowerShadowOn()) {
+    console.log("[sol-follower] SOL_FOLLOWER_SHADOW=off \u2014 lane disabled");
+    return;
+  }
+  if (_started) return;
+  _started = true;
+  console.log(`[sol-follower] shadow lane started (poll ${Math.round(FOLLOWER_POLL_MS / 1e3)}s, size ${FOLLOWER_SIZE_SOL} SOL, max event age ${FOLLOWER_MAX_EVENT_AGE_SEC}s)`);
+  setTimeout(() => {
+    void followerTick();
+  }, 5e3).unref?.();
+  setInterval(() => {
+    void followerTick();
+  }, FOLLOWER_POLL_MS).unref?.();
+}
+async function getSolFollowerReport(userId) {
+  await ensureSolFollowerTables();
+  const wallets = await listFollowedWallets(userId);
+  const { rows: closed } = await pool.query(
+    `SELECT leader_wallet, net_pct, sl_pct, entry_lag_sec, closed_at FROM sol_follower_positions
+      WHERE user_id=$1 AND status='closed' AND net_pct IS NOT NULL ORDER BY closed_at`,
+    [userId]
+  );
+  const { rows: open } = await pool.query(
+    `SELECT id, leader_wallet, leader_label, mint, symbol, size_sol, entry_price, leader_entry_price, leader_entry_at, opened_at, entry_lag_sec, remaining_fraction
+       FROM sol_follower_positions WHERE user_id=$1 AND status='open' ORDER BY opened_at DESC`,
+    [userId]
+  );
+  const { rows: recent } = await pool.query(
+    `SELECT id, leader_wallet, leader_label, mint, symbol, entry_price, leader_entry_price, opened_at, closed_at, close_reason, net_pct, entry_lag_sec
+       FROM sol_follower_positions WHERE user_id=$1 AND status='closed' ORDER BY closed_at DESC LIMIT 20`,
+    [userId]
+  );
+  const scores = wallets.map((w) => {
+    const mine = closed.filter((c) => c.leader_wallet === w.wallet);
+    const trades = mine.length;
+    const wins = mine.filter((c) => Number(c.net_pct) > 0).length;
+    const avgNetPct = trades ? mine.reduce((a, c) => a + Number(c.net_pct), 0) / trades : 0;
+    const avgR = trades ? mine.reduce((a, c) => a + (Number(c.sl_pct) > 0 ? Number(c.net_pct) / Number(c.sl_pct) : 0), 0) / trades : 0;
+    const weeks = /* @__PURE__ */ new Map();
+    for (const c of mine) {
+      const d = new Date(c.closed_at);
+      const wk = `${d.getUTCFullYear()}-W${Math.floor(d.getTime() / 864e5 / 7)}`;
+      weeks.set(wk, (weeks.get(wk) ?? 0) + Number(c.net_pct));
+    }
+    const lags = mine.map((c) => c.entry_lag_sec).filter((x) => x != null).map(Number);
+    const stats = { trades, wins, avgNetPct, avgR, weeklyNetPct: Array.from(weeks.values()) };
+    const v = walletVerdict(stats);
+    return {
+      ...stats,
+      wallet: w.wallet,
+      label: w.label,
+      openCount: open.filter((o) => o.leader_wallet === w.wallet).length,
+      avgEntryLagSec: lags.length ? lags.reduce((a, b) => a + b, 0) / lags.length : null,
+      verdict: v.verdict,
+      verdictLine: v.line
+    };
+  });
+  return {
+    enabled: solFollowerShadowOn(),
+    sizeSol: FOLLOWER_SIZE_SOL,
+    maxEventAgeSec: FOLLOWER_MAX_EVENT_AGE_SEC,
+    bar: FOLLOWER_LIVE_BAR,
+    wallets: wallets.map((w) => ({ ...w, score: scores.find((s) => s.wallet === w.wallet) })),
+    open,
+    recentClosed: recent
+  };
+}
+var _envInt, _envNum, solFollowerShadowOn, FOLLOWER_POLL_MS, FOLLOWER_MAX_EVENT_AGE_SEC, FOLLOWER_SIZE_SOL, FOLLOWER_MAX_OPEN, FOLLOWER_MAX_PER_WALLET, FOLLOWER_TP_PCT, FOLLOWER_SL_PCT, FOLLOWER_MAX_HOLD_MIN, PUMP_FUN_PROGRAM_ID, WSOL_MINT, B58_ALPHABET, B58_MAP, keyStr, FOLLOWER_LIVE_BAR, _ensured6, _solUsdCache, _backoff, _started, _tickRunning;
+var init_sol_follower = __esm({
+  "server/services/sol-follower.ts"() {
+    "use strict";
+    init_db();
+    init_paper_costs();
+    _envInt = (n, d) => {
+      const v = Number(process.env[n]);
+      return Number.isFinite(v) && v > 0 ? Math.floor(v) : d;
+    };
+    _envNum = (n, d) => {
+      const v = Number(process.env[n]);
+      return Number.isFinite(v) && v > 0 ? v : d;
+    };
+    solFollowerShadowOn = () => process.env.SOL_FOLLOWER_SHADOW !== "off";
+    FOLLOWER_POLL_MS = _envInt("SOL_FOLLOWER_POLL_MS", 3e4);
+    FOLLOWER_MAX_EVENT_AGE_SEC = _envInt("SOL_FOLLOWER_MAX_EVENT_AGE_SEC", 120);
+    FOLLOWER_SIZE_SOL = _envNum("SOL_FOLLOWER_SIZE_SOL", 0.25);
+    FOLLOWER_MAX_OPEN = _envInt("SOL_FOLLOWER_MAX_OPEN", 20);
+    FOLLOWER_MAX_PER_WALLET = _envInt("SOL_FOLLOWER_MAX_PER_WALLET", 5);
+    FOLLOWER_TP_PCT = _envNum("SOL_FOLLOWER_TP_PCT", 100);
+    FOLLOWER_SL_PCT = _envNum("SOL_FOLLOWER_SL_PCT", 30);
+    FOLLOWER_MAX_HOLD_MIN = _envInt("SOL_FOLLOWER_MAX_HOLD_MIN", 360);
+    PUMP_FUN_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
+    WSOL_MINT = "So11111111111111111111111111111111111111112";
+    B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    B58_MAP = new Map(Array.from(B58_ALPHABET).map((c, i) => [c, i]));
+    keyStr = (k) => typeof k === "string" ? k : k?.pubkey ?? "";
+    FOLLOWER_LIVE_BAR = { trades: 50, winRate: 0.4 };
+    _ensured6 = null;
+    _solUsdCache = null;
+    _backoff = /* @__PURE__ */ new Map();
+    _started = false;
+    _tickRunning = false;
+  }
+});
+
 // server/services/strategy-deployments.ts
 var strategy_deployments_exports = {};
 __export(strategy_deployments_exports, {
@@ -15130,8 +15748,8 @@ __export(shadow_ledger_exports, {
   shadowLedgerSummary: () => shadowLedgerSummary
 });
 function ensureShadowLedger() {
-  if (!_ensured6) {
-    _ensured6 = (async () => {
+  if (!_ensured7) {
+    _ensured7 = (async () => {
       try {
         const { ensurePaperTable: ensurePaperTable2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
         await ensurePaperTable2();
@@ -15158,6 +15776,11 @@ function ensureShadowLedger() {
       } catch {
       }
       try {
+        const { ensureSolFollowerTables: ensureSolFollowerTables2 } = await Promise.resolve().then(() => (init_sol_follower(), sol_follower_exports));
+        await ensureSolFollowerTables2();
+      } catch {
+      }
+      try {
         const { ensureStrategyTables: ensureStrategyTables2 } = await Promise.resolve().then(() => (init_strategy_deployments(), strategy_deployments_exports));
         await ensureStrategyTables2();
       } catch {
@@ -15169,11 +15792,11 @@ function ensureShadowLedger() {
       }
       await pool.query(VIEW_SQL);
     })().catch((e) => {
-      _ensured6 = null;
+      _ensured7 = null;
       throw e;
     });
   }
-  return _ensured6;
+  return _ensured7;
 }
 async function shadowLedgerSummary(userId, days = 30) {
   await ensureShadowLedger();
@@ -15192,7 +15815,7 @@ async function shadowLedgerSummary(userId, days = 30) {
   ]);
   return { days, bySource, bySession, byDirection, best: slices.slice(0, 10), worst: slices.slice(-10).reverse(), h4Alignment: alignment };
 }
-var SESSION_SQL, VIEW_SQL, _ensured6;
+var SESSION_SQL, VIEW_SQL, _ensured7;
 var init_shadow_ledger = __esm({
   "server/services/shadow-ledger.ts"() {
     "use strict";
@@ -15344,8 +15967,27 @@ CREATE OR REPLACE VIEW shadow_ledger AS
     FROM strategy_trades t
     LEFT JOIN wizard_strategies w ON w.id = t.strategy_id
    WHERE t.mode = 'shadow' AND t.status = 'closed' AND t.r_multiple IS NOT NULL
+  UNION ALL
+  -- Sol FOLLOWER copy-trade shadow lane (sol-follower.ts): virtual mirrors
+  -- of followed wallets' pump.fun trades. Strategy = the leader wallet
+  -- (the slice the scoreboard and a future go-live decision read); the
+  -- lesson gate pools the whole arm. R is the row's net % against the
+  -- backstop stop stamped at entry (sl_pct), like the Sol arm. The same
+  -- sub-2-minute \u226540% junk-print quarantine as the Sol arm applies.
+  SELECT ('sol_follower_shadow:' || f.id)::text, 'sol_follower_shadow', 'sol', f.user_id,
+         f.leader_wallet, f.symbol, 'LONG',
+         f.opened_at, f.closed_at,
+         extract(hour from f.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(f.opened_at AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN f.net_pct > 0 THEN 'WIN' WHEN f.net_pct < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         CASE WHEN f.sl_pct > 0 THEN (f.net_pct / f.sl_pct)::float END,
+         f.net_pct::float
+    FROM sol_follower_positions f
+   WHERE f.status = 'closed' AND f.net_pct IS NOT NULL
+     AND NOT (abs(f.net_pct) >= 40 AND extract(epoch from (f.closed_at - f.opened_at)) < 120)
 `;
-    _ensured6 = null;
+    _ensured7 = null;
   }
 });
 
@@ -15355,6 +15997,7 @@ __export(shadow_lesson_gate_exports, {
   cryptoShadowLessonsOn: () => cryptoShadowLessonsOn,
   ensureShadowLessonBlocksTable: () => ensureShadowLessonBlocksTable,
   fxModelsLessonGateOn: () => fxModelsLessonGateOn,
+  getSolFollowerLessonVerdict: () => getSolFollowerLessonVerdict,
   getSolShadowLessonVerdicts: () => getSolShadowLessonVerdicts,
   logShadowLessonBlock: () => logShadowLessonBlock,
   matchingAvoidBucket: () => matchingAvoidBucket,
@@ -15364,8 +16007,8 @@ __export(shadow_lesson_gate_exports, {
   studioShadowLessonsOn: () => studioShadowLessonsOn
 });
 function ensureShadowLessonBlocksTable() {
-  if (!_ensured7) {
-    _ensured7 = pool.query(`CREATE TABLE IF NOT EXISTS shadow_lesson_blocks (
+  if (!_ensured8) {
+    _ensured8 = pool.query(`CREATE TABLE IF NOT EXISTS shadow_lesson_blocks (
       id serial PRIMARY KEY,
       lane text NOT NULL,
       user_id int NOT NULL,
@@ -15377,11 +16020,11 @@ function ensureShadowLessonBlocksTable() {
       median_pct double precision,
       reason text NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS shadow_lesson_blocks_lane_user_at ON shadow_lesson_blocks (lane, user_id, created_at DESC)`)).then(() => void 0).catch((e) => {
-      _ensured7 = null;
+      _ensured8 = null;
       throw e;
     });
   }
-  return _ensured7;
+  return _ensured8;
 }
 async function logShadowLessonBlock(b) {
   try {
@@ -15463,7 +16106,40 @@ async function getSolShadowLessonVerdicts(userId, force = false) {
   _solCache.set(userId, { at: Date.now(), verdicts });
   return verdicts;
 }
-var solShadowLessonsOn, cryptoShadowLessonsOn, studioShadowLessonsOn, fxModelsLessonGateOn, _ensured7, _solCache;
+async function getSolFollowerLessonVerdict(userId, force = false) {
+  const hit = _followerCache.get(userId);
+  if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.verdict;
+  const days = Math.max(7, Math.floor(Number(process.env.SOL_SHADOW_LESSON_WINDOW_DAYS ?? 60) || 60));
+  const { ensureShadowLedger: ensureShadowLedger2 } = await Promise.resolve().then(() => (init_shadow_ledger(), shadow_ledger_exports));
+  await ensureShadowLedger2();
+  const { rows } = await pool.query(
+    `SELECT count(*)::int AS trades, count(*) FILTER (WHERE result='WIN')::int AS wins,
+            COALESCE(avg(r_multiple),0)::float AS avg_r
+       FROM shadow_ledger
+      WHERE user_id=$1 AND source='sol_follower_shadow' AND r_multiple IS NOT NULL
+        AND closed_at >= now() - ($2 || ' days')::interval`,
+    [userId, String(days)]
+  );
+  const { rows: weekly } = await pool.query(
+    `SELECT date_trunc('week', closed_at) AS wk, COALESCE(sum(r_multiple),0)::float AS r
+       FROM shadow_ledger
+      WHERE user_id=$1 AND source='sol_follower_shadow' AND r_multiple IS NOT NULL
+        AND closed_at >= now() - ($2 || ' days')::interval
+      GROUP BY wk ORDER BY wk`,
+    [userId, String(days)]
+  );
+  const r0 = rows[0] ?? { trades: 0, wins: 0, avg_r: 0 };
+  const stat = {
+    trades: Number(r0.trades) || 0,
+    wins: Number(r0.wins) || 0,
+    avgR: Number(r0.avg_r) || 0,
+    weeklyR: weekly.map((w) => Number(w.r) || 0)
+  };
+  const verdict = { ...stat, blocked: promotionBarLoser(stat) };
+  _followerCache.set(userId, { at: Date.now(), verdict });
+  return verdict;
+}
+var solShadowLessonsOn, cryptoShadowLessonsOn, studioShadowLessonsOn, fxModelsLessonGateOn, _ensured8, _solCache, _followerCache;
 var init_shadow_lesson_gate = __esm({
   "server/services/shadow-lesson-gate.ts"() {
     "use strict";
@@ -15472,8 +16148,9 @@ var init_shadow_lesson_gate = __esm({
     cryptoShadowLessonsOn = () => process.env.CRYPTO_SHADOW_LESSONS !== "off";
     studioShadowLessonsOn = () => process.env.STUDIO_SHADOW_LESSONS !== "off";
     fxModelsLessonGateOn = () => process.env.FX_MODELS_LESSON_GATE !== "off";
-    _ensured7 = null;
+    _ensured8 = null;
     _solCache = /* @__PURE__ */ new Map();
+    _followerCache = /* @__PURE__ */ new Map();
   }
 });
 

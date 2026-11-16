@@ -1682,6 +1682,13 @@ async function withRetry<T>(
     const { startKalshiSportsShadow } = await import('./services/kalshi-sports-shadow');
     startKalshiSportsShadow();
 
+    // Sol FOLLOWER (copy-trade) SHADOW lane — polls the wallets users
+    // follow and mirrors their pump.fun trades virtually, building a
+    // per-wallet record. No credentials, no orders, no wallet keys;
+    // kill switch SOL_FOLLOWER_SHADOW=off.
+    const { startSolFollowerShadow } = await import('./services/sol-follower');
+    startSolFollowerShadow();
+
     // Content Studio video-job watchdog — resumes explainer/clip/reel jobs
     // whose in-process runner died with a previous boot (deploy/restart),
     // so a video finishes server-side even when the user has closed the

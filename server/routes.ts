@@ -28124,6 +28124,43 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     return hit.count > SOLANA_PUBLIC_RL_MAX;
   }
 
+  // ── Sol FOLLOWER (copy-trade) SHADOW lane ─────────────────────────────
+  // The user saves leader wallets; the lane mirrors their pump.fun trades
+  // virtually (sol-follower.ts) and reports a per-wallet record. Shadow
+  // only — these routes can never place an order.
+  app.get("/api/sol-follower", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getSolFollowerReport } = await import('./services/sol-follower');
+      res.json(await getSolFollowerReport((req.user as User).id));
+    } catch (err: any) {
+      console.error('[sol-follower] report error:', err?.message ?? err);
+      res.status(500).json({ error: err?.message || 'Failed to load the follower lane' });
+    }
+  });
+
+  app.post("/api/sol-follower/wallets", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { addFollowedWallet } = await import('./services/sol-follower');
+      const wallet = await addFollowedWallet((req.user as User).id, req.body?.wallet, req.body?.label);
+      res.json({ success: true, wallet });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'Could not add that wallet' });
+    }
+  });
+
+  app.delete("/api/sol-follower/wallets/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { removeFollowedWallet } = await import('./services/sol-follower');
+      const removed = await removeFollowedWallet((req.user as User).id, Number(req.params.id));
+      res.json({ success: removed });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Could not remove that wallet' });
+    }
+  });
+
   // Scan and analyze trending Solana tokens
   app.get("/api/solana/scan", async (req: Request, res: Response) => {
     try {

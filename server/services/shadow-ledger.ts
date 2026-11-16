@@ -10,6 +10,9 @@
 //   • sol_shadow     — Sol engine shadow tests (same table, mode='shadow')
 //   • strategy_studio_shadow — Strategy Studio shadow deployments
 //     (strategy_trades mode='shadow'; engine='studio')
+//   • sol_follower_shadow — Sol FOLLOWER copy-trade shadow lane
+//     (sol_follower_positions; strategy = leader wallet, so the lessons
+//     read is per-wallet evidence while the gate acts on the whole lane)
 // A VIEW, not a copy: always current, nothing to sync, no duplicates.
 //
 // Common columns: source, engine, user_id, strategy, symbol, direction
@@ -180,6 +183,25 @@ CREATE OR REPLACE VIEW shadow_ledger AS
     FROM strategy_trades t
     LEFT JOIN wizard_strategies w ON w.id = t.strategy_id
    WHERE t.mode = 'shadow' AND t.status = 'closed' AND t.r_multiple IS NOT NULL
+  UNION ALL
+  -- Sol FOLLOWER copy-trade shadow lane (sol-follower.ts): virtual mirrors
+  -- of followed wallets' pump.fun trades. Strategy = the leader wallet
+  -- (the slice the scoreboard and a future go-live decision read); the
+  -- lesson gate pools the whole arm. R is the row's net % against the
+  -- backstop stop stamped at entry (sl_pct), like the Sol arm. The same
+  -- sub-2-minute ≥40% junk-print quarantine as the Sol arm applies.
+  SELECT ('sol_follower_shadow:' || f.id)::text, 'sol_follower_shadow', 'sol', f.user_id,
+         f.leader_wallet, f.symbol, 'LONG',
+         f.opened_at, f.closed_at,
+         extract(hour from f.opened_at AT TIME ZONE 'UTC')::int,
+         ${SESSION_SQL("(f.opened_at AT TIME ZONE 'UTC')")},
+         NULL, NULL, NULL, NULL, true,
+         CASE WHEN f.net_pct > 0 THEN 'WIN' WHEN f.net_pct < 0 THEN 'LOSS' ELSE 'FLAT' END,
+         CASE WHEN f.sl_pct > 0 THEN (f.net_pct / f.sl_pct)::float END,
+         f.net_pct::float
+    FROM sol_follower_positions f
+   WHERE f.status = 'closed' AND f.net_pct IS NOT NULL
+     AND NOT (abs(f.net_pct) >= 40 AND extract(epoch from (f.closed_at - f.opened_at)) < 120)
 `;
 
 let _ensured: Promise<void> | null = null;
@@ -192,6 +214,7 @@ export function ensureShadowLedger(): Promise<void> {
       try { const { ensureKalshiPerpShadowTables } = await import('./ensure-kalshi-perp-shadow-tables'); await ensureKalshiPerpShadowTables(); } catch { /* table may already exist */ }
       try { const { ensureKalshiWeatherShadowTables } = await import('./ensure-kalshi-weather-shadow-tables'); await ensureKalshiWeatherShadowTables(); } catch { /* table may already exist */ }
       try { const { ensureKalshiSportsShadowTables } = await import('./ensure-kalshi-sports-shadow-tables'); await ensureKalshiSportsShadowTables(); } catch { /* table may already exist */ }
+      try { const { ensureSolFollowerTables } = await import('./sol-follower'); await ensureSolFollowerTables(); } catch { /* table may already exist */ }
       try { const { ensureStrategyTables } = await import('./strategy-deployments'); await ensureStrategyTables(); } catch { /* table may already exist */ }
       try { const { ensureWizardStrategiesTable } = await import('./wizard-spec-strategies'); await ensureWizardStrategiesTable(); } catch { /* table may already exist */ }
       await pool.query(VIEW_SQL);

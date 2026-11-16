@@ -79,7 +79,7 @@ export interface ShadowLessonBlock {
    *  'crypto_promotion' rows ARE live entry blocks, but of the live DeFi
    *  hot wallet rather than a shadow lane: a shadow 'avoid' bucket the
    *  owner promoted into a live guard (crypto-shadow-promotions.ts). */
-  lane: 'sol_shadow' | 'crypto_shadow' | 'studio_shadow' | 'fx_models' | 'trail_guard' | 'gate_calibration' | 'crypto_promotion';
+  lane: 'sol_shadow' | 'crypto_shadow' | 'studio_shadow' | 'fx_models' | 'trail_guard' | 'gate_calibration' | 'crypto_promotion' | 'sol_follower_shadow';
   userId: number;
   strategyKey: string;
   /** Human-readable bucket: "all", "liquidity <25k", "M1 · range · EURUSD · London", "deployment 42". */
@@ -235,4 +235,48 @@ export async function getSolShadowLessonVerdicts(userId: number, force = false):
   }
   _solCache.set(userId, { at: Date.now(), verdicts });
   return verdicts;
+}
+
+// ── Sol FOLLOWER lane: ONE verdict for the whole lane ───────────────────
+export interface SolFollowerLessonVerdict extends RBarStat { blocked: boolean }
+
+const _followerCache = new Map<number, { at: number; verdict: SolFollowerLessonVerdict }>();
+
+/**
+ * The copy-trade lane's lesson verdict, read from the shared ledger's
+ * sol_follower_shadow arm over the same rolling window as the Sol shadow
+ * lane. The unit is the LANE AS A WHOLE — deliberately NOT per leader
+ * wallet and never per token: per-wallet records are the scoreboard's job
+ * (they inform the user's go-live choice), while a gate acts on the
+ * pooled evidence that copy-mirroring itself is losing. Same platform
+ * lesson bar (promotionBarLoser). Cached ~15 min per user.
+ */
+export async function getSolFollowerLessonVerdict(userId: number, force = false): Promise<SolFollowerLessonVerdict> {
+  const hit = _followerCache.get(userId);
+  if (!force && hit && Date.now() - hit.at < 15 * 60_000) return hit.verdict;
+  const days = Math.max(7, Math.floor(Number(process.env.SOL_SHADOW_LESSON_WINDOW_DAYS ?? 60) || 60));
+  const { ensureShadowLedger } = await import('./shadow-ledger');
+  await ensureShadowLedger();
+  const { rows } = await pool.query(
+    `SELECT count(*)::int AS trades, count(*) FILTER (WHERE result='WIN')::int AS wins,
+            COALESCE(avg(r_multiple),0)::float AS avg_r
+       FROM shadow_ledger
+      WHERE user_id=$1 AND source='sol_follower_shadow' AND r_multiple IS NOT NULL
+        AND closed_at >= now() - ($2 || ' days')::interval`, [userId, String(days)]);
+  const { rows: weekly } = await pool.query(
+    `SELECT date_trunc('week', closed_at) AS wk, COALESCE(sum(r_multiple),0)::float AS r
+       FROM shadow_ledger
+      WHERE user_id=$1 AND source='sol_follower_shadow' AND r_multiple IS NOT NULL
+        AND closed_at >= now() - ($2 || ' days')::interval
+      GROUP BY wk ORDER BY wk`, [userId, String(days)]);
+  const r0 = rows[0] ?? { trades: 0, wins: 0, avg_r: 0 };
+  const stat: RBarStat = {
+    trades: Number(r0.trades) || 0,
+    wins: Number(r0.wins) || 0,
+    avgR: Number(r0.avg_r) || 0,
+    weeklyR: weekly.map((w: any) => Number(w.r) || 0),
+  };
+  const verdict: SolFollowerLessonVerdict = { ...stat, blocked: promotionBarLoser(stat) };
+  _followerCache.set(userId, { at: Date.now(), verdict });
+  return verdict;
 }
