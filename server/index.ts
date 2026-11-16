@@ -1653,6 +1653,13 @@ async function withRetry<T>(
     const { startTrailGuardLearning } = await import('./services/trail-guard-learning');
     startTrailGuardLearning();
 
+    // Trail Brain learning — every 30 min, each group's learned trail
+    // parameters are re-scored against their own stamped record and
+    // adjusted inside hard clamps (trail-brain-learning.ts). Kill
+    // switches TRAIL_BRAIN=off / TRAIL_BRAIN_LEARNING=off.
+    const { startTrailBrainLearning } = await import('./services/trail-brain-learning');
+    startTrailBrainLearning();
+
     // Kalshi stock-perp SHADOW lane — virtual positions on public Kalshi
     // margin market data for the owner account. No credentials, no orders;
     // kill switch KALSHI_STOCK_SHADOW=off.

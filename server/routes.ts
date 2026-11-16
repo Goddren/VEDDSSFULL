@@ -17668,6 +17668,48 @@ Rules:
       res.json(out);
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
+  // Trail Brain: learned per-group trail parameters across all engines.
+  // The GET refreshes the caller's learning pass (throttled to one real
+  // pass per 30 min per user; fail-open) so the panel shows fresh
+  // evidence, then returns engines + groups + recent decisions.
+  app.get("/api/engine/trail-brain", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const userId = (req.user as User).id;
+      try {
+        const learning = await import('./services/trail-brain-learning');
+        await learning.runTrailBrainLearningForUser(userId);
+      } catch { /* learning is additive; never block the panel */ }
+      const { getTrailBrainReport } = await import('./services/trail-brain');
+      res.json(await getTrailBrainReport(userId));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  app.post("/api/engine/trail-brain/engine", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getTrailBrainSettings, saveTrailBrainSettings } = await import('./services/trail-brain');
+      const { engine, on } = req.body || {};
+      if (!['crypto', 'fx', 'sol', 'kalshi'].includes(engine) || typeof on !== 'boolean') {
+        return res.status(400).json({ error: "engine (crypto|fx|sol|kalshi) and on (boolean) are required" });
+      }
+      const userId = (req.user as User).id;
+      const s = await getTrailBrainSettings(userId);
+      s.engines[engine] = on;
+      await saveTrailBrainSettings(userId, s);
+      res.json({ ok: true, engine, on });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  app.post("/api/engine/trail-brain/reset", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { resetTrailBrainGroup } = await import('./services/trail-brain');
+      const { groupKey } = req.body || {};
+      if (!groupKey) return res.status(400).json({ error: "groupKey is required" });
+      const ok = await resetTrailBrainGroup((req.user as User).id, String(groupKey));
+      if (!ok) return res.status(404).json({ error: "group not found" });
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
   app.get("/api/engine/gate-calibration", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {
