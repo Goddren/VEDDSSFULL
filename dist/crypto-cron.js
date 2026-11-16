@@ -12016,6 +12016,164 @@ var init_ai_usage = __esm({
   }
 });
 
+// server/utils/pipUtils.ts
+function matchesAny(symbol, patterns) {
+  const s = symbol.toUpperCase();
+  return patterns.some((p) => s.includes(p.toUpperCase()));
+}
+function getPipSize(symbol) {
+  if (!symbol) return 1e-4;
+  if (matchesAny(symbol, ["JPY"])) return 0.01;
+  if (matchesAny(symbol, ["XAU", "GOLD"])) return 0.1;
+  if (matchesAny(symbol, ["XAG", "SILVER"])) return 1e-3;
+  if (matchesAny(symbol, ["XPT", "XPD"])) return 0.01;
+  if (matchesAny(symbol, [
+    "US30",
+    "DJ30",
+    "WALLST",
+    "DOW",
+    "NAS100",
+    "USTEC",
+    "US100",
+    "NDX",
+    "NASDAQ",
+    "US500",
+    "SPX",
+    "SP500",
+    "GER40",
+    "GER30",
+    "DAX",
+    "DE40",
+    "UK100",
+    "FTSE",
+    "UKX",
+    "JP225",
+    "NKY",
+    "NIKKEI",
+    "JPN225",
+    "N225",
+    "AUS200",
+    "ASX",
+    "HK50",
+    "HSI",
+    "FRA40",
+    "CAC",
+    "ESP35",
+    "IBEX",
+    "EUSTX50",
+    "SWI20"
+  ])) return 1;
+  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 0.01;
+  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 1e-3;
+  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
+  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 0.01;
+  if (matchesAny(symbol, ["XRP", "DOGE", "SHIB", "LTC", "TRX"])) return 1e-4;
+  return 1e-4;
+}
+function computePips(symbol, entryPrice, exitPrice, direction) {
+  const entry = Number(entryPrice), exit = Number(exitPrice);
+  if (!Number.isFinite(entry) || !Number.isFinite(exit) || entry <= 0 || exit <= 0) return null;
+  const pipSize2 = getPipSize(symbol);
+  if (!(pipSize2 > 0)) return null;
+  const isSell = /sell|short/i.test(String(direction ?? ""));
+  const diff = isSell ? entry - exit : exit - entry;
+  return Math.round(diff / pipSize2 * 10) / 10;
+}
+function getPipValue(symbol) {
+  if (!symbol) return 10;
+  if (matchesAny(symbol, ["XAU", "GOLD"])) return 10;
+  if (matchesAny(symbol, ["XAG", "SILVER"])) return 5;
+  if (matchesAny(symbol, ["XPT", "XPD"])) return 10;
+  if (matchesAny(symbol, [
+    "US30",
+    "DJ30",
+    "WALLST",
+    "DOW",
+    "NAS100",
+    "USTEC",
+    "US100",
+    "NDX",
+    "NASDAQ",
+    "US500",
+    "SPX",
+    "SP500",
+    "GER40",
+    "GER30",
+    "DAX",
+    "DE40",
+    "UK100",
+    "FTSE",
+    "JP225",
+    "NKY",
+    "NIKKEI",
+    "JPN225",
+    "AUS200",
+    "ASX",
+    "HK50",
+    "FRA40",
+    "CAC",
+    "ESP35",
+    "EUSTX50"
+  ])) return 1;
+  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 10;
+  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 10;
+  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
+  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 1;
+  let s = symbol.toUpperCase().split(".")[0].replace(/[^A-Z]/g, "");
+  if (s.length > 6) {
+    for (let i = 0; i + 6 <= s.length; i++) {
+      const cand = s.slice(i, i + 6);
+      if (quoteToUsd(cand.slice(3)) !== null) {
+        s = cand;
+        break;
+      }
+    }
+  }
+  if (/^[A-Z]{6}$/.test(s)) {
+    const quote = s.slice(3);
+    const perLotQuote = 1e5 * getPipSize(symbol);
+    const rate = quoteToUsd(quote);
+    if (rate !== null) return perLotQuote * rate;
+  }
+  return 10;
+}
+function setFxRate(pair, rate) {
+  const p = String(pair || "").toUpperCase().replace(/[^A-Z]/g, "");
+  const r = Number(rate);
+  if (!/^[A-Z]{6}$/.test(p) || !isFinite(r) || r <= 0) return;
+  _fxLive.set(p, { rate: r, at: Date.now() });
+}
+function rateOf(pair) {
+  const live = _fxLive.get(pair);
+  if (live && Date.now() - live.at < FX_LIVE_TTL_MS) return live.rate;
+  return FX_FALLBACK[pair];
+}
+function quoteToUsd(quote) {
+  if (quote === "USD") return 1;
+  const direct = rateOf(`${quote}USD`);
+  if (direct > 0) return direct;
+  const inverse = rateOf(`USD${quote}`);
+  if (inverse > 0) return 1 / inverse;
+  return null;
+}
+var FX_FALLBACK, _fxLive, FX_LIVE_TTL_MS;
+var init_pipUtils = __esm({
+  "server/utils/pipUtils.ts"() {
+    "use strict";
+    FX_FALLBACK = {
+      USDJPY: 140,
+      GBPUSD: 1.36,
+      EURUSD: 1.17,
+      AUDUSD: 0.7,
+      NZDUSD: 0.63,
+      USDCHF: 0.8,
+      USDCAD: 1.3
+    };
+    _fxLive = /* @__PURE__ */ new Map();
+    FX_LIVE_TTL_MS = 6 * 60 * 60 * 1e3;
+  }
+});
+
 // server/utils/ictMacroUtils.ts
 var ictMacroUtils_exports = {};
 __export(ictMacroUtils_exports, {
@@ -12025,14 +12183,17 @@ __export(ictMacroUtils_exports, {
   detectOTEZone: () => detectOTEZone,
   detectStopHunt: () => detectStopHunt,
   getICTMacroContext: () => getICTMacroContext,
+  getNYOffset: () => getNYOffset,
   getPremiumDiscountContext: () => getPremiumDiscountContext
 });
 function getNYOffset(date2) {
   const year = date2.getUTCFullYear();
   const dstStart = new Date(Date.UTC(year, 2, 1));
-  dstStart.setUTCDate(8 - (dstStart.getUTCDay() + 7) % 7 + 7);
+  dstStart.setUTCDate(1 + (7 - dstStart.getUTCDay()) % 7 + 7);
+  dstStart.setUTCHours(7, 0, 0, 0);
   const dstEnd = new Date(Date.UTC(year, 10, 1));
   dstEnd.setUTCDate(1 + (7 - dstEnd.getUTCDay()) % 7);
+  dstEnd.setUTCHours(6, 0, 0, 0);
   return date2 >= dstStart && date2 < dstEnd ? -4 : -5;
 }
 function toNYTime(date2) {
@@ -12768,8 +12929,12 @@ async function checkFxBrainHealth(windowHours = 24) {
   const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
   const [{ rows: closes }, { rows: brainRows }, { rows: lastRow }] = await Promise.all([
     pool2.query(
+      // All engine close sources, not just TradeLocker: DXtrade/MT5 closes
+      // never write fx_brain_outcomes at all, and a TradeLocker-only
+      // denominator baked that invisibility into the watchdog — it could
+      // report "3/3 recorded" while every DX close went unrecorded.
       `SELECT count(*)::int AS n FROM ai_trade_results
-        WHERE source IN ('tradelocker','tradelocker_auto')
+        WHERE source IN ('tradelocker','tradelocker_auto','dxtrade','mt5_ea','mt5_copier','manual','brain_autoexec')
           AND result IN ('WIN','LOSS','BREAKEVEN')
           AND closed_at > now() - ($1 || ' hours')::interval`,
       [windowHours]
@@ -12784,8 +12949,8 @@ async function checkFxBrainHealth(windowHours = 24) {
   const brainRowsInWindow = brainRows[0]?.n ?? 0;
   const lastAt = lastRow[0]?.last_at ? new Date(lastRow[0].last_at) : null;
   const hoursSinceLastBrainRow = lastAt ? Math.round((Date.now() - lastAt.getTime()) / 36e5 * 10) / 10 : null;
-  const stalled = realClosesInWindow > 0 && brainRowsInWindow === 0;
-  const message = stalled ? `FX BRAIN STALLED: ${realClosesInWindow} real TradeLocker close(s) in the last ${windowHours}h, 0 recorded to fx_brain_outcomes. Last successful brain row was ${hoursSinceLastBrainRow ?? "?"}h ago. The gate and AI prompt are running on stale data \u2014 check _recordFxBrainOutcome in tradelocker-sync.ts.` : `FX brain OK \u2014 ${brainRowsInWindow}/${realClosesInWindow} closes recorded in the last ${windowHours}h.`;
+  const stalled = realClosesInWindow > 0 && brainRowsInWindow === 0 || realClosesInWindow >= 3 && brainRowsInWindow / realClosesInWindow < 0.5;
+  const message = stalled ? `FX BRAIN STALLED: ${realClosesInWindow} real close(s) in the last ${windowHours}h, only ${brainRowsInWindow} recorded to fx_brain_outcomes. Last successful brain row was ${hoursSinceLastBrainRow ?? "?"}h ago. The gate and AI prompt are running on stale data \u2014 check _recordFxBrainOutcome in tradelocker-sync.ts (note: DXtrade/MT5 closes currently have no brain writer).` : `FX brain OK \u2014 ${brainRowsInWindow}/${realClosesInWindow} closes recorded in the last ${windowHours}h.`;
   return { stalled, windowHours, realClosesInWindow, brainRowsInWindow, lastBrainRowAt: lastAt?.toISOString() ?? null, hoursSinceLastBrainRow, message };
 }
 async function _logGateBlock(userId, symbol, direction, dimension, patternValue, reason, source) {
@@ -13399,6 +13564,7 @@ var init_twelve_data = __esm({
   "server/market-data/providers/twelve-data.ts"() {
     "use strict";
     init_rate_limiter();
+    init_pipUtils();
     INDEX_TD_SYMBOL_MAP = {
       US30: "DJI",
       // Dow Jones Industrial Average
@@ -15333,7 +15499,7 @@ function gateCalibrationOn() {
   return process.env.GATE_CALIBRATION !== "off";
 }
 function sliceKey(symbol, session2) {
-  return `${symbol}|${session2 ?? "*"}`;
+  return `${basePairKey(symbol)}|${session2 ?? "*"}`;
 }
 function resolveGateThresholds(exact, pair, defaults) {
   return {
@@ -15374,6 +15540,7 @@ var init_gate_calibration = __esm({
     "use strict";
     init_db();
     init_session();
+    init_pair_key();
     init_runtime_state();
     init_shadow_lesson_gate();
     COMPUTE_TTL_MS = 6 * 60 * 6e4;
@@ -15845,6 +16012,8 @@ function priceDecimals(symbol) {
   if (/^XAG/.test(s)) return 3;
   if (/^(US30|DJ30|WS30|US100|NAS100|USTEC|US500|SPX500|GER40|DE40|UK100|JP225|AUS200|HK50|FRA40|EU50)/.test(s)) return 2;
   if (/^(BTC|ETH|SOL|LTC|XRP)/.test(s)) return 2;
+  if (/^(USOIL|UKOIL|WTI|XTI|BRENT)/.test(s)) return 2;
+  if (/^(NGAS|NATGAS|XNG)/.test(s)) return 3;
   if (/JPY/.test(s)) return 3;
   return 5;
 }
@@ -17866,6 +18035,27 @@ var init_tradelocker = __esm({
         }
         const url = `${this.baseUrl}/trade/positions/${positionId}`;
         console.log(`[TradeLocker Modify] PATCH ${url} | SL=${stopLoss} TP=${takeProfit} accNum=${this.accNum}`);
+        const checkBody = async (resp, verb) => {
+          const text2 = await resp.text().catch(() => "");
+          let data = null;
+          try {
+            data = text2 ? JSON.parse(text2) : null;
+          } catch {
+          }
+          if (data && data.s !== void 0 && data.s !== "ok") {
+            const details = [];
+            if (data.errmsg) details.push(String(data.errmsg));
+            if (data.d?.errmsg) details.push(String(data.d.errmsg));
+            if (data.d?.message) details.push(String(data.d.message));
+            if (Array.isArray(data.d?.messages)) details.push(...data.d.messages.map(String));
+            if (data.message) details.push(String(data.message));
+            const msg = details.length ? details.join(" | ") : `Rejected (status: ${data.s}, raw: ${text2.slice(0, 200)})`;
+            console.log(`[TradeLocker Modify] ${verb} rejected in body: ${msg}`);
+            return { success: false, error: `Modify rejected: ${msg}` };
+          }
+          console.log(`[TradeLocker Modify] ${verb} success`);
+          return { success: true };
+        };
         try {
           const response = await fetch(url, {
             method: "PATCH",
@@ -17892,16 +18082,14 @@ var init_tradelocker = __esm({
               console.log(`[TradeLocker Modify] PUT failed: ${putResponse.status} - ${errText}`);
               return { success: false, error: `Modify failed: ${putResponse.status} - ${errText}` };
             }
-            console.log("[TradeLocker Modify] PUT success");
-            return { success: true };
+            return await checkBody(putResponse, "PUT");
           }
           if (!response.ok) {
             const errText = await response.text();
             console.log(`[TradeLocker Modify] PATCH failed: ${response.status} - ${errText}`);
             return { success: false, error: `Modify failed: ${response.status} - ${errText}` };
           }
-          console.log("[TradeLocker Modify] PATCH success");
-          return { success: true };
+          return await checkBody(response, "PATCH");
         } catch (error) {
           const msg = error instanceof Error ? error.message : "Unknown error";
           console.error("[TradeLocker Modify] Exception:", msg);
@@ -17915,155 +18103,6 @@ var init_tradelocker = __esm({
     GUARD_CACHE_MS = Number(process.env.TL_GUARD_CACHE_MS ?? 5e3);
     guardCache = /* @__PURE__ */ new Map();
     _isRateLimit = (e) => /\b(429|1015)\b|rate.?limit|too many requests/i.test(String(e?.message || e).slice(0, 400));
-  }
-});
-
-// server/utils/pipUtils.ts
-function matchesAny(symbol, patterns) {
-  const s = symbol.toUpperCase();
-  return patterns.some((p) => s.includes(p.toUpperCase()));
-}
-function getPipSize(symbol) {
-  if (!symbol) return 1e-4;
-  if (matchesAny(symbol, ["JPY"])) return 0.01;
-  if (matchesAny(symbol, ["XAU", "GOLD"])) return 0.1;
-  if (matchesAny(symbol, ["XAG", "SILVER"])) return 1e-3;
-  if (matchesAny(symbol, ["XPT", "XPD"])) return 0.01;
-  if (matchesAny(symbol, [
-    "US30",
-    "DJ30",
-    "WALLST",
-    "DOW",
-    "NAS100",
-    "USTEC",
-    "US100",
-    "NDX",
-    "NASDAQ",
-    "US500",
-    "SPX",
-    "SP500",
-    "GER40",
-    "GER30",
-    "DAX",
-    "DE40",
-    "UK100",
-    "FTSE",
-    "UKX",
-    "JP225",
-    "NKY",
-    "NIKKEI",
-    "JPN225",
-    "N225",
-    "AUS200",
-    "ASX",
-    "HK50",
-    "HSI",
-    "FRA40",
-    "CAC",
-    "ESP35",
-    "IBEX",
-    "EUSTX50",
-    "SWI20"
-  ])) return 1;
-  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 0.01;
-  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 1e-3;
-  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
-  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 0.01;
-  if (matchesAny(symbol, ["XRP", "DOGE", "SHIB", "LTC", "TRX"])) return 1e-4;
-  return 1e-4;
-}
-function computePips(symbol, entryPrice, exitPrice, direction) {
-  const entry = Number(entryPrice), exit = Number(exitPrice);
-  if (!Number.isFinite(entry) || !Number.isFinite(exit) || entry <= 0 || exit <= 0) return null;
-  const pipSize2 = getPipSize(symbol);
-  if (!(pipSize2 > 0)) return null;
-  const isSell = /sell|short/i.test(String(direction ?? ""));
-  const diff = isSell ? entry - exit : exit - entry;
-  return Math.round(diff / pipSize2 * 10) / 10;
-}
-function getPipValue(symbol) {
-  if (!symbol) return 10;
-  if (matchesAny(symbol, ["XAU", "GOLD"])) return 10;
-  if (matchesAny(symbol, ["XAG", "SILVER"])) return 5;
-  if (matchesAny(symbol, ["XPT", "XPD"])) return 10;
-  if (matchesAny(symbol, [
-    "US30",
-    "DJ30",
-    "WALLST",
-    "DOW",
-    "NAS100",
-    "USTEC",
-    "US100",
-    "NDX",
-    "NASDAQ",
-    "US500",
-    "SPX",
-    "SP500",
-    "GER40",
-    "GER30",
-    "DAX",
-    "DE40",
-    "UK100",
-    "FTSE",
-    "JP225",
-    "NKY",
-    "NIKKEI",
-    "JPN225",
-    "AUS200",
-    "ASX",
-    "HK50",
-    "FRA40",
-    "CAC",
-    "ESP35",
-    "EUSTX50"
-  ])) return 1;
-  if (matchesAny(symbol, ["USOIL", "WTI", "CRUDE", "BRENT", "UKOIL", "OIL"])) return 10;
-  if (matchesAny(symbol, ["NGAS", "NATGAS"])) return 10;
-  if (matchesAny(symbol, ["BTC", "XBT"])) return 1;
-  if (matchesAny(symbol, ["ETH", "BNB", "SOL", "ADA", "DOT", "AVAX", "MATIC", "LINK", "UNI"])) return 1;
-  const s = symbol.toUpperCase().split(".")[0].replace(/[^A-Z]/g, "");
-  if (/^[A-Z]{6}$/.test(s)) {
-    const quote = s.slice(3);
-    const perLotQuote = 1e5 * getPipSize(symbol);
-    const rate = quoteToUsd(quote);
-    if (rate !== null) return perLotQuote * rate;
-  }
-  return 10;
-}
-function setFxRate(pair, rate) {
-  const p = String(pair || "").toUpperCase().replace(/[^A-Z]/g, "");
-  const r = Number(rate);
-  if (!/^[A-Z]{6}$/.test(p) || !isFinite(r) || r <= 0) return;
-  _fxLive.set(p, { rate: r, at: Date.now() });
-}
-function rateOf(pair) {
-  const live = _fxLive.get(pair);
-  if (live && Date.now() - live.at < FX_LIVE_TTL_MS) return live.rate;
-  return FX_FALLBACK[pair];
-}
-function quoteToUsd(quote) {
-  if (quote === "USD") return 1;
-  const direct = rateOf(`${quote}USD`);
-  if (direct > 0) return direct;
-  const inverse = rateOf(`USD${quote}`);
-  if (inverse > 0) return 1 / inverse;
-  return null;
-}
-var FX_FALLBACK, _fxLive, FX_LIVE_TTL_MS;
-var init_pipUtils = __esm({
-  "server/utils/pipUtils.ts"() {
-    "use strict";
-    FX_FALLBACK = {
-      USDJPY: 140,
-      GBPUSD: 1.36,
-      EURUSD: 1.17,
-      AUDUSD: 0.7,
-      NZDUSD: 0.63,
-      USDCHF: 0.8,
-      USDCAD: 1.3
-    };
-    _fxLive = /* @__PURE__ */ new Map();
-    FX_LIVE_TTL_MS = 6 * 60 * 60 * 1e3;
   }
 });
 
@@ -20033,6 +20072,11 @@ async function resolveDecisionShadow() {
         WHERE resolved_at IS NULL AND picked AND (entry IS NULL OR sl IS NULL OR tp IS NULL OR entry = sl)`
     ).catch(() => {
     });
+    await pool.query(
+      `UPDATE fx_decision_shadow SET resolved_at = now(), outcome = 'unpriced'
+        WHERE resolved_at IS NULL AND picked AND created_at < now() - interval '48 hours'`
+    ).catch(() => {
+    });
     const { rows } = await pool.query(
       `SELECT id, symbol, direction, entry, sl, tp, created_at FROM fx_decision_shadow
         WHERE resolved_at IS NULL AND picked AND created_at < now() - interval '15 minutes'
@@ -20509,6 +20553,8 @@ var init_dxtrade = __esm({
             const sym = normW(wo.instrument ?? wo.symbol);
             const effect = String(wo.positionEffect ?? wo.legs?.[0]?.positionEffect ?? "").toUpperCase();
             if (sym !== target || effect !== "CLOSE") continue;
+            const woPos = wo.positionCode ?? wo.positionId ?? wo.legs?.[0]?.positionCode;
+            if (code && woPos != null && String(woPos) !== String(code)) continue;
             const id = wo.orderId ?? wo.id ?? wo.orderCode ?? wo.code;
             if (id == null) continue;
             const t = String(wo.type ?? wo.orderType ?? "").toUpperCase();
@@ -20709,7 +20755,8 @@ var init_dxtrade = __esm({
           openTime: (() => {
             const v = p.openTime ?? p.openDate ?? p.createdAt ?? p.creationTime ?? p.timestamp;
             if (v == null) return void 0;
-            const t = typeof v === "number" ? v > 1e12 ? v : v * 1e3 : new Date(v).getTime();
+            const vn = typeof v === "string" && /^\d+(\.\d+)?$/.test(v.trim()) ? Number(v) : v;
+            const t = typeof vn === "number" ? vn > 1e12 ? vn : vn * 1e3 : new Date(vn).getTime();
             return Number.isFinite(t) ? Math.floor(t / 1e3) : void 0;
           })(),
           raw: p
@@ -22332,6 +22379,7 @@ var live_trading_engine_exports = {};
 __export(live_trading_engine_exports, {
   adxOrNull: () => adxOrNull,
   broadcastMT5Signal: () => broadcastMT5Signal,
+  computeChandelierSL: () => computeChandelierSL,
   computeHtfBias: () => computeHtfBias,
   computeOrbStateFromCandles: () => computeOrbStateFromCandles,
   computeVolumeMetrics: () => computeVolumeMetrics,
@@ -22358,6 +22406,7 @@ __export(live_trading_engine_exports, {
   isOrbOriginDecision: () => isOrbOriginDecision,
   newsBlackoutVerdicts: () => newsBlackoutVerdicts,
   newsGateBlocks: () => newsGateBlocks,
+  parseNewsEventTime: () => parseNewsEventTime,
   recordTradeResult: () => recordTradeResult,
   registerMT5Account: () => registerMT5Account,
   restoreFxEngineStateFromDb: () => restoreFxEngineStateFromDb,
@@ -22442,6 +22491,21 @@ function newsGateBlocks(newsCtx, orbOrigin) {
   if (orbOrigin && typeof newsCtx.highImpactSoonOrb === "boolean") return newsCtx.highImpactSoonOrb;
   return newsCtx.highImpactSoon === true;
 }
+function parseNewsEventTime(time, nowMs = Date.now()) {
+  const s = String(time ?? "").trim();
+  if (!s) return null;
+  const hm = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (hm) {
+    const h = Number(hm[1]), m = Number(hm[2]), sec = Number(hm[3] || 0);
+    if (h > 23 || m > 59 || sec > 59) return null;
+    const d = new Date(nowMs);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h, m, sec);
+  }
+  const iso = s.includes("T") ? s : s.replace(" ", "T");
+  const hasOffset = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso);
+  const t = Date.parse(hasOffset ? iso : `${iso}Z`);
+  return Number.isFinite(t) ? t : null;
+}
 async function fetchNewsContext(pairs) {
   const context = {
     headlines: [],
@@ -22449,7 +22513,8 @@ async function fetchNewsContext(pairs) {
     highImpactSoon: false,
     highImpactSoonOrb: false,
     marketSentiment: "neutral",
-    tradingWindowWarning: null
+    tradingWindowWarning: null,
+    lastEventAt: null
   };
   try {
     if (!newsService.isInitialized()) {
@@ -22483,25 +22548,23 @@ async function fetchNewsContext(pairs) {
         const eventStr = `[${event.impact?.toUpperCase() || "LOW"}] ${event.country || ""} ${event.event || ""} (${event.time || "TBD"})${event.forecast ? ` F:${event.forecast}` : ""}${event.previous ? ` P:${event.previous}` : ""}`;
         context.economicEvents.push(eventStr);
         if (event.impact === "high") {
-          const timeStr = event.time || "";
-          if (timeStr) {
-            const [h, m] = timeStr.split(":").map(Number);
-            if (!isNaN(h) && h >= 0 && h <= 23) {
-              const today = /* @__PURE__ */ new Date();
-              const eventDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), h, m || 0, 0, 0));
-              const diff = eventDate.getTime() - now;
-              const verdicts = newsBlackoutVerdicts(diff, event.event || "");
-              if (verdicts.orb) context.highImpactSoonOrb = true;
-              if (verdicts.standard) {
-                const major = newsWidenEnabled() && isMajorNewsRelease(event.event || "");
-                const majorPostMin = newsMajorPostMinutes();
-                context.highImpactSoon = true;
-                const minsAway = Math.round(diff / 6e4);
-                if (major && minsAway < 0) {
-                  context.tradingWindowWarning = `MAJOR RELEASE EXTENDED BLACKOUT: ${event.event} (${eventCurrency}) released ${-minsAway} min ago \u2014 no new entries until ${majorPostMin} min after the print (post-print chop protection).`;
-                } else {
-                  context.tradingWindowWarning = `HIGH IMPACT EVENT ${minsAway > 0 ? `in ${minsAway} minutes` : "HAPPENING NOW"}: ${event.event} (${eventCurrency}). Consider widening stops or avoiding new entries for affected pairs.`;
-                }
+          const eventMs = parseNewsEventTime(event.time, now);
+          if (eventMs != null) {
+            const diff = eventMs - now;
+            if (diff <= 0 && (!context.lastEventAt || eventMs > Date.parse(context.lastEventAt))) {
+              context.lastEventAt = new Date(eventMs).toISOString();
+            }
+            const verdicts = newsBlackoutVerdicts(diff, event.event || "");
+            if (verdicts.orb) context.highImpactSoonOrb = true;
+            if (verdicts.standard) {
+              const major = newsWidenEnabled() && isMajorNewsRelease(event.event || "");
+              const majorPostMin = newsMajorPostMinutes();
+              context.highImpactSoon = true;
+              const minsAway = Math.round(diff / 6e4);
+              if (major && minsAway < 0) {
+                context.tradingWindowWarning = `MAJOR RELEASE EXTENDED BLACKOUT: ${event.event} (${eventCurrency}) released ${-minsAway} min ago \u2014 no new entries until ${majorPostMin} min after the print (post-print chop protection).`;
+              } else {
+                context.tradingWindowWarning = `HIGH IMPACT EVENT ${minsAway > 0 ? `in ${minsAway} minutes` : "HAPPENING NOW"}: ${event.event} (${eventCurrency}). Consider widening stops or avoiding new entries for affected pairs.`;
               }
             }
           }
@@ -22627,7 +22690,7 @@ function applyBrainEnforcement(userId, symbol, proposedDirection, currentATR, ne
   if (sessionData && sessionData.total >= _minN && sessionData.winRate < _sessWR && _blendWR >= _sessWR) {
     logGuard(userId, "brain_block_shadow_lift", symbol, `${session2} real ${sessionData.winRate}%/${sessionData.total}${_shadowTxt} \u2014 unblocked by shadow results`);
   }
-  if (sessionData && sessionData.total >= _minN && _blendWR < _sessWR) {
+  if (sessionData && sessionData.total >= _minN && _blendWR < _sessWR && (sessionData.winRate < _sessWR || _shN >= 5)) {
     const msg = `\u{1F9E0} Brain block: ${symbol} ${session2} session only ${sessionData.winRate}% WR (${sessionData.total} trades)${_shadowTxt} \u2014 below ${_sessWR}% threshold, skipping`;
     pushEnforcementLog(userId, { symbol, rule: "session_block", direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
@@ -22815,8 +22878,18 @@ function getAdaptiveScanInterval(config) {
 }
 function fxMarketClosedFor(symbol, now = /* @__PURE__ */ new Date()) {
   if (/^(BTC|ETH|SOL|LTC|XRP|DOGE|ADA|BNB)/i.test(String(symbol || ""))) return false;
-  const d = now.getUTCDay(), h = now.getUTCHours();
-  return d === 6 || d === 5 && h >= 21 || d === 0 && h < 21;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(now);
+  const wd = parts.find((p) => p.type === "weekday")?.value || "";
+  const hr = Number(parts.find((p) => p.type === "hour")?.value ?? NaN);
+  if (wd === "Sat") return true;
+  if (wd === "Fri" && hr >= 17) return true;
+  if (wd === "Sun" && hr < 17) return true;
+  return false;
 }
 function getAdaptiveScanIntervalBase(config) {
   if (!config.adaptiveScanInterval) return config.scanIntervalMs;
@@ -23855,7 +23928,7 @@ function computeStagedVolumeSL(position, config) {
 function computeChandelierSL(position, atr, multiplier, trailState) {
   const price = position.currentPrice;
   if (!price || price <= 0) return position.sl || 0;
-  const effectiveATR = atr > 0 ? atr : position.symbol?.includes("JPY") ? 0.5 : 5e-3;
+  const effectiveATR = atr > 0 ? atr : 50 * getPipSize(position.symbol || "");
   if (position.direction === "BUY") {
     if (price > (trailState.highestHigh || 0)) trailState.highestHigh = price;
     return (trailState.highestHigh || price) - effectiveATR * multiplier;
@@ -24593,7 +24666,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       if (pipsInProfit < activationPips) continue;
     }
     const symData = marketAnalysis[pos.symbol?.replace("/", "")] || marketAnalysis[pos.symbol] || {};
-    const atr = symData.atr?.value ?? symData.atr ?? 0;
+    const atr = symData.volatilityContext?.currentATR ?? symData.atr?.value ?? symData.atr ?? 0;
     const multiplier = config.trailingStopATRMultiplier || 3;
     let newSL = 0;
     switch (config.trailMethod) {
@@ -25580,8 +25653,8 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
         }
       }
     }
-    if (newsContext?.highImpactSoon) {
-      state.lastHighImpactNewsAt = (/* @__PURE__ */ new Date()).toISOString();
+    if (newsContext?.lastEventAt) {
+      state.lastHighImpactNewsAt = newsContext.lastEventAt;
     }
     const nowForStrategy = /* @__PURE__ */ new Date();
     const utcHourForStrategy = nowForStrategy.getUTCHours();
@@ -25619,7 +25692,7 @@ ${stratSummaryLines.join("\n")}`
       const vm = data.volumeMetrics;
       const asiaH = state.asiaRangeHigh[sym];
       const asiaL = state.asiaRangeLow[sym];
-      const asiaRangeStr = asiaH && asiaL ? `, AsiaHigh=${asiaH}, AsiaLow=${asiaL}, AsiaRange=${(Math.abs(asiaH - asiaL) * (sym.includes("JPY") ? 100 : 1e4)).toFixed(1)}pips` : "";
+      const asiaRangeStr = asiaH && asiaL ? `, AsiaHigh=${asiaH}, AsiaLow=${asiaL}, AsiaRange=${(Math.abs(asiaH - asiaL) / getPipSize(sym)).toFixed(1)}pips` : "";
       const vwapVal = data.vwap?.value;
       const vwapDev = vwapVal && data.currentPrice ? ((data.currentPrice - vwapVal) / vwapVal * 100).toFixed(3) : "N/A";
       const htf = htfMarketData?.[sym];
@@ -26428,6 +26501,7 @@ async function processDecision(userId, decision, newsCtx) {
           return;
         }
         state.orbDailyFired[decision.symbol] = _orbTodayKey;
+        void persistDailyFired(userId, state);
         decision.orbContext = { orb: true, phase: "retest" };
         if (Array.isArray(decision.confluences) && !decision.confluences.includes("ORB breakout+retest")) {
           decision.confluences = [...decision.confluences, "ORB breakout+retest"];
@@ -27039,6 +27113,7 @@ async function processDecision(userId, decision, newsCtx) {
     if (decision.__markStrategyFired) {
       if (!state.strategyDailyFired) state.strategyDailyFired = {};
       state.strategyDailyFired[decision.__markStrategyFired] = true;
+      void persistDailyFired(userId, state);
     }
     addActivity(userId, {
       type: "signal",
@@ -27582,7 +27657,7 @@ async function processDecision(userId, decision, newsCtx) {
     if (isDynamicSizingEnabled) {
       const confTier = getConfidenceLotMultiplier(adjustedConfidence);
       const stratTier = getStrategyLotMultiplier(decision.strategy || "auto");
-      const openCount = global.mt5OpenPositions?.[userId]?.positions?.length ?? state.openPositionCount;
+      const openCount = _mergedPositionsForGates.length;
       const expTier = getExposureLotMultiplier(openCount);
       const combinedMult = confTier.mult * stratTier.mult * expTier.mult;
       dynamicLot = Math.round(compoundedLot * combinedMult * 100) / 100;
@@ -27667,8 +27742,11 @@ async function processDecision(userId, decision, newsCtx) {
           }
         }
       }
-      const _posAgg = global.mt5OpenPositions?.[userId]?.positions ?? [];
-      const _openLots = _posAgg.reduce((s, p) => s + (p.lots || p.volume || p.size || 0), 0);
+      const _posAgg = _mergedPositionsForGates;
+      const _openLots = _posAgg.reduce((s, p) => {
+        const v = p.lots || p.volume || p.size || 0;
+        return s + (p.source === "dx" ? v / 1e5 : v);
+      }, 0);
       const _aggCap = safeMaxLot * (config.maxOpenTrades || 3) * 1.5;
       if (_openLots + lotSize > _aggCap) {
         addActivity(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: aggregate exposure ${(_openLots + lotSize).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)} \u2014 trade skipped` });
@@ -27825,7 +27903,10 @@ async function processDecision(userId, decision, newsCtx) {
               }
             }
             const _dxMult = (Number(dc.lot_multiplier) || 1) * _dxConsistencyMult;
-            const _dxIncr = Number(spec?.quantityIncrement) > 0 ? Number(spec.quantityIncrement) : Number(spec?.lotSize) > 0 ? Number(spec.lotSize) : 0;
+            const _dxSpecIncr = Number(spec?.quantityIncrement) > 0 ? Number(spec.quantityIncrement) : 0;
+            const _dxLotSize = Number(spec?.lotSize) > 0 ? Number(spec.lotSize) : 0;
+            const _dxIsFx = /forex|fx/i.test(String(spec?.type ?? spec?.assetClass ?? "")) || _dxLotSize >= 1e3;
+            const _dxIncr = _dxIsFx && _dxLotSize > 0 ? Math.max(_dxSpecIncr, _dxLotSize / 100) : _dxSpecIncr;
             if (qty > 0 && _dxMult !== 1) {
               qty = qty * _dxMult;
               if (_dxIncr > 0) qty = Math.floor(qty / _dxIncr) * _dxIncr;
@@ -27837,14 +27918,44 @@ async function processDecision(userId, decision, newsCtx) {
               logDxtradeSkip(userId, dc.id, dxSymbol, "zero_qty", `qty=${qty} entry=${entryPrice} stop=${stopLoss} riskPct=${dc.risk_percent}`);
               continue;
             }
-            const r = await svc.placeOrder(acct, { instrument: dxSymbol, side: _dxSide, quantity: qty, type: "MARKET" });
+            const _preDxQty = /* @__PURE__ */ new Map();
+            try {
+              const _prePoss = await svc.getPositions(acct);
+              for (const pp of _prePoss) {
+                if (pp.instrument === _dxSymNorm && pp.side === _dxSide && pp.positionId != null) {
+                  _preDxQty.set(String(pp.positionId), Number(pp.quantity) || 0);
+                }
+              }
+            } catch {
+            }
+            let r;
+            try {
+              r = await svc.placeOrder(acct, { instrument: dxSymbol, side: _dxSide, quantity: qty, type: "MARKET" });
+            } catch (oe) {
+              let _oeClosed = false;
+              if (_preDxQty.size === 0) {
+                try {
+                  await svc.closePosition(acct, dxSymbol, _dxSide, qty);
+                  _oeClosed = true;
+                } catch {
+                }
+              }
+              try {
+                const _rcTicket2 = `dx_${acct}_reconcile_${Date.now()}`;
+                await storage.createAiTradeResult({ userId, symbol: dxSymbol, direction: _dxSide, entryPrice: entryPrice || 0, exitPrice: 0, stopLoss: stopLoss || 0, takeProfit: takeProfit || 0, aiConfidence: adjustedConfidence || 0, result: "NEEDS_RECONCILE", profitLoss: 0, source: "dxtrade", connectionId: dc.id, mt5Ticket: _rcTicket2, notes: `DXtrade order call FAILED ambiguously (${oe?.message ?? oe}) \u2014 fill unknown; emergency close ${_oeClosed ? "sent" : "not sent"}; verify on Velotrade` });
+              } catch {
+              }
+              addActivity(userId, { type: "error", symbol: decision.symbol, message: `\u{1F6A8} DXtrade [${acct}] ${dxSymbol}: order call failed ambiguously (${oe?.message ?? oe}) \u2014 the order MAY have filled. Flagged NEEDS_RECONCILE${_preDxQty.size === 0 ? `; emergency close ${_oeClosed ? "sent" : "FAILED"}` : " (pre-existing position present \u2014 no blind close sent)"} \u2014 CHECK Velotrade manually.` });
+              logDxtradeSkip(userId, dc.id, dxSymbol, "order_call_ambiguous", String(oe?.message ?? oe));
+              continue;
+            }
             let _pos = null;
             let _verifyError = false;
             for (let _att = 0; _att < 5 && !_pos; _att++) {
               await new Promise((res2) => setTimeout(res2, 1e3));
               try {
                 const _poss = await svc.getPositions(acct);
-                _pos = _poss.find((p) => p.instrument === _dxSymNorm && p.side === _dxSide) || null;
+                _pos = _poss.find((p) => p.instrument === _dxSymNorm && p.side === _dxSide && !(_preDxQty.has(String(p.positionId)) && (Number(p.quantity) || 0) <= (_preDxQty.get(String(p.positionId)) || 0))) || null;
                 _verifyError = false;
               } catch (ve) {
                 _verifyError = true;
@@ -27865,6 +27976,14 @@ async function processDecision(userId, decision, newsCtx) {
                 }
                 addActivity(userId, { type: "error", symbol: decision.symbol, message: `\u{1F6A8} DXtrade [${acct}] ${dxSymbol}: could NOT verify fill (broker read failed). Emergency close ${_emClosed ? "sent" : "FAILED"} + flagged NEEDS_RECONCILE \u2014 CHECK Velotrade manually.` });
                 logDxtradeSkip(userId, dc.id, dxSymbol, "verify_fill_failed", `emergency_close=${_emClosed ? "sent" : "FAILED"}`);
+              } else if (_preDxQty.size > 0) {
+                try {
+                  const _rcTicket3 = `dx_${acct}_reconcile_${Date.now()}`;
+                  await storage.createAiTradeResult({ userId, symbol: dxSymbol, direction: _dxSide, entryPrice: entryPrice || 0, exitPrice: 0, stopLoss: stopLoss || 0, takeProfit: takeProfit || 0, aiConfidence: adjustedConfidence || 0, result: "NEEDS_RECONCILE", profitLoss: 0, source: "dxtrade", connectionId: dc.id, mt5Ticket: _rcTicket3, notes: `DXtrade fill could not be distinguished from a pre-existing ${dxSymbol} position \u2014 verify size/protection on Velotrade` });
+                } catch {
+                }
+                addActivity(userId, { type: "error", symbol: decision.symbol, message: `\u26A0\uFE0F DXtrade [${acct}] ${dxSymbol}: no new position verified and a pre-existing ${dxSymbol} position exists \u2014 fill ambiguous, flagged NEEDS_RECONCILE. CHECK Velotrade manually.` });
+                logDxtradeSkip(userId, dc.id, dxSymbol, "fill_ambiguous_preexisting", `qty=${qty} side=${_dxSide} orderResp=${JSON.stringify(r?.result ?? r).slice(0, 380)}`);
               } else {
                 let _lateClosed = false;
                 try {
@@ -27917,6 +28036,8 @@ async function processDecision(userId, decision, newsCtx) {
                   notes: `DXtrade open (qty ${qty}) SL ${stopLoss}${takeProfit ? ` TP ${takeProfit}` : ""} \u2014 protection attached, awaiting close sync`
                 });
                 state.tradesOpenedToday++;
+                global.recentTrades = global.recentTrades || {};
+                global.recentTrades[`last_trade_${userId}_${_dxSymNorm}`] = Date.now();
               }
             } catch (_dxRec) {
               console.error("[live-engine] DXtrade open-record failed (non-fatal):", _dxRec?.message ?? _dxRec);
@@ -28423,7 +28544,15 @@ async function processDecision(userId, decision, newsCtx) {
           const acctLabel = tlConn.email ? `[${tlConn.email}]` : `[Account ${tlConn.id}]`;
           try {
             const svc = await getOrCreateService(tlConn);
-            const tlPositions = await svc.getPositionsNormalized().catch(() => []);
+            let _tlMgmtReadErr = null;
+            const tlPositions = await svc.getPositionsNormalized().catch((e) => {
+              _tlMgmtReadErr = e;
+              return [];
+            });
+            if (_tlMgmtReadErr) {
+              addActivity(userId, { type: "error", symbol: decision.symbol, message: `\u26A0\uFE0F ${acctLabel}: TradeLocker position read failed (${_tlMgmtReadErr?.message || _tlMgmtReadErr}) \u2014 management action for ${decision.symbol} NOT applied this pass.` });
+              return;
+            }
             const matchDir = decision.direction ? String(decision.direction).toUpperCase() : null;
             const _symMatches = tlPositions.filter((p) => (p.symbol || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", ""));
             if (!matchDir && new Set(_symMatches.map((p) => String(p.side || "").toUpperCase())).size > 1) {
@@ -28543,7 +28672,15 @@ async function processDecision(userId, decision, newsCtx) {
             await svc.ensureLoggedIn();
             const acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
             if (!acct) return;
-            const positions = await svc.getPositions(acct).catch(() => []);
+            let _dxMgmtReadErr = null;
+            const positions = await svc.getPositions(acct).catch((e) => {
+              _dxMgmtReadErr = e;
+              return [];
+            });
+            if (_dxMgmtReadErr) {
+              addActivity(userId, { type: "error", symbol: decision.symbol, message: `\u26A0\uFE0F ${acctLabel}: DXtrade position read failed (${_dxMgmtReadErr?.message || _dxMgmtReadErr}) \u2014 management action for ${decision.symbol} NOT applied this pass.` });
+              return;
+            }
             const matchDir = decision.direction ? String(decision.direction).toUpperCase() : null;
             const symMatches = positions.filter((p) => (p.instrument || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", ""));
             if (!matchDir && new Set(symMatches.map((p) => String(p.side || "").toUpperCase())).size > 1) {
@@ -28844,6 +28981,7 @@ async function runORBAutonomousScan(userId) {
         confidence: aiScore
       });
       state.orbDailyFired[symbol] = todayKey;
+      void persistDailyFired(userId, state);
       await processDecision(userId, {
         action: "OPEN_TRADE",
         strategy: "orb_breakout",
@@ -29186,7 +29324,18 @@ function startLiveEngine(userId, config) {
       const { pool: _cPool } = await Promise.resolve().then(() => (init_db(), db_exports));
       const days = Math.max(15, (fullConfig.consistencyPeriodDays || 15) + 5);
       const cutoff = new Date(Date.now() - days * 864e5).toISOString();
-      const _sources = `('tradelocker','tradelocker_auto','mt5_ea','mt5_copier','manual','brain_autoexec')`;
+      try {
+        const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+        const _st0 = engineStates[userId];
+        if (_st0) {
+          const _orbStored = await getRuntimeStateStrict2("fx_orb_daily_fired", String(userId));
+          if (_orbStored && typeof _orbStored === "object") _st0.orbDailyFired = { ..._orbStored };
+          const _stratStored = await getRuntimeStateStrict2("fx_strategy_daily_fired", String(userId));
+          if (_stratStored && typeof _stratStored === "object") _st0.strategyDailyFired = { ..._stratStored };
+        }
+      } catch {
+      }
+      const _sources = `('tradelocker','tradelocker_auto','mt5_ea','mt5_copier','manual','brain_autoexec','dxtrade')`;
       const rows = (await _cPool.query(
         `SELECT (closed_at AT TIME ZONE 'UTC')::date AS d, COALESCE(SUM(profit_loss),0) AS pnl
            FROM ai_trade_results
@@ -29741,6 +29890,14 @@ function confirmMT5Signal(userId, signalId, executed, accountAlias = "default") 
   _postConfirmActivity(userId, signal, executed);
   return signal;
 }
+async function persistDailyFired(userId, state) {
+  try {
+    const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    saveRuntimeState2("fx_orb_daily_fired", String(userId), state?.orbDailyFired || {});
+    saveRuntimeState2("fx_strategy_daily_fired", String(userId), state?.strategyDailyFired || {});
+  } catch {
+  }
+}
 function _postConfirmActivity(userId, signal, executed) {
   addActivity(userId, {
     type: executed ? "trade_open" : "info",
@@ -29755,6 +29912,8 @@ function _postConfirmActivity(userId, signal, executed) {
       state.tradesExecuted++;
       state.openPositionCount++;
     }
+    global.recentTrades = global.recentTrades || {};
+    global.recentTrades[`last_trade_${userId}_${String(signal.symbol || "").toUpperCase().replace("/", "")}`] = Date.now();
   }
 }
 function getAllMT5Signals(userId, limit = 50) {
@@ -31089,6 +31248,15 @@ async function runFxModelsCycle(userId, ctx) {
     const day = now.toISOString().slice(0, 10);
     const hour = now.getUTCHours();
     const pairs = [];
+    const _decidedHours = /* @__PURE__ */ new Set();
+    try {
+      const { rows: _regRows } = await pool.query(
+        `SELECT symbol, hour_utc FROM fx_day_regimes WHERE user_id = $1 AND day = $2`,
+        [userId, day]
+      );
+      for (const r of _regRows) _decidedHours.add(`${r.symbol}|${r.hour_utc}`);
+    } catch {
+    }
     for (const [symbol, a] of Object.entries(ctx.marketAnalysis || {})) {
       const snap = ctx.snapshot?.[symbol] || {};
       const { h1, h4 } = ctx.mtf(symbol);
@@ -31118,7 +31286,7 @@ async function runFxModelsCycle(userId, ctx) {
       });
       const candle = Math.floor(now.getTime() / 36e5);
       const key = `${userId}|${symbol}`;
-      if (lastShadowCandle.get(key) !== candle && Number(features.price) > 0) {
+      if (lastShadowCandle.get(key) !== candle && !_decidedHours.has(`${symbol}|${hour}`) && Number(features.price) > 0) {
         lastShadowCandle.set(key, candle);
         pairs.push({ symbol, ctx: { ...features, dayType: cls.dayType, autoModel: cls.autoModel, trendScore: cls.score } });
       }
@@ -32309,6 +32477,7 @@ var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
     init_db();
+    init_pipUtils();
     init_service();
     init_markov_chain();
     init_shadow_lesson_gate();
@@ -32370,7 +32539,7 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
       }
     };
     barsFor = (engine) => barsProviders[engine] || barsProviders.fx;
-    pipSize = (sym) => /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 1e-4;
+    pipSize = (sym) => getPipSize(sym);
     modelsEnrichOn = () => process.env.FX_MODELS_ENRICH !== "off";
     MODELS_EPOCH = 3;
     PREVIOUS_MODELS_EPOCH = 2;
@@ -32792,7 +32961,7 @@ function getAssetSpecificPrompt(symbol) {
        - If unsure, signal should be NEUTRAL with reduced confidence
        
     6. STOP LOSS RULES FOR GOLD:
-       - Minimum 200-300 pips from entry (gold pips are 0.01)
+       - Minimum 200-300 pips from entry (gold pips are 0.10, so 300 pips = $30)
        - Place below/above significant swing points
        - Never use tight stops on gold - they will get hunted`;
   }
@@ -33150,12 +33319,7 @@ function getAiConfirmationLogs(userId) {
   return aiConfirmationLogs2.get(userId) || [];
 }
 function estimatePipSize(symbol) {
-  const s = symbol.toUpperCase();
-  if (s.includes("XAU") || s.includes("GOLD")) return 0.1;
-  if (s.includes("JPY")) return 0.01;
-  if (["US30", "NAS100", "GER40", "UK100", "SPX500", "DAX", "AUS200", "HK50", "JP225", "FRA40"].some((idx) => s.includes(idx))) return 1;
-  if (s.includes("BTC") || s.includes("ETH") || s.includes("XBT")) return 1;
-  return 1e-4;
+  return getPipSize(symbol);
 }
 function buildTrailSignalSummary(symbol, proposedSignal, tradePlan, ictContext, smcContext) {
   if (!ictContext && !smcContext) return "\u25BA No ICT/SMC context available \u2014 use ADX/ATR baseline only";
@@ -33828,9 +33992,9 @@ ${"\u2550".repeat(47)}`;
 \u26A0 DAILY BUFFER LOW: Only ${remainingDailyBuffer.toFixed(2)}% remaining \u2014 micro lot only or skip this trade.`;
     }
     if (tradePlan?.entry && tradePlan?.stopLoss && tradePlan?.lotSize && propFirmContext.accountBalance > 0) {
-      const pipSize2 = symbol.includes("JPY") ? 0.01 : symbol.includes("XAU") || symbol.includes("GOLD") ? 0.1 : 1e-4;
+      const pipSize2 = getPipSize(symbol);
       const pipDist = Math.abs(tradePlan.entry - tradePlan.stopLoss) / pipSize2;
-      const pipValuePerLot = symbol.includes("JPY") ? 1e3 : symbol.includes("XAU") || symbol.includes("GOLD") ? 10 : 10;
+      const pipValuePerLot = getPipValue(symbol);
       const dollarRisk = pipDist * pipValuePerLot * tradePlan.lotSize;
       computedRiskPct = dollarRisk / propFirmContext.accountBalance * 100;
     }
@@ -36724,6 +36888,7 @@ var init_openai = __esm({
     init_github_strategy_context();
     init_confirmation_learning();
     init_ai_usage();
+    init_pipUtils();
     TOP_PROFITABLE_STRATEGIES = [
       { name: "ICT AMD Kill Zone", pairs: ["XAUUSD", "GBPUSD", "EURUSD"], description: "Asian Range defined 02:00\u201305:00 UTC. London open (06:00\u201308:00) raids Asian low, price reverses. Entry on M15 OB inside Asian boundary + FVG fill. NY session sweeps AMD high.", winConditions: "FVG fill + bullish engulf at OB, ADX > 25, ictMacroValid = true", riskNote: "Avoid if NFP/FOMC within 4h" },
       { name: "SMC Order Block Raid", pairs: ["GBPJPY", "USDJPY", "XAUUSD"], description: "Weekly/Daily OB identified. H4 price sweeps below OB, wicks back inside. Enter on M15 BOS above OB bottom.", winConditions: "Volume spike on wick, RSI divergence on M15, BOS confirmed", riskNote: "Invalid if OB broken on close" },
