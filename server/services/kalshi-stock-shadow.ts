@@ -209,6 +209,75 @@ export function shadowCloseInvalidReason(parts: {
   return null;
 }
 
+// ── data repair: stamp the pre-fix poisoned rows (Chris-approved) ────────
+// The write/read guards above protect everything computed from now on,
+// and the report's read-time bound keeps poisoned rows out of the panel
+// even before they are stamped. But the promotion-bar and live-gate
+// readers (shadow-live-toggles.ts, kalshi-perp-live.ts) filter closes
+// ONLY on exclude_from_stats — so a pre-fix poisoned row stays valid
+// evidence for the PR #89/#91 bars until it carries the stamp. This
+// boot-time repair applies the stamp: same geometry signature as the
+// report's read filter (return bound / entry ceiling / notional
+// consistency, all from the helpers above), stamp-only — NO deletes,
+// NO value rewrites, open trades and already-excluded rows untouched,
+// and a write-time reason already on a row is never overwritten. The
+// predicate is self-exhausting (a stamped row no longer matches), so
+// the once-per-boot memo below is a courtesy, not a correctness need.
+// Kill switch: KALSHI_PERP_STATS_REPAIR=off.
+export const statsRepairEnabled = () => process.env.KALSHI_PERP_STATS_REPAIR !== 'off';
+export const STATS_REPAIR_REASON = 'auto-repair: invalid close geometry';
+
+/** Pure mirror of the repair UPDATE's WHERE clause, over a row's raw
+ *  fields — exercised directly by scripts/check-kalshi-perp-stats-fix.ts.
+ *  A NULL return_pct fails no return test (SQL: abs(NULL) > bound is
+ *  NULL), but the entry/notional geometry tests still apply. */
+export function shadowRowNeedsStatsRepair(row: {
+  status?: unknown; excludeFromStats?: unknown;
+  returnPct?: unknown; entryPrice?: unknown; notionalUsd?: unknown; targetNotionalUsd?: number;
+}): boolean {
+  if (String(row.status) !== 'closed') return false;
+  if (row.excludeFromStats === true) return false;
+  const rp = row.returnPct == null ? null : Number(row.returnPct);
+  if (rp != null && (!Number.isFinite(rp) || Math.abs(rp) > maxValidReturnPct())) return true;
+  const entry = Number(row.entryPrice);
+  if (Number.isFinite(entry) && entry > maxValidEntryUsd()) return true;
+  const notional = Number(row.notionalUsd);
+  if (Number.isFinite(notional) && notional > maxValidNotionalUsd(entry, row.targetNotionalUsd ?? NOTIONAL())) return true;
+  return false;
+}
+
+let _statsRepair: Promise<number> | null = null;
+export function repairKalshiPerpShadowStats(): Promise<number> {
+  if (!_statsRepair) {
+    _statsRepair = (async () => {
+      if (!statsRepairEnabled()) return 0;
+      await ensureKalshiPerpShadowTables();
+      const res = await pool.query(
+        `UPDATE kalshi_perp_shadow_trades
+           SET exclude_from_stats = true,
+               stats_invalid_reason = COALESCE(stats_invalid_reason, $4)
+         WHERE status='closed' AND exclude_from_stats IS NOT TRUE
+           AND (abs(return_pct) > $1::float
+                OR entry_price > $2::float
+                OR notional_usd > greatest($3::float, entry_price * 1.5))
+         RETURNING id`,
+        [maxValidReturnPct(), maxValidEntryUsd(), 2 * NOTIONAL(), STATS_REPAIR_REASON]);
+      const ids = (res.rows || []).map((r: any) => r.id);
+      if (ids.length) {
+        console.warn(`[kalshi-stock-shadow] stats auto-repair: stamped ${ids.length} pre-fix closed trade(s) excluded from stats (ids: ${ids.join(', ')}) — invalid close geometry, values left untouched`);
+      }
+      return ids.length;
+    })().catch((e: any) => {
+      // A failed repair must never block boot or the lane; reset the
+      // memo so a later call can retry.
+      _statsRepair = null;
+      console.error('[kalshi-stock-shadow] stats auto-repair failed (non-fatal):', e?.message ?? e);
+      return 0;
+    });
+  }
+  return _statsRepair;
+}
+
 const CRYPTO_PORTS = ['breakout', 'trend_following', 'structure', 'divergence', 'order_flow', 'volume_profile'] as const;
 const OPTIONS_PORTS = ['orb', 'volume_profile', 'breakout', 'momentum', 'order_flow'] as const;
 
