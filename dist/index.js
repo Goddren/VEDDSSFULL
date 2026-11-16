@@ -13095,7 +13095,7 @@ function ensureKalshiPerpShadowTables() {
       funding_rate_at_entry double precision, session_et text, hour_utc int, hour_et int, day_of_week int,
       earnings_within_48h boolean, corporate_action_pending boolean, live_gate_blocked boolean,
       leverage_estimate double precision, tags text[], advice_at_entry text,
-      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision, funding_paid_usd double precision)`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_poc double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_vah double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_val double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_position text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_model text NOT NULL DEFAULT 'legacy'`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_estimate_usd double precision NOT NULL DEFAULT 0`)).then(() => void 0).catch((e) => {
+      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision, funding_paid_usd double precision)`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_poc double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_vah double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_val double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_position text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_model text NOT NULL DEFAULT 'legacy'`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_estimate_usd double precision NOT NULL DEFAULT 0`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS stats_invalid_reason text`)).then(() => void 0).catch((e) => {
       _ensured3 = null;
       throw e;
     });
@@ -62406,7 +62406,8 @@ async function trailBrainGroupEvidence(userId, g) {
         const { rows } = await pool.query(
           `SELECT COUNT(*)::int AS trades, AVG(return_pct) AS avg_final,
                   AVG(CASE WHEN peak_gain_pct IS NOT NULL AND gross_return_pct IS NOT NULL THEN peak_gain_pct - gross_return_pct END) AS avg_giveback
-             FROM kalshi_perp_shadow_trades WHERE ${where}`,
+             FROM kalshi_perp_shadow_trades WHERE ${where}
+               AND exclude_from_stats IS NOT TRUE AND (return_pct IS NULL OR abs(return_pct) <= 100)`,
           params
         );
         const r = rows[0] ?? {};
@@ -69650,14 +69651,47 @@ __export(kalshi_stock_shadow_exports, {
   aggregateKalshiStats: () => aggregateKalshiStats,
   computeKalshiStockShadowStats: () => computeKalshiStockShadowStats,
   getKalshiStockShadowReport: () => getKalshiStockShadowReport,
+  isValidShadowNotional: () => isValidShadowNotional,
+  isValidShadowReturnPct: () => isValidShadowReturnPct,
   kalshiBucketsOf: () => kalshiBucketsOf,
+  maxValidEntryUsd: () => maxValidEntryUsd,
+  maxValidNotionalUsd: () => maxValidNotionalUsd,
+  maxValidReturnPct: () => maxValidReturnPct,
   resolveKalshiStockShadowTrades: () => resolveKalshiStockShadowTrades,
   runKalshiStockShadowCycle: () => runKalshiStockShadowCycle,
   sessionEt: () => sessionEt,
+  shadowCloseInvalidReason: () => shadowCloseInvalidReason,
   startKalshiStockShadow: () => startKalshiStockShadow,
   stockOrbEnabled: () => stockOrbEnabled,
   stockShadowEnabled: () => stockShadowEnabled
 });
+function isValidShadowReturnPct(v) {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) && Math.abs(n) <= maxValidReturnPct();
+}
+function maxValidNotionalUsd(entryPrice, targetNotionalUsd) {
+  const entry = Number(entryPrice);
+  const target = Number.isFinite(targetNotionalUsd) && targetNotionalUsd > 0 ? targetNotionalUsd : 250;
+  return Math.max(2 * target, (Number.isFinite(entry) && entry > 0 ? entry : 0) * 1.5);
+}
+function isValidShadowNotional(entryPrice, notionalUsd, targetNotionalUsd) {
+  const n = Number(notionalUsd);
+  return Number.isFinite(n) && n > 0 && n <= maxValidNotionalUsd(entryPrice, targetNotionalUsd);
+}
+function shadowCloseInvalidReason(parts) {
+  const entry = Number(parts.entryPrice);
+  if (!Number.isFinite(entry) || entry <= 0 || entry > maxValidEntryUsd()) return "entry_price";
+  if (parts.notionalUsd != null && !isValidShadowNotional(entry, parts.notionalUsd, parts.targetNotionalUsd ?? 250)) return "notional";
+  if (parts.exitPrice != null) {
+    const exit = Number(parts.exitPrice);
+    if (!Number.isFinite(exit) || exit <= 0) return "exit_price";
+  }
+  const bound = maxValidReturnPct();
+  if (parts.grossPct != null && (!Number.isFinite(parts.grossPct) || Math.abs(parts.grossPct) > bound)) return "gross_return";
+  if (parts.fundingPct != null && (!Number.isFinite(parts.fundingPct) || Math.abs(parts.fundingPct) > bound)) return "funding";
+  if (parts.netPct != null && (!Number.isFinite(parts.netPct) || Math.abs(parts.netPct) > bound)) return "net_return";
+  return null;
+}
 function etParts(ts) {
   const parts = etFmt.formatToParts(new Date(ts));
   const g = (t) => parts.find((p2) => p2.type === t)?.value || "";
@@ -69718,7 +69752,7 @@ function aggregateKalshiStats(rows) {
   const g = /* @__PURE__ */ new Map();
   for (const r of rows) {
     const v = Number(r.net_pct);
-    if (!Number.isFinite(v)) continue;
+    if (!isValidShadowReturnPct(v)) continue;
     for (const [dim, bucket] of Object.entries({ ...kalshiBucketsOf(r), all: "all" })) {
       const k2 = `${r.strategy}|${dim}|${bucket}`;
       (g.get(k2) ?? g.set(k2, []).get(k2)).push(v);
@@ -69741,15 +69775,17 @@ async function computeKalshiStockShadowStats(userId, force = false) {
     `SELECT c.strategy, c.ticker, c.direction, c.session_et, c.spread_bps, c.atr_pct, c.funding_rate_at_entry, c.htf_aligned, c.hour_et, c.vp_position, c.net_pct
        FROM kalshi_perp_shadow_context c JOIN kalshi_perp_shadow_trades t ON t.id = c.trade_id
       WHERE c.user_id=$1 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL AND t.exclude_from_stats IS NOT TRUE
+        AND abs(c.net_pct) <= $2::float
         AND c.closed_at >= now() - interval '60 days'`,
-    [userId]
+    [userId, maxValidReturnPct()]
   );
   const stats = aggregateKalshiStats(rows);
   _statsCache2.set(userId, { at: Date.now(), stats });
   return stats;
 }
-function accountReplay(closes, startBalance = 100) {
+function accountReplay(closes, startBalance = 100, maxValidPct) {
   const start = Number.isFinite(startBalance) && startBalance > 0 ? startBalance : 100;
+  const bound = maxValidPct != null && Number.isFinite(maxValidPct) && maxValidPct > 0 ? maxValidPct : null;
   let balance = start;
   let peak = start;
   let maxDrawdownPct = 0;
@@ -69759,6 +69795,7 @@ function accountReplay(closes, startBalance = 100) {
   for (const close of closes) {
     const pct3 = typeof close === "number" ? close : Number(close?.return_pct);
     if (!Number.isFinite(pct3)) continue;
+    if (bound != null && Math.abs(pct3) > bound) continue;
     balance += balance * pct3 / 100;
     trades++;
     if (balance > peak) peak = balance;
@@ -69779,10 +69816,16 @@ function accountReplay(closes, startBalance = 100) {
 async function getKalshiStockShadowReport(userId, days = 30) {
   const windowDays = Number.isFinite(days) ? Math.max(1, Math.min(365, Math.floor(days))) : 30;
   await ensureKalshiPerpShadowTables();
+  const returnBound = maxValidReturnPct();
+  const notionalCap = 2 * NOTIONAL2();
+  const entryCeiling = maxValidEntryUsd();
   const validCloseWhere = `user_id=$1 AND status='closed' AND exclude_from_stats IS NOT TRUE
-    AND return_pct IS NOT NULL AND closed_at >= now() - ($2::int * interval '1 day')`;
+    AND return_pct IS NOT NULL AND abs(return_pct) <= $3::float
+    AND notional_usd <= greatest($4::float, entry_price * 1.5)
+    AND entry_price <= $5::float
+    AND closed_at >= now() - ($2::int * interval '1 day')`;
   const simOn = accountSimEnabled();
-  const [summaryRes, byStrategyRes, openRes, recentClosesRes, closesRes] = await Promise.all([
+  const [summaryRes, byStrategyRes, openRes, recentClosesRes, closesRes, invalidRes] = await Promise.all([
     pool.query(
       `WITH valid_closes AS (
          SELECT * FROM kalshi_perp_shadow_trades WHERE ${validCloseWhere}
@@ -69799,7 +69842,7 @@ async function getKalshiStockShadowReport(userId, days = 30) {
            WHERE user_id=$1 AND (status='open' OR opened_at >= now() - ($2::int * interval '1 day'))) AS last_opened_at,
          max(closed_at) AS last_closed_at
        FROM valid_closes`,
-      [userId, windowDays]
+      [userId, windowDays, returnBound, notionalCap, entryCeiling]
     ),
     pool.query(
       `SELECT strategy,
@@ -69814,7 +69857,7 @@ async function getKalshiStockShadowReport(userId, days = 30) {
        WHERE ${validCloseWhere}
        GROUP BY strategy
        ORDER BY trades DESC, strategy ASC`,
-      [userId, windowDays]
+      [userId, windowDays, returnBound, notionalCap, entryCeiling]
     ),
     pool.query(
       `SELECT id, strategy, ticker, underlying, direction, entry_price, stop_loss, take_profit,
@@ -69831,10 +69874,13 @@ async function getKalshiStockShadowReport(userId, days = 30) {
        FROM kalshi_perp_shadow_trades t
        LEFT JOIN kalshi_perp_shadow_context c ON c.trade_id=t.id AND c.user_id=t.user_id
        WHERE t.user_id=$1 AND t.status='closed' AND t.exclude_from_stats IS NOT TRUE
-         AND t.return_pct IS NOT NULL AND t.closed_at >= now() - ($2::int * interval '1 day')
+         AND t.return_pct IS NOT NULL AND abs(t.return_pct) <= $3::float
+         AND t.notional_usd <= greatest($4::float, t.entry_price * 1.5)
+         AND t.entry_price <= $5::float
+         AND t.closed_at >= now() - ($2::int * interval '1 day')
        ORDER BY t.closed_at DESC
        LIMIT 10`,
-      [userId, windowDays]
+      [userId, windowDays, returnBound, notionalCap, entryCeiling]
     ),
     // Every valid close in the window, oldest first, for the $100-account
     // replay (the recent-closes list above is capped at 10 — never reuse it).
@@ -69844,8 +69890,25 @@ async function getKalshiStockShadowReport(userId, days = 30) {
          FROM kalshi_perp_shadow_trades
          WHERE ${validCloseWhere}
          ORDER BY closed_at ASC, id ASC`,
-      [userId, windowDays]
-    ) : Promise.resolve(null)
+      [userId, windowDays, returnBound, notionalCap, entryCeiling]
+    ) : Promise.resolve(null),
+    // Quarantine count for the panel: closes stamped invalid at write
+    // time (stats_invalid_reason set — those rows are also excluded, so
+    // they need their own count), plus pre-fix rows that fail the bound
+    // at read time and are not otherwise excluded. Corporate-action
+    // exclusions (valid values, no stamp) are NOT counted here.
+    pool.query(
+      `SELECT count(*)::int AS invalid_count
+       FROM kalshi_perp_shadow_trades
+       WHERE user_id=$1 AND status='closed' AND return_pct IS NOT NULL
+         AND closed_at >= now() - ($2::int * interval '1 day')
+         AND (stats_invalid_reason IS NOT NULL
+              OR (exclude_from_stats IS NOT TRUE
+                  AND (abs(return_pct) > $3::float
+                       OR notional_usd > greatest($4::float, entry_price * 1.5)
+                       OR entry_price > $5::float)))`,
+      [userId, windowDays, returnBound, notionalCap, entryCeiling]
+    )
   ]);
   const s = summaryRes.rows[0] || {};
   const openRows = openRes.rows || [];
@@ -69885,7 +69948,7 @@ async function getKalshiStockShadowReport(userId, days = 30) {
     };
   });
   const windowCloses = (closesRes?.rows || []).map((r) => ({ strategy: String(r.strategy), return_pct: Number(r.return_pct) }));
-  const accountSim = simOn ? accountReplay(windowCloses) : void 0;
+  const accountSim = simOn ? accountReplay(windowCloses, 100, maxValidReturnPct()) : void 0;
   const perStrategySim = /* @__PURE__ */ new Map();
   if (simOn) {
     const grouped = /* @__PURE__ */ new Map();
@@ -69894,7 +69957,7 @@ async function getKalshiStockShadowReport(userId, days = 30) {
       list.push({ return_pct: c.return_pct });
       grouped.set(c.strategy, list);
     }
-    grouped.forEach((list, strategy) => perStrategySim.set(strategy, accountReplay(list)));
+    grouped.forEach((list, strategy) => perStrategySim.set(strategy, accountReplay(list, 100, maxValidReturnPct())));
   }
   const brainBlockSummary = await getPerpBrainBlockSummary(userId, windowDays).catch(() => null);
   let favorBuckets = 0;
@@ -69931,6 +69994,7 @@ async function getKalshiStockShadowReport(userId, days = 30) {
       avgR: s.avg_r == null ? null : Number(s.avg_r),
       estNetPnlUsd: Number(s.est_net_pnl_usd) || 0,
       fundingUsd: Number(s.funding_usd) || 0,
+      invalidExcludedCount: Number(invalidRes.rows[0]?.invalid_count) || 0,
       lastOpenedAt: toIso(s.last_opened_at),
       lastClosedAt: toIso(s.last_closed_at),
       enabled: stockShadowEnabled()
@@ -70051,11 +70115,25 @@ async function closeTrade(t, exit, why, fundingUsd, exclude, fundingModel) {
   const fundingPct = gross != null && t.notional_usd > 0 ? fundingUsd / t.notional_usd * 100 : null;
   const net = gross != null ? gross + (fundingPct ?? 0) - Number(t.cost_bps) / 100 : null;
   const r = net != null && t.sl_pct > 0 ? net / t.sl_pct : null;
+  const invalidReason = shadowCloseInvalidReason({
+    entryPrice: t.entry_price,
+    exitPrice: exit,
+    grossPct: gross,
+    fundingPct,
+    netPct: net,
+    notionalUsd: t.notional_usd,
+    targetNotionalUsd: NOTIONAL2()
+  });
+  if (invalidReason) {
+    exclude = true;
+    console.warn(`[kalshi-stock-shadow] close quarantined as invalid (${invalidReason}): trade ${t.id} ${t.ticker} entry=${t.entry_price} exit=${exit} gross=${gross} fundingPct=${fundingPct} net=${net}`);
+  }
   const upd = await pool.query(
     `UPDATE kalshi_perp_shadow_trades SET status='closed', exit_price=$2, exit_reason=$3, gross_return_pct=$4, return_pct=$5,
        r_multiple=$6, funding_accrued_usd=$7, exclude_from_stats=$8, funding_estimate_usd=0,
-       funding_model=CASE WHEN $9::text IS NOT NULL THEN $9 ELSE funding_model END, closed_at=now() WHERE id=$1 AND status='open'`,
-    [t.id, exit, why, gross, net, r, fundingUsd, exclude, fundingModel ?? null]
+       funding_model=CASE WHEN $9::text IS NOT NULL THEN $9 ELSE funding_model END,
+       stats_invalid_reason=$10, closed_at=now() WHERE id=$1 AND status='open'`,
+    [t.id, exit, why, gross, net, r, fundingUsd, exclude, fundingModel ?? null, invalidReason]
   );
   if (!upd.rowCount) return false;
   const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
@@ -70267,6 +70345,10 @@ async function runKalshiStockShadowCycle(userId) {
     const touch = await getPerpTouch(mkt.ticker).catch(() => null);
     const bid = touch?.bid ?? mkt.bid, ask = touch?.ask ?? mkt.ask;
     if (!(bid > 0) || !(ask > bid)) continue;
+    if (!(bid >= lastClose / 3 && ask <= lastClose * 3)) {
+      console.warn(`[kalshi-stock-shadow] skipping ${mkt.ticker}: touch ${bid}/${ask} disagrees with H1 close ${lastClose} \u2014 off-scale price suspected`);
+      continue;
+    }
     const spreadBps = (ask - bid) / ((ask + bid) / 2) * 1e4;
     const fundEst = await getPerpFundingEstimate(mkt.ticker).catch(() => null);
     const slPct = Math.min(SL_HI(), Math.max(SL_LO(), ATR_MULT2() * atrPct));
@@ -70457,7 +70539,7 @@ function startKalshiStockShadow() {
   setInterval(tick3, 5 * 6e4).unref?.();
   console.log("[kalshi-stock-shadow] started \u2014 SHADOW lane on public Kalshi perp data (no credentials, no orders).");
 }
-var stockOrbEnabled, num11, stockShadowEnabled, accountSimEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started5;
+var stockOrbEnabled, num11, stockShadowEnabled, accountSimEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, maxValidReturnPct, maxValidEntryUsd, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started5;
 var init_kalshi_stock_shadow = __esm({
   "server/services/kalshi-stock-shadow.ts"() {
     "use strict";
@@ -70488,6 +70570,8 @@ var init_kalshi_stock_shadow = __esm({
     SL_HI = () => num11("KALSHI_STOCK_SHADOW_SL_MAX_PCT", 4);
     ATR_MULT2 = () => num11("KALSHI_STOCK_SHADOW_SL_ATR_MULT", 1.5);
     RR = () => num11("KALSHI_STOCK_SHADOW_RR", 2);
+    maxValidReturnPct = () => num11("KALSHI_STOCK_SHADOW_MAX_VALID_RETURN_PCT", 100);
+    maxValidEntryUsd = () => num11("KALSHI_STOCK_SHADOW_MAX_VALID_ENTRY_USD", 1e6);
     CRYPTO_PORTS = ["breakout", "trend_following", "structure", "divergence", "order_flow", "volume_profile"];
     OPTIONS_PORTS = ["orb", "volume_profile", "breakout", "momentum", "order_flow"];
     etFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit", weekday: "short" });
@@ -86908,9 +86992,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "d6da054b-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-16T09:19:55.385Z";
+var BUILD_COMMIT = "5bb1d0bb";
+var BUILD_BRANCH = "feat/kalshi-perp-stats-fix";
+var BUILT_AT = "2026-11-16T10:30:07.857Z";
 
 // server/stripe.ts
 init_db();
