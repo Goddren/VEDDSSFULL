@@ -53,6 +53,7 @@ interface KalshiShadowOpenPosition {
   contracts: number;
   notional_usd: number;
   funding_accrued_usd: number;
+  funding_estimate_usd: number;
   score: number | null;
   max_hours: number;
   opened_at: string;
@@ -71,6 +72,7 @@ interface KalshiShadowRecentClose {
   return_pct: number;
   r_multiple: number | null;
   funding_accrued_usd: number;
+  funding_model: string;
   exit_reason: string | null;
   hold_minutes: number | null;
   closed_at: string;
@@ -468,7 +470,7 @@ export function KalshiShadowPanel({ className = "" }: { className?: string }) {
         </div>
         <InfoExplainer title="Kalshi stock-perp shadow results" accent="border-l-cyan-300/60">
           <p><b>What is a stock perp?</b> A perpetual future on one stock — it follows the stock's price (AAPL, TSLA, and 50+ other names on Kalshi) with roughly 5× leverage, and unlike a normal future it never expires. This lane tests crypto, options, and FX-derived strategies on those contracts using real production prices, without placing an order.</p>
-          <p><b>What "net" means.</b> Every number here already has funding and modeled trading costs taken out, so what you see is the result after the charges a real trade would have paid.</p>
+          <p><b>What "net" means.</b> Every number here already has funding and trading costs taken out, so what you see is the result after the charges a real trade would have paid. Trading costs are Kalshi's published perp fees — 12 bps of the trade size when it opens and again when it closes — and funding comes from Kalshi's own daily funding prints, not a guess. If Kalshi's funding history is ever unreachable at the moment a trade closes, that one trade books the current funding estimate instead and is labeled <b>est.</b> below — it is never swapped in silently.</p>
           <p><b>Funding</b> is a daily charge that keeps the perp's price tied to the stock. It lands once a day at <b>4:00 PM ET</b>: when the funding rate is positive, longs pay and shorts receive; when it is negative, that flips. Funding totals are shown signed — positive means the position collected funding overall, negative means it paid.</p>
           <p><b>Why real prices?</b> Kalshi also offers demo prices, but those are simulated and can drift from the real market — proof built on them would prove nothing. This lane reads the live production feed only.</p>
           <p><b>The $100 account.</b> Percentages are hard to feel, so the panel also replays the closed trades on a pretend $100 account: it starts at $100 and applies each trade's real net result, in the order the trades closed. Each strategy gets its own $100 replay in the by-strategy list. The live lane can hold several trades at once, so read it as a clear illustration of what these results add up to — not an exact account history.</p>
@@ -652,6 +654,7 @@ export function KalshiShadowPanel({ className = "" }: { className?: string }) {
                         <span>Target {fmtPrice(p.take_profit)}</span>
                         <span>{fmtContracts(p.contracts)} contracts · {fmtMoney(p.notional_usd)}</span>
                         <span className={pnlClass(p.funding_accrued_usd)}>Funding so far {fmtMoney(p.funding_accrued_usd, { signed: true })}</span>
+                        {p.funding_estimate_usd ? <span className={pnlClass(p.funding_estimate_usd)}>Est. at next 4pm print {fmtMoney(p.funding_estimate_usd, { signed: true })}</span> : null}
                         <span>Opened {fmtDateTime(p.opened_at)} · closes within {p.max_hours}h</span>
                       </div>
                       <div className="mt-0.5 text-[10px] tabular-nums text-gray-400">
@@ -684,7 +687,7 @@ export function KalshiShadowPanel({ className = "" }: { className?: string }) {
                         <span>{fmtPrice(c.entry_price)} → {fmtPrice(c.exit_price)}</span>
                         <span className={pnlClass(c.return_pct)}>Net {fmtPctPoints(c.return_pct)}</span>
                         <span className={c.r_multiple == null ? "text-gray-400" : pnlClass(c.r_multiple)}>{fmtR(c.r_multiple)}</span>
-                        <span className={pnlClass(c.funding_accrued_usd)}>Funding {fmtMoney(c.funding_accrued_usd, { signed: true })}</span>
+                        <span className={pnlClass(c.funding_accrued_usd)}>Funding {fmtMoney(c.funding_accrued_usd, { signed: true })}{c.funding_model === 'estimate' ? ' (est.)' : ''}</span>
                         <span>Closed: {exitReasonLabel(c.exit_reason)}</span>
                         <span>Held {fmtHold(c.hold_minutes)}</span>
                       </div>
