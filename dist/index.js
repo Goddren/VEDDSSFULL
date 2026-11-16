@@ -19452,7 +19452,7 @@ function logDecisionShadow(r) {
     _seen.set(k2, Date.now());
     if (_seen.size > 5e3) _seen.clear();
   }
-  const num15 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  const num16 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
   void ensureDecisionShadowTable().then(() => pool.query(
     `INSERT INTO fx_decision_shadow (user_id, scan_id, symbol, session, hour_utc, lane, mode, acted, picked, ai_status,
        direction, score, terms, entry, sl, tp, gate_result)
@@ -19469,11 +19469,11 @@ function logDecisionShadow(r) {
       !!r.picked,
       r.aiStatus ?? null,
       r.direction ?? null,
-      num15(r.score),
+      num16(r.score),
       r.terms == null ? null : JSON.stringify(r.terms),
-      num15(r.entry),
-      num15(r.sl),
-      num15(r.tp),
+      num16(r.entry),
+      num16(r.sl),
+      num16(r.tp),
       r.gateResult ?? null
     ]
   )).catch(() => {
@@ -47648,15 +47648,282 @@ var init_cred_store = __esm({
   }
 });
 
+// server/services/kalshi-perps.ts
+var kalshi_perps_exports = {};
+__export(kalshi_perps_exports, {
+  aggregateBars: () => aggregateBars,
+  getLiquidStockPerps: () => getLiquidStockPerps,
+  getPerpBars: () => getPerpBars,
+  getPerpCandles: () => getPerpCandles,
+  getPerpCorporateActions: () => getPerpCorporateActions,
+  getPerpFundingEstimate: () => getPerpFundingEstimate,
+  getPerpFundingHistory: () => getPerpFundingHistory,
+  getPerpMarkets: () => getPerpMarkets,
+  getPerpRiskParams: () => getPerpRiskParams,
+  getPerpTouch: () => getPerpTouch,
+  indexExcludeSet: () => indexExcludeSet,
+  perpHost: () => perpHost,
+  underlyingOfPerpTicker: () => underlyingOfPerpTicker
+});
+function perpHost() {
+  return process.env.KALSHI_PERP_HOST === "demo" ? DEMO_HOST : PROD_HOST;
+}
+async function getJson(path23) {
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 15e3);
+  try {
+    const res2 = await fetch(`${perpHost()}${path23}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
+    if (!res2.ok) throw new Error(`kalshi-perps GET ${path23} -> ${res2.status}`);
+    return await res2.json();
+  } finally {
+    clearTimeout(to);
+  }
+}
+function underlyingOfPerpTicker(ticker) {
+  const m = /^KX([A-Z][A-Z0-9.]*)PERP1?$/.exec(ticker || "");
+  return m ? m[1] : null;
+}
+function indexExcludeSet() {
+  const env = (process.env.KALSHI_STOCK_PERP_EXCLUDE || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+  return env.length ? new Set(env) : DEFAULT_INDEX_EXCLUDE;
+}
+async function getPerpMarkets() {
+  if (_marketsCache && Date.now() - _marketsCache.at < MARKETS_TTL_MS) return _marketsCache.markets;
+  const out = [];
+  let cursor = null;
+  for (let page = 0; page < 10; page++) {
+    const q = `/margin/markets?limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+    const data = await getJson(q);
+    for (const m of data?.markets ?? []) {
+      out.push({
+        ticker: String(m.ticker || ""),
+        underlying: underlyingOfPerpTicker(String(m.ticker || "")) || "",
+        title: String(m.title || ""),
+        status: String(m.status || ""),
+        bid: num6(m.bid),
+        ask: num6(m.ask),
+        price: num6(m.price),
+        contractSize: num6(m.contract_size),
+        leverageEstimate: num6(m.leverage_estimate),
+        volume24hContracts: num6(m.volume_24h),
+        volume24hNotionalUsd: num6(m.volume_24h_notional_value_dollars),
+        openInterest: num6(m.open_interest),
+        openInterestNotionalUsd: num6(m.open_interest_notional_value_dollars),
+        tickSize: num6(m.tick_size),
+        fundingCap: num6(m.funding_cap),
+        scheduleOpen: m.schedule?.is_open !== false,
+        haltSources: Array.isArray(m.halt_sources) ? m.halt_sources.map(String) : []
+      });
+    }
+    cursor = data?.cursor || null;
+    if (!cursor) break;
+  }
+  _marketsCache = { at: Date.now(), markets: out };
+  return out;
+}
+async function getLiquidStockPerps() {
+  const minVol = Number(process.env.KALSHI_STOCK_SHADOW_MIN_VOL24_USD ?? 25e3);
+  const minOi = Number(process.env.KALSHI_STOCK_SHADOW_MIN_OI_USD ?? 1e4);
+  const maxTickers = Math.max(1, Math.floor(Number(process.env.KALSHI_STOCK_SHADOW_MAX_TICKERS ?? 20)));
+  const exclude = indexExcludeSet();
+  const all = await getPerpMarkets();
+  return all.filter((m) => m.status === "active" && m.underlying && !exclude.has(m.underlying)).filter((m) => m.price > 0 && m.bid > 0 && m.ask > m.bid).filter((m) => m.volume24hNotionalUsd >= minVol && m.openInterestNotionalUsd >= minOi).sort((a, b) => b.volume24hNotionalUsd - a.volume24hNotionalUsd).slice(0, maxTickers);
+}
+async function getPerpRiskParams() {
+  if (_riskCache && Date.now() - _riskCache.at < 10 * 6e4) return _riskCache.map;
+  const data = await getJson("/margin/risk_parameters");
+  const map = /* @__PURE__ */ new Map();
+  const src = data?.risk_parameters ?? data ?? {};
+  for (const [ticker, v] of Object.entries(src)) {
+    map.set(ticker, {
+      initialMarginMultiplier: v?.initial_margin_multiplier != null ? num6(v.initial_margin_multiplier) : null,
+      liquidationThreshold: v?.liquidation_margin_ratio_threshold != null ? num6(v.liquidation_margin_ratio_threshold) : null
+    });
+  }
+  _riskCache = { at: Date.now(), map };
+  return map;
+}
+function dist(d) {
+  const f = (x) => x == null || x === "" ? null : num6(x);
+  return { o: f(d?.open), h: f(d?.high), l: f(d?.low), c: f(d?.close) };
+}
+function toBar(raw, intervalMin) {
+  const endTs = Number(raw?.end_period_ts);
+  if (!Number.isFinite(endTs) || endTs <= 0) return null;
+  const bid = dist(raw.bid), ask = dist(raw.ask), px = dist(raw.price);
+  const prev = raw.price?.previous != null && raw.price.previous !== "" ? num6(raw.price.previous) : null;
+  const mid = bid.c != null && ask.c != null ? (bid.c + ask.c) / 2 : bid.c ?? ask.c;
+  const c = px.c ?? prev ?? mid;
+  if (c == null || !(c > 0)) return null;
+  const o = px.o ?? prev ?? c;
+  const h = px.h ?? Math.max(o, c);
+  const l = px.l ?? Math.min(o, c);
+  const z3 = { o: 0, h: 0, l: 0, c: 0 };
+  return {
+    t: (endTs - intervalMin * 60) * 1e3,
+    o,
+    h,
+    l,
+    c,
+    v: num6(raw.volume),
+    bid: { o: bid.o ?? c, h: bid.h ?? c, l: bid.l ?? c, c: bid.c ?? c },
+    ask: { o: ask.o ?? c, h: ask.h ?? c, l: ask.l ?? c, c: ask.c ?? c },
+    openInterest: num6(raw.open_interest)
+  };
+}
+async function getPerpCandles(ticker, intervalMin, minutesBack) {
+  const capped = Math.min(Math.max(intervalMin, minutesBack), 5e3 * intervalMin);
+  const key = `${ticker}|${intervalMin}|${capped}`;
+  const hit = _candleCache.get(key);
+  if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.bars;
+  const end = Math.floor(Date.now() / 1e3);
+  const start = end - capped * 60;
+  const data = await getJson(`/margin/markets/${encodeURIComponent(ticker)}/candlesticks?start_ts=${start}&end_ts=${end}&period_interval=${intervalMin}`);
+  const bars = (data?.candlesticks ?? []).map((r) => toBar(r, intervalMin)).filter((b) => !!b).sort((a, b) => a.t - b.t);
+  _candleCache.set(key, { at: Date.now(), bars });
+  return bars;
+}
+function aggregateBars(bars, factor) {
+  if (factor <= 1) return bars;
+  const span = factor * 6e4;
+  const out = [];
+  let cur = null;
+  let bucket = -1;
+  for (const b of bars) {
+    const bk = Math.floor(b.t / span);
+    if (!cur || bk !== bucket) {
+      if (cur) out.push(cur);
+      bucket = bk;
+      cur = { ...b, bid: { ...b.bid }, ask: { ...b.ask } };
+    } else {
+      cur.h = Math.max(cur.h, b.h);
+      cur.l = Math.min(cur.l, b.l);
+      cur.c = b.c;
+      cur.v += b.v;
+      cur.bid.h = Math.max(cur.bid.h, b.bid.h);
+      cur.bid.l = Math.min(cur.bid.l, b.bid.l);
+      cur.bid.c = b.bid.c;
+      cur.ask.h = Math.max(cur.ask.h, b.ask.h);
+      cur.ask.l = Math.min(cur.ask.l, b.ask.l);
+      cur.ask.c = b.ask.c;
+      cur.openInterest = b.openInterest;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+async function getPerpBars(ticker, timeframe, count) {
+  const tf = TF_MINUTES2[timeframe] ?? 15;
+  const strip = (bars2) => bars2.slice(-count).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+  if (tf === 60 || tf === 1440) {
+    const bars2 = await getPerpCandles(ticker, tf === 60 ? 60 : 1440, (count + 6) * tf);
+    return strip(bars2);
+  }
+  if (tf === 240) {
+    const bars2 = await getPerpCandles(ticker, 60, (Math.ceil(count / 4) + 6) * 60);
+    return strip(aggregateBars(bars2, 4));
+  }
+  let minutes = Math.min(5e3, Math.ceil(count * tf * 2));
+  let bars = aggregateBars(await getPerpCandles(ticker, 1, minutes), tf);
+  if (bars.length < count && minutes < 5e3) {
+    minutes = 5e3;
+    bars = aggregateBars(await getPerpCandles(ticker, 1, minutes), tf);
+  }
+  return strip(bars);
+}
+async function getPerpTouch(ticker) {
+  try {
+    const data = await getJson(`/margin/markets/${encodeURIComponent(ticker)}/orderbook`);
+    const bids = data?.orderbook?.bids ?? [];
+    const asks = data?.orderbook?.asks ?? [];
+    const bid = bids.reduce((mx, lvl2) => Math.max(mx, num6(lvl2?.[0])), 0);
+    const ask = asks.reduce((mn, lvl2) => {
+      const p2 = num6(lvl2?.[0]);
+      return p2 > 0 && (mn === 0 || p2 < mn) ? p2 : mn;
+    }, 0);
+    return bid > 0 && ask > bid ? { bid, ask } : null;
+  } catch {
+    return null;
+  }
+}
+async function getPerpFundingHistory(ticker) {
+  const data = await getJson(`/margin/funding_rates/historical?ticker=${encodeURIComponent(ticker)}`);
+  return (data?.funding_rates ?? []).map((r) => ({ fundingTimeMs: new Date(r.funding_time).getTime(), rate: num6(r.funding_rate), markPrice: num6(r.mark_price) })).filter((r) => Number.isFinite(r.fundingTimeMs) && r.fundingTimeMs > 0).sort((a, b) => a.fundingTimeMs - b.fundingTimeMs);
+}
+async function getPerpFundingEstimate(ticker) {
+  try {
+    const data = await getJson(`/margin/funding_rates/estimate?ticker=${encodeURIComponent(ticker)}`);
+    const next = new Date(data?.next_funding_time).getTime();
+    return { rate: num6(data?.funding_rate), nextFundingTimeMs: Number.isFinite(next) ? next : 0 };
+  } catch {
+    return null;
+  }
+}
+async function getPerpCorporateActions() {
+  if (_caCache && Date.now() - _caCache.at < 10 * 6e4) return _caCache.actions;
+  const data = await getJson("/margin/corporate_actions");
+  const list = Array.isArray(data) ? data : data?.corporate_actions ?? data?.notices ?? [];
+  const actions = list.map((a) => {
+    const t = a?.effective_ts ?? a?.effective_time ?? a?.scheduled_ts ?? a?.scheduled_time ?? a?.ex_date ?? a?.pay_date ?? a?.record_date ?? null;
+    const ms = t == null ? null : typeof t === "number" ? t > 1e12 ? t : t * 1e3 : new Date(t).getTime();
+    return {
+      ticker: String(a?.market_ticker ?? a?.ticker ?? ""),
+      type: String(a?.type ?? a?.action_type ?? ""),
+      status: String(a?.status ?? "").toLowerCase(),
+      effectiveMs: ms != null && Number.isFinite(ms) ? ms : null,
+      raw: a
+    };
+  }).filter((a) => !!a.ticker);
+  _caCache = { at: Date.now(), actions };
+  return actions;
+}
+var PROD_HOST, DEMO_HOST, num6, DEFAULT_INDEX_EXCLUDE, _marketsCache, MARKETS_TTL_MS, _riskCache, _candleCache, CANDLE_TTL_MS, TF_MINUTES2, _caCache;
+var init_kalshi_perps = __esm({
+  "server/services/kalshi-perps.ts"() {
+    "use strict";
+    PROD_HOST = "https://external-api.kalshi.com/trade-api/v2";
+    DEMO_HOST = "https://external-api.demo.kalshi.co/trade-api/v2";
+    num6 = (v) => {
+      const n = typeof v === "string" ? parseFloat(v) : Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+    DEFAULT_INDEX_EXCLUDE = /* @__PURE__ */ new Set(["SPY", "QQQ", "DIA", "IWM", "US500", "USTECH100", "SPX", "NDX", "VIX"]);
+    _marketsCache = null;
+    MARKETS_TTL_MS = 6e4;
+    _riskCache = null;
+    _candleCache = /* @__PURE__ */ new Map();
+    CANDLE_TTL_MS = 45e3;
+    TF_MINUTES2 = { "1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440 };
+    _caCache = null;
+  }
+});
+
 // server/services/kalshi-trading.ts
 var kalshi_trading_exports = {};
 __export(kalshi_trading_exports, {
+  buildMarginOrderBody: () => buildMarginOrderBody,
+  cancelKalshiMarginOrder: () => cancelKalshiMarginOrder,
   cancelKalshiOrder: () => cancelKalshiOrder,
+  classifyMarginOrderHttp: () => classifyMarginOrderHttp,
   deleteKalshiCredentials: () => deleteKalshiCredentials,
+  findKalshiMarginOrderByClientId: () => findKalshiMarginOrderByClientId,
+  formatMarginPrice: () => formatMarginPrice,
   getKalshiBalance: () => getKalshiBalance,
+  getKalshiMarginBalance: () => getKalshiMarginBalance,
+  getKalshiMarginEnabled: () => getKalshiMarginEnabled,
+  getKalshiMarginFills: () => getKalshiMarginFills,
+  getKalshiMarginFundingHistoryUsd: () => getKalshiMarginFundingHistoryUsd,
+  getKalshiMarginOrders: () => getKalshiMarginOrders,
+  getKalshiMarginPositions: () => getKalshiMarginPositions,
   getKalshiOrders: () => getKalshiOrders,
   getKalshiPositions: () => getKalshiPositions,
   loadKalshiCredentials: () => loadKalshiCredentials,
+  normalizeMarginBalance: () => normalizeMarginBalance,
+  normalizeMarginOrder: () => normalizeMarginOrder,
+  normalizeMarginPosition: () => normalizeMarginPosition,
+  normalizeMarginPositions: () => normalizeMarginPositions,
+  parseMarginEnabled: () => parseMarginEnabled,
+  placeKalshiMarginOrder: () => placeKalshiMarginOrder,
   placeKalshiOrder: () => placeKalshiOrder,
   saveKalshiApiKey: () => saveKalshiApiKey,
   saveKalshiCredentials: () => saveKalshiCredentials,
@@ -47876,15 +48143,230 @@ async function cancelKalshiOrder(userId, orderId) {
     return false;
   }
 }
-var KALSHI_BASE, KALSHI_PATH_PREFIX, CREDS_FILE, _sessions;
+async function kalshiMarginGet(userId, endpoint) {
+  const headers = await getAuthHeaders(userId, "GET", endpoint);
+  const res2 = await fetch(`${perpHost()}${endpoint}`, { headers, signal: AbortSignal.timeout(1e4) });
+  if (!res2.ok) {
+    const body = await res2.text();
+    throw new Error(`Kalshi margin GET ${endpoint} failed (${res2.status}): ${body.slice(0, 200)}`);
+  }
+  return res2.json();
+}
+function parseMarginEnabled(data) {
+  if (data === true) return true;
+  if (!data || typeof data !== "object") return false;
+  return data.enabled === true || data.margin_enabled === true || data.is_enabled === true;
+}
+async function getKalshiMarginEnabled(userId) {
+  const data = await kalshiMarginGet(userId, "/margin/enabled");
+  return parseMarginEnabled(data);
+}
+function pickFp(obj, keys) {
+  if (!obj || typeof obj !== "object") return null;
+  for (const k2 of keys) {
+    const v = fpNum(obj[k2]);
+    if (v != null) return v;
+  }
+  return null;
+}
+function normalizeMarginBalance(data) {
+  let src = data?.balance ?? data ?? null;
+  if (Array.isArray(data?.subaccounts)) {
+    src = data.subaccounts.find((s) => Number(s?.subaccount ?? 0) === 0) ?? data.subaccounts[0] ?? src;
+  } else if (data && typeof data === "object" && data["0"] && typeof data["0"] === "object") {
+    src = data["0"];
+  }
+  const cashUsd = pickFp(src, ["cash_balance", "cash", "available_cash", "available_balance", "balance"]);
+  const positionValueUsd = pickFp(src, ["position_value", "positions_value", "market_value", "position_notional_value"]);
+  const reportedEquity = pickFp(src, ["portfolio_value", "equity", "total_equity", "account_value", "net_liquidation_value"]);
+  const equityUsd = reportedEquity ?? (cashUsd != null && positionValueUsd != null ? cashUsd + positionValueUsd : cashUsd);
+  const maintenanceMarginUsd = pickFp(src, ["maintenance_margin", "maintenance_margin_requirement", "maintenance_requirement"]);
+  return { cashUsd, positionValueUsd, equityUsd, maintenanceMarginUsd };
+}
+async function getKalshiMarginBalance(userId) {
+  const data = await kalshiMarginGet(userId, "/margin/balance");
+  return normalizeMarginBalance(data);
+}
+function normalizeMarginPosition(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const ticker = String(raw.ticker ?? raw.market_ticker ?? "");
+  if (!ticker) return null;
+  let contracts = fpNum(raw.position_fp ?? raw.position ?? raw.contracts ?? raw.quantity ?? raw.count);
+  if (contracts == null) return null;
+  const sideRaw = String(raw.side ?? raw.direction ?? "").toLowerCase();
+  if (contracts > 0 && (sideRaw === "ask" || sideRaw === "short" || sideRaw === "sell")) contracts = -contracts;
+  if (contracts === 0) return null;
+  return {
+    ticker,
+    contracts,
+    entryPrice: fpNum(raw.average_entry_price ?? raw.entry_price ?? raw.avg_entry_price ?? raw.average_price),
+    unrealizedPnlUsd: fpNum(raw.unrealized_pnl ?? raw.unrealized_pnl_usd ?? raw.unrealized_profit_loss),
+    subaccount: raw.subaccount != null && Number.isFinite(Number(raw.subaccount)) ? Number(raw.subaccount) : null
+  };
+}
+function normalizeMarginPositions(data) {
+  const list = Array.isArray(data) ? data : data?.positions ?? data?.market_positions ?? [];
+  return list.map(normalizeMarginPosition).filter((p2) => !!p2);
+}
+async function getKalshiMarginPositions(userId) {
+  const data = await kalshiMarginGet(userId, "/margin/positions");
+  const all = normalizeMarginPositions(data);
+  const primary = all.filter((p2) => p2.subaccount == null || p2.subaccount === 0);
+  return primary.length || !all.length ? primary : all;
+}
+function normalizeMarginOrder(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const orderId = String(raw.order_id ?? raw.id ?? "");
+  if (!orderId) return null;
+  return {
+    orderId,
+    clientOrderId: raw.client_order_id != null ? String(raw.client_order_id) : null,
+    ticker: String(raw.ticker ?? ""),
+    side: String(raw.side ?? ""),
+    status: String(raw.status ?? ""),
+    fillCount: fpNum(raw.fill_count) ?? 0,
+    remainingCount: fpNum(raw.remaining_count) ?? 0,
+    avgFillPrice: fpNum(raw.average_fill_price ?? raw.avg_fill_price)
+  };
+}
+async function getKalshiMarginOrders(userId, limit = 100) {
+  const data = await kalshiMarginGet(userId, `/margin/orders?limit=${Math.max(1, Math.min(200, Math.floor(limit)))}`);
+  const list = Array.isArray(data) ? data : data?.orders ?? [];
+  return list.map(normalizeMarginOrder).filter((o) => !!o);
+}
+async function findKalshiMarginOrderByClientId(userId, clientOrderId) {
+  const orders = await getKalshiMarginOrders(userId, 200);
+  return orders.find((o) => o.clientOrderId === clientOrderId) ?? null;
+}
+async function cancelKalshiMarginOrder(userId, orderId) {
+  try {
+    const headers = await getAuthHeaders(userId, "DELETE", `/margin/orders/${orderId}`);
+    const res2 = await fetch(`${perpHost()}/margin/orders/${orderId}`, {
+      method: "DELETE",
+      headers,
+      signal: AbortSignal.timeout(8e3)
+    });
+    return res2.ok;
+  } catch {
+    return false;
+  }
+}
+function formatMarginPrice(price, tickSize) {
+  const tick3 = tickSize != null && tickSize > 0 ? tickSize : 1e-4;
+  const decimals = Math.min(6, Math.max(0, Math.round(-Math.log10(tick3))));
+  const rounded = Math.round(price / tick3) * tick3;
+  return rounded.toFixed(decimals);
+}
+function buildMarginOrderBody(input) {
+  const body = {
+    ticker: input.ticker,
+    client_order_id: input.clientOrderId,
+    side: input.side,
+    count: String(Math.max(1, Math.floor(input.count))),
+    price: formatMarginPrice(input.price, input.tickSize),
+    time_in_force: "immediate_or_cancel",
+    self_trade_prevention_type: "taker_at_cross"
+  };
+  if (input.reduceOnly) body.reduce_only = true;
+  return body;
+}
+function classifyMarginOrderHttp(status, data) {
+  if (status != null && status >= 200 && status < 300 && data && typeof data === "object" && (data.order_id || data.order?.order_id)) return "responded";
+  if (status != null && status >= 400 && status < 500 && data && typeof data === "object") return "rejected";
+  return "ambiguous";
+}
+async function placeKalshiMarginOrder(userId, input) {
+  const body = buildMarginOrderBody(input);
+  const headers = await getAuthHeaders(userId, "POST", "/margin/orders");
+  let status = null;
+  let data = null;
+  let transportError = "";
+  try {
+    const res2 = await fetch(`${perpHost()}/margin/orders`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(12e3)
+    });
+    status = res2.status;
+    const text3 = await res2.text().catch(() => "");
+    try {
+      data = text3 ? JSON.parse(text3) : null;
+    } catch {
+      data = null;
+    }
+  } catch (e) {
+    transportError = e?.message ?? String(e);
+  }
+  const cls = classifyMarginOrderHttp(status, data);
+  if (cls === "responded") {
+    const o = data.order ?? data;
+    return {
+      outcome: "responded",
+      orderId: String(o.order_id ?? ""),
+      fillCount: fpNum(o.fill_count) ?? 0,
+      remainingCount: fpNum(o.remaining_count) ?? 0,
+      avgFillPrice: fpNum(o.average_fill_price ?? o.avg_fill_price)
+    };
+  }
+  if (cls === "rejected") {
+    const err = data.error ?? data;
+    return {
+      outcome: "rejected",
+      status: status ?? 0,
+      code: String(err?.code ?? ""),
+      message: String(err?.message ?? err?.details ?? `HTTP ${status}`).slice(0, 300)
+    };
+  }
+  return { outcome: "ambiguous", status, error: transportError || `unparseable or error response (HTTP ${status})` };
+}
+async function getKalshiMarginFills(userId, ticker, limit = 50) {
+  try {
+    const data = await kalshiMarginGet(userId, `/margin/fills?ticker=${encodeURIComponent(ticker)}&limit=${Math.max(1, Math.min(100, Math.floor(limit)))}`);
+    return Array.isArray(data) ? data : data?.fills ?? [];
+  } catch {
+    return [];
+  }
+}
+async function getKalshiMarginFundingHistoryUsd(userId, ticker, fromMs, toMs) {
+  try {
+    const qs = new URLSearchParams({
+      ticker,
+      start_date: new Date(fromMs).toISOString(),
+      end_date: new Date(toMs).toISOString()
+    });
+    const data = await kalshiMarginGet(userId, `/margin/funding_history?${qs.toString()}`);
+    const list = Array.isArray(data) ? data : data?.funding_history ?? data?.history ?? [];
+    let sum = 0;
+    let parsed = 0;
+    for (const e of list) {
+      const v = fpNum(e?.funding_amount ?? e?.amount ?? e?.payment_amount);
+      if (v != null) {
+        sum += v;
+        parsed++;
+      }
+    }
+    if (list.length && !parsed) return null;
+    return sum;
+  } catch {
+    return null;
+  }
+}
+var KALSHI_BASE, KALSHI_PATH_PREFIX, CREDS_FILE, _sessions, fpNum;
 var init_kalshi_trading = __esm({
   "server/services/kalshi-trading.ts"() {
     "use strict";
     init_cred_store();
+    init_kalshi_perps();
     KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2";
     KALSHI_PATH_PREFIX = "/trade-api/v2";
     CREDS_FILE = path3.join(process.cwd(), "data", "kalshi_credentials.json");
     _sessions = /* @__PURE__ */ new Map();
+    fpNum = (v) => {
+      if (v == null || v === "") return null;
+      const n = typeof v === "string" ? parseFloat(v) : Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
   }
 });
 
@@ -49340,12 +49822,12 @@ function linregSlope(values) {
   const xs = values.map((_, i) => i);
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = values.reduce((a, b) => a + b, 0) / n;
-  let num15 = 0, den = 0;
+  let num16 = 0, den = 0;
   for (let i = 0; i < n; i++) {
-    num15 += (xs[i] - mx) * (values[i] - my);
+    num16 += (xs[i] - mx) * (values[i] - my);
     den += (xs[i] - mx) ** 2;
   }
-  return den === 0 ? 0 : num15 / den;
+  return den === 0 ? 0 : num16 / den;
 }
 function ensembleSignal(candles) {
   const price = candles[candles.length - 1].close;
@@ -55492,8 +55974,8 @@ async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilen
         analysis.takeProfit,
         ...supportResistanceLevels
       ].map((p2) => {
-        const num15 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
-        return isNaN(num15) ? 0 : num15;
+        const num16 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
+        return isNaN(num16) ? 0 : num16;
       }).filter((p2) => p2 > 0);
       if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
       const minPrice = Math.min(...prices);
@@ -59992,7 +60474,7 @@ async function guardedStats(userId, guard) {
         [userId, guard.id, String(WINDOW_DAYS), guard.promotedAt]
       );
       const r3 = rows2[0] ?? {};
-      return { trades: Number(r3.trades) || 0, wins: Number(r3.wins) || 0, avgFinal: num6(r3.avg_final), avgGiveback: num6(r3.avg_giveback) };
+      return { trades: Number(r3.trades) || 0, wins: Number(r3.wins) || 0, avgFinal: num7(r3.avg_final), avgGiveback: num7(r3.avg_giveback) };
     }
     await ensureSolTrailGuardColumns();
     const { rows } = await pool.query(
@@ -60006,7 +60488,7 @@ async function guardedStats(userId, guard) {
       [userId, guard.id, String(WINDOW_DAYS), guard.promotedAt]
     );
     const r = rows[0] ?? {};
-    return { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgFinal: num6(r.avg_final), avgGiveback: num6(r.avg_giveback) };
+    return { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgFinal: num7(r.avg_final), avgGiveback: num7(r.avg_giveback) };
   } catch (e) {
     console.error(`[trail-guard-learning] guarded stats failed for guard ${guard.id} (non-fatal):`, e?.message || e);
     return null;
@@ -60029,7 +60511,7 @@ async function computedBaseline(userId, guard) {
       );
       const r3 = rows2[0] ?? {};
       if ((Number(r3.trades) || 0) < 5) return null;
-      return { trades: Number(r3.trades) || 0, wins: Number(r3.wins) || 0, avgFinal: num6(r3.avg_final), avgGiveback: num6(r3.avg_giveback) };
+      return { trades: Number(r3.trades) || 0, wins: Number(r3.wins) || 0, avgFinal: num7(r3.avg_final), avgGiveback: num7(r3.avg_giveback) };
     }
     await ensureSolTrailGuardColumns();
     const { rows } = await pool.query(
@@ -60044,7 +60526,7 @@ async function computedBaseline(userId, guard) {
     );
     const r = rows[0] ?? {};
     if ((Number(r.trades) || 0) < 5) return null;
-    return { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgFinal: num6(r.avg_final), avgGiveback: num6(r.avg_giveback) };
+    return { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgFinal: num7(r.avg_final), avgGiveback: num7(r.avg_giveback) };
   } catch (e) {
     console.error(`[trail-guard-learning] baseline stats failed for guard ${guard.id} (non-fatal):`, e?.message || e);
     return null;
@@ -60154,7 +60636,7 @@ function startTrailGuardLearning() {
   }, THROTTLE_MS).unref?.();
   console.log("[trail-guard-learning] started \u2014 trail guards judged against their own record every 30 min.");
 }
-var MIN_GUARDED, WINDOW_DAYS, EVAL_SCOPE, THROTTLE_MS, FINAL_R2, num6, _lastEval, _started2;
+var MIN_GUARDED, WINDOW_DAYS, EVAL_SCOPE, THROTTLE_MS, FINAL_R2, num7, _lastEval, _started2;
 var init_trail_guard_learning = __esm({
   "server/services/trail-guard-learning.ts"() {
     "use strict";
@@ -60174,7 +60656,7 @@ var init_trail_guard_learning = __esm({
        WHEN lower(t.direction) IN ('short','sell') AND t.stop_loss > t.entry_price
          THEN (t.entry_price - t.exit_price) / (t.stop_loss - t.entry_price)
        ELSE NULL END`;
-    num6 = (v) => v == null || isNaN(Number(v)) ? null : Math.round(Number(v) * 100) / 100;
+    num7 = (v) => v == null || isNaN(Number(v)) ? null : Math.round(Number(v) * 100) / 100;
     _lastEval = /* @__PURE__ */ new Map();
     _started2 = false;
   }
@@ -60282,256 +60764,6 @@ var init_crypto_shadow_promotions = __esm({
     SCOPE3 = "crypto_shadow_promotions";
     _cache8 = /* @__PURE__ */ new Map();
     CACHE_MS4 = 3e4;
-  }
-});
-
-// server/services/kalshi-perps.ts
-var kalshi_perps_exports = {};
-__export(kalshi_perps_exports, {
-  aggregateBars: () => aggregateBars,
-  getLiquidStockPerps: () => getLiquidStockPerps,
-  getPerpBars: () => getPerpBars,
-  getPerpCandles: () => getPerpCandles,
-  getPerpCorporateActions: () => getPerpCorporateActions,
-  getPerpFundingEstimate: () => getPerpFundingEstimate,
-  getPerpFundingHistory: () => getPerpFundingHistory,
-  getPerpMarkets: () => getPerpMarkets,
-  getPerpRiskParams: () => getPerpRiskParams,
-  getPerpTouch: () => getPerpTouch,
-  indexExcludeSet: () => indexExcludeSet,
-  perpHost: () => perpHost,
-  underlyingOfPerpTicker: () => underlyingOfPerpTicker
-});
-function perpHost() {
-  return process.env.KALSHI_PERP_HOST === "demo" ? DEMO_HOST : PROD_HOST;
-}
-async function getJson(path23) {
-  const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), 15e3);
-  try {
-    const res2 = await fetch(`${perpHost()}${path23}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
-    if (!res2.ok) throw new Error(`kalshi-perps GET ${path23} -> ${res2.status}`);
-    return await res2.json();
-  } finally {
-    clearTimeout(to);
-  }
-}
-function underlyingOfPerpTicker(ticker) {
-  const m = /^KX([A-Z][A-Z0-9.]*)PERP1?$/.exec(ticker || "");
-  return m ? m[1] : null;
-}
-function indexExcludeSet() {
-  const env = (process.env.KALSHI_STOCK_PERP_EXCLUDE || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
-  return env.length ? new Set(env) : DEFAULT_INDEX_EXCLUDE;
-}
-async function getPerpMarkets() {
-  if (_marketsCache && Date.now() - _marketsCache.at < MARKETS_TTL_MS) return _marketsCache.markets;
-  const out = [];
-  let cursor = null;
-  for (let page = 0; page < 10; page++) {
-    const q = `/margin/markets?limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
-    const data = await getJson(q);
-    for (const m of data?.markets ?? []) {
-      out.push({
-        ticker: String(m.ticker || ""),
-        underlying: underlyingOfPerpTicker(String(m.ticker || "")) || "",
-        title: String(m.title || ""),
-        status: String(m.status || ""),
-        bid: num7(m.bid),
-        ask: num7(m.ask),
-        price: num7(m.price),
-        contractSize: num7(m.contract_size),
-        leverageEstimate: num7(m.leverage_estimate),
-        volume24hContracts: num7(m.volume_24h),
-        volume24hNotionalUsd: num7(m.volume_24h_notional_value_dollars),
-        openInterest: num7(m.open_interest),
-        openInterestNotionalUsd: num7(m.open_interest_notional_value_dollars),
-        tickSize: num7(m.tick_size),
-        fundingCap: num7(m.funding_cap),
-        scheduleOpen: m.schedule?.is_open !== false,
-        haltSources: Array.isArray(m.halt_sources) ? m.halt_sources.map(String) : []
-      });
-    }
-    cursor = data?.cursor || null;
-    if (!cursor) break;
-  }
-  _marketsCache = { at: Date.now(), markets: out };
-  return out;
-}
-async function getLiquidStockPerps() {
-  const minVol = Number(process.env.KALSHI_STOCK_SHADOW_MIN_VOL24_USD ?? 25e3);
-  const minOi = Number(process.env.KALSHI_STOCK_SHADOW_MIN_OI_USD ?? 1e4);
-  const maxTickers = Math.max(1, Math.floor(Number(process.env.KALSHI_STOCK_SHADOW_MAX_TICKERS ?? 20)));
-  const exclude = indexExcludeSet();
-  const all = await getPerpMarkets();
-  return all.filter((m) => m.status === "active" && m.underlying && !exclude.has(m.underlying)).filter((m) => m.price > 0 && m.bid > 0 && m.ask > m.bid).filter((m) => m.volume24hNotionalUsd >= minVol && m.openInterestNotionalUsd >= minOi).sort((a, b) => b.volume24hNotionalUsd - a.volume24hNotionalUsd).slice(0, maxTickers);
-}
-async function getPerpRiskParams() {
-  if (_riskCache && Date.now() - _riskCache.at < 10 * 6e4) return _riskCache.map;
-  const data = await getJson("/margin/risk_parameters");
-  const map = /* @__PURE__ */ new Map();
-  const src = data?.risk_parameters ?? data ?? {};
-  for (const [ticker, v] of Object.entries(src)) {
-    map.set(ticker, {
-      initialMarginMultiplier: v?.initial_margin_multiplier != null ? num7(v.initial_margin_multiplier) : null,
-      liquidationThreshold: v?.liquidation_margin_ratio_threshold != null ? num7(v.liquidation_margin_ratio_threshold) : null
-    });
-  }
-  _riskCache = { at: Date.now(), map };
-  return map;
-}
-function dist(d) {
-  const f = (x) => x == null || x === "" ? null : num7(x);
-  return { o: f(d?.open), h: f(d?.high), l: f(d?.low), c: f(d?.close) };
-}
-function toBar(raw, intervalMin) {
-  const endTs = Number(raw?.end_period_ts);
-  if (!Number.isFinite(endTs) || endTs <= 0) return null;
-  const bid = dist(raw.bid), ask = dist(raw.ask), px = dist(raw.price);
-  const prev = raw.price?.previous != null && raw.price.previous !== "" ? num7(raw.price.previous) : null;
-  const mid = bid.c != null && ask.c != null ? (bid.c + ask.c) / 2 : bid.c ?? ask.c;
-  const c = px.c ?? prev ?? mid;
-  if (c == null || !(c > 0)) return null;
-  const o = px.o ?? prev ?? c;
-  const h = px.h ?? Math.max(o, c);
-  const l = px.l ?? Math.min(o, c);
-  const z3 = { o: 0, h: 0, l: 0, c: 0 };
-  return {
-    t: (endTs - intervalMin * 60) * 1e3,
-    o,
-    h,
-    l,
-    c,
-    v: num7(raw.volume),
-    bid: { o: bid.o ?? c, h: bid.h ?? c, l: bid.l ?? c, c: bid.c ?? c },
-    ask: { o: ask.o ?? c, h: ask.h ?? c, l: ask.l ?? c, c: ask.c ?? c },
-    openInterest: num7(raw.open_interest)
-  };
-}
-async function getPerpCandles(ticker, intervalMin, minutesBack) {
-  const capped = Math.min(Math.max(intervalMin, minutesBack), 5e3 * intervalMin);
-  const key = `${ticker}|${intervalMin}|${capped}`;
-  const hit = _candleCache.get(key);
-  if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.bars;
-  const end = Math.floor(Date.now() / 1e3);
-  const start = end - capped * 60;
-  const data = await getJson(`/margin/markets/${encodeURIComponent(ticker)}/candlesticks?start_ts=${start}&end_ts=${end}&period_interval=${intervalMin}`);
-  const bars = (data?.candlesticks ?? []).map((r) => toBar(r, intervalMin)).filter((b) => !!b).sort((a, b) => a.t - b.t);
-  _candleCache.set(key, { at: Date.now(), bars });
-  return bars;
-}
-function aggregateBars(bars, factor) {
-  if (factor <= 1) return bars;
-  const span = factor * 6e4;
-  const out = [];
-  let cur = null;
-  let bucket = -1;
-  for (const b of bars) {
-    const bk = Math.floor(b.t / span);
-    if (!cur || bk !== bucket) {
-      if (cur) out.push(cur);
-      bucket = bk;
-      cur = { ...b, bid: { ...b.bid }, ask: { ...b.ask } };
-    } else {
-      cur.h = Math.max(cur.h, b.h);
-      cur.l = Math.min(cur.l, b.l);
-      cur.c = b.c;
-      cur.v += b.v;
-      cur.bid.h = Math.max(cur.bid.h, b.bid.h);
-      cur.bid.l = Math.min(cur.bid.l, b.bid.l);
-      cur.bid.c = b.bid.c;
-      cur.ask.h = Math.max(cur.ask.h, b.ask.h);
-      cur.ask.l = Math.min(cur.ask.l, b.ask.l);
-      cur.ask.c = b.ask.c;
-      cur.openInterest = b.openInterest;
-    }
-  }
-  if (cur) out.push(cur);
-  return out;
-}
-async function getPerpBars(ticker, timeframe, count) {
-  const tf = TF_MINUTES2[timeframe] ?? 15;
-  const strip = (bars2) => bars2.slice(-count).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
-  if (tf === 60 || tf === 1440) {
-    const bars2 = await getPerpCandles(ticker, tf === 60 ? 60 : 1440, (count + 6) * tf);
-    return strip(bars2);
-  }
-  if (tf === 240) {
-    const bars2 = await getPerpCandles(ticker, 60, (Math.ceil(count / 4) + 6) * 60);
-    return strip(aggregateBars(bars2, 4));
-  }
-  let minutes = Math.min(5e3, Math.ceil(count * tf * 2));
-  let bars = aggregateBars(await getPerpCandles(ticker, 1, minutes), tf);
-  if (bars.length < count && minutes < 5e3) {
-    minutes = 5e3;
-    bars = aggregateBars(await getPerpCandles(ticker, 1, minutes), tf);
-  }
-  return strip(bars);
-}
-async function getPerpTouch(ticker) {
-  try {
-    const data = await getJson(`/margin/markets/${encodeURIComponent(ticker)}/orderbook`);
-    const bids = data?.orderbook?.bids ?? [];
-    const asks = data?.orderbook?.asks ?? [];
-    const bid = bids.reduce((mx, lvl2) => Math.max(mx, num7(lvl2?.[0])), 0);
-    const ask = asks.reduce((mn, lvl2) => {
-      const p2 = num7(lvl2?.[0]);
-      return p2 > 0 && (mn === 0 || p2 < mn) ? p2 : mn;
-    }, 0);
-    return bid > 0 && ask > bid ? { bid, ask } : null;
-  } catch {
-    return null;
-  }
-}
-async function getPerpFundingHistory(ticker) {
-  const data = await getJson(`/margin/funding_rates/historical?ticker=${encodeURIComponent(ticker)}`);
-  return (data?.funding_rates ?? []).map((r) => ({ fundingTimeMs: new Date(r.funding_time).getTime(), rate: num7(r.funding_rate), markPrice: num7(r.mark_price) })).filter((r) => Number.isFinite(r.fundingTimeMs) && r.fundingTimeMs > 0).sort((a, b) => a.fundingTimeMs - b.fundingTimeMs);
-}
-async function getPerpFundingEstimate(ticker) {
-  try {
-    const data = await getJson(`/margin/funding_rates/estimate?ticker=${encodeURIComponent(ticker)}`);
-    const next = new Date(data?.next_funding_time).getTime();
-    return { rate: num7(data?.funding_rate), nextFundingTimeMs: Number.isFinite(next) ? next : 0 };
-  } catch {
-    return null;
-  }
-}
-async function getPerpCorporateActions() {
-  if (_caCache && Date.now() - _caCache.at < 10 * 6e4) return _caCache.actions;
-  const data = await getJson("/margin/corporate_actions");
-  const list = Array.isArray(data) ? data : data?.corporate_actions ?? data?.notices ?? [];
-  const actions = list.map((a) => {
-    const t = a?.effective_ts ?? a?.effective_time ?? a?.scheduled_ts ?? a?.scheduled_time ?? a?.ex_date ?? a?.pay_date ?? a?.record_date ?? null;
-    const ms = t == null ? null : typeof t === "number" ? t > 1e12 ? t : t * 1e3 : new Date(t).getTime();
-    return {
-      ticker: String(a?.market_ticker ?? a?.ticker ?? ""),
-      type: String(a?.type ?? a?.action_type ?? ""),
-      status: String(a?.status ?? "").toLowerCase(),
-      effectiveMs: ms != null && Number.isFinite(ms) ? ms : null,
-      raw: a
-    };
-  }).filter((a) => !!a.ticker);
-  _caCache = { at: Date.now(), actions };
-  return actions;
-}
-var PROD_HOST, DEMO_HOST, num7, DEFAULT_INDEX_EXCLUDE, _marketsCache, MARKETS_TTL_MS, _riskCache, _candleCache, CANDLE_TTL_MS, TF_MINUTES2, _caCache;
-var init_kalshi_perps = __esm({
-  "server/services/kalshi-perps.ts"() {
-    "use strict";
-    PROD_HOST = "https://external-api.kalshi.com/trade-api/v2";
-    DEMO_HOST = "https://external-api.demo.kalshi.co/trade-api/v2";
-    num7 = (v) => {
-      const n = typeof v === "string" ? parseFloat(v) : Number(v);
-      return Number.isFinite(n) ? n : 0;
-    };
-    DEFAULT_INDEX_EXCLUDE = /* @__PURE__ */ new Set(["SPY", "QQQ", "DIA", "IWM", "US500", "USTECH100", "SPX", "NDX", "VIX"]);
-    _marketsCache = null;
-    MARKETS_TTL_MS = 6e4;
-    _riskCache = null;
-    _candleCache = /* @__PURE__ */ new Map();
-    CANDLE_TTL_MS = 45e3;
-    TF_MINUTES2 = { "1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440 };
-    _caCache = null;
   }
 });
 
@@ -67904,20 +68136,921 @@ var init_kalshi_stock_shadow = __esm({
   }
 });
 
-// server/services/kalshi-price-snapshots.ts
-function ensureKalshiPriceSnapshotTable() {
+// server/services/ensure-kalshi-perp-live-tables.ts
+function ensureKalshiPerpLiveTables() {
   if (!_ensured11) {
-    _ensured11 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_price_snapshots (
-      id serial PRIMARY KEY, lane text NOT NULL, user_id int NOT NULL,
-      market_ticker text NOT NULL, event_ticker text, series_ticker text,
-      yes_bid_cents int, yes_ask_cents int, last_price_cents int,
-      volume double precision, kind text NOT NULL DEFAULT 'interval',
-      captured_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_price_snapshots_market_time ON kalshi_price_snapshots (market_ticker, captured_at)`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_price_snapshots_time ON kalshi_price_snapshots (captured_at)`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_price_snapshots_lane_user ON kalshi_price_snapshots (lane, user_id)`)).then(() => void 0).catch((e) => {
+    _ensured11 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_live_trades (
+      id serial PRIMARY KEY, user_id int NOT NULL,
+      shadow_trade_id int NOT NULL UNIQUE,
+      strategy text NOT NULL, ticker text NOT NULL, underlying text NOT NULL,
+      direction text NOT NULL,
+      contracts double precision NOT NULL DEFAULT 0,
+      entry_price double precision, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
+      sl_pct double precision NOT NULL, notional_usd double precision NOT NULL DEFAULT 0,
+      max_hours double precision NOT NULL,
+      entry_order_id text, entry_client_order_id text,
+      status text NOT NULL DEFAULT 'pending_entry',
+      exit_price double precision, exit_reason text,
+      gross_pnl_usd double precision, funding_usd double precision, net_pnl_usd double precision,
+      return_pct double precision, r_multiple double precision,
+      opened_at timestamptz, closed_at timestamptz,
+      last_reconciled_at timestamptz, notes text,
+      created_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_live_trades_user_status ON kalshi_perp_live_trades (user_id, status)`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_live_orders (
+      id serial PRIMARY KEY, user_id int NOT NULL, live_trade_id int,
+      kind text NOT NULL, client_order_id text NOT NULL UNIQUE,
+      order_id text, ticker text NOT NULL, side text NOT NULL,
+      count double precision NOT NULL, price double precision NOT NULL,
+      status text NOT NULL DEFAULT 'sending',
+      fill_count double precision, remaining_count double precision, avg_fill_price double precision,
+      error text, reconcile_attempts int NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now())`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_live_orders_trade ON kalshi_perp_live_orders (live_trade_id)`)).then(() => void 0).catch((e) => {
       _ensured11 = null;
       throw e;
     });
   }
   return _ensured11;
+}
+var _ensured11;
+var init_ensure_kalshi_perp_live_tables = __esm({
+  "server/services/ensure-kalshi-perp-live-tables.ts"() {
+    "use strict";
+    init_db();
+    _ensured11 = null;
+  }
+});
+
+// server/services/kalshi-perp-live.ts
+var kalshi_perp_live_exports = {};
+__export(kalshi_perp_live_exports, {
+  evaluatePerpPromotionBar: () => evaluatePerpPromotionBar,
+  exitLevelsFor: () => exitLevelsFor,
+  getArmedPerpStrategies: () => getArmedPerpStrategies,
+  getKalshiPerpLiveReport: () => getKalshiPerpLiveReport,
+  isoWeekKey: () => isoWeekKey,
+  parseArmedStrategies: () => parseArmedStrategies,
+  perpLiveContractsFor: () => perpLiveContractsFor,
+  perpLiveEnabled: () => perpLiveEnabled,
+  runKalshiPerpLiveCycle: () => runKalshiPerpLiveCycle,
+  scanExitTrigger: () => scanExitTrigger,
+  sizeLiveEntry: () => sizeLiveEntry,
+  startKalshiPerpLive: () => startKalshiPerpLive
+});
+function isoWeekKey(ms) {
+  const d = new Date(ms);
+  const day = (d.getUTCDay() + 6) % 7;
+  const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day));
+  return monday.toISOString().slice(0, 10);
+}
+function evaluatePerpPromotionBar(closes, nowMs = Date.now()) {
+  const valid = closes.filter((c) => Number.isFinite(c.returnPct) && Number.isFinite(c.closedAtMs)).sort((a, b) => a.closedAtMs - b.closedAtMs);
+  const trades = valid.length;
+  const rRows = valid.filter((c) => c.rMultiple != null && Number.isFinite(c.rMultiple));
+  const avgR = rRows.length ? rRows.reduce((a, c) => a + c.rMultiple, 0) / rRows.length : null;
+  const winRate2 = trades ? valid.filter((c) => c.returnPct > 0).length / trades : null;
+  const now = new Date(nowMs);
+  const dow = (now.getUTCDay() + 6) % 7;
+  const windowStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - dow) - 7 * 864e5;
+  const byWeek = /* @__PURE__ */ new Map();
+  for (const c of valid) {
+    if (c.closedAtMs < windowStart || c.rMultiple == null || !Number.isFinite(c.rMultiple)) continue;
+    const k2 = isoWeekKey(c.closedAtMs);
+    byWeek.set(k2, (byWeek.get(k2) ?? 0) + c.rMultiple);
+  }
+  const losingWeeks = Array.from(byWeek.entries()).filter(([, sum]) => sum < 0).map(([k2]) => k2).sort();
+  const maxDrawdownPct = accountReplay(valid.map((c) => c.returnPct)).maxDrawdownPct;
+  const reasons = [];
+  if (trades < 50) reasons.push(`${trades}/50 resolved shadow trades`);
+  if (avgR == null || avgR < 0.2) reasons.push(`avg ${avgR == null ? "\u2014" : avgR.toFixed(2)}R is below the +0.2R bar`);
+  if (winRate2 == null || winRate2 < 0.4) reasons.push(`win rate ${winRate2 == null ? "\u2014" : `${Math.round(winRate2 * 100)}%`} is below 40%`);
+  if (losingWeeks.length) reasons.push(`losing week in the last two weeks: ${losingWeeks.join(", ")}`);
+  if (maxDrawdownPct > 10) reasons.push(`shadow drawdown ${maxDrawdownPct.toFixed(1)}% exceeds 10%`);
+  return { met: reasons.length === 0, trades, avgR, winRate: winRate2, losingWeeks, maxDrawdownPct, reasons };
+}
+async function loadShadowClosesByStrategy(userId) {
+  await ensureKalshiPerpShadowTables();
+  const { rows } = await pool.query(
+    `SELECT strategy, return_pct, r_multiple, closed_at FROM kalshi_perp_shadow_trades
+      WHERE user_id=$1 AND status='closed' AND exclude_from_stats IS NOT TRUE
+        AND return_pct IS NOT NULL AND closed_at IS NOT NULL ORDER BY closed_at ASC`,
+    [userId]
+  );
+  const out = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const list = out.get(String(r.strategy)) ?? [];
+    list.push({
+      closedAtMs: new Date(r.closed_at).getTime(),
+      returnPct: Number(r.return_pct),
+      rMultiple: r.r_multiple == null ? null : Number(r.r_multiple)
+    });
+    out.set(String(r.strategy), list);
+  }
+  return out;
+}
+function perpLiveContractsFor(targetNotionalUsd, price) {
+  if (!(targetNotionalUsd > 0) || !(price > 0)) return 0;
+  return Math.floor(targetNotionalUsd / price);
+}
+function sizeLiveEntry(equityUsd, price) {
+  const modelTarget = NOTIONAL3();
+  const equityCap = equityUsd != null && equityUsd > 0 ? equityUsd * MAX_EQUITY_PCT() / 100 : null;
+  const targetUsd = equityCap != null ? Math.min(modelTarget, equityCap) : modelTarget;
+  const contracts = perpLiveContractsFor(targetUsd, price);
+  if (contracts < 1) {
+    return { contracts: 0, notionalUsd: 0, targetUsd, reason: `price ${price} leaves no whole contract inside the $${targetUsd.toFixed(0)} target` };
+  }
+  return { contracts, notionalUsd: contracts * price, targetUsd, reason: null };
+}
+function exitLevelsFor(direction, fillPrice, slPct) {
+  const short = direction === "short";
+  return {
+    stop: short ? fillPrice * (1 + slPct / 100) : fillPrice * (1 - slPct / 100),
+    target: short ? fillPrice * (1 - slPct * 2 / 100) : fillPrice * (1 + slPct * 2 / 100)
+  };
+}
+function scanExitTrigger(candles, direction, stop, target) {
+  const short = direction === "short";
+  for (const cd of candles) {
+    if (short ? cd.ask.h >= stop : cd.bid.l <= stop) return "stop";
+    if (short ? cd.ask.l <= target : cd.bid.h >= target) return "target";
+  }
+  return null;
+}
+function parseArmedStrategies(v) {
+  const out = /* @__PURE__ */ new Set();
+  const add = (s) => {
+    if (typeof s === "string" && s.trim()) out.add(s.trim());
+  };
+  if (Array.isArray(v)) v.forEach(add);
+  else if (v && typeof v === "object") {
+    if (Array.isArray(v.strategies)) v.strategies.forEach(add);
+    if (Array.isArray(v.armed)) v.armed.forEach(add);
+    else if (v.armed && typeof v.armed === "object") {
+      for (const [k2, on] of Object.entries(v.armed)) if (on) add(k2);
+    }
+    if (v.armedStrategies && typeof v.armedStrategies === "object") {
+      for (const [k2, on] of Object.entries(v.armedStrategies)) if (on) add(k2);
+    }
+    for (const [k2, val] of Object.entries(v)) {
+      if (k2 === "strategies" || k2 === "armed" || k2 === "armedStrategies") continue;
+      if (val === true) add(k2);
+      else if (val && typeof val === "object" && val.armed === true) add(k2);
+    }
+  }
+  return out;
+}
+async function getArmedPerpStrategies(userId) {
+  for (const scope of ARM_SCOPES) {
+    let v = null;
+    try {
+      v = await getRuntimeStateStrict(scope, String(userId));
+    } catch {
+      return /* @__PURE__ */ new Set();
+    }
+    const parsed = parseArmedStrategies(v);
+    if (parsed.size) return parsed;
+  }
+  return /* @__PURE__ */ new Set();
+}
+async function loadPerpLiveState(userId) {
+  try {
+    const v = await getRuntimeStateStrict(STATE_SCOPE2, String(userId));
+    if (v && typeof v === "object") return { ...defaultState(), ...v };
+  } catch {
+  }
+  return defaultState();
+}
+function savePerpLiveState(userId, s) {
+  saveRuntimeState(STATE_SCOPE2, String(userId), s);
+}
+async function adoptFoundOrder(userId, orderRowId, found) {
+  const status = found.fillCount > 0 ? "reconciled" : "canceled";
+  await pool.query(
+    `UPDATE kalshi_perp_live_orders SET status=$2, order_id=$3, fill_count=$4, avg_fill_price=$5, updated_at=now() WHERE id=$1`,
+    [orderRowId, status, found.orderId, found.fillCount, found.avgFillPrice]
+  ).catch(() => {
+  });
+  if (found.fillCount > 0) return { kind: "filled", orderId: found.orderId, fillCount: found.fillCount, avgFillPrice: found.avgFillPrice };
+  return { kind: "unfilled", orderId: found.orderId, fillCount: 0, avgFillPrice: null };
+}
+async function sendMarginOrderIntent(userId, intent) {
+  await ensureKalshiPerpLiveTables();
+  const ins = await pool.query(
+    `INSERT INTO kalshi_perp_live_orders (user_id, live_trade_id, kind, client_order_id, ticker, side, count, price, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'sending')
+     ON CONFLICT (client_order_id) DO NOTHING RETURNING id`,
+    [userId, intent.liveTradeId, intent.kind, intent.clientOrderId, intent.ticker, intent.side, intent.count, intent.price]
+  );
+  let orderRowId = ins.rows[0]?.id ?? null;
+  if (!orderRowId) {
+    const { rows } = await pool.query(`SELECT * FROM kalshi_perp_live_orders WHERE client_order_id=$1`, [intent.clientOrderId]);
+    const existing = rows[0];
+    if (!existing) return { kind: "blocked", why: "order intent row vanished" };
+    orderRowId = Number(existing.id);
+    if (existing.status === "filled" || existing.status === "partial") {
+      return { kind: existing.status === "filled" ? "filled" : "partial", orderId: String(existing.order_id ?? ""), fillCount: Number(existing.fill_count) || 0, avgFillPrice: existing.avg_fill_price == null ? null : Number(existing.avg_fill_price) };
+    }
+    if (existing.status === "rejected") return { kind: "rejected", code: "", message: String(existing.error ?? "previously rejected") };
+    if (existing.status === "not_placed") return { kind: "unfilled", orderId: "", fillCount: 0, avgFillPrice: null };
+    const found2 = await findKalshiMarginOrderByClientId(userId, intent.clientOrderId).catch(() => null);
+    await pool.query(`UPDATE kalshi_perp_live_orders SET reconcile_attempts = reconcile_attempts + 1, updated_at=now() WHERE id=$1`, [orderRowId]).catch(() => {
+    });
+    if (found2) return adoptFoundOrder(userId, orderRowId, found2);
+    const ageMs = Date.now() - new Date(existing.created_at).getTime();
+    if (ageMs > AMBIGUOUS_ABANDON_MS && Number(existing.reconcile_attempts ?? 0) >= 1) {
+      await pool.query(`UPDATE kalshi_perp_live_orders SET status='not_placed', error='never appeared on Kalshi after repeated reconciliation', updated_at=now() WHERE id=$1`, [orderRowId]).catch(() => {
+      });
+      return { kind: "unfilled", orderId: "", fillCount: 0, avgFillPrice: null };
+    }
+    return { kind: "blocked", why: `order ${intent.clientOrderId} is unresolved on Kalshi (sent, no confirmation) \u2014 waiting for reconciliation` };
+  }
+  const outcome = await placeKalshiMarginOrder(userId, {
+    ticker: intent.ticker,
+    clientOrderId: intent.clientOrderId,
+    side: intent.side,
+    count: intent.count,
+    price: intent.price,
+    tickSize: intent.tickSize,
+    reduceOnly: intent.reduceOnly
+  });
+  if (outcome.outcome === "responded") {
+    const status = outcome.fillCount <= 0 ? "canceled" : outcome.remainingCount > 0 ? "partial" : "filled";
+    await pool.query(
+      `UPDATE kalshi_perp_live_orders SET status=$2, order_id=$3, fill_count=$4, remaining_count=$5, avg_fill_price=$6, updated_at=now() WHERE id=$1`,
+      [orderRowId, status, outcome.orderId, outcome.fillCount, outcome.remainingCount, outcome.avgFillPrice]
+    ).catch(() => {
+    });
+    if (outcome.fillCount <= 0) return { kind: "unfilled", orderId: outcome.orderId, fillCount: 0, avgFillPrice: null };
+    return { kind: outcome.remainingCount > 0 ? "partial" : "filled", orderId: outcome.orderId, fillCount: outcome.fillCount, avgFillPrice: outcome.avgFillPrice };
+  }
+  if (outcome.outcome === "rejected") {
+    if (outcome.code === "order_already_exists") {
+      const found2 = await findKalshiMarginOrderByClientId(userId, intent.clientOrderId).catch(() => null);
+      if (found2) return adoptFoundOrder(userId, orderRowId, found2);
+      await pool.query(`UPDATE kalshi_perp_live_orders SET status='ambiguous', error='order_already_exists but order not yet visible', updated_at=now() WHERE id=$1`, [orderRowId]).catch(() => {
+      });
+      return { kind: "blocked", why: "Kalshi reports this order exists but it is not visible yet \u2014 waiting for reconciliation" };
+    }
+    await pool.query(
+      `UPDATE kalshi_perp_live_orders SET status='rejected', error=$2, updated_at=now() WHERE id=$1`,
+      [orderRowId, `${outcome.code}: ${outcome.message}`.slice(0, 500)]
+    ).catch(() => {
+    });
+    return { kind: "rejected", code: outcome.code, message: outcome.message };
+  }
+  await pool.query(
+    `UPDATE kalshi_perp_live_orders SET status='ambiguous', error=$2, updated_at=now() WHERE id=$1`,
+    [orderRowId, outcome.error.slice(0, 500)]
+  ).catch(() => {
+  });
+  const found = await findKalshiMarginOrderByClientId(userId, intent.clientOrderId).catch(() => null);
+  if (found) return adoptFoundOrder(userId, orderRowId, found);
+  return { kind: "blocked", why: `order ${intent.clientOrderId} unconfirmed (${outcome.error}) \u2014 reconciliation pending, no retry fired` };
+}
+async function fundingHistoryUsd(userId, ticker, fromMs, toMs) {
+  return getKalshiMarginFundingHistoryUsd(userId, ticker, fromMs, toMs);
+}
+async function closeLiveTrade(userId, t, exitPrice, why, fundingUsd) {
+  const entry = Number(t.entry_price);
+  const contracts = Number(t.contracts);
+  const dirSign = t.direction === "short" ? -1 : 1;
+  const gross = exitPrice != null && entry > 0 && contracts > 0 ? dirSign * (exitPrice - entry) * contracts : null;
+  const net = gross != null ? gross + (fundingUsd ?? 0) : null;
+  const notional = entry > 0 && contracts > 0 ? entry * contracts : Number(t.notional_usd) || 0;
+  const returnPct = net != null && notional > 0 ? net / notional * 100 : null;
+  const rMultiple2 = returnPct != null && Number(t.sl_pct) > 0 ? returnPct / Number(t.sl_pct) : null;
+  const upd = await pool.query(
+    `UPDATE kalshi_perp_live_trades SET status='closed', exit_price=$2, exit_reason=$3, gross_pnl_usd=$4,
+       funding_usd=$5, net_pnl_usd=$6, return_pct=$7, r_multiple=$8, closed_at=now()
+     WHERE id=$1 AND status IN ('open','closing')`,
+    [t.id, exitPrice, why, gross, fundingUsd, net, returnPct, rMultiple2]
+  );
+  if (!upd.rowCount) return false;
+  Promise.resolve().then(async () => {
+    try {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      await db2.insert(aiTradeResults2).values({
+        userId,
+        symbol: `KALSHI:${t.ticker}`,
+        direction: t.direction === "short" ? "SELL" : "BUY",
+        entryPrice: entry,
+        exitPrice: exitPrice ?? void 0,
+        stopLoss: Number(t.stop_loss),
+        takeProfit: Number(t.take_profit),
+        result: net == null ? "PENDING" : net > 0 ? "WIN" : net < 0 ? "LOSS" : "BREAKEVEN",
+        profitLoss: net == null ? void 0 : Math.round(net * 100) / 100,
+        closedAt: /* @__PURE__ */ new Date(),
+        source: "kalshi_perp",
+        mt5Ticket: `perp-live-${t.id}`,
+        notes: `${t.strategy}: Kalshi stock-perp LIVE | ${why}${fundingUsd == null ? " | funding unrecorded" : ""}`
+      });
+    } catch {
+    }
+  });
+  return true;
+}
+async function reconcileLivePositions(userId, state) {
+  const positions = await getKalshiMarginPositions(userId);
+  const byTicker = new Map(positions.map((p2) => [p2.ticker, p2]));
+  const { rows } = await pool.query(
+    `SELECT * FROM kalshi_perp_live_trades WHERE user_id=$1 AND status IN ('open','closing','pending_entry') ORDER BY id ASC`,
+    [userId]
+  );
+  const claimed = /* @__PURE__ */ new Set();
+  for (const t of rows) {
+    const pos = byTicker.get(String(t.ticker));
+    if (t.status === "pending_entry") {
+      const { rows: ords } = await pool.query(
+        `SELECT * FROM kalshi_perp_live_orders WHERE live_trade_id=$1 AND kind='entry' ORDER BY id DESC LIMIT 1`,
+        [t.id]
+      );
+      const ord = ords[0];
+      if (ord && (ord.status === "sending" || ord.status === "ambiguous")) {
+        const res2 = await sendMarginOrderIntent(userId, {
+          liveTradeId: Number(t.id),
+          kind: "entry",
+          clientOrderId: String(ord.client_order_id),
+          ticker: String(t.ticker),
+          side: ord.side === "ask" ? "ask" : "bid",
+          count: Number(ord.count),
+          price: Number(ord.price),
+          reduceOnly: false
+        });
+        if ((res2.kind === "filled" || res2.kind === "partial") && pos) {
+          const fillPrice = res2.avgFillPrice ?? pos.entryPrice ?? Number(ord.price);
+          const levels = exitLevelsFor(String(t.direction), fillPrice, Number(t.sl_pct));
+          await pool.query(
+            `UPDATE kalshi_perp_live_trades SET status='open', contracts=$2, entry_price=$3, stop_loss=$4, take_profit=$5,
+               notional_usd=$6, entry_order_id=$7, opened_at=COALESCE(opened_at, now()), last_reconciled_at=now(),
+               notes=COALESCE(notes,'') || ' entry adopted via reconciliation;' WHERE id=$1`,
+            [t.id, Math.abs(pos.contracts), fillPrice, levels.stop, levels.target, Math.abs(pos.contracts) * fillPrice, res2.orderId]
+          );
+          claimed.add(String(t.ticker));
+          continue;
+        }
+        if (res2.kind === "unfilled") {
+          await pool.query(`UPDATE kalshi_perp_live_trades SET status='unfilled', closed_at=now(), exit_reason='entry never landed (reconciled)', last_reconciled_at=now() WHERE id=$1`, [t.id]);
+          continue;
+        }
+        if (res2.kind === "rejected") {
+          await pool.query(
+            `UPDATE kalshi_perp_live_trades SET status='rejected', closed_at=now(), exit_reason=$2, last_reconciled_at=now() WHERE id=$1`,
+            [t.id, `entry rejected: ${res2.code} ${res2.message}`.slice(0, 300)]
+          );
+        }
+        continue;
+      }
+      if (ord && (ord.status === "filled" || ord.status === "partial" || ord.status === "reconciled") && Number(ord.fill_count ?? 0) > 0) {
+        if (pos) {
+          const fillPrice = ord.avg_fill_price != null ? Number(ord.avg_fill_price) : pos.entryPrice ?? Number(ord.price);
+          const levels = exitLevelsFor(String(t.direction), fillPrice, Number(t.sl_pct));
+          await pool.query(
+            `UPDATE kalshi_perp_live_trades SET status='open', contracts=$2, entry_price=$3, stop_loss=$4, take_profit=$5,
+               notional_usd=$6, entry_order_id=$7, opened_at=COALESCE(opened_at, now()), last_reconciled_at=now(),
+               notes=COALESCE(notes,'') || ' entry adopted from terminal order state;' WHERE id=$1`,
+            [t.id, Math.abs(pos.contracts), fillPrice, levels.stop, levels.target, Math.abs(pos.contracts) * fillPrice, ord.order_id != null ? String(ord.order_id) : null]
+          );
+          claimed.add(String(t.ticker));
+        } else {
+          const fillPrice = ord.avg_fill_price != null ? Number(ord.avg_fill_price) : Number(ord.price);
+          await pool.query(
+            `UPDATE kalshi_perp_live_trades SET status='open', contracts=$2, entry_price=$3, opened_at=COALESCE(opened_at, $4), entry_order_id=$5 WHERE id=$1`,
+            [t.id, Number(ord.fill_count), fillPrice, ord.created_at, ord.order_id != null ? String(ord.order_id) : null]
+          );
+          const fills = await getKalshiMarginFills(userId, String(t.ticker)).catch(() => []);
+          const ordMs = new Date(ord.created_at).getTime();
+          const exitSide = t.direction === "short" ? "bid" : "ask";
+          const closeFill = fills.filter((f) => String(f.side ?? "") === exitSide).map((f) => ({ px: Number(f.price ?? f.fill_price ?? NaN), ts: new Date(f.created_time ?? f.ts ?? f.created_at ?? 0).getTime() })).filter((f) => Number.isFinite(f.px) && f.px > 0 && f.ts >= ordMs).sort((a, b) => b.ts - a.ts)[0];
+          await closeLiveTrade(userId, { ...t, contracts: Number(ord.fill_count), entry_price: fillPrice }, closeFill?.px ?? null, "reconciled_closed", null);
+        }
+        continue;
+      }
+      if (ord && (ord.status === "canceled" || ord.status === "not_placed")) {
+        await pool.query(`UPDATE kalshi_perp_live_trades SET status='unfilled', closed_at=now(), exit_reason='entry never landed (terminal order state)', last_reconciled_at=now() WHERE id=$1`, [t.id]);
+        continue;
+      }
+      if (ord && ord.status === "rejected") {
+        await pool.query(
+          `UPDATE kalshi_perp_live_trades SET status='rejected', closed_at=now(), exit_reason=$2, last_reconciled_at=now() WHERE id=$1`,
+          [t.id, `entry rejected: ${String(ord.error ?? "")}`.slice(0, 300)]
+        );
+        continue;
+      }
+      if (!ord && !pos) {
+        const ageMs = Date.now() - new Date(t.created_at).getTime();
+        if (ageMs > 2 * 6e4) {
+          await pool.query(`UPDATE kalshi_perp_live_trades SET status='unfilled', closed_at=now(), exit_reason='entry intent lost before send (recovered in reconciliation)', last_reconciled_at=now() WHERE id=$1`, [t.id]);
+        }
+      }
+      continue;
+    }
+    if (!pos) {
+      const fills = await getKalshiMarginFills(userId, String(t.ticker)).catch(() => []);
+      const openedMs = t.opened_at ? new Date(t.opened_at).getTime() : 0;
+      const exitSide = t.direction === "short" ? "bid" : "ask";
+      const closeFill = fills.filter((f) => String(f.side ?? "") === exitSide).map((f) => ({ px: Number(f.price ?? f.fill_price ?? NaN), ts: new Date(f.created_time ?? f.ts ?? f.created_at ?? 0).getTime() })).filter((f) => Number.isFinite(f.px) && f.px > 0 && (openedMs === 0 || f.ts >= openedMs)).sort((a, b) => b.ts - a.ts)[0];
+      await closeLiveTrade(userId, t, closeFill?.px ?? null, "reconciled_closed", null);
+      continue;
+    }
+    claimed.add(String(t.ticker));
+    const kalshiCount = Math.abs(pos.contracts);
+    const kalshiDir = pos.contracts < 0 ? "short" : "long";
+    if (kalshiDir !== t.direction) {
+      await pool.query(
+        `UPDATE kalshi_perp_live_trades SET contracts=$2, direction=$3, last_reconciled_at=now(),
+           notes=COALESCE(notes,'') || ' direction corrected to Kalshi position;' WHERE id=$1`,
+        [t.id, kalshiCount, kalshiDir]
+      );
+      t.direction = kalshiDir;
+      t.contracts = kalshiCount;
+    } else if (Math.abs(kalshiCount - Number(t.contracts)) > 1e-9) {
+      await pool.query(
+        `UPDATE kalshi_perp_live_trades SET contracts=$2, last_reconciled_at=now(),
+           notes=COALESCE(notes,'') || ' size corrected to Kalshi position;' WHERE id=$1`,
+        [t.id, kalshiCount]
+      );
+      t.contracts = kalshiCount;
+    } else {
+      await pool.query(`UPDATE kalshi_perp_live_trades SET last_reconciled_at=now() WHERE id=$1`, [t.id]).catch(() => {
+      });
+    }
+  }
+  state.unknownPositions = positions.filter((p2) => !claimed.has(p2.ticker)).map((p2) => ({ ticker: p2.ticker, contracts: p2.contracts, seenAt: (/* @__PURE__ */ new Date()).toISOString() }));
+  return { positions, byTicker };
+}
+async function monitorLiveExits(userId, actions) {
+  const { rows } = await pool.query(
+    `SELECT * FROM kalshi_perp_live_trades WHERE user_id=$1 AND status IN ('open','closing') ORDER BY id ASC`,
+    [userId]
+  );
+  for (const t of rows) {
+    try {
+      const openedMs = t.opened_at ? new Date(t.opened_at).getTime() : Date.now();
+      const ca = actions.find((a) => a.ticker === t.ticker && a.status !== "cancelled" && a.status !== "lapsed" && a.effectiveMs != null && a.effectiveMs > openedMs && a.effectiveMs <= Date.now());
+      let why = t.status === "closing" ? "closing" : null;
+      if (ca) why = "corporate_action";
+      if (!why) {
+        const since = Math.max(openedMs, _exitWatermark.get(Number(t.id)) ?? openedMs);
+        const mins = Math.max(1, Math.min(5e3, Math.ceil((Date.now() - since) / 6e4) + 2));
+        const candles = await getPerpCandles(String(t.ticker), 1, mins).catch(() => []);
+        const fresh = candles.filter((c) => c.t + 6e4 > since);
+        if (fresh.length) {
+          why = scanExitTrigger(fresh, String(t.direction), Number(t.stop_loss), Number(t.take_profit));
+          _exitWatermark.set(Number(t.id), fresh[fresh.length - 1].t + 6e4);
+        }
+        if (!why && (Date.now() - openedMs) / 36e5 >= Number(t.max_hours)) why = "time limit";
+      }
+      if (!why) continue;
+      if (t.status !== "closing") {
+        await pool.query(`UPDATE kalshi_perp_live_trades SET status='closing' WHERE id=$1 AND status='open'`, [t.id]).catch(() => {
+        });
+      }
+      const { rows: priorExits } = await pool.query(
+        `SELECT * FROM kalshi_perp_live_orders WHERE live_trade_id=$1 AND kind='exit' ORDER BY id DESC LIMIT 1`,
+        [t.id]
+      );
+      const prior = priorExits[0];
+      let price;
+      let res2;
+      if (prior && (prior.status === "sending" || prior.status === "ambiguous")) {
+        price = Number(prior.price);
+        res2 = await sendMarginOrderIntent(userId, {
+          liveTradeId: Number(t.id),
+          kind: "exit",
+          clientOrderId: String(prior.client_order_id),
+          ticker: String(t.ticker),
+          side: prior.side === "ask" ? "ask" : "bid",
+          count: Number(prior.count),
+          price,
+          reduceOnly: true
+        });
+      } else {
+        const touch = await getPerpTouch(String(t.ticker)).catch(() => null);
+        if (!touch) {
+          console.error(`[kalshi-perp-live] exit ${why} for trade ${t.id} deferred \u2014 no live touch for ${t.ticker}`);
+          continue;
+        }
+        const short = t.direction === "short";
+        const slip = EXIT_SLIPPAGE_PCT() / 100;
+        const side = short ? "bid" : "ask";
+        price = short ? touch.ask * (1 + slip) : touch.bid * (1 - slip);
+        const attempt = await pool.query(
+          `SELECT count(*)::int AS n FROM kalshi_perp_live_orders WHERE live_trade_id=$1 AND kind='exit'`,
+          [t.id]
+        );
+        const clientOrderId = `vedd-perp-x${t.id}-${Number(attempt.rows[0]?.n ?? 0) + 1}`;
+        res2 = await sendMarginOrderIntent(userId, {
+          liveTradeId: Number(t.id),
+          kind: "exit",
+          clientOrderId,
+          ticker: String(t.ticker),
+          side,
+          count: Number(t.contracts),
+          price,
+          reduceOnly: true
+        });
+      }
+      if (res2.kind === "filled") {
+        const funding = await fundingHistoryUsd(userId, String(t.ticker), openedMs, Date.now());
+        await closeLiveTrade(userId, t, res2.avgFillPrice ?? price, why, funding);
+        _exitWatermark.delete(Number(t.id));
+      } else if (res2.kind === "partial") {
+        const remaining = Math.max(0, Number(t.contracts) - res2.fillCount);
+        await pool.query(`UPDATE kalshi_perp_live_trades SET contracts=$2, notes=COALESCE(notes,'') || ' partial exit fill;' WHERE id=$1`, [t.id, remaining]);
+        if (remaining <= 0) {
+          const funding = await fundingHistoryUsd(userId, String(t.ticker), openedMs, Date.now());
+          await closeLiveTrade(userId, { ...t, contracts: res2.fillCount }, res2.avgFillPrice ?? price, why, funding);
+          _exitWatermark.delete(Number(t.id));
+        }
+      } else if (res2.kind === "rejected") {
+        console.error(`[kalshi-perp-live] exit order rejected for trade ${t.id} (${why}): ${res2.code} ${res2.message} \u2014 will retry next cycle`);
+      } else if (res2.kind === "unfilled") {
+        console.error(`[kalshi-perp-live] exit order for trade ${t.id} (${why}) did not fill (IOC) \u2014 will retry next cycle`);
+      } else if (res2.kind === "blocked") {
+        console.error(`[kalshi-perp-live] exit order for trade ${t.id} (${why}) blocked: ${res2.why}`);
+      }
+    } catch (e) {
+      console.error(`[kalshi-perp-live] exit monitor failed for trade ${t.id} (non-fatal):`, e?.message ?? e);
+    }
+  }
+}
+async function processLiveEntries(userId, state, markets, pendingCa) {
+  const block = (reason) => {
+    state.lastBlockReason = reason;
+  };
+  if (!perpLiveEnabled()) return block("kill switch KALSHI_PERP_LIVE=off \u2014 entries disabled (exits still monitored)");
+  if (state.pausedUntilMs > Date.now()) return block(`auto-paused until ${new Date(state.pausedUntilMs).toISOString()}: ${state.pauseReason ?? ""}`);
+  if (!loadKalshiCredentials(userId)) return block("no Kalshi credentials saved for the owner account");
+  let marginEnabled = false;
+  try {
+    marginEnabled = await getKalshiMarginEnabled(userId);
+  } catch (e) {
+    state.consecutiveApiErrors++;
+    return block(`margin check failed: ${e?.message ?? e}`);
+  }
+  if (!marginEnabled) return block("Kalshi margin is not enabled for this account (/margin/enabled is not true)");
+  let equityUsd = null;
+  try {
+    equityUsd = (await getKalshiMarginBalance(userId)).equityUsd;
+  } catch (e) {
+    state.consecutiveApiErrors++;
+    return block(`margin balance read failed: ${e?.message ?? e}`);
+  }
+  if (equityUsd == null || !(equityUsd > 0)) return block("margin balance unreadable \u2014 cannot size safely");
+  const today = utcDayKey(Date.now());
+  if (state.dayAnchorDate !== today || state.dayAnchorEquityUsd == null) {
+    state.dayAnchorDate = today;
+    state.dayAnchorEquityUsd = equityUsd;
+  }
+  const anchor = state.dayAnchorEquityUsd;
+  const { rows: pnlRows } = await pool.query(
+    `SELECT COALESCE(sum(net_pnl_usd),0)::float AS realized FROM kalshi_perp_live_trades
+      WHERE user_id=$1 AND status='closed' AND closed_at >= $2::date AND net_pnl_usd IS NOT NULL`,
+    [userId, today]
+  );
+  const realizedToday = Number(pnlRows[0]?.realized) || 0;
+  const { rows: openRows } = await pool.query(
+    `SELECT * FROM kalshi_perp_live_trades WHERE user_id=$1 AND status IN ('open','closing','pending_entry')`,
+    [userId]
+  );
+  let floatingToday = 0;
+  for (const t of openRows) {
+    if (t.status !== "open" && t.status !== "closing" || t.entry_price == null) continue;
+    const entry = Number(t.entry_price);
+    const contracts = Number(t.contracts);
+    if (!(entry > 0) || !(contracts > 0)) continue;
+    const touch = await getPerpTouch(String(t.ticker)).catch(() => null);
+    if (!touch) continue;
+    const mark = t.direction === "short" ? touch.ask : touch.bid;
+    floatingToday += (t.direction === "short" ? entry - mark : mark - entry) * contracts;
+  }
+  if (anchor > 0 && realizedToday + floatingToday <= -(DAILY_LOSS_PCT() / 100) * anchor) {
+    return block(`daily-loss halt: realized ${realizedToday.toFixed(2)} + floating ${floatingToday.toFixed(2)} today vs \u2212${DAILY_LOSS_PCT()}% of the day's opening equity $${anchor.toFixed(2)}`);
+  }
+  const armed = await getArmedPerpStrategies(userId);
+  if (!armed.size) return block("no perp strategy is armed for live (toggle is off for every strategy)");
+  const { rows: candidates } = await pool.query(
+    `SELECT s.* FROM kalshi_perp_shadow_trades s
+      LEFT JOIN kalshi_perp_live_trades l ON l.shadow_trade_id = s.id
+      WHERE s.user_id=$1 AND s.status='open' AND l.id IS NULL
+        AND s.opened_at >= now() - ($2::text || ' minutes')::interval
+      ORDER BY s.opened_at ASC LIMIT 10`,
+    [userId, String(SIGNAL_MAX_AGE_MIN())]
+  );
+  if (!candidates.length) return block("no fresh shadow entries from armed strategies right now");
+  const closesByStrategy = await loadShadowClosesByStrategy(userId);
+  const barByStrategy = /* @__PURE__ */ new Map();
+  const { rows: orderCountRows } = await pool.query(
+    `SELECT count(*)::int AS n FROM kalshi_perp_live_orders WHERE user_id=$1 AND created_at >= $2::date`,
+    [userId, today]
+  );
+  let ordersToday = Number(orderCountRows[0]?.n) || 0;
+  const marketByTicker = new Map(markets.map((m) => [m.ticker, m]));
+  let openLive = [...openRows];
+  for (const s of candidates) {
+    const strategy = String(s.strategy);
+    if (!armed.has(strategy)) continue;
+    if (openLive.length >= MAX_OPEN3()) {
+      block(`live cap reached (${MAX_OPEN3()} open)`);
+      break;
+    }
+    if (ordersToday >= MAX_ORDERS_DAY()) {
+      block(`daily live order cap reached (${MAX_ORDERS_DAY()})`);
+      break;
+    }
+    if (openLive.filter((r) => r.strategy === strategy).length >= MAX_PER_STRAT3()) continue;
+    if (openLive.some((r) => r.strategy === strategy && r.underlying === s.underlying)) continue;
+    let bar = barByStrategy.get(strategy);
+    if (!bar) {
+      bar = evaluatePerpPromotionBar(closesByStrategy.get(strategy) ?? []);
+      barByStrategy.set(strategy, bar);
+    }
+    if (!bar.met) {
+      block(`${strategy} has not cleared the promotion bar (${bar.reasons.join("; ")})`);
+      continue;
+    }
+    const mkt = marketByTicker.get(String(s.ticker));
+    if (!mkt || mkt.status !== "active" || !mkt.scheduleOpen) continue;
+    if (pendingCa.has(String(s.ticker))) continue;
+    const touch = await getPerpTouch(String(s.ticker)).catch(() => null);
+    if (!touch || !(touch.ask > touch.bid) || !(touch.bid > 0)) continue;
+    const short = s.direction === "short";
+    if (short ? touch.ask >= Number(s.stop_loss) : touch.bid <= Number(s.stop_loss)) continue;
+    const entryBasis = short ? touch.bid : touch.ask;
+    const sizing = sizeLiveEntry(equityUsd, entryBasis);
+    if (sizing.contracts < 1) {
+      block(`${strategy}/${s.ticker}: ${sizing.reason}`);
+      continue;
+    }
+    const ins = await pool.query(
+      `INSERT INTO kalshi_perp_live_trades (user_id, shadow_trade_id, strategy, ticker, underlying, direction,
+         contracts, stop_loss, take_profit, sl_pct, notional_usd, max_hours, entry_client_order_id, status)
+       VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8,$9,0,$10,$11,'pending_entry')
+       ON CONFLICT (shadow_trade_id) DO NOTHING RETURNING id`,
+      [userId, s.id, strategy, s.ticker, s.underlying, s.direction, s.stop_loss, s.take_profit, s.sl_pct, s.max_hours, `vedd-perp-e${s.id}`]
+    );
+    const liveId = ins.rows[0]?.id;
+    if (!liveId) continue;
+    ordersToday++;
+    const res2 = await sendMarginOrderIntent(userId, {
+      liveTradeId: Number(liveId),
+      kind: "entry",
+      clientOrderId: `vedd-perp-e${s.id}`,
+      ticker: String(s.ticker),
+      side: short ? "ask" : "bid",
+      count: sizing.contracts,
+      price: entryBasis,
+      tickSize: mkt.tickSize,
+      reduceOnly: false
+    });
+    if (res2.kind === "filled" || res2.kind === "partial") {
+      const fillPrice = res2.avgFillPrice ?? entryBasis;
+      const levels = exitLevelsFor(String(s.direction), fillPrice, Number(s.sl_pct));
+      await pool.query(
+        `UPDATE kalshi_perp_live_trades SET status='open', contracts=$2, entry_price=$3, stop_loss=$4, take_profit=$5,
+           notional_usd=$6, entry_order_id=$7, opened_at=now(), last_reconciled_at=now() WHERE id=$1`,
+        [liveId, res2.fillCount, fillPrice, levels.stop, levels.target, res2.fillCount * fillPrice, res2.orderId]
+      );
+      openLive = [...openLive, { strategy, underlying: String(s.underlying), status: "open" }];
+      console.log(`[kalshi-perp-live] LIVE entry: ${strategy} ${s.direction} ${res2.fillCount} \xD7 ${s.ticker} @ ${fillPrice}`);
+    } else if (res2.kind === "unfilled") {
+      await pool.query(`UPDATE kalshi_perp_live_trades SET status='unfilled', closed_at=now(), exit_reason='entry order did not fill (IOC)' WHERE id=$1`, [liveId]);
+    } else if (res2.kind === "rejected") {
+      await pool.query(
+        `UPDATE kalshi_perp_live_trades SET status='rejected', closed_at=now(), exit_reason=$2 WHERE id=$1`,
+        [liveId, `entry rejected: ${res2.code} ${res2.message}`.slice(0, 300)]
+      );
+      block(`${strategy}/${s.ticker} entry rejected by Kalshi: ${res2.code} ${res2.message}`);
+    } else if (res2.kind === "blocked") {
+      openLive = [...openLive, { strategy, underlying: String(s.underlying), status: "pending_entry" }];
+      block(`${strategy}/${s.ticker}: ${res2.why}`);
+    }
+  }
+}
+async function runKalshiPerpLiveCycle(userId) {
+  await ensureKalshiPerpLiveTables();
+  await ensureKalshiPerpShadowTables();
+  const state = await loadPerpLiveState(userId);
+  state.lastCycleAt = (/* @__PURE__ */ new Date()).toISOString();
+  state.lastBlockReason = null;
+  let apiFailed = false;
+  const hasCreds = !!loadKalshiCredentials(userId);
+  const actions = await getPerpCorporateActions().catch(() => []);
+  if (hasCreds) {
+    try {
+      await reconcileLivePositions(userId, state);
+    } catch (e) {
+      apiFailed = true;
+      state.lastBlockReason = `position reconciliation failed: ${e?.message ?? e}`;
+      console.error("[kalshi-perp-live] reconciliation failed:", e?.message ?? e);
+    }
+    await monitorLiveExits(userId, actions).catch((e) => console.error("[kalshi-perp-live] exit monitor failed (non-fatal):", e?.message ?? e));
+  } else {
+    state.lastBlockReason = "no Kalshi credentials saved for the owner account";
+  }
+  const markets = await getPerpMarkets().catch(() => []);
+  const pendingCa = new Set(actions.filter((a) => a.status === "scheduled" && a.effectiveMs != null && a.effectiveMs <= Date.now() + 24 * 36e5).map((a) => a.ticker));
+  const errorsBefore = state.consecutiveApiErrors;
+  await processLiveEntries(userId, state, markets, pendingCa).catch((e) => {
+    apiFailed = true;
+    state.lastBlockReason = `entry processing failed: ${e?.message ?? e}`;
+    console.error("[kalshi-perp-live] entry processing failed:", e?.message ?? e);
+  });
+  if (state.consecutiveApiErrors > errorsBefore) apiFailed = true;
+  if (apiFailed) {
+    if (state.consecutiveApiErrors === errorsBefore) state.consecutiveApiErrors++;
+    if (state.consecutiveApiErrors >= ERROR_STORM_LIMIT && state.pausedUntilMs <= Date.now()) {
+      state.pausedUntilMs = Date.now() + ERROR_PAUSE_MS;
+      state.pauseReason = `Kalshi API error storm (${state.consecutiveApiErrors} consecutive failed cycles)`;
+      console.error(`[kalshi-perp-live] AUTO-PAUSED: ${state.pauseReason}`);
+    }
+  } else if (hasCreds) {
+    state.consecutiveApiErrors = 0;
+    if (state.pausedUntilMs > 0 && state.pausedUntilMs <= Date.now()) {
+      state.pausedUntilMs = 0;
+      state.pauseReason = null;
+    }
+  }
+  savePerpLiveState(userId, state);
+}
+async function getKalshiPerpLiveReport(userId) {
+  await ensureKalshiPerpLiveTables();
+  const state = await loadPerpLiveState(userId);
+  const hasCredentials = !!loadKalshiCredentials(userId);
+  let marginEnabled = null;
+  if (hasCredentials) {
+    marginEnabled = await getKalshiMarginEnabled(userId).catch(() => null);
+  }
+  const armed = await getArmedPerpStrategies(userId).catch(() => /* @__PURE__ */ new Set());
+  const closesByStrategy = await loadShadowClosesByStrategy(userId).catch(() => /* @__PURE__ */ new Map());
+  const strategyNames = /* @__PURE__ */ new Set();
+  armed.forEach((s) => strategyNames.add(s));
+  closesByStrategy.forEach((_v, k2) => strategyNames.add(k2));
+  const strategies = Array.from(strategyNames).sort().map((strategy) => ({
+    strategy,
+    armed: armed.has(strategy),
+    bar: evaluatePerpPromotionBar(closesByStrategy.get(strategy) ?? [])
+  }));
+  const today = utcDayKey(Date.now());
+  const [openRes, closesRes, pnlRes, ordRes] = await Promise.all([
+    pool.query(`SELECT * FROM kalshi_perp_live_trades WHERE user_id=$1 AND status IN ('open','closing','pending_entry') ORDER BY id DESC LIMIT 20`, [userId]),
+    pool.query(`SELECT * FROM kalshi_perp_live_trades WHERE user_id=$1 AND status IN ('closed','rejected','unfilled') ORDER BY closed_at DESC NULLS LAST, id DESC LIMIT 10`, [userId]),
+    pool.query(`SELECT COALESCE(sum(net_pnl_usd),0)::float AS realized FROM kalshi_perp_live_trades WHERE user_id=$1 AND status='closed' AND closed_at >= $2::date AND net_pnl_usd IS NOT NULL`, [userId, today]),
+    pool.query(`SELECT count(*)::int AS n FROM kalshi_perp_live_orders WHERE user_id=$1 AND created_at >= $2::date`, [userId, today])
+  ]);
+  const touches = /* @__PURE__ */ new Map();
+  await Promise.all(Array.from(new Set(openRes.rows.map((p2) => String(p2.ticker)))).map(async (ticker) => {
+    touches.set(ticker, await getPerpTouch(ticker).catch(() => null));
+  }));
+  const toIso2 = (v) => {
+    if (v == null) return null;
+    const d = v instanceof Date ? v : new Date(String(v));
+    return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+  };
+  return {
+    enabled: perpLiveEnabled(),
+    host: perpHost().includes("demo") ? "demo" : "prod",
+    hasCredentials,
+    marginEnabled,
+    paused: {
+      active: state.pausedUntilMs > Date.now(),
+      reason: state.pauseReason,
+      until: state.pausedUntilMs > 0 ? new Date(state.pausedUntilMs).toISOString() : null
+    },
+    lastBlockReason: state.lastBlockReason,
+    lastCycleAt: state.lastCycleAt,
+    dayAnchorEquityUsd: state.dayAnchorEquityUsd,
+    todayRealizedPnlUsd: Number(pnlRes.rows[0]?.realized) || 0,
+    todayOrders: Number(ordRes.rows[0]?.n) || 0,
+    caps: { maxOpen: MAX_OPEN3(), maxPerStrategy: MAX_PER_STRAT3(), maxOrdersPerDay: MAX_ORDERS_DAY(), notionalUsd: NOTIONAL3(), dailyLossPct: DAILY_LOSS_PCT() },
+    strategies,
+    openPositions: openRes.rows.map((p2) => {
+      const touch = touches.get(String(p2.ticker)) || null;
+      const entry = p2.entry_price == null ? null : Number(p2.entry_price);
+      const mark = touch ? p2.direction === "short" ? touch.ask : touch.bid : null;
+      const unrealized = mark != null && entry != null && entry > 0 ? (p2.direction === "short" ? entry - mark : mark - entry) * Number(p2.contracts) : null;
+      return {
+        id: Number(p2.id),
+        strategy: String(p2.strategy),
+        ticker: String(p2.ticker),
+        underlying: String(p2.underlying),
+        direction: String(p2.direction),
+        status: String(p2.status),
+        contracts: Number(p2.contracts),
+        entry_price: entry,
+        stop_loss: Number(p2.stop_loss),
+        take_profit: Number(p2.take_profit),
+        opened_at: toIso2(p2.opened_at),
+        current_mark: mark,
+        unrealized_usd: unrealized
+      };
+    }),
+    unknownPositions: state.unknownPositions ?? [],
+    recentCloses: closesRes.rows.map((c) => ({
+      id: Number(c.id),
+      strategy: String(c.strategy),
+      ticker: String(c.ticker),
+      underlying: String(c.underlying),
+      direction: String(c.direction),
+      entry_price: c.entry_price == null ? null : Number(c.entry_price),
+      exit_price: c.exit_price == null ? null : Number(c.exit_price),
+      net_pnl_usd: c.net_pnl_usd == null ? null : Number(c.net_pnl_usd),
+      return_pct: c.return_pct == null ? null : Number(c.return_pct),
+      exit_reason: c.exit_reason == null ? null : String(c.exit_reason),
+      closed_at: toIso2(c.closed_at)
+    }))
+  };
+}
+async function resolveOwnerUserId2() {
+  if (_ownerId2) return _ownerId2;
+  const env = Number(process.env.KALSHI_STOCK_SHADOW_USER_ID);
+  if (Number.isFinite(env) && env > 0) {
+    _ownerId2 = env;
+    return _ownerId2;
+  }
+  try {
+    const { rows } = await pool.query(`SELECT id FROM users WHERE is_admin = true ORDER BY id LIMIT 1`);
+    _ownerId2 = rows[0]?.id ?? 1;
+  } catch {
+    _ownerId2 = 1;
+  }
+  return _ownerId2;
+}
+function startKalshiPerpLive() {
+  if (_started4) return;
+  _started4 = true;
+  const tick3 = async () => {
+    try {
+      const uid2 = await resolveOwnerUserId2();
+      if (uid2) await runKalshiPerpLiveCycle(uid2);
+    } catch (e) {
+      console.error("[kalshi-perp-live] tick failed (non-fatal):", e?.message ?? e);
+    }
+  };
+  setTimeout(tick3, 4 * 6e4).unref?.();
+  setInterval(tick3, 6e4).unref?.();
+  console.log(perpLiveEnabled() ? "[kalshi-perp-live] started \u2014 LIVE perp lane: entries require arm + promotion bar + margin-enabled, re-verified every cycle." : "[kalshi-perp-live] started with KALSHI_PERP_LIVE=off \u2014 entries disabled; exit monitoring + reconciliation active.");
+}
+var num11, perpLiveEnabled, NOTIONAL3, MAX_OPEN3, MAX_PER_STRAT3, MAX_ORDERS_DAY, MAX_EQUITY_PCT, DAILY_LOSS_PCT, SIGNAL_MAX_AGE_MIN, EXIT_SLIPPAGE_PCT, ERROR_STORM_LIMIT, ERROR_PAUSE_MS, AMBIGUOUS_ABANDON_MS, ARM_SCOPES, STATE_SCOPE2, defaultState, utcDayKey, _exitWatermark, _ownerId2, _started4;
+var init_kalshi_perp_live = __esm({
+  "server/services/kalshi-perp-live.ts"() {
+    "use strict";
+    init_db();
+    init_ensure_kalshi_perp_live_tables();
+    init_ensure_kalshi_perp_shadow_tables();
+    init_runtime_state();
+    init_kalshi_perps();
+    init_kalshi_trading();
+    init_kalshi_stock_shadow();
+    num11 = (n, d) => {
+      const v = Number(process.env[n]);
+      return Number.isFinite(v) && v > 0 ? v : d;
+    };
+    perpLiveEnabled = () => process.env.KALSHI_PERP_LIVE !== "off";
+    NOTIONAL3 = () => num11("KALSHI_PERP_LIVE_NOTIONAL_USD", 250);
+    MAX_OPEN3 = () => Math.max(1, Math.floor(num11("KALSHI_PERP_LIVE_MAX_OPEN", 3)));
+    MAX_PER_STRAT3 = () => Math.max(1, Math.floor(num11("KALSHI_PERP_LIVE_MAX_PER_STRATEGY", 2)));
+    MAX_ORDERS_DAY = () => Math.max(1, Math.floor(num11("KALSHI_PERP_LIVE_MAX_ORDERS_PER_DAY", 10)));
+    MAX_EQUITY_PCT = () => num11("KALSHI_PERP_LIVE_MAX_EQUITY_PCT_PER_TRADE", 25);
+    DAILY_LOSS_PCT = () => num11("KALSHI_PERP_LIVE_DAILY_LOSS_PCT", 5);
+    SIGNAL_MAX_AGE_MIN = () => num11("KALSHI_PERP_LIVE_SIGNAL_MAX_AGE_MIN", 10);
+    EXIT_SLIPPAGE_PCT = () => num11("KALSHI_PERP_LIVE_EXIT_SLIPPAGE_PCT", 0.5);
+    ERROR_STORM_LIMIT = 3;
+    ERROR_PAUSE_MS = 30 * 6e4;
+    AMBIGUOUS_ABANDON_MS = 15 * 6e4;
+    ARM_SCOPES = ["kalshi_perp_armed", "kalshi_perp_live_arm", "kalshi_perp_arm"];
+    STATE_SCOPE2 = "kalshi_perp_live";
+    defaultState = () => ({
+      pausedUntilMs: 0,
+      pauseReason: null,
+      consecutiveApiErrors: 0,
+      dayAnchorDate: null,
+      dayAnchorEquityUsd: null,
+      unknownPositions: [],
+      lastCycleAt: null,
+      lastBlockReason: null
+    });
+    utcDayKey = (ms) => new Date(ms).toISOString().slice(0, 10);
+    _exitWatermark = /* @__PURE__ */ new Map();
+    _ownerId2 = null;
+    _started4 = false;
+  }
+});
+
+// server/services/kalshi-price-snapshots.ts
+function ensureKalshiPriceSnapshotTable() {
+  if (!_ensured12) {
+    _ensured12 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_price_snapshots (
+      id serial PRIMARY KEY, lane text NOT NULL, user_id int NOT NULL,
+      market_ticker text NOT NULL, event_ticker text, series_ticker text,
+      yes_bid_cents int, yes_ask_cents int, last_price_cents int,
+      volume double precision, kind text NOT NULL DEFAULT 'interval',
+      captured_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_price_snapshots_market_time ON kalshi_price_snapshots (market_ticker, captured_at)`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_price_snapshots_time ON kalshi_price_snapshots (captured_at)`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_price_snapshots_lane_user ON kalshi_price_snapshots (lane, user_id)`)).then(() => void 0).catch((e) => {
+      _ensured12 = null;
+      throw e;
+    });
+  }
+  return _ensured12;
 }
 async function recordKalshiPriceSnapshots(rows) {
   if (!rows.length) return 0;
@@ -67981,12 +69114,12 @@ async function pruneKalshiPriceSnapshots(nowMs = Date.now()) {
     return -1;
   }
 }
-var _ensured11, centsOrNull, INTERVAL_RETENTION_DAYS, DECISION_RETENTION_DAYS, _lastPruneMs;
+var _ensured12, centsOrNull, INTERVAL_RETENTION_DAYS, DECISION_RETENTION_DAYS, _lastPruneMs;
 var init_kalshi_price_snapshots = __esm({
   "server/services/kalshi-price-snapshots.ts"() {
     "use strict";
     init_db();
-    _ensured11 = null;
+    _ensured12 = null;
     centsOrNull = (v) => v == null || !Number.isFinite(v) ? null : Math.round(v);
     INTERVAL_RETENTION_DAYS = 45;
     DECISION_RETENTION_DAYS = 180;
@@ -68185,7 +69318,7 @@ async function runKalshiWeatherShadowCycle(userId) {
       let openedHere = 0;
       if (!guard.blocked) {
         for (const c of candidates) {
-          if (openedHere >= MAX_PER_EVENT() || openTotal >= MAX_OPEN3()) break;
+          if (openedHere >= MAX_PER_EVENT() || openTotal >= MAX_OPEN4()) break;
           const { rows: dup } = await pool.query(
             `SELECT id FROM kalshi_weather_shadow_trades WHERE user_id=$1 AND ticker=$2 AND status='open'`,
             [userId, c.b.ticker]
@@ -68457,31 +69590,31 @@ async function getKalshiWeatherShadowReport(userId, days = 30) {
     lastCycle: _lastCycle
   };
 }
-async function resolveOwnerUserId2() {
-  if (_ownerId2) return _ownerId2;
+async function resolveOwnerUserId3() {
+  if (_ownerId3) return _ownerId3;
   const env = Number(process.env.KALSHI_WEATHER_SHADOW_USER_ID);
   if (Number.isFinite(env) && env > 0) {
-    _ownerId2 = env;
-    return _ownerId2;
+    _ownerId3 = env;
+    return _ownerId3;
   }
   try {
     const { rows } = await pool.query(`SELECT id FROM users WHERE is_admin = true ORDER BY id LIMIT 1`);
-    _ownerId2 = rows[0]?.id ?? 1;
+    _ownerId3 = rows[0]?.id ?? 1;
   } catch {
-    _ownerId2 = 1;
+    _ownerId3 = 1;
   }
-  return _ownerId2;
+  return _ownerId3;
 }
 function startKalshiWeatherShadow() {
-  if (_started4) return;
-  _started4 = true;
+  if (_started5) return;
+  _started5 = true;
   if (!weatherEnsembleShadowEnabled()) {
     console.log("[kalshi-weather-shadow] disabled (KALSHI_WEATHER_ENSEMBLE=off).");
     return;
   }
   const tick3 = async () => {
     try {
-      const uid2 = await resolveOwnerUserId2();
+      const uid2 = await resolveOwnerUserId3();
       if (uid2) await runKalshiWeatherShadowCycle(uid2);
     } catch (e) {
       console.error("[kalshi-weather-shadow] tick failed (non-fatal):", e?.message ?? e);
@@ -68491,7 +69624,7 @@ function startKalshiWeatherShadow() {
   setInterval(tick3, EVERY_MS3()).unref?.();
   console.log("[kalshi-weather-shadow] started \u2014 SHADOW lane on Open-Meteo ensembles + public Kalshi data (no credentials, no orders).");
 }
-var LANE, STRATEGY, weatherEnsembleShadowEnabled, num11, MIN_EDGE_CENTS, MIN_ENTRY_CENTS, MAX_ENTRY_CENTS, SPREAD_MAX_CENTS, MAX_BIAS_DEGREES, MAX_OPEN3, MAX_PER_EVENT, NOTIONAL_USD, EVERY_MS3, ALL_CITY_KEYS, defaultFetcher, _ecmwfCache, _nwsCache, _lastCycle, _ownerId2, _started4;
+var LANE, STRATEGY, weatherEnsembleShadowEnabled, num12, MIN_EDGE_CENTS, MIN_ENTRY_CENTS, MAX_ENTRY_CENTS, SPREAD_MAX_CENTS, MAX_BIAS_DEGREES, MAX_OPEN4, MAX_PER_EVENT, NOTIONAL_USD, EVERY_MS3, ALL_CITY_KEYS, defaultFetcher, _ecmwfCache, _nwsCache, _lastCycle, _ownerId3, _started5;
 var init_kalshi_weather_shadow = __esm({
   "server/services/kalshi-weather-shadow.ts"() {
     "use strict";
@@ -68504,19 +69637,19 @@ var init_kalshi_weather_shadow = __esm({
     LANE = "kalshi_weather_shadow";
     STRATEGY = "weather_ensemble";
     weatherEnsembleShadowEnabled = () => process.env.KALSHI_WEATHER_ENSEMBLE !== "off";
-    num11 = (n, d) => {
+    num12 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
-    MIN_EDGE_CENTS = () => num11("KALSHI_WEATHER_SHADOW_MIN_EDGE_CENTS", 8);
-    MIN_ENTRY_CENTS = () => Math.floor(num11("KALSHI_WEATHER_SHADOW_MIN_ENTRY_CENTS", 15));
-    MAX_ENTRY_CENTS = () => Math.floor(num11("KALSHI_WEATHER_SHADOW_MAX_ENTRY_CENTS", 96));
-    SPREAD_MAX_CENTS = () => Math.floor(num11("KALSHI_WEATHER_SHADOW_SPREAD_MAX_CENTS", 12));
-    MAX_BIAS_DEGREES = () => num11("KALSHI_WEATHER_SHADOW_MAX_BIAS_DEGREES", 3);
-    MAX_OPEN3 = () => Math.floor(num11("KALSHI_WEATHER_SHADOW_MAX_OPEN", 30));
-    MAX_PER_EVENT = () => Math.floor(num11("KALSHI_WEATHER_SHADOW_MAX_PER_EVENT", 3));
-    NOTIONAL_USD = () => num11("KALSHI_WEATHER_SHADOW_NOTIONAL_USD", 100);
-    EVERY_MS3 = () => num11("KALSHI_WEATHER_SHADOW_EVERY_MIN", 30) * 6e4;
+    MIN_EDGE_CENTS = () => num12("KALSHI_WEATHER_SHADOW_MIN_EDGE_CENTS", 8);
+    MIN_ENTRY_CENTS = () => Math.floor(num12("KALSHI_WEATHER_SHADOW_MIN_ENTRY_CENTS", 15));
+    MAX_ENTRY_CENTS = () => Math.floor(num12("KALSHI_WEATHER_SHADOW_MAX_ENTRY_CENTS", 96));
+    SPREAD_MAX_CENTS = () => Math.floor(num12("KALSHI_WEATHER_SHADOW_SPREAD_MAX_CENTS", 12));
+    MAX_BIAS_DEGREES = () => num12("KALSHI_WEATHER_SHADOW_MAX_BIAS_DEGREES", 3);
+    MAX_OPEN4 = () => Math.floor(num12("KALSHI_WEATHER_SHADOW_MAX_OPEN", 30));
+    MAX_PER_EVENT = () => Math.floor(num12("KALSHI_WEATHER_SHADOW_MAX_PER_EVENT", 3));
+    NOTIONAL_USD = () => num12("KALSHI_WEATHER_SHADOW_NOTIONAL_USD", 100);
+    EVERY_MS3 = () => num12("KALSHI_WEATHER_SHADOW_EVERY_MIN", 30) * 6e4;
     ALL_CITY_KEYS = Object.keys(WEATHER_CITIES);
     defaultFetcher = async (url) => {
       const res2 = await fetch(url, { headers: { "User-Agent": "VEDD-Trading-AI/1.0" }, signal: AbortSignal.timeout(1e4) });
@@ -68526,8 +69659,8 @@ var init_kalshi_weather_shadow = __esm({
     _ecmwfCache = /* @__PURE__ */ new Map();
     _nwsCache = /* @__PURE__ */ new Map();
     _lastCycle = null;
-    _ownerId2 = null;
-    _started4 = false;
+    _ownerId3 = null;
+    _started5 = false;
   }
 });
 
@@ -68897,7 +70030,7 @@ async function runKalshiSportsShadowCycle(userId) {
             maxEntryCents: MAX_ENTRY_CENTS2(),
             spreadMaxCents: SPREAD_MAX_CENTS2()
           })) continue;
-          if (result.opened >= MAX_PER_CYCLE() || openTotal >= MAX_OPEN4()) continue;
+          if (result.opened >= MAX_PER_CYCLE() || openTotal >= MAX_OPEN5()) continue;
           const { rows: dup } = await pool.query(
             `SELECT id FROM kalshi_sports_shadow_trades WHERE user_id=$1 AND ticker=$2 AND status='open'`,
             [userId, side.ticker]
@@ -69167,24 +70300,24 @@ async function getKalshiSportsShadowReport(userId, days = 30) {
     lastCycle: _lastCycle2
   };
 }
-async function resolveOwnerUserId3() {
-  if (_ownerId3) return _ownerId3;
+async function resolveOwnerUserId4() {
+  if (_ownerId4) return _ownerId4;
   const env = Number(process.env.KALSHI_SPORTS_SHADOW_USER_ID);
   if (Number.isFinite(env) && env > 0) {
-    _ownerId3 = env;
-    return _ownerId3;
+    _ownerId4 = env;
+    return _ownerId4;
   }
   try {
     const { rows } = await pool.query(`SELECT id FROM users WHERE is_admin = true ORDER BY id LIMIT 1`);
-    _ownerId3 = rows[0]?.id ?? 1;
+    _ownerId4 = rows[0]?.id ?? 1;
   } catch {
-    _ownerId3 = 1;
+    _ownerId4 = 1;
   }
-  return _ownerId3;
+  return _ownerId4;
 }
 function startKalshiSportsShadow() {
-  if (_started5) return;
-  _started5 = true;
+  if (_started6) return;
+  _started6 = true;
   if (!sportsOddsShadowEnabled()) {
     console.log("[kalshi-sports-shadow] disabled (KALSHI_SPORTS_ODDS=off).");
     return;
@@ -69195,7 +70328,7 @@ function startKalshiSportsShadow() {
   }
   const tick3 = async () => {
     try {
-      const uid2 = await resolveOwnerUserId3();
+      const uid2 = await resolveOwnerUserId4();
       if (uid2) await runKalshiSportsShadowCycle(uid2);
     } catch (e) {
       console.error("[kalshi-sports-shadow] tick failed (non-fatal):", e?.message ?? e);
@@ -69205,7 +70338,7 @@ function startKalshiSportsShadow() {
   setInterval(tick3, EVERY_MS4()).unref?.();
   console.log("[kalshi-sports-shadow] started \u2014 SHADOW lane on de-vigged book odds vs public Kalshi prices (no Kalshi credentials, no orders).");
 }
-var LANE2, STRATEGY2, sportsOddsShadowEnabled, num12, MIN_DIVERGENCE_PTS, MIN_ENTRY_CENTS2, MAX_ENTRY_CENTS2, SPREAD_MAX_CENTS2, MAX_OPEN4, MAX_PER_CYCLE, ODDSPAPI_ODDS_CALL_CAP, NOTIONAL_USD2, EVERY_MS4, LEAGUES, BOOK_PREFERENCE, defaultFetcher2, KALSHI_BASE3, dollarsToCents, _papiSportsCache, _papiCatalogCache, _lastCycle2, _ownerId3, _started5, _idleLogged;
+var LANE2, STRATEGY2, sportsOddsShadowEnabled, num13, MIN_DIVERGENCE_PTS, MIN_ENTRY_CENTS2, MAX_ENTRY_CENTS2, SPREAD_MAX_CENTS2, MAX_OPEN5, MAX_PER_CYCLE, ODDSPAPI_ODDS_CALL_CAP, NOTIONAL_USD2, EVERY_MS4, LEAGUES, BOOK_PREFERENCE, defaultFetcher2, KALSHI_BASE3, dollarsToCents, _papiSportsCache, _papiCatalogCache, _lastCycle2, _ownerId4, _started6, _idleLogged;
 var init_kalshi_sports_shadow = __esm({
   "server/services/kalshi-sports-shadow.ts"() {
     "use strict";
@@ -69217,19 +70350,19 @@ var init_kalshi_sports_shadow = __esm({
     LANE2 = "kalshi_sports_shadow";
     STRATEGY2 = "sports_odds_benchmark";
     sportsOddsShadowEnabled = () => process.env.KALSHI_SPORTS_ODDS !== "off";
-    num12 = (n, d) => {
+    num13 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
-    MIN_DIVERGENCE_PTS = () => num12("KALSHI_SPORTS_SHADOW_MIN_DIVERGENCE_PTS", 4);
-    MIN_ENTRY_CENTS2 = () => Math.floor(num12("KALSHI_SPORTS_SHADOW_MIN_ENTRY_CENTS", 5));
-    MAX_ENTRY_CENTS2 = () => Math.floor(num12("KALSHI_SPORTS_SHADOW_MAX_ENTRY_CENTS", 96));
-    SPREAD_MAX_CENTS2 = () => Math.floor(num12("KALSHI_SPORTS_SHADOW_SPREAD_MAX_CENTS", 10));
-    MAX_OPEN4 = () => Math.floor(num12("KALSHI_SPORTS_SHADOW_MAX_OPEN", 40));
-    MAX_PER_CYCLE = () => Math.floor(num12("KALSHI_SPORTS_SHADOW_MAX_PER_CYCLE", 10));
-    ODDSPAPI_ODDS_CALL_CAP = () => Math.floor(num12("KALSHI_SPORTS_ODDSPAPI_CALL_CAP", 8));
-    NOTIONAL_USD2 = () => num12("KALSHI_SPORTS_SHADOW_NOTIONAL_USD", 100);
-    EVERY_MS4 = () => num12("KALSHI_SPORTS_SHADOW_EVERY_MIN", 360) * 6e4;
+    MIN_DIVERGENCE_PTS = () => num13("KALSHI_SPORTS_SHADOW_MIN_DIVERGENCE_PTS", 4);
+    MIN_ENTRY_CENTS2 = () => Math.floor(num13("KALSHI_SPORTS_SHADOW_MIN_ENTRY_CENTS", 5));
+    MAX_ENTRY_CENTS2 = () => Math.floor(num13("KALSHI_SPORTS_SHADOW_MAX_ENTRY_CENTS", 96));
+    SPREAD_MAX_CENTS2 = () => Math.floor(num13("KALSHI_SPORTS_SHADOW_SPREAD_MAX_CENTS", 10));
+    MAX_OPEN5 = () => Math.floor(num13("KALSHI_SPORTS_SHADOW_MAX_OPEN", 40));
+    MAX_PER_CYCLE = () => Math.floor(num13("KALSHI_SPORTS_SHADOW_MAX_PER_CYCLE", 10));
+    ODDSPAPI_ODDS_CALL_CAP = () => Math.floor(num13("KALSHI_SPORTS_ODDSPAPI_CALL_CAP", 8));
+    NOTIONAL_USD2 = () => num13("KALSHI_SPORTS_SHADOW_NOTIONAL_USD", 100);
+    EVERY_MS4 = () => num13("KALSHI_SPORTS_SHADOW_EVERY_MIN", 360) * 6e4;
     LEAGUES = [
       { key: "NFL", kalshiSeries: "KXNFLGAME", oddsApiSportKey: "americanfootball_nfl", oddspapiSportSlug: "american-football" },
       { key: "NBA", kalshiSeries: "KXNBAGAME", oddsApiSportKey: "basketball_nba", oddspapiSportSlug: "basketball" },
@@ -69252,8 +70385,8 @@ var init_kalshi_sports_shadow = __esm({
     _papiSportsCache = { at: 0, map: /* @__PURE__ */ new Map() };
     _papiCatalogCache = /* @__PURE__ */ new Map();
     _lastCycle2 = null;
-    _ownerId3 = null;
-    _started5 = false;
+    _ownerId4 = null;
+    _started6 = false;
     _idleLogged = false;
   }
 });
@@ -70443,12 +71576,12 @@ async function getSettingsOverview(userId) {
   }
   return { engines };
 }
-var num13, bool, text2, secs, ENGINES;
+var num14, bool, text2, secs, ENGINES;
 var init_settings_overview = __esm({
   "server/services/settings-overview.ts"() {
     "use strict";
     init_db();
-    num13 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
+    num14 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
     bool = (key, label, standard, from) => ({ key, from, label, standard, fmt: "bool" });
     text2 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "text" });
     secs = (key, label, standard, from) => ({ key, from, label, standard, fmt: "secs" });
@@ -70458,24 +71591,24 @@ var init_settings_overview = __esm({
         name: "FX Engine",
         // Standards: getDefaultConfig() literal in live-trading-engine.ts.
         fields: [
-          num13("minConfidence", "Minimum confidence to trade", 70),
+          num14("minConfidence", "Minimum confidence to trade", 70),
           text2("strategyMode", "Strategy mode", "aggressive"),
-          num13("maxOpenTrades", "Max open trades at once", 5),
-          num13("riskPerTrade", "Risk per trade (%)", 1),
-          num13("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
-          num13("maxDailyLossPct", "Daily loss breaker (%)", 4),
-          num13("dailyLossLimit", "Daily loss limit (%)", 5),
-          num13("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
-          num13("drawdownShieldThreshold", "Drawdown shield (%)", 3),
-          num13("maxLotSize", "Max lot size", 0.1),
-          num13("maxLot", "Absolute lot ceiling (0 = none)", 0),
-          num13("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num13("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
+          num14("maxOpenTrades", "Max open trades at once", 5),
+          num14("riskPerTrade", "Risk per trade (%)", 1),
+          num14("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
+          num14("maxDailyLossPct", "Daily loss breaker (%)", 4),
+          num14("dailyLossLimit", "Daily loss limit (%)", 5),
+          num14("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
+          num14("drawdownShieldThreshold", "Drawdown shield (%)", 3),
+          num14("maxLotSize", "Max lot size", 0.1),
+          num14("maxLot", "Absolute lot ceiling (0 = none)", 0),
+          num14("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num14("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
           bool("trailingStopEnabled", "Trailing stops", true),
           bool("profitLockEnabled", "Profit lock from +1R", true),
-          num13("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
+          num14("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
           bool("propFirmMode", "Prop firm mode", false),
-          num13("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
+          num14("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
           bool("autoFlattenOnBreach", "Close trades when a breaker trips", false),
           bool("brainLearningMode", "Brain learning", true),
           bool("brainShadowEnabled", "Practice results feed the brain", true),
@@ -70492,12 +71625,12 @@ var init_settings_overview = __esm({
         name: "Sol Engine",
         // Standards: DEFAULT_CONFIG in sol-engine.ts.
         fields: [
-          num13("minConfidence", "Minimum confidence to trade", 65),
-          num13("riskPerTradePct", "Risk per trade (%)", 1),
-          num13("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num13("maxTokens", "Max tokens tracked at once", 10),
+          num14("minConfidence", "Minimum confidence to trade", 65),
+          num14("riskPerTradePct", "Risk per trade (%)", 1),
+          num14("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num14("maxTokens", "Max tokens tracked at once", 10),
           bool("shieldEnabled", "Loss shield", true),
-          num13("shieldThreshold", "Shield trips at drawdown (%)", 10),
+          num14("shieldThreshold", "Shield trips at drawdown (%)", 10),
           bool("useKelly", "Kelly position sizing", false),
           text2("directionFilter", "Direction filter", "buy_only"),
           bool("stopOrdersEnabled", "Stop orders", false),
@@ -70516,22 +71649,22 @@ var init_settings_overview = __esm({
         name: "Kalshi Engine",
         // Standards: DEFAULT_CONFIG in kalshi-engine.ts.
         fields: [
-          num13("minConfidence", "Minimum confidence to trade", 70),
-          num13("maxOpenTrades", "Max open trades at once", 3),
-          num13("maxTradesPerDay", "Max trades per day", 10),
-          num13("contractsPerTrade", "Contracts per trade", 5),
-          num13("riskPctPerTrade", "Risk per trade (%)", 5),
-          num13("takeProfitCents", "Take profit (%)", 50),
-          num13("stopLossCents", "Stop loss (%)", 40),
-          num13("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
+          num14("minConfidence", "Minimum confidence to trade", 70),
+          num14("maxOpenTrades", "Max open trades at once", 3),
+          num14("maxTradesPerDay", "Max trades per day", 10),
+          num14("contractsPerTrade", "Contracts per trade", 5),
+          num14("riskPctPerTrade", "Risk per trade (%)", 5),
+          num14("takeProfitCents", "Take profit (%)", 50),
+          num14("stopLossCents", "Stop loss (%)", 40),
+          num14("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
           bool("requireConfluence", "Requires confluence", true),
           bool("ruinGuardEnabled", "Ruin guard (bad-day halt)", true),
-          num13("dailyLossLimitPct", "Daily loss limit (%)", 5),
-          num13("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
+          num14("dailyLossLimitPct", "Daily loss limit (%)", 5),
+          num14("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
           bool("kalshiBrainGating", "Brain can hard-block setups", true),
           bool("brainLearningMode", "Brain learning", true),
           bool("weatherEnabled", "Weather engine", false),
-          num13("cooldownMinutes", "Cooldown between trades (min)", 20)
+          num14("cooldownMinutes", "Cooldown between trades (min)", 20)
         ],
         load: async (userId) => {
           const { getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
@@ -70543,17 +71676,17 @@ var init_settings_overview = __esm({
         name: "Crypto Engine",
         // Standards: column defaults in ensure-cryptocom-engine-tables.ts.
         fields: [
-          num13("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
-          num13("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
-          num13("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
-          num13("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
-          num13("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
-          num13("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
-          num13("leverage", "Leverage", 3, "leverage"),
+          num14("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
+          num14("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
+          num14("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
+          num14("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
+          num14("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
+          num14("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
+          num14("leverage", "Leverage", 3, "leverage"),
           text2("directionFilter", "Direction filter", "both", "direction_filter"),
           bool("brainLearning", "Brain learning", true, "brain_learning_mode"),
           bool("cryptoBrain", "Crypto brain", true, "crypto_brain_enabled"),
-          num13("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
+          num14("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
           bool("autoExecution", "Auto execution", false, "enable_auto_execution"),
           bool("kelly", "Kelly position sizing", false, "use_kelly_criterion"),
           secs("scanInterval", "Scan interval", 12e4, "scan_interval_ms"),
@@ -70581,13 +71714,13 @@ __export(practice_costs_report_exports, {
 });
 function costModelConstants() {
   return {
-    cryptoFeeBps: num14("CRYPTO_PAPER_FEE_BPS", 30),
-    cryptoFeeDeepBps: num14("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
-    cryptoFloorMult: num14("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
-    solSlippagePct: num14("SOL_PAPER_SLIPPAGE_PCT", 0.5),
-    solFeePumpfunPct: num14("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
-    solFeeDefaultPct: num14("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
-    solImpactFallbackPct: num14("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
+    cryptoFeeBps: num15("CRYPTO_PAPER_FEE_BPS", 30),
+    cryptoFeeDeepBps: num15("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
+    cryptoFloorMult: num15("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
+    solSlippagePct: num15("SOL_PAPER_SLIPPAGE_PCT", 0.5),
+    solFeePumpfunPct: num15("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
+    solFeeDefaultPct: num15("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
+    solImpactFallbackPct: num15("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
   };
 }
 async function practiceCostReport(userId, days = 90) {
@@ -70621,12 +71754,12 @@ async function practiceCostReport(userId, days = 90) {
   }
   return out;
 }
-var num14, BANDS;
+var num15, BANDS;
 var init_practice_costs_report = __esm({
   "server/services/practice-costs-report.ts"() {
     "use strict";
     init_db();
-    num14 = (name, dflt) => {
+    num15 = (name, dflt) => {
       const v = Number(process.env[name]);
       return Number.isFinite(v) && v >= 0 ? v : dflt;
     };
@@ -83306,9 +84439,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "bc983c34-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-16T05:38:22.006Z";
+var BUILD_COMMIT = "8be7762a";
+var BUILD_BRANCH = "feat/kalshi-perp-live-exec";
+var BUILT_AT = "2026-11-16T07:59:03.330Z";
 
 // server/stripe.ts
 init_db();
@@ -101350,6 +102483,15 @@ Rules:
       res2.status(500).json({ error: err.message });
     }
   });
+  app2.get("/api/kalshi-stock-perp-live", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { getKalshiPerpLiveReport: getKalshiPerpLiveReport2 } = await Promise.resolve().then(() => (init_kalshi_perp_live(), kalshi_perp_live_exports));
+      res2.json(await getKalshiPerpLiveReport2(req.user.id));
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
   app2.get("/api/kalshi-weather-shadow", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     try {
@@ -105944,16 +107086,16 @@ Respond with ONLY valid JSON:
     try {
       const { runRuinConeSimulation: runRuinConeSimulation2 } = await Promise.resolve().then(() => (init_ruin_cone(), ruin_cone_exports));
       const q = req.query;
-      const num15 = (v) => v != null && v !== "" ? Number(v) : void 0;
+      const num16 = (v) => v != null && v !== "" ? Number(v) : void 0;
       const result = await runRuinConeSimulation2(userId, {
-        numSimulations: num15(q.numSimulations),
-        numTrades: num15(q.numTrades),
-        startingEquity: num15(q.startingEquity),
-        dailyLossLimit: num15(q.dailyLossLimit),
-        maxDrawdownLimit: num15(q.maxDrawdownLimit),
-        consistencyRuleThreshold: num15(q.consistencyRuleThreshold),
-        profitTarget: num15(q.profitTarget),
-        sourceLimit: num15(q.sourceLimit),
+        numSimulations: num16(q.numSimulations),
+        numTrades: num16(q.numTrades),
+        startingEquity: num16(q.startingEquity),
+        dailyLossLimit: num16(q.dailyLossLimit),
+        maxDrawdownLimit: num16(q.maxDrawdownLimit),
+        consistencyRuleThreshold: num16(q.consistencyRuleThreshold),
+        profitTarget: num16(q.profitTarget),
+        sourceLimit: num16(q.sourceLimit),
         source: q.source ? String(q.source) : void 0,
         noCache: q.nocache === "1" || q.noCache === "true"
       });
@@ -118771,6 +119913,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startTrailGuardLearning2();
     const { startKalshiStockShadow: startKalshiStockShadow2 } = await Promise.resolve().then(() => (init_kalshi_stock_shadow(), kalshi_stock_shadow_exports));
     startKalshiStockShadow2();
+    const { startKalshiPerpLive: startKalshiPerpLive2 } = await Promise.resolve().then(() => (init_kalshi_perp_live(), kalshi_perp_live_exports));
+    startKalshiPerpLive2();
     const { startKalshiWeatherShadow: startKalshiWeatherShadow2 } = await Promise.resolve().then(() => (init_kalshi_weather_shadow(), kalshi_weather_shadow_exports));
     startKalshiWeatherShadow2();
     const { startKalshiSportsShadow: startKalshiSportsShadow2 } = await Promise.resolve().then(() => (init_kalshi_sports_shadow(), kalshi_sports_shadow_exports));
