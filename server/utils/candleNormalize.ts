@@ -83,6 +83,31 @@ export function normalizeCandles(raw: any): any {
 }
 
 /**
+ * Normalise a bar timestamp to epoch SECONDS.
+ *
+ * WHY: candle sources disagree on units. The MT5 EA posts MT5 `datetime`
+ * values (epoch seconds), while TradeLocker's history API returns epoch
+ * MILLISECONDS in the same `t` field. Every downstream reader in this
+ * codebase (the ORB state builder, the ORB page, the brain's bar math)
+ * treats `t` as seconds — `getNYTime(c.t * 1000)` — so a millisecond bar
+ * landed in the year ~57000, matched no trading day, and the consumer
+ * silently saw "no candles today". That is exactly how index ORB died for
+ * TradeLocker-fed accounts: no error, no range, no trade, forever.
+ *
+ * Magnitude decides: current epoch seconds ≈ 1.7e9, milliseconds ≈ 1.7e12.
+ * The 1e11 threshold sits safely between them for any realistic bar time,
+ * so a seconds value passes through untouched and a milliseconds value is
+ * converted — the function is correct whichever unit a source really sent.
+ * Non-finite / non-positive input collapses to 0, the codebase's existing
+ * "no timestamp" sentinel (readers already skip `!c.t` bars).
+ */
+export function toEpochSeconds(t: unknown): number {
+  const n = typeof t === 'string' ? Number(t) : (t as number);
+  if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) return 0;
+  return n > 1e11 ? Math.floor(n / 1000) : Math.floor(n);
+}
+
+/**
  * How many bars in this payload actually carry a usable close — the cheap
  * health check that distinguishes "wrong field names" from "bad prices".
  */

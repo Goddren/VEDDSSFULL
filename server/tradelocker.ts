@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { toEpochSeconds } from './utils/candleNormalize';
 
 const IV_LENGTH = 16;
 
@@ -67,6 +68,23 @@ const instrumentsListCache = new Map<string, { instruments: any[]; routes?: any[
 // one cache slot, handing account B the authenticated service for account A.
 const serviceCache = new Map<number | string, { service: TradeLockerService; createdAt: number }>();
 const SERVICE_CACHE_TTL = 50 * 60 * 1000;
+
+/**
+ * Broker instrument-name variants for the candle-history lookup
+ * (getCandlesticks). Kept at parity with the ORDER path's alias table in
+ * placeOrderRaw: a symbol the engine can place orders on but cannot fetch
+ * candles for is a symbol ORB can never see — the candle lookup used to
+ * know fewer NAS100/US30 names than the order path (no NASDAQ100 / NQ100 /
+ * DJI30 / WS30), so on brokers using those names the history call threw
+ * "Instrument not found", the ORB candle fetch returned null, and index
+ * ORB skipped silently every day.
+ */
+export const TL_CANDLE_SYMBOL_ALIASES: Record<string, string[]> = {
+  'XAUUSD': ['GOLD', 'XAU/USD'],
+  'NAS100': ['USTEC', 'US100', 'NDX100', 'NASDAQ100', 'NQ100'],
+  'US30': ['DJ30', 'WALLST30', 'DJI30', 'WS30'],
+  'US500': ['SPX500', 'SP500', 'SPX'],
+};
 
 /** Price decimals by instrument class (TradeLocker CFD conventions). */
 export function priceDecimals(symbol: string): number {
@@ -1311,11 +1329,7 @@ export class TradeLockerService {
       // symbol, so polling many ORB symbols doesn't hammer /instruments into a 429.
       const { instruments } = await this.fetchInstrumentsPayload();
       const sym = symbol.toUpperCase();
-      const ALIASES: Record<string, string[]> = {
-        'XAUUSD': ['GOLD', 'XAU/USD'], 'NAS100': ['USTEC', 'US100', 'NDX100'],
-        'US30': ['DJ30', 'WALLST30'], 'US500': ['SPX500', 'SP500', 'SPX'],
-      };
-      const variants = [sym, ...(ALIASES[sym] || [])];
+      const variants = [sym, ...(TL_CANDLE_SYMBOL_ALIASES[sym] || [])];
       let matched: any = null;
       for (const v of variants) {
         matched = instruments.find((i: any) => (i.name || i.symbol || '').toUpperCase().replace(/\s/g, '') === v.replace(/\s/g, ''));
@@ -1357,10 +1371,18 @@ export class TradeLockerService {
     }
     const histData = await histResp.json();
 
-    // TradeLocker returns { d: { barDetails: [{ t, o, h, l, c, v }] } } (ms timestamps, ascending)
+    // TradeLocker returns { d: { barDetails: [{ t, o, h, l, c, v }] } } (ms timestamps, ascending).
+    // CONTRACT: returned bars carry `t` in epoch SECONDS — the unit every
+    // consumer in this codebase assumes (the MT5 EA cache, the ORB state
+    // builder's `getNYTime(c.t * 1000)`, the ORB page). TradeLocker's raw
+    // `t` is milliseconds; passing it through untouched put every bar in
+    // the year ~57000, so day-matching consumers (ORB above all) silently
+    // saw "no candles today" and index ORB never fired on TradeLocker-fed
+    // accounts. toEpochSeconds converts by magnitude, so this stays right
+    // even if the broker ever changes units.
     const bars: any[] = histData.d?.barDetails || histData.d?.bars || histData.barDetails || histData.bars || [];
     return bars.map((b: any) => ({
-      t: b.t ?? b.time ?? b.timestamp ?? 0,
+      t: toEpochSeconds(b.t ?? b.time ?? b.timestamp ?? 0),
       o: b.o ?? b.open  ?? 0,
       h: b.h ?? b.high  ?? 0,
       l: b.l ?? b.low   ?? 0,
