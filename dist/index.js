@@ -11160,13 +11160,13 @@ async function discoverNewPoolTokens(chainKey, minLiquidityUsd = 25e3, maxAgeHou
   newPoolsCache = { key, at: Date.now(), tokens };
   return tokens;
 }
-async function gt(path21) {
+async function gt(path22) {
   const run = async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
       const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       lastCallAt = Date.now();
-      const res2 = await fetch(`${GT}${path21}`, {
+      const res2 = await fetch(`${GT}${path22}`, {
         headers: cgHeaders(),
         signal: AbortSignal.timeout(2e4)
       });
@@ -11174,13 +11174,13 @@ async function gt(path21) {
       if (res2.status === 429) {
         const retryAfter = Number(res2.headers.get("retry-after")) || 0;
         const backoff = retryAfter > 0 ? retryAfter * 1e3 : 3e3 * (attempt + 1);
-        console.warn(`[defi-market-data] rate limited on ${path21}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
+        console.warn(`[defi-market-data] rate limited on ${path22}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
         await new Promise((r) => setTimeout(r, backoff));
         continue;
       }
-      throw new Error(`GeckoTerminal ${res2.status} on ${path21}`);
+      throw new Error(`GeckoTerminal ${res2.status} on ${path22}`);
     }
-    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path21}`);
+    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path22}`);
   };
   const next = callChain.then(run, run);
   callChain = next.catch(() => void 0);
@@ -19935,9 +19935,9 @@ var init_dxtrade = __esm({
       async ensureLoggedIn() {
         if (!this.token) await this.login();
       }
-      async authed(path21, init = {}) {
+      async authed(path22, init = {}) {
         if (!this.token) await this.login();
-        const doFetch = () => fetch(`${this.base}${path21}`, {
+        const doFetch = () => fetch(`${this.base}${path22}`, {
           ...init,
           headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": `DXAPI ${this.token}`, ...init.headers || {} },
           signal: AbortSignal.timeout(2e4)
@@ -20178,8 +20178,8 @@ var init_dxtrade = __esm({
       async getInstruments(query = "") {
         const attempts = query ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`] : ["/instruments/query"];
         let last2 = "";
-        for (const path21 of attempts) {
-          const res2 = await this.authed(path21);
+        for (const path22 of attempts) {
+          const res2 = await this.authed(path22);
           const text3 = await res2.text();
           if (res2.ok) {
             try {
@@ -20275,10 +20275,10 @@ var init_dxtrade = __esm({
           `/accounts/${enc}/reports/trades?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso2)}`,
           `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso2)}`
         ];
-        for (const path21 of candidates) {
+        for (const path22 of candidates) {
           let res2;
           try {
-            res2 = await this.authed(path21);
+            res2 = await this.authed(path22);
           } catch {
             continue;
           }
@@ -20292,7 +20292,7 @@ var init_dxtrade = __esm({
           const list = data?.history ?? data?.trades ?? data?.orders ?? data?.positions ?? data?.items ?? (Array.isArray(data) ? data : []);
           if (!Array.isArray(list) || list.length === 0) {
             if (Array.isArray(list)) {
-              console.log(`[dxtrade] history via ${path21.split("?")[0]} \u2014 0 rows in window`);
+              console.log(`[dxtrade] history via ${path22.split("?")[0]} \u2014 0 rows in window`);
               return [];
             }
             continue;
@@ -20312,7 +20312,7 @@ var init_dxtrade = __esm({
             profit: o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit,
             closeTime: o.closeTime ?? o.closedAt ?? o.closeTimestamp ?? o.timestamp ?? o.updateTime ?? null
           }));
-          console.log(`[dxtrade] history via ${path21.split("?")[0]} \u2014 ${closed.length} closed rows`);
+          console.log(`[dxtrade] history via ${path22.split("?")[0]} \u2014 ${closed.length} closed rows`);
           return closed;
         }
         console.log(`[dxtrade] no working history endpoint found for ${accountCode} (tried ${candidates.length}) \u2014 close-sync will keep opens PENDING`);
@@ -41640,9 +41640,9 @@ function buildSignals(id, b, params) {
     }
     case "rsi-overbought-oversold": {
       const r = rsi2(c, p(params, "rsi-period", 14));
-      const ob = p(params, "overbought", 70), os4 = p(params, "oversold", 30);
+      const ob = p(params, "overbought", 70), os5 = p(params, "oversold", 30);
       for (let i = 1; i < b.length; i++) {
-        if (r[i - 1] < os4 && r[i] >= os4) sig[i] = "BUY";
+        if (r[i - 1] < os5 && r[i] >= os5) sig[i] = "BUY";
         else if (r[i - 1] > ob && r[i] <= ob) sig[i] = "SELL";
       }
       break;
@@ -41672,7 +41672,7 @@ function buildSignals(id, b, params) {
     }
     case "stochastic-crossover": {
       const n = p(params, "k-period", 14);
-      const ob = p(params, "overbought", 80), os4 = p(params, "oversold", 20);
+      const ob = p(params, "overbought", 80), os5 = p(params, "oversold", 20);
       const k2 = b.map((_, i) => {
         if (i < n - 1) return NaN;
         const H2 = hi(b, i - n + 1, i), L2 = lo(b, i - n + 1, i);
@@ -41681,7 +41681,7 @@ function buildSignals(id, b, params) {
       const d = sma(k2.map((x) => Number.isFinite(x) ? x : 50), p(params, "d-period", 3));
       for (let i = n + 3; i < b.length; i++) {
         const x = cross(k2, d, i);
-        if (x === "BUY" && k2[i] < os4 + 10) sig[i] = "BUY";
+        if (x === "BUY" && k2[i] < os5 + 10) sig[i] = "BUY";
         else if (x === "SELL" && k2[i] > ob - 10) sig[i] = "SELL";
       }
       break;
@@ -47046,9 +47046,9 @@ var init_tastytrade = __esm({
         }
         await this.login();
       }
-      async request(path21, init = {}, attempt = 0) {
+      async request(path22, init = {}, attempt = 0) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path21}`, {
+        const response = await fetch(`${this.baseUrl}${path22}`, {
           ...init,
           headers: {
             "Authorization": this.sessionToken || "",
@@ -47059,7 +47059,7 @@ var init_tastytrade = __esm({
         });
         if (!response.ok && RETRYABLE_STATUSES3.has(response.status) && attempt < RETRY_DELAYS3.length) {
           await new Promise((r) => setTimeout(r, RETRY_DELAYS3[attempt]));
-          return this.request(path21, init, attempt + 1);
+          return this.request(path22, init, attempt + 1);
         }
         return response;
       }
@@ -51116,20 +51116,20 @@ var init_tradovate = __esm({
         }
         return data;
       }
-      async get(path21) {
+      async get(path22) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path21}`, {
+        const response = await fetch(`${this.baseUrl}${path22}`, {
           headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
         });
         if (!response.ok) {
           const text3 = await response.text();
-          throw new Error(`Tradovate GET ${path21} failed (${response.status}): ${text3}`);
+          throw new Error(`Tradovate GET ${path22} failed (${response.status}): ${text3}`);
         }
         return response.json();
       }
-      async post(path21, body) {
+      async post(path22, body) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path21}`, {
+        const response = await fetch(`${this.baseUrl}${path22}`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${this.accessToken}`,
@@ -51140,7 +51140,7 @@ var init_tradovate = __esm({
         });
         if (!response.ok) {
           const text3 = await response.text();
-          throw new Error(`Tradovate POST ${path21} failed (${response.status}): ${text3}`);
+          throw new Error(`Tradovate POST ${path22} failed (${response.status}): ${text3}`);
         }
         return response.json();
       }
@@ -53851,8 +53851,8 @@ function teamsMatchMarket(homeTeam, awayTeam, question) {
   return (q.includes(h) || q.includes(hFull)) && (q.includes(a) || q.includes(aFull));
 }
 async function fetchScoreboard(sport) {
-  const path21 = SPORT_PATHS[sport];
-  const data = await safeGet(`${ESPN_BASE}/${path21}/scoreboard`);
+  const path22 = SPORT_PATHS[sport];
+  const data = await safeGet(`${ESPN_BASE}/${path22}/scoreboard`);
   return data?.events ?? [];
 }
 function injuryAdjustment(injuries, sport) {
@@ -60238,12 +60238,12 @@ __export(kalshi_perps_exports, {
 function perpHost() {
   return process.env.KALSHI_PERP_HOST === "demo" ? DEMO_HOST : PROD_HOST;
 }
-async function getJson(path21) {
+async function getJson(path22) {
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), 15e3);
   try {
-    const res2 = await fetch(`${perpHost()}${path21}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
-    if (!res2.ok) throw new Error(`kalshi-perps GET ${path21} -> ${res2.status}`);
+    const res2 = await fetch(`${perpHost()}${path22}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
+    if (!res2.ok) throw new Error(`kalshi-perps GET ${path22} -> ${res2.status}`);
     return await res2.json();
   } finally {
     clearTimeout(to);
@@ -60913,8 +60913,8 @@ __export(coinbase_exports, {
 });
 import crypto12 from "crypto";
 import jwt from "jsonwebtoken";
-function buildJwt(keyName, privateKeyPem, method, path21) {
-  const uri = `${method} ${API_HOST}${path21}`;
+function buildJwt(keyName, privateKeyPem, method, path22) {
+  const uri = `${method} ${API_HOST}${path22}`;
   const now = Math.floor(Date.now() / 1e3);
   const payload2 = { sub: keyName, iss: "cdp", nbf: now, exp: now + 120, uri };
   return jwt.sign(payload2, privateKeyPem, {
@@ -60935,9 +60935,9 @@ var init_coinbase = __esm({
         this.keyName = keyName;
         this.privateKey = privateKeyPem.includes("\\n") ? privateKeyPem.replace(/\\n/g, "\n") : privateKeyPem;
       }
-      async get(path21) {
-        const token = buildJwt(this.keyName, this.privateKey, "GET", path21);
-        const res2 = await fetch(`https://${API_HOST}${path21}`, {
+      async get(path22) {
+        const token = buildJwt(this.keyName, this.privateKey, "GET", path22);
+        const res2 = await fetch(`https://${API_HOST}${path22}`, {
           method: "GET",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           signal: AbortSignal.timeout(12e3)
@@ -60948,9 +60948,9 @@ var init_coinbase = __esm({
         }
         return res2.json();
       }
-      async post(path21, body) {
-        const token = buildJwt(this.keyName, this.privateKey, "POST", path21);
-        const res2 = await fetch(`https://${API_HOST}${path21}`, {
+      async post(path22, body) {
+        const token = buildJwt(this.keyName, this.privateKey, "POST", path22);
+        const res2 = await fetch(`https://${API_HOST}${path22}`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -60992,8 +60992,8 @@ var init_coinbase = __esm({
         const accounts = [];
         let cursor = "";
         for (let i = 0; i < 10; i++) {
-          const path21 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
-          const data = await this.get(path21);
+          const path22 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+          const data = await this.get(path22);
           for (const a of data?.accounts ?? []) accounts.push(a);
           if (data?.has_next && data?.cursor) cursor = data.cursor;
           else break;
@@ -61062,22 +61062,22 @@ var init_kraken = __esm({
         this.apiKey = apiKey;
         this.secret = secret;
       }
-      sign(path21, nonce, postData) {
+      sign(path22, nonce, postData) {
         const sha256 = crypto13.createHash("sha256").update(nonce + postData).digest();
-        const message = Buffer.concat([Buffer.from(path21, "utf8"), sha256]);
+        const message = Buffer.concat([Buffer.from(path22, "utf8"), sha256]);
         const key = Buffer.from(this.secret, "base64");
         return crypto13.createHmac("sha512", key).update(message).digest("base64");
       }
       async privatePost(endpoint, params = {}) {
-        const path21 = `/0/private/${endpoint}`;
+        const path22 = `/0/private/${endpoint}`;
         const nonce = String(Date.now() * 1e3);
         const body = new URLSearchParams({ nonce, ...params });
         const postData = body.toString();
-        const res2 = await fetch(`${API_HOST2}${path21}`, {
+        const res2 = await fetch(`${API_HOST2}${path22}`, {
           method: "POST",
           headers: {
             "API-Key": this.apiKey,
-            "API-Sign": this.sign(path21, nonce, postData),
+            "API-Sign": this.sign(path22, nonce, postData),
             "Content-Type": "application/x-www-form-urlencoded",
             "User-Agent": "VEDD/1.0"
           },
@@ -61351,8 +61351,8 @@ function baseUrl(testnet) {
 function tradedAddress(c) {
   return (c.vaultAddress || c.accountAddress).toLowerCase();
 }
-async function post(testnet, path21, body) {
-  const r = await fetch(baseUrl(testnet) + path21, {
+async function post(testnet, path22, body) {
+  const r = await fetch(baseUrl(testnet) + path22, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -61363,9 +61363,9 @@ async function post(testnet, path21, body) {
   try {
     j = JSON.parse(text3);
   } catch {
-    throw new Error(`Hyperliquid ${path21} HTTP ${r.status}: ${text3.slice(0, 200)}`);
+    throw new Error(`Hyperliquid ${path22} HTTP ${r.status}: ${text3.slice(0, 200)}`);
   }
-  if (!r.ok) throw new Error(`Hyperliquid ${path21} HTTP ${r.status}: ${text3.slice(0, 200)}`);
+  if (!r.ok) throw new Error(`Hyperliquid ${path22} HTTP ${r.status}: ${text3.slice(0, 200)}`);
   return j;
 }
 async function getMeta(testnet) {
@@ -70218,8 +70218,8 @@ async function runRuinConeSimulation(userId, params = {}) {
   let hitTargetCount = 0;
   const targetEquity = startingEquity + profitTarget;
   for (let s = 0; s < numSimulations; s++) {
-    const path21 = new Float64Array(numTrades + 1);
-    path21[0] = startingEquity;
+    const path22 = new Float64Array(numTrades + 1);
+    path22[0] = startingEquity;
     let equity = startingEquity;
     let peak = startingEquity;
     let firstFailIndex = -1;
@@ -70232,7 +70232,7 @@ async function runRuinConeSimulation(userId, params = {}) {
     for (let t = 1; t <= numTrades; t++) {
       const pnl = pnls[Math.random() * sourceTradeCount | 0];
       equity += pnl;
-      path21[t] = equity;
+      path22[t] = equity;
       if (equity > peak) peak = equity;
       if (!everRuin && peak - equity >= maxDrawdownLimit) {
         everRuin = true;
@@ -70251,7 +70251,7 @@ async function runRuinConeSimulation(userId, params = {}) {
         tradeInDay = 0;
       }
     }
-    paths[s] = path21;
+    paths[s] = path22;
     finalEquities[s] = equity;
     if (everRuin) ruinCount++;
     if (everDailyBreach) dailyBreachCount++;
@@ -75653,14 +75653,939 @@ var init_content_clip_jobs = __esm({
   }
 });
 
+// server/services/clipper-core.ts
+var clipper_core_exports = {};
+__export(clipper_core_exports, {
+  CAPTION_LIMITS: () => CAPTION_LIMITS,
+  CAPTION_STYLES: () => CAPTION_STYLES,
+  CLIPPER_STEPS: () => CLIPPER_STEPS,
+  DEFAULT_CLIPPER_SETTINGS: () => DEFAULT_CLIPPER_SETTINGS,
+  LENGTH_PRESETS: () => LENGTH_PRESETS,
+  PLATFORM_ASPECT: () => PLATFORM_ASPECT,
+  assTime: () => assTime,
+  buildAssDocument: () => buildAssDocument,
+  buildCaptionCues: () => buildCaptionCues,
+  buildReframeFilter: () => buildReframeFilter,
+  buildShareCaption: () => buildShareCaption,
+  buildShareTargets: () => buildShareTargets,
+  classifySourceUrl: () => classifySourceUrl,
+  clipperStepProgress: () => clipperStepProgress,
+  escapeAss: () => escapeAss,
+  finalizeMoments: () => finalizeMoments,
+  frameForAspect: () => frameForAspect,
+  normalizeSubscores: () => normalizeSubscores,
+  parseSilenceDetect: () => parseSilenceDetect,
+  silenceRatio: () => silenceRatio,
+  snapOutOfSilence: () => snapOutOfSilence,
+  snapToWordEnd: () => snapToWordEnd,
+  snapToWordStart: () => snapToWordStart,
+  validateClipperSettings: () => validateClipperSettings,
+  viralityScore: () => viralityScore,
+  wrapTitleLines: () => wrapTitleLines
+});
+function validateClipperSettings(raw) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  const s = { ...DEFAULT_CLIPPER_SETTINGS };
+  if (r.clipCount !== void 0) {
+    const n = Number(r.clipCount);
+    if (!Number.isFinite(n) || n < 1 || n > 10) return { ok: false, error: "Clip count must be between 1 and 10." };
+    s.clipCount = Math.round(n);
+  }
+  if (r.lengthPreset !== void 0) {
+    if (!(r.lengthPreset in LENGTH_PRESETS)) return { ok: false, error: "Pick a clip length: under 30s, 30\u201360s, or 60\u201390s." };
+    s.lengthPreset = r.lengthPreset;
+  }
+  if (r.minVirality !== void 0) {
+    const n = Number(r.minVirality);
+    if (!Number.isFinite(n) || n < 0 || n > 100) return { ok: false, error: "Minimum virality score must be 0\u2013100." };
+    s.minVirality = Math.round(n);
+  }
+  if (r.captionStyle !== void 0) {
+    if (!(r.captionStyle in CAPTION_STYLES)) return { ok: false, error: "Unknown caption style." };
+    s.captionStyle = r.captionStyle;
+  }
+  if (r.platform !== void 0) {
+    if (!(r.platform in PLATFORM_ASPECT)) return { ok: false, error: "Unknown platform preset." };
+    s.platform = r.platform;
+  }
+  if (r.aspect !== void 0) {
+    if (!["9:16", "1:1", "4:5", "16:9", "original"].includes(r.aspect)) return { ok: false, error: "Unknown video size." };
+    s.aspect = r.aspect;
+  } else if (r.platform !== void 0) {
+    s.aspect = PLATFORM_ASPECT[s.platform];
+  }
+  if (r.silenceTrim !== void 0) s.silenceTrim = !!r.silenceTrim;
+  if (r.topic !== void 0) s.topic = String(r.topic).slice(0, 200).trim();
+  return { ok: true, settings: s };
+}
+function classifySourceUrl(raw) {
+  const url = String(raw || "").trim();
+  if (!url) return { kind: "unsupported", reason: "Paste a video link first." };
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return { kind: "unsupported", reason: "That does not look like a valid link." };
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") {
+    return { kind: "unsupported", reason: "Only web links (http/https) are supported." };
+  }
+  const host = u.hostname.replace(/^www\.|^m\./, "");
+  if (host === "youtube.com" || host === "music.youtube.com") {
+    const id = u.searchParams.get("v") || u.pathname.split("/").filter(Boolean).pop() || "";
+    if (YT_ID.test(id)) return { kind: "youtube", videoId: id };
+    return { kind: "unsupported", reason: "That YouTube link has no video id \u2014 use a watch, Shorts or youtu.be link." };
+  }
+  if (host === "youtu.be") {
+    const id = u.pathname.split("/").filter(Boolean)[0] || "";
+    if (YT_ID.test(id)) return { kind: "youtube", videoId: id };
+    return { kind: "unsupported", reason: "That youtu.be link has no video id." };
+  }
+  if (/\.(mp4|webm|mov|m4v|mkv)$/i.test(u.pathname)) return { kind: "direct" };
+  return {
+    kind: "unsupported",
+    reason: "That link is not a video file we can read. Paste a YouTube link or a direct video file link (.mp4, .webm, .mov, .m4v, .mkv)."
+  };
+}
+function normalizeSubscores(raw) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  return { hook: clampScore(r.hook), flow: clampScore(r.flow), value: clampScore(r.value), trend: clampScore(r.trend) };
+}
+function viralityScore(sub) {
+  const s = normalizeSubscores(sub);
+  return Math.max(0, Math.min(100, Math.round(s.hook * 0.35 + s.flow * 0.25 + s.value * 0.25 + s.trend * 0.15)));
+}
+function parseSilenceDetect(stderr) {
+  const out = [];
+  const starts = /* @__PURE__ */ new Map();
+  const re = /silence_(start|end):\s*([\d.]+)/g;
+  let m;
+  let pending = null;
+  while (m = re.exec(stderr)) {
+    const t = Number(m[2]);
+    if (m[1] === "start") pending = t;
+    else if (pending !== null) {
+      out.push({ start: pending, end: t });
+      pending = null;
+    }
+  }
+  void starts;
+  return out.filter((r) => r.end > r.start);
+}
+function silenceRatio(ranges, start, end) {
+  if (end <= start) return 0;
+  let covered = 0;
+  for (const r of ranges) {
+    const s = Math.max(r.start, start), e = Math.min(r.end, end);
+    if (e > s) covered += e - s;
+  }
+  return Math.max(0, Math.min(1, covered / (end - start)));
+}
+function snapToWordStart(words, t) {
+  if (!words.length) return t;
+  for (const w of words) if (t >= w.start && t < w.end) return w.start;
+  for (const w of words) if (w.start >= t) return w.start;
+  return words[words.length - 1].end;
+}
+function snapToWordEnd(words, t) {
+  if (!words.length) return t;
+  for (const w of words) if (t > w.start && t <= w.end) return w.end;
+  let best = words[0].end;
+  for (const w of words) {
+    if (w.end <= t) best = w.end;
+    else break;
+  }
+  return best;
+}
+function snapOutOfSilence(ranges, t, dir, maxShift = 2.5) {
+  for (const r of ranges) {
+    if (t > r.start && t < r.end && r.end - r.start >= 0.35) {
+      if (dir === "start") {
+        const nt2 = r.end;
+        return nt2 - t <= maxShift ? nt2 : t;
+      }
+      const nt = r.start;
+      return t - nt <= maxShift ? nt : t;
+    }
+  }
+  return t;
+}
+function finalizeMoments(seeds, ctx) {
+  const { words, silences, durationSec, settings } = ctx;
+  const preset = LENGTH_PRESETS[settings.lengthPreset];
+  const cleaned = [];
+  for (const seed of seeds) {
+    if (!seed || !Number.isFinite(seed.startSec) || !Number.isFinite(seed.endSec)) continue;
+    let start = Math.max(0, Math.min(seed.startSec, durationSec));
+    let end = Math.max(0, Math.min(seed.endSec, durationSec));
+    if (end - start < 3) continue;
+    start = Math.max(0, snapToWordStart(words, start) - 0.25);
+    end = Math.min(durationSec, snapToWordEnd(words, end) + 0.35);
+    if (settings.silenceTrim) {
+      start = snapOutOfSilence(silences, start, "start");
+      end = snapOutOfSilence(silences, end, "end");
+      if (end - start < 3) continue;
+    }
+    if (end - start > preset.max) end = start + preset.max;
+    if (end - start < preset.min) {
+      end = Math.min(durationSec, start + preset.target);
+      if (end - start < preset.min) start = Math.max(0, end - preset.target);
+    }
+    if (end - start < 3) continue;
+    const subscores = normalizeSubscores(seed.subscores);
+    cleaned.push({
+      startSec: round23(start),
+      endSec: round23(end),
+      hook: String(seed.hook || "").slice(0, 90).trim() || "Untitled clip",
+      reason: String(seed.reason || "").slice(0, 240).trim(),
+      category: String(seed.category || "moment").slice(0, 40).trim() || "moment",
+      caption: String(seed.caption || "").slice(0, 500).trim(),
+      subscores,
+      viralityScore: viralityScore(subscores),
+      durationSec: round23(end - start),
+      rank: 0,
+      belowThreshold: false
+    });
+  }
+  let kept = cleaned.filter((m) => m.viralityScore >= settings.minVirality);
+  if (!kept.length && cleaned.length) {
+    const best = [...cleaned].sort((a, b) => b.viralityScore - a.viralityScore)[0];
+    best.belowThreshold = true;
+    kept = [best];
+  }
+  kept.sort((a, b) => b.viralityScore - a.viralityScore);
+  const accepted = [];
+  for (const m of kept) {
+    const clash = accepted.some((a) => {
+      const overlap = Math.min(a.endSec, m.endSec) - Math.max(a.startSec, m.startSec);
+      return overlap >= 0.3 * Math.min(a.durationSec, m.durationSec);
+    });
+    if (!clash) accepted.push(m);
+    if (accepted.length >= settings.clipCount) break;
+  }
+  accepted.forEach((m, i) => {
+    m.rank = i + 1;
+  });
+  return accepted;
+}
+function buildCaptionCues(words, styleId) {
+  const style = CAPTION_STYLES[styleId];
+  const cues = [];
+  let cur = [];
+  const flush = () => {
+    if (!cur.length) return;
+    cues.push({
+      start: cur[0].start,
+      end: cur[cur.length - 1].end + 0.08,
+      text: cur.map((w) => w.word).join(" "),
+      words: cur
+    });
+    cur = [];
+  };
+  for (const w of words) {
+    cur.push(w);
+    const span = w.end - cur[0].start;
+    if (cur.length >= style.wordsPerCue || styleId === "clean" && span >= 2.4) flush();
+  }
+  flush();
+  return cues;
+}
+function assTime(sec) {
+  const s = Math.max(0, sec);
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60;
+  return `${h}:${String(m).padStart(2, "0")}:${ss.toFixed(2).padStart(5, "0")}`;
+}
+function escapeAss(text3) {
+  return String(text3).replace(/\\/g, "").replace(/[{}]/g, "").replace(/\r?\n/g, " ").trim();
+}
+function wrapTitleLines(text3, maxChars) {
+  const words = String(text3).split(/\s+/).filter(Boolean);
+  const lines = [];
+  let cur = "";
+  for (const w of words) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (next.length > maxChars && cur) {
+      lines.push(cur);
+      cur = w;
+    } else cur = next;
+  }
+  if (cur) lines.push(cur);
+  return lines.slice(0, 3).join("\\N");
+}
+function buildAssDocument(cues, styleId, opts) {
+  const style = CAPTION_STYLES[styleId];
+  const scale = opts.height / 1280;
+  const fontSize = Math.max(24, Math.round(style.fontSize * scale));
+  const titleSize = Math.max(26, Math.round(46 * scale));
+  const marginV = Math.round(style.marginV * scale);
+  const fmt = (name, font, size, primary, bold, outline, align, mv, box) => `Style: ${name},${font},${size},${primary},&H000000,&H000000,${box ? "&H80000000" : "&H000000"},${bold},0,0,0,100,100,0,0,${box ? 3 : 1},${outline},0,${align},24,24,${mv},1`;
+  const lines = [
+    "[Script Info]",
+    "ScriptType: v4.00+",
+    `PlayResX: ${opts.width}`,
+    `PlayResY: ${opts.height}`,
+    "WrapStyle: 0",
+    "",
+    "[V4+ Styles]",
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+    fmt("Base", style.fontName, fontSize, style.primary, styleId === "clean" ? 0 : 1, style.outline, style.alignment, marginV, style.box ? 1 : 0),
+    fmt("Title", "Archivo Black", titleSize, "&HFFFFFF", 1, 5, 8, Math.round(36 * scale), 0),
+    "",
+    "[Events]",
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+  ];
+  const show2 = (w) => style.allCaps ? w.toUpperCase() : w;
+  for (const cue of cues) {
+    if (styleId === "clean") {
+      lines.push(`Dialogue: 0,${assTime(cue.start)},${assTime(cue.end)},Base,,0,0,0,,${escapeAss(show2(cue.text))}`);
+      continue;
+    }
+    cue.words.forEach((w, i) => {
+      const parts = cue.words.map((cw, j) => {
+        const t = escapeAss(show2(cw.word));
+        if (j !== i) return t;
+        return styleId === "bold-pop" ? `{\\c${style.highlight}&\\fscx112\\fscy112}${t}{\\r}` : `{\\c${style.highlight}&}${t}{\\r}`;
+      });
+      lines.push(`Dialogue: 0,${assTime(w.start)},${assTime(w.end)},Base,,0,0,0,,${parts.join(" ")}`);
+    });
+  }
+  const title = (opts.hookTitle || "").trim();
+  if (title) {
+    const maxChars = Math.max(10, Math.floor(opts.width / (titleSize * 0.58)));
+    const wrapped = wrapTitleLines(escapeAss(title.toUpperCase()).slice(0, 90), maxChars);
+    lines.push(`Dialogue: 1,${assTime(0)},${assTime(3.2)},Title,,0,0,0,,{\\fad(200,300)}${wrapped}`);
+  }
+  return lines.join("\n");
+}
+function frameForAspect(aspect, srcW, srcH) {
+  const even = (n) => Math.max(2, Math.floor(n / 2) * 2);
+  switch (aspect) {
+    case "9:16":
+      return { w: 720, h: 1280 };
+    case "1:1":
+      return { w: 960, h: 960 };
+    case "4:5":
+      return { w: 864, h: 1080 };
+    case "16:9":
+      return { w: 1280, h: 720 };
+    default:
+      return { w: even(Math.min(srcW, 1280)), h: even(Math.round(Math.min(srcW, 1280) * srcH / Math.max(1, srcW))) };
+  }
+}
+function buildReframeFilter(srcW, srcH, aspect) {
+  const { w, h } = frameForAspect(aspect, srcW, srcH);
+  if (aspect === "original") return `scale=${w}:${h},setsar=1`;
+  const srcRatio = srcW / Math.max(1, srcH), tgtRatio = w / h;
+  if (srcRatio >= tgtRatio - 0.02) {
+    return `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1`;
+  }
+  return `split[bg][fg];[bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},gblur=sigma=42[bgv];[fg]scale=${w}:${h}:force_original_aspect_ratio=decrease[fgs];[bgv][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1`;
+}
+function buildShareTargets(env) {
+  const ytDirect = has(env, "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "YOUTUBE_AUDIT_PASSED");
+  const ttDirect = has(env, "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_AUDIT_PASSED");
+  const metaDirect = has(env, "META_APP_ID", "META_APP_SECRET", "META_PUBLISH_REVIEWED");
+  const mk = (network, label, format, direct, monetizationProgram, ownerStep, composerUrl) => ({
+    network,
+    label,
+    format,
+    mode: direct ? "direct" : "fallback",
+    monetizationProgram,
+    composerUrl,
+    statusLine: direct ? "Direct posting is connected for your account." : `One-tap share: we copy your caption and open the ${label} composer \u2014 you press Post. Direct posting unlocks after ${ownerStep}.`
+  });
+  return [
+    mk(
+      "youtube",
+      "YouTube",
+      "Shorts",
+      ytDirect,
+      "YouTube Partner Program",
+      "Google OAuth verification + the YouTube API audit (app-owner step)",
+      "https://studio.youtube.com/channel/upload"
+    ),
+    mk(
+      "tiktok",
+      "TikTok",
+      "TikTok video",
+      ttDirect,
+      "TikTok Creator Rewards",
+      "TikTok's Content Posting API audit (app-owner step)",
+      "https://www.tiktok.com/upload"
+    ),
+    mk(
+      "instagram",
+      "Instagram",
+      "Reels",
+      metaDirect,
+      "Meta Reels monetization",
+      "Meta App Review for content publishing (app-owner step)",
+      "https://www.instagram.com/"
+    ),
+    mk(
+      "facebook",
+      "Facebook",
+      "Reels",
+      metaDirect,
+      "Meta monetization for Pages",
+      "Meta App Review for Pages publishing (app-owner step)",
+      "https://www.facebook.com/"
+    )
+  ];
+}
+function buildShareCaption(network, clip) {
+  const body = (clip.caption || "").trim() || clip.hook.trim();
+  const limit = CAPTION_LIMITS[network];
+  if (body.length <= limit) return body;
+  return `${body.slice(0, Math.max(40, limit - 1)).replace(/\s+\S*$/, "")}\u2026`;
+}
+function clipperStepProgress(stepIndex) {
+  const bands = [5, 25, 50, 68, 92];
+  return bands[Math.max(0, Math.min(bands.length - 1, stepIndex))];
+}
+var LENGTH_PRESETS, CAPTION_STYLES, PLATFORM_ASPECT, DEFAULT_CLIPPER_SETTINGS, YT_ID, clampScore, round23, has, CAPTION_LIMITS, CLIPPER_STEPS;
+var init_clipper_core = __esm({
+  "server/services/clipper-core.ts"() {
+    "use strict";
+    LENGTH_PRESETS = {
+      short: { label: "Under 30s", min: 12, max: 30, target: 24 },
+      medium: { label: "30\u201360s", min: 28, max: 60, target: 45 },
+      long: { label: "60\u201390s", min: 55, max: 90, target: 75 }
+    };
+    CAPTION_STYLES = {
+      // ASS colors are &HBBGGRR. bold-pop: Archivo Black, white text, thick
+      // black outline, active word in yellow — the Hormozi-style look.
+      "bold-pop": {
+        label: "Bold Pop",
+        blurb: "Big heavy captions, word-by-word highlight",
+        fontName: "Archivo Black",
+        wordsPerCue: 3,
+        primary: "&HFFFFFF",
+        highlight: "&H00E5FF",
+        fontSize: 56,
+        outline: 6,
+        alignment: 5,
+        marginV: 0,
+        box: false,
+        allCaps: true
+      },
+      // karaoke: clean sans, active word sweeps green with a slight scale pop.
+      "karaoke": {
+        label: "Karaoke",
+        blurb: "Word highlight sweep, lower third",
+        fontName: "Liberation Sans",
+        wordsPerCue: 4,
+        primary: "&HFFFFFF",
+        highlight: "&H4ADE80",
+        fontSize: 48,
+        outline: 4,
+        alignment: 2,
+        marginV: 90,
+        box: false,
+        allCaps: false
+      },
+      // clean: full-line cues on a translucent box, no per-word work.
+      "clean": {
+        label: "Clean",
+        blurb: "Simple line captions on a soft box",
+        fontName: "Liberation Sans",
+        wordsPerCue: 8,
+        primary: "&HFFFFFF",
+        highlight: "&HFFFFFF",
+        fontSize: 42,
+        outline: 1,
+        alignment: 2,
+        marginV: 70,
+        box: true,
+        allCaps: false
+      }
+    };
+    PLATFORM_ASPECT = {
+      tiktok: "9:16",
+      reels: "9:16",
+      shorts: "9:16",
+      facebook: "9:16"
+    };
+    DEFAULT_CLIPPER_SETTINGS = {
+      clipCount: 5,
+      lengthPreset: "medium",
+      minVirality: 60,
+      captionStyle: "bold-pop",
+      platform: "tiktok",
+      aspect: "9:16",
+      silenceTrim: true,
+      topic: ""
+    };
+    YT_ID = /^[A-Za-z0-9_-]{11}$/;
+    clampScore = (n) => {
+      const v = Number(n);
+      return Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : 0;
+    };
+    round23 = (n) => Math.round(n * 100) / 100;
+    has = (env, ...keys) => keys.every((k2) => !!(env[k2] || "").trim());
+    CAPTION_LIMITS = {
+      youtube: 1e3,
+      tiktok: 2200,
+      instagram: 2200,
+      facebook: 2200
+    };
+    CLIPPER_STEPS = [
+      "Downloading the video",
+      "Transcribing",
+      "Finding the viral moments",
+      "Cutting your clips",
+      "Saving to your library"
+    ];
+  }
+});
+
+// server/services/clipper.ts
+var clipper_exports = {};
+__export(clipper_exports, {
+  startClipperJob: () => startClipperJob
+});
+import fs16 from "fs";
+import os4 from "os";
+import path16 from "path";
+import { Readable, Transform } from "stream";
+import { pipeline } from "stream/promises";
+async function insertJob2(userId, payload2) {
+  await ensureJobTable();
+  const r = await pool.query(
+    `INSERT INTO content_video_jobs (user_id, kind, status, step, progress, aspect, input)
+     VALUES ($1, 'viral-clip', 'running', $2, $3, $4, $5) RETURNING id`,
+    [userId, CLIPPER_STEPS[0], clipperStepProgress(0), payload2.settings.aspect, JSON.stringify(payload2).slice(0, 8e3)]
+  );
+  return r.rows[0].id;
+}
+function friendlyError3(e) {
+  const m = String(e?.message || e || "");
+  if (/too long|exceeds the/i.test(m)) return `That video is longer than the ${MAX_MINUTES}-minute limit for clipping. Try a shorter video.`;
+  if (/no audio/i.test(m)) return "That video has no audio track, so there is nothing to transcribe or caption.";
+  if (/too large/i.test(m)) return "That video file is too large for the clipper to process.";
+  if (/youtube|sign in|bot|login_required|403/i.test(m)) return "YouTube blocked the download from our server. This happens a lot with YouTube \u2014 try a direct video file link (.mp4/.webm) instead.";
+  if (/transcri/i.test(m)) return "Transcription was unavailable just now, so no clips could be made. Please try again in a bit.";
+  if (/no speech/i.test(m)) return "We could not hear any speech in that video, so there are no moments to clip.";
+  if (/unsupported/i.test(m)) return m.replace(/^unsupported:\s*/i, "");
+  return "The clipper hit a problem processing that video. Please try again.";
+}
+async function failJob2(id, e) {
+  console.error(`[clipper] job ${id} failed:`, e?.message || e);
+  await updateContentJob(id, {
+    status: "failed",
+    error: friendlyError3(e),
+    meta: { error_detail: String(e?.message || e).slice(0, 1e3) }
+  }).catch(() => {
+  });
+}
+async function setStep(id, stepIndex, progress2) {
+  await updateContentJob(id, {
+    step: CLIPPER_STEPS[stepIndex],
+    progress: progress2 ?? clipperStepProgress(stepIndex)
+  }).catch(() => {
+  });
+}
+async function downloadDirect(url, dest) {
+  const res2 = await fetch(url, {
+    signal: AbortSignal.timeout(5 * 6e4),
+    headers: { "user-agent": "Mozilla/5.0 (compatible; VEDDClipper/1.0)" },
+    redirect: "follow"
+  });
+  if (!res2.ok || !res2.body) throw new Error(`Could not download that video (HTTP ${res2.status}).`);
+  const len = Number(res2.headers.get("content-length") || 0);
+  if (len > MAX_SOURCE_BYTES) throw new Error("Video file too large to process");
+  const body = Readable.fromWeb(res2.body);
+  let bytes = 0;
+  const counter = new Transform({
+    transform(chunk, _enc, cb) {
+      bytes += chunk.length;
+      if (bytes > MAX_SOURCE_BYTES) cb(new Error("too large"));
+      else cb(null, chunk);
+    }
+  });
+  try {
+    await pipeline(body, counter, fs16.createWriteStream(dest));
+  } catch (e) {
+    if (e?.message === "too large") throw new Error("Video file too large to process");
+    throw e;
+  }
+}
+async function downloadYouTube(url, dest) {
+  const ytdl = (await import("@distube/ytdl-core")).default;
+  const info2 = await ytdl.getInfo(url);
+  const lengthSec = Number(info2?.videoDetails?.lengthSeconds || 0) || void 0;
+  if (lengthSec && lengthSec > MAX_MINUTES * 60) throw new Error(`Video too long: exceeds the ${MAX_MINUTES} minute limit`);
+  let format;
+  try {
+    format = ytdl.chooseFormat(info2.formats, {
+      filter: (f) => f.hasAudio && f.hasVideo && f.container === "mp4" && (!f.height || f.height <= 720),
+      quality: "highest"
+    });
+  } catch {
+  }
+  if (!format) format = ytdl.chooseFormat(info2.formats, { filter: "audioandvideo", quality: "highest" });
+  const stream = ytdl.downloadFromInfo(info2, { format });
+  let bytes = 0;
+  const counter = new Transform({
+    transform(chunk, _enc, cb) {
+      bytes += chunk.length;
+      if (bytes > MAX_SOURCE_BYTES) cb(new Error("too large"));
+      else cb(null, chunk);
+    }
+  });
+  try {
+    await pipeline(stream, counter, fs16.createWriteStream(dest));
+  } catch (e) {
+    if (e?.message === "too large") throw new Error("Video file too large to process");
+    throw e;
+  }
+  return { title: info2?.videoDetails?.title, lengthSec };
+}
+function synthesizeWords(segments) {
+  const words = [];
+  for (const seg of segments) {
+    const parts = seg.text.split(/\s+/).filter(Boolean);
+    if (!parts.length) continue;
+    const span = Math.max(0.1, seg.end - seg.start) / parts.length;
+    parts.forEach((w, i) => words.push({ word: w, start: seg.start + i * span, end: seg.start + (i + 1) * span }));
+  }
+  return words;
+}
+function parseTranscriptResponse(resp, offset, chunkDur) {
+  const segments = Array.isArray(resp?.segments) ? resp.segments.map((s) => ({
+    start: offset + Number(s.start || 0),
+    end: offset + Number(s.end || 0),
+    text: String(s.text || "").trim()
+  })).filter((s) => s.text) : [];
+  let words = Array.isArray(resp?.words) ? resp.words.map((w) => ({
+    word: String(w.word || "").trim(),
+    start: offset + Number(w.start || 0),
+    end: offset + Number(w.end || 0)
+  })).filter((w) => w.word) : [];
+  const text3 = String(resp?.text || segments.map((s) => s.text).join(" ")).trim();
+  if (!segments.length && text3) segments.push({ start: offset, end: offset + chunkDur, text: text3 });
+  if (!words.length && segments.length) words = synthesizeWords(segments);
+  return { words, segments, text: text3 };
+}
+async function transcribeChunkWhisper(file, offset, chunkDur) {
+  const { toFile } = await import("openai/uploads");
+  const buffer = await fs16.promises.readFile(file);
+  const client2 = getPlatformOpenAIClient();
+  const upload2 = await toFile(buffer, "chunk.mp3", { type: "audio/mpeg" });
+  const resp = await client2.audio.transcriptions.create(
+    {
+      file: upload2,
+      model: process.env.CLIPPER_TRANSCRIBE_MODEL || "whisper-1",
+      response_format: "verbose_json",
+      timestamp_granularities: ["word", "segment"]
+    },
+    { timeout: 24e4 }
+  );
+  return parseTranscriptResponse(resp, offset, chunkDur);
+}
+async function transcribeChunkOpenRouter(file, offset, chunkDur) {
+  const key = process.env.OPENROUTER_API_KEY || "";
+  if (!key) throw new Error("transcription fallback not configured");
+  const buffer = await fs16.promises.readFile(file);
+  const res2 = await fetch("https://openrouter.ai/api/v1/audio/transcriptions", {
+    method: "POST",
+    signal: AbortSignal.timeout(24e4),
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: process.env.CLIPPER_TRANSCRIBE_MODEL_OR || "openai/whisper-1",
+      input_audio: { data: buffer.toString("base64"), format: "mp3" },
+      response_format: "verbose_json"
+    })
+  });
+  if (!res2.ok) throw new Error(`transcription fallback HTTP ${res2.status}`);
+  const resp = await res2.json();
+  return parseTranscriptResponse(resp, offset, chunkDur);
+}
+async function transcribe(workDir, srcFile, durationSec) {
+  const audioFile = path16.join(workDir, "audio.mp3");
+  await runFfmpeg(["-i", srcFile, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "32k", "-y", audioFile], 3e5);
+  const silences = await runFfmpeg(["-i", audioFile, "-af", "silencedetect=noise=-35dB:d=0.4", "-f", "null", "-"], 3e5).then((stderr) => parseSilenceDetect(stderr)).catch(() => []);
+  const chunkPattern = path16.join(workDir, "chunk-%03d.mp3");
+  await runFfmpeg(["-i", audioFile, "-f", "segment", "-segment_time", String(CHUNK_SEC), "-reset_timestamps", "1", "-c", "copy", "-y", chunkPattern], 12e4);
+  const chunkFiles = fs16.readdirSync(workDir).filter((f) => /^chunk-\d+\.mp3$/.test(f)).sort();
+  if (!chunkFiles.length) throw new Error("transcription produced no audio");
+  const words = [];
+  const segments = [];
+  const texts = [];
+  let source = "whisper";
+  for (let i = 0; i < chunkFiles.length; i++) {
+    const file = path16.join(workDir, chunkFiles[i]);
+    const offset = i * CHUNK_SEC;
+    const chunkDur = Math.max(1, Math.min(CHUNK_SEC, durationSec - offset));
+    let part;
+    try {
+      part = await transcribeChunkWhisper(file, offset, chunkDur);
+    } catch (e) {
+      console.warn("[clipper] whisper chunk failed, trying OpenRouter STT:", e?.message);
+      part = await transcribeChunkOpenRouter(file, offset, chunkDur);
+      source = "openrouter";
+    }
+    words.push(...part.words);
+    segments.push(...part.segments);
+    texts.push(part.text);
+  }
+  const text3 = texts.join(" ").trim();
+  if (!text3 || !words.length) throw new Error("no speech detected");
+  return { transcript: { words, segments, text: text3, durationSec, source }, silences };
+}
+function momentPrompt(t, settings) {
+  const preset = settings.lengthPreset;
+  const lines = t.segments.map((s) => `[${s.start.toFixed(1)}s] ${s.text}`).join("\n").slice(0, 6e4);
+  return [
+    "You are the moment picker inside a short-form clipping tool (the Opus Clip pattern).",
+    "From the timestamped transcript below, pick the moments most likely to perform as standalone short vertical clips.",
+    `Pick up to ${Math.min(20, settings.clipCount * 2)} candidates. Each moment should run about ${preset === "short" ? "15\u201330" : preset === "medium" ? "30\u201360" : "60\u201390"} seconds and must START on a hook \u2014 never mid-explanation.`,
+    settings.topic ? `The creator's focus: "${settings.topic}" \u2014 prefer moments on that theme.` : "",
+    "Score every moment 0\u2013100 on four grades: hookScore (does the opening line stop a scroll?), flowScore (coherent start-to-finish?), valueScore (insight, story, emotion or payoff), trendScore (fits what performs in short-form now).",
+    "For each moment also write: hook \u2014 a headline of at most 8 words for the clip's opening title; reason \u2014 ONE line on why it can travel; category \u2014 one or two words (story, hot-take, how-to, moment, qa, funny, emotional); caption \u2014 the post caption for social, with 3\u20135 relevant hashtags at the end.",
+    'Return ONLY a JSON object: {"moments":[{"startSec":number,"endSec":number,"hook":"...","reason":"...","category":"...","caption":"...","hookScore":n,"flowScore":n,"valueScore":n,"trendScore":n}]}',
+    "",
+    "TRANSCRIPT:",
+    lines
+  ].filter(Boolean).join("\n");
+}
+async function detectMomentsAI(userId, t, settings) {
+  const client2 = await getUniversalAIClientForUser(userId);
+  const completion = await client2.chat.completions.create({
+    model: client2.defaultModel || "gpt-4o-mini",
+    temperature: 0.4,
+    max_tokens: 4e3,
+    messages: [{ role: "user", content: momentPrompt(t, settings) }]
+  });
+  const raw = completion?.choices?.[0]?.message?.content || "";
+  const jsonStr = extractFirstJsonObject(raw);
+  let parsed = null;
+  try {
+    parsed = jsonStr ? JSON.parse(jsonStr) : null;
+  } catch {
+    parsed = null;
+  }
+  const list = Array.isArray(parsed?.moments) ? parsed.moments : [];
+  return list.map((m) => ({
+    startSec: Number(m.startSec),
+    endSec: Number(m.endSec),
+    hook: String(m.hook || ""),
+    reason: String(m.reason || ""),
+    category: String(m.category || ""),
+    caption: String(m.caption || ""),
+    subscores: { hook: m.hookScore, flow: m.flowScore, value: m.valueScore, trend: m.trendScore }
+  })).filter((m) => Number.isFinite(m.startSec) && Number.isFinite(m.endSec));
+}
+function detectMomentsHeuristic(t, settings) {
+  const target = settings.lengthPreset === "short" ? 24 : settings.lengthPreset === "medium" ? 45 : 75;
+  const seeds = [];
+  let winStart = 0, buf = [];
+  const flush = () => {
+    if (!buf.length) return;
+    const start = buf[0].start, end = buf[buf.length - 1].end;
+    const text3 = buf.map((s) => s.text).join(" ");
+    const wps = text3.split(/\s+/).length / Math.max(1, end - start);
+    let score = Math.min(70, Math.round(wps * 22));
+    if (/[?!]/.test(text3)) score += 10;
+    if (/\d/.test(text3)) score += 5;
+    seeds.push({
+      startSec: start,
+      endSec: end,
+      hook: text3.split(/(?<=[.!?])\s/)[0].slice(0, 60),
+      reason: "Picked by speech energy \u2014 the AI picker was unavailable for this video.",
+      category: "moment",
+      caption: "",
+      subscores: { hook: score, flow: score, value: score, trend: score }
+    });
+    buf = [];
+  };
+  for (const seg of t.segments) {
+    if (buf.length && seg.end - winStart > target) flush();
+    if (!buf.length) winStart = seg.start;
+    buf.push(seg);
+  }
+  flush();
+  return seeds.sort((a, b) => b.subscores.hook - a.subscores.hook).slice(0, settings.clipCount * 2);
+}
+async function renderClip(workDir, srcFile, moment, words, settings, srcW, srcH) {
+  const frame = frameForAspect(settings.aspect, srcW, srcH);
+  const localWords = words.filter((w) => w.end > moment.startSec && w.start < moment.endSec).map((w) => ({ word: w.word, start: Math.max(0, w.start - moment.startSec), end: Math.min(moment.durationSec, w.end - moment.startSec) })).filter((w) => w.end > w.start);
+  const cues = buildCaptionCues(localWords, settings.captionStyle);
+  const ass = buildAssDocument(cues, settings.captionStyle, { width: frame.w, height: frame.h, hookTitle: moment.hook });
+  const assPath = path16.join(workDir, `caps-${moment.rank}.ass`);
+  await fs16.promises.writeFile(assPath, ass, "utf8");
+  const fontsDir = path16.join(process.cwd(), "server", "assets", "fonts");
+  const reframe = buildReframeFilter(srcW, srcH, settings.aspect);
+  const out = path16.join(workDir, `clip-${moment.rank}.mp4`);
+  const render = async (crf) => {
+    await runFfmpeg([
+      "-ss",
+      String(moment.startSec),
+      "-i",
+      srcFile,
+      "-t",
+      String(moment.durationSec),
+      "-vf",
+      `${reframe},ass=${assPath}:fontsdir=${fontsDir}`,
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-crf",
+      String(crf),
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-movflags",
+      "+faststart",
+      "-y",
+      out
+    ], 3e5);
+    return fs16.promises.readFile(out);
+  };
+  let buffer = await render(23);
+  if (buffer.length > 24 * 1024 * 1024) buffer = await render(29);
+  return { buffer, frame };
+}
+async function startClipperJob(userId, payload2) {
+  const jobId = await insertJob2(userId, payload2);
+  void runClipperJob(jobId, userId, payload2).catch((e) => failJob2(jobId, e));
+  return jobId;
+}
+async function runClipperJob(jobId, userId, payload2) {
+  const { settings } = payload2;
+  const cls = classifySourceUrl(payload2.url);
+  if (cls.kind === "unsupported") throw new Error(`unsupported: ${cls.reason}`);
+  const workDir = fs16.mkdtempSync(path16.join(os4.tmpdir(), "vedd-clipper-"));
+  try {
+    await setStep(jobId, 0);
+    const srcFile = path16.join(workDir, "source.mp4");
+    let sourceTitle;
+    if (cls.kind === "youtube") {
+      const info2 = await downloadYouTube(payload2.url, srcFile);
+      sourceTitle = info2.title;
+    } else {
+      await downloadDirect(payload2.url, srcFile);
+    }
+    const meta = await probe(srcFile);
+    if (!meta.hasAudio) throw new Error("no audio track");
+    if (meta.duration > MAX_MINUTES * 60) throw new Error(`Video too long: exceeds the ${MAX_MINUTES} minute limit`);
+    await setStep(jobId, 1);
+    const { transcript, silences } = await transcribe(workDir, srcFile, meta.duration);
+    await setStep(jobId, 2);
+    let seeds = [];
+    try {
+      seeds = await detectMomentsAI(userId, transcript, settings);
+    } catch (e) {
+      console.warn("[clipper] AI moment detection failed, heuristic fallback:", e?.message);
+    }
+    if (!seeds.length) seeds = detectMomentsHeuristic(transcript, settings);
+    const moments = finalizeMoments(seeds, {
+      words: transcript.words,
+      silences,
+      durationSec: meta.duration,
+      settings
+    });
+    if (!moments.length) throw new Error("no speech moments found");
+    await setStep(jobId, 3);
+    const clips = [];
+    for (let i = 0; i < moments.length; i++) {
+      const moment = moments[i];
+      try {
+        const { buffer } = await renderClip(workDir, srcFile, moment, transcript.words, settings, meta.width, meta.height);
+        const saved = await persistBuffer(buffer, "video/mp4");
+        if (!saved) throw new Error("rendered clip exceeded the storage size cap");
+        const assetUrl = saved.url;
+        const gen = await storage.createContentStudioGeneration({
+          userId,
+          contentType: "video",
+          prompt: payload2.url.slice(0, 500),
+          title: moment.hook,
+          caption: moment.caption,
+          assetUrl,
+          metadata: {
+            kind: "viral-clip",
+            jobId,
+            rank: moment.rank,
+            viralityScore: moment.viralityScore,
+            subscores: moment.subscores,
+            reason: moment.reason,
+            category: moment.category,
+            durationSec: moment.durationSec,
+            startSec: moment.startSec,
+            endSec: moment.endSec,
+            sourceUrl: payload2.url,
+            captionStyle: settings.captionStyle,
+            aspect: settings.aspect,
+            platform: settings.platform,
+            belowThreshold: moment.belowThreshold || void 0
+          }
+        });
+        clips.push({
+          generationId: gen.id,
+          url: assetUrl,
+          hook: moment.hook,
+          viralityScore: moment.viralityScore,
+          subscores: moment.subscores,
+          reason: moment.reason,
+          category: moment.category,
+          durationSec: moment.durationSec,
+          startSec: moment.startSec,
+          endSec: moment.endSec,
+          caption: moment.caption,
+          rank: moment.rank,
+          belowThreshold: moment.belowThreshold || void 0
+        });
+      } catch (e) {
+        console.error(`[clipper] clip ${moment.rank} failed:`, e?.message);
+      }
+      await setStep(jobId, 3, clipperStepProgress(3) + Math.round((i + 1) / moments.length * 20));
+    }
+    if (!clips.length) throw new Error("Every clip failed to render. Please try again.");
+    await setStep(jobId, 4, 100);
+    await updateContentJob(jobId, {
+      status: "done",
+      progress: 100,
+      step: "Done",
+      result_url: clips[0].url,
+      meta: {
+        result: {
+          clips,
+          source: { url: payload2.url, kind: cls.kind, title: sourceTitle, durationSec: Math.round(meta.duration) },
+          transcriptSource: transcript.source
+        }
+      }
+    });
+  } finally {
+    fs16.rmSync(workDir, { recursive: true, force: true });
+  }
+}
+var MAX_MINUTES, MAX_SOURCE_BYTES, CHUNK_SEC;
+var init_clipper = __esm({
+  "server/services/clipper.ts"() {
+    "use strict";
+    init_db();
+    init_storage();
+    init_explainer_video();
+    init_ffmpeg();
+    init_content_asset_store();
+    init_openai();
+    init_clipper_core();
+    MAX_MINUTES = Math.max(5, Number(process.env.CLIPPER_MAX_MINUTES || 60) || 60);
+    MAX_SOURCE_BYTES = Math.max(50, Number(process.env.CLIPPER_MAX_SOURCE_MB || 600) || 600) * 1024 * 1024;
+    CHUNK_SEC = 900;
+  }
+});
+
 // server/services/slide-flattener.ts
 var slide_flattener_exports = {};
 __export(slide_flattener_exports, {
   flattenSlideImage: () => flattenSlideImage
 });
 import sharp from "sharp";
-import * as path16 from "path";
-import * as fs16 from "fs";
+import * as path17 from "path";
+import * as fs17 from "fs";
 function escapeXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -75725,7 +76650,7 @@ async function flattenSlideImage(opts) {
   const composites = [
     { input: Buffer.from(overlaySvg), top: 0, left: 0 }
   ];
-  if (opts.includeLogo && fs16.existsSync(LOGO_PATH)) {
+  if (opts.includeLogo && fs17.existsSync(LOGO_PATH)) {
     const logoWidth = Math.round(CANVAS_SIZE * 0.22);
     const logoBuffer = await sharp(LOGO_PATH).resize(logoWidth, null, { fit: "inside" }).ensureAlpha().png().toBuffer();
     const logoMeta = await sharp(logoBuffer).metadata();
@@ -75743,7 +76668,7 @@ var init_slide_flattener = __esm({
   "server/services/slide-flattener.ts"() {
     "use strict";
     CANVAS_SIZE = 1080;
-    LOGO_PATH = path16.join(process.cwd(), "attached_assets", "IMG_3645.png");
+    LOGO_PATH = path17.join(process.cwd(), "attached_assets", "IMG_3645.png");
   }
 });
 
@@ -81228,8 +82153,8 @@ import { eq as eq18, and as and11, sql as sql13, desc as desc11 } from "drizzle-
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
-import * as fs17 from "fs";
-import * as path17 from "path";
+import * as fs18 from "fs";
+import * as path18 from "path";
 
 // server/trading-coach.ts
 init_openai();
@@ -81756,9 +82681,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "47007e05-dirty";
+var BUILD_COMMIT = "284ea55d-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-16T01:25:45.712Z";
+var BUILT_AT = "2026-11-16T02:50:19.426Z";
 
 // server/stripe.ts
 init_db();
@@ -85778,9 +86703,9 @@ var mediaUpload = multer({
     cb(null, true);
   }
 });
-var uploadsDir2 = path17.join(process.cwd(), "uploads");
-if (!fs17.existsSync(uploadsDir2)) {
-  fs17.mkdirSync(uploadsDir2, { recursive: true });
+var uploadsDir2 = path18.join(process.cwd(), "uploads");
+if (!fs18.existsSync(uploadsDir2)) {
+  fs18.mkdirSync(uploadsDir2, { recursive: true });
 }
 function getCurrentTradingSession() {
   const hour = (/* @__PURE__ */ new Date()).getUTCHours();
@@ -86231,11 +87156,11 @@ async function registerRoutes(app2, existingServer) {
         return res2.status(400).json({ message: "No file uploaded" });
       }
       const fileName = `${uuidv42()}.${req.file.mimetype.split("/")[1]}`;
-      const filePath = path17.join(uploadsDir2, fileName);
+      const filePath = path18.join(uploadsDir2, fileName);
       console.log("Generated filename:", fileName);
       console.log("Full file path:", filePath);
       try {
-        await fs17.promises.writeFile(filePath, req.file.buffer);
+        await fs18.promises.writeFile(filePath, req.file.buffer);
         console.log("File saved successfully to disk");
       } catch (writeError) {
         console.error("Error writing file to disk:", writeError);
@@ -86261,14 +87186,14 @@ async function registerRoutes(app2, existingServer) {
       if (!allowedTypes.includes(req.file.mimetype)) {
         return res2.status(400).json({ message: "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed." });
       }
-      const avatarsDir = path17.join(process.cwd(), "uploads", "avatars");
-      if (!fs17.existsSync(avatarsDir)) {
-        fs17.mkdirSync(avatarsDir, { recursive: true });
+      const avatarsDir = path18.join(process.cwd(), "uploads", "avatars");
+      if (!fs18.existsSync(avatarsDir)) {
+        fs18.mkdirSync(avatarsDir, { recursive: true });
       }
       const ext = req.file.mimetype.split("/")[1];
       const fileName = `avatar-${req.user.id}-${Date.now()}.${ext}`;
-      const filePath = path17.join(avatarsDir, fileName);
-      await fs17.promises.writeFile(filePath, req.file.buffer);
+      const filePath = path18.join(avatarsDir, fileName);
+      await fs18.promises.writeFile(filePath, req.file.buffer);
       const avatarUrl = `/uploads/avatars/${fileName}`;
       res2.json({ avatarUrl });
     } catch (error) {
@@ -86363,11 +87288,11 @@ async function registerRoutes(app2, existingServer) {
       }
       const extension = filename?.split(".").pop() || "png";
       const generatedFilename = `${uuidv42()}.${extension}`;
-      const filePath = path17.join(uploadsDir2, generatedFilename);
+      const filePath = path18.join(uploadsDir2, generatedFilename);
       const imageUrl = `/uploads/${generatedFilename}`;
       try {
         const imageBuffer = Buffer.from(cleanBase64, "base64");
-        await fs17.promises.writeFile(filePath, imageBuffer);
+        await fs18.promises.writeFile(filePath, imageBuffer);
         console.log("Saved image to", filePath);
       } catch (writeError) {
         console.error("Error saving image to disk:", writeError);
@@ -86500,9 +87425,9 @@ async function registerRoutes(app2, existingServer) {
           const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : void 0;
           const analysis = await analyzeChartImage(frame.base64, detectedSymbol, req.user?.id);
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
-          const framePath = path17.join(uploadsDir2, frameFileName);
+          const framePath = path18.join(uploadsDir2, frameFileName);
           const frameBuffer = Buffer.from(frame.base64, "base64");
-          await fs17.promises.writeFile(framePath, frameBuffer);
+          await fs18.promises.writeFile(framePath, frameBuffer);
           const imageUrl = `/uploads/${frameFileName}`;
           await storage.createChartAnalysis({
             userId,
@@ -86902,12 +87827,12 @@ Respond ONLY in valid JSON format with these exact keys:
       if (!imageUrl) {
         return res2.status(400).json({ message: "No image URL provided" });
       }
-      const filePath = path17.join(process.cwd(), imageUrl.replace(/^\//, ""));
+      const filePath = path18.join(process.cwd(), imageUrl.replace(/^\//, ""));
       console.log("Attempting to analyze image at path:", filePath);
-      if (!fs17.existsSync(filePath)) {
-        const alternativePath = path17.join(uploadsDir2, path17.basename(imageUrl));
+      if (!fs18.existsSync(filePath)) {
+        const alternativePath = path18.join(uploadsDir2, path18.basename(imageUrl));
         console.log("Image not found, trying alternative path:", alternativePath);
-        if (!fs17.existsSync(alternativePath)) {
+        if (!fs18.existsSync(alternativePath)) {
           return res2.status(404).json({ message: "Image file not found" });
         }
         console.log("Found image at alternative path");
@@ -86916,7 +87841,7 @@ Respond ONLY in valid JSON format with these exact keys:
           error: "Direct file analysis is deprecated"
         });
       }
-      const imageBuffer = await fs17.promises.readFile(filePath);
+      const imageBuffer = await fs18.promises.readFile(filePath);
       const base64Image = imageBuffer.toString("base64");
       const knownSymbol = req.body.symbol || void 0;
       const analysis = await analyzeChartImage(base64Image, knownSymbol, req.user?.id);
@@ -87091,11 +88016,11 @@ Respond ONLY in valid JSON format with these exact keys:
         const originalImageUrl = analysis.imageUrl;
         console.log("Original image URL:", originalImageUrl);
         const imagePath = originalImageUrl.startsWith("/") ? originalImageUrl.substring(1) : originalImageUrl;
-        const basename2 = path17.basename(imagePath);
+        const basename2 = path18.basename(imagePath);
         console.log("Image basename:", basename2);
-        const originalImagePath = path17.join(process.cwd(), "uploads", basename2);
+        const originalImagePath = path18.join(process.cwd(), "uploads", basename2);
         console.log("Full image path:", originalImagePath);
-        if (!fs17.existsSync(originalImagePath)) {
+        if (!fs18.existsSync(originalImagePath)) {
           console.error("Original image not found at path:", originalImagePath);
           throw new Error(`Original image not found: ${originalImagePath}`);
         }
@@ -87192,13 +88117,13 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/shared-image/:filename", (req, res2) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path17.basename(filename);
-      const sharedPath = path17.join(process.cwd(), "uploads", "shared", sanitizedFilename);
-      if (fs17.existsSync(sharedPath)) {
+      const sanitizedFilename = path18.basename(filename);
+      const sharedPath = path18.join(process.cwd(), "uploads", "shared", sanitizedFilename);
+      if (fs18.existsSync(sharedPath)) {
         return res2.sendFile(sharedPath);
       }
-      const regularPath = path17.join(process.cwd(), "uploads", sanitizedFilename);
-      if (fs17.existsSync(regularPath)) {
+      const regularPath = path18.join(process.cwd(), "uploads", sanitizedFilename);
+      if (fs18.existsSync(regularPath)) {
         return res2.sendFile(regularPath);
       }
       return res2.status(404).json({ message: "Image not found" });
@@ -87210,9 +88135,9 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/annotated-image/:filename", (req, res2) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path17.basename(filename);
-      const annotatedPath = path17.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
-      if (fs17.existsSync(annotatedPath)) {
+      const sanitizedFilename = path18.basename(filename);
+      const annotatedPath = path18.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
+      if (fs18.existsSync(annotatedPath)) {
         return res2.sendFile(annotatedPath);
       }
       return res2.status(404).json({ message: "Annotated image not found" });
@@ -90772,12 +91697,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       });
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
       const shareCardFileName = `share-card-${shareId}.png`;
-      const shareCardPath = path17.join(process.cwd(), "uploads", "share-cards");
-      if (!fs17.existsSync(shareCardPath)) {
-        fs17.mkdirSync(shareCardPath, { recursive: true });
+      const shareCardPath = path18.join(process.cwd(), "uploads", "share-cards");
+      if (!fs18.existsSync(shareCardPath)) {
+        fs18.mkdirSync(shareCardPath, { recursive: true });
       }
-      const fullPath = path17.join(shareCardPath, shareCardFileName);
-      fs17.writeFileSync(fullPath, shareCardBuffer);
+      const fullPath = path18.join(shareCardPath, shareCardFileName);
+      fs18.writeFileSync(fullPath, shareCardBuffer);
       const shareCardUrl = `/uploads/share-cards/${shareCardFileName}`;
       const shareUrl = `share-${shareId}`;
       const devotion = getDailyScripture2();
@@ -97855,8 +98780,8 @@ Return this EXACT JSON (no markdown, no commentary):
     if (!strat?.plan) return res2.status(404).json({ error: "No active VEDD SS AI plan" });
     try {
       const { createCanvas, loadImage } = await import("canvas");
-      const path21 = await import("path");
-      const fs19 = await import("fs");
+      const path22 = await import("path");
+      const fs20 = await import("fs");
       const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const engineState = getLiveEngineState3(userId);
       const engineRunning = engineState?.status === "running";
@@ -97942,8 +98867,8 @@ Return this EXACT JSON (no markdown, no commentary):
       ctx.closePath();
       ctx.fill();
       try {
-        const logoPath = path21.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
-        if (fs19.default.existsSync(logoPath)) {
+        const logoPath = path22.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
+        if (fs20.default.existsSync(logoPath)) {
           const logo = await loadImage(logoPath);
           const lh = 64, lw = logo.width / logo.height * lh;
           ctx.drawImage(logo, 44, 26, lw, lh);
@@ -98204,10 +99129,10 @@ Return this EXACT JSON (no markdown, no commentary):
       }
       const buffer = canvas.toBuffer("image/png");
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
-      const outDir = path21.default.join(process.cwd(), "uploads", "share-cards");
-      if (!fs19.default.existsSync(outDir)) fs19.default.mkdirSync(outDir, { recursive: true });
-      const filePath = path21.default.join(outDir, fileName);
-      fs19.default.writeFileSync(filePath, buffer);
+      const outDir = path22.default.join(process.cwd(), "uploads", "share-cards");
+      if (!fs20.default.existsSync(outDir)) fs20.default.mkdirSync(outDir, { recursive: true });
+      const filePath = path22.default.join(outDir, fileName);
+      fs20.default.writeFileSync(filePath, buffer);
       res2.json({
         success: true,
         imageUrl: `/uploads/share-cards/${fileName}`,
@@ -100895,9 +101820,9 @@ Format each recommendation as a clear, concise action item.`;
     }
     global.veddAIBrain[userId] = brain;
     try {
-      const brainDir = path17.join(process.cwd(), "data", "brains");
-      if (!fs17.existsSync(brainDir)) fs17.mkdirSync(brainDir, { recursive: true });
-      fs17.writeFileSync(path17.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+      const brainDir = path18.join(process.cwd(), "data", "brains");
+      if (!fs18.existsSync(brainDir)) fs18.mkdirSync(brainDir, { recursive: true });
+      fs18.writeFileSync(path18.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
     } catch (_brainSaveErr) {
     }
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
@@ -100906,9 +101831,9 @@ Format each recommendation as a clear, concise action item.`;
   global.runBrainLearning = runBrainLearning;
   global.loadPersistedBrain = (userId) => {
     try {
-      const p2 = path17.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-      if (!fs17.existsSync(p2)) return null;
-      const brain = JSON.parse(fs17.readFileSync(p2, "utf-8"));
+      const p2 = path18.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+      if (!fs18.existsSync(p2)) return null;
+      const brain = JSON.parse(fs18.readFileSync(p2, "utf-8"));
       global.veddAIBrain = global.veddAIBrain || {};
       global.veddAIBrain[userId] = brain;
       return brain;
@@ -101126,9 +102051,9 @@ Format each recommendation as a clear, concise action item.`;
     let brain = g.veddAIBrain[userId];
     if (!brain) {
       try {
-        const p2 = path17.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs17.existsSync(p2)) {
-          brain = JSON.parse(fs17.readFileSync(p2, "utf-8"));
+        const p2 = path18.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs18.existsSync(p2)) {
+          brain = JSON.parse(fs18.readFileSync(p2, "utf-8"));
           g.veddAIBrain[userId] = brain;
         }
       } catch (_) {
@@ -102271,9 +103196,9 @@ Respond with ONLY valid JSON:
         global.veddAIBrain[userId].lastWeeklyScan = scan;
         global.veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
         try {
-          const brainDir = path17.join(process.cwd(), "data", "brains");
-          if (!fs17.existsSync(brainDir)) fs17.mkdirSync(brainDir, { recursive: true });
-          fs17.writeFileSync(path17.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
+          const brainDir = path18.join(process.cwd(), "data", "brains");
+          if (!fs18.existsSync(brainDir)) fs18.mkdirSync(brainDir, { recursive: true });
+          fs18.writeFileSync(path18.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
         } catch (_) {
         }
       }
@@ -103274,20 +104199,20 @@ Respond with ONLY valid JSON:
       });
     }
   });
-  const _polyWalletsFile = path17.join(process.cwd(), "data", "polymarket_wallets.json");
+  const _polyWalletsFile = path18.join(process.cwd(), "data", "polymarket_wallets.json");
   const _loadPolyWallets = () => {
     try {
-      if (fs17.existsSync(_polyWalletsFile)) return JSON.parse(fs17.readFileSync(_polyWalletsFile, "utf-8"));
+      if (fs18.existsSync(_polyWalletsFile)) return JSON.parse(fs18.readFileSync(_polyWalletsFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyWallets = (map) => {
     try {
-      const dir = path17.join(process.cwd(), "data");
-      if (!fs17.existsSync(dir)) fs17.mkdirSync(dir, { recursive: true });
+      const dir = path18.join(process.cwd(), "data");
+      if (!fs18.existsSync(dir)) fs18.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
-      fs17.writeFileSync(_polyWalletsFile, content);
+      fs18.writeFileSync(_polyWalletsFile, content);
       backupDurableFile("polymarket_wallets.json", content);
     } catch {
     }
@@ -104752,20 +105677,20 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const closed = await closeAllKalshiTrades2(userId);
     res2.json({ success: true, closed, state: getKalshiEngineState2(userId) });
   });
-  const _polyKeysFile = path17.join(process.cwd(), "data", "polymarket_keys.json");
+  const _polyKeysFile = path18.join(process.cwd(), "data", "polymarket_keys.json");
   const _loadPolyKeys = () => {
     try {
-      if (fs17.existsSync(_polyKeysFile)) return JSON.parse(fs17.readFileSync(_polyKeysFile, "utf-8"));
+      if (fs18.existsSync(_polyKeysFile)) return JSON.parse(fs18.readFileSync(_polyKeysFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyKeys = (map) => {
     try {
-      const dir = path17.join(process.cwd(), "data");
-      if (!fs17.existsSync(dir)) fs17.mkdirSync(dir, { recursive: true });
+      const dir = path18.join(process.cwd(), "data");
+      if (!fs18.existsSync(dir)) fs18.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
-      fs17.writeFileSync(_polyKeysFile, content);
+      fs18.writeFileSync(_polyKeysFile, content);
       backupDurableFile("polymarket_keys.json", content);
     } catch {
     }
@@ -106020,11 +106945,11 @@ Format your response as JSON with exactly these keys:
       let mediaUrl = null;
       let mediaType = null;
       if (req.file && req.file.buffer) {
-        const fs19 = await import("fs/promises");
-        const path21 = await import("path");
-        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path21.extname(req.file.originalname)}`;
-        const uploadPath = path21.join(process.cwd(), "uploads", filename);
-        await fs19.writeFile(uploadPath, req.file.buffer);
+        const fs20 = await import("fs/promises");
+        const path22 = await import("path");
+        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path22.extname(req.file.originalname)}`;
+        const uploadPath = path22.join(process.cwd(), "uploads", filename);
+        await fs20.writeFile(uploadPath, req.file.buffer);
         mediaUrl = `/uploads/${filename}`;
         mediaType = req.file.mimetype.startsWith("video/") ? "video" : "image";
       }
@@ -106837,8 +107762,8 @@ Generate a JSON object with:
       }
       const id = parseInt(streamId);
       const filename = `stream-recording-${streamType}-${id}-${Date.now()}.webm`;
-      const filePath = path17.join(uploadsDir2, filename);
-      fs17.writeFileSync(filePath, file.buffer);
+      const filePath = path18.join(uploadsDir2, filename);
+      fs18.writeFileSync(filePath, file.buffer);
       const recordingUrl = `/uploads/${filename}`;
       if (streamType === "schedule") {
         const schedule = await storage.getSchedule(id);
@@ -111490,6 +112415,42 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       res2.status(500).json({ error: err.message });
     }
   });
+  app2.post("/api/content-studio/clipper", async (req, res2) => {
+    try {
+      const u = req.user;
+      if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+        return res2.status(403).json({ message: "Content Studio is available to ambassadors and admins." });
+      }
+      const { classifySourceUrl: classifySourceUrl2, validateClipperSettings: validateClipperSettings2 } = await Promise.resolve().then(() => (init_clipper_core(), clipper_core_exports));
+      const cls = classifySourceUrl2(String(req.body?.url || ""));
+      if (cls.kind === "unsupported") return res2.status(400).json({ message: cls.reason });
+      const v = validateClipperSettings2(req.body?.settings || {});
+      if (!v.ok) return res2.status(400).json({ message: v.error });
+      if (!u.isAdmin) {
+        const { jobsToday: jobsToday2 } = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
+        const limit = Number(process.env.CLIPPER_DAILY_LIMIT || 3) || 3;
+        if (await jobsToday2(u.id, "viral-clip") >= limit) {
+          return res2.status(429).json({ message: `Daily clipper limit reached (${limit} source videos/day). Try again tomorrow.` });
+        }
+      }
+      const { startClipperJob: startClipperJob2 } = await Promise.resolve().then(() => (init_clipper(), clipper_exports));
+      const jobId = await startClipperJob2(u.id, { url: String(req.body.url), settings: v.settings });
+      res2.json({ jobId, kind: "viral-clip" });
+    } catch (e) {
+      console.error("[content-studio] clipper error:", e?.message || e);
+      res2.status(500).json({ message: "Failed to start the clipper" });
+    }
+  });
+  app2.get("/api/content-studio/share-targets", async (req, res2) => {
+    try {
+      if (!req.isAuthenticated()) return res2.status(401).json({ message: "Sign in required" });
+      const { buildShareTargets: buildShareTargets2 } = await Promise.resolve().then(() => (init_clipper_core(), clipper_core_exports));
+      res2.json({ targets: buildShareTargets2(process.env) });
+    } catch (e) {
+      console.error("[content-studio] share-targets error:", e?.message || e);
+      res2.status(500).json({ message: "Failed to load share options" });
+    }
+  });
   app2.get("/api/content-studio/jobs/:id", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     const ex = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
@@ -112510,10 +113471,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res2.status(403).json({ error: "Admin access required" });
     }
     try {
-      const dataFile = path17.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path18.join(process.cwd(), "data", "curricula.json");
       let curricula = [];
       try {
-        curricula = JSON.parse(fs17.readFileSync(dataFile, "utf-8"));
+        curricula = JSON.parse(fs18.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const entry = {
@@ -112523,8 +113484,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         ...req.body
       };
       curricula.push(entry);
-      fs17.mkdirSync(path17.join(process.cwd(), "data"), { recursive: true });
-      fs17.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
+      fs18.mkdirSync(path18.join(process.cwd(), "data"), { recursive: true });
+      fs18.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
       res2.json({ success: true, id: entry.id, message: "Curriculum saved to Academy" });
     } catch (err) {
       res2.status(500).json({ error: err.message });
@@ -112533,10 +113494,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/workforce/modules", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path17.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path18.join(process.cwd(), "data", "curricula.json");
       let saved = [];
       try {
-        saved = JSON.parse(fs17.readFileSync(dataFile, "utf-8"));
+        saved = JSON.parse(fs18.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       res2.json({ modules: saved, total: saved.length + 12 });
@@ -112625,10 +113586,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   });
   app2.get("/api/verify/:certId", async (req, res2) => {
     try {
-      const dataFile = path17.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path18.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs17.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs18.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = certs.find((c) => c.certId === req.params.certId);
@@ -114678,14 +115639,14 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
 
 // server/vite.ts
 import express from "express";
-import fs18 from "fs";
-import path19 from "path";
+import fs19 from "fs";
+import path20 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path18 from "path";
+import path19 from "path";
 var isReplit = process.env.REPL_ID !== void 0;
 var replitPlugins = isReplit ? [
   (await import("@replit/vite-plugin-shadcn-theme-json")).default(),
@@ -114704,14 +115665,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path18.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path18.resolve(import.meta.dirname, "shared"),
-      "@assets": path18.resolve(import.meta.dirname, "attached_assets")
+      "@": path19.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path19.resolve(import.meta.dirname, "shared"),
+      "@assets": path19.resolve(import.meta.dirname, "attached_assets")
     }
   },
-  root: path18.resolve(import.meta.dirname, "client"),
+  root: path19.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path18.resolve(import.meta.dirname, "dist/public"),
+    outDir: path19.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 4e3,
     rollupOptions: {
@@ -114834,13 +115795,13 @@ async function setupVite(app2, server) {
       return res2.status(404).json({ error: "Not found", path: url });
     }
     try {
-      const clientTemplate = path19.resolve(
+      const clientTemplate = path20.resolve(
         import.meta.dirname,
         "..",
         "client",
         "index.html"
       );
-      let template = await fs18.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs19.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
@@ -114860,9 +115821,9 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path19.resolve(import.meta.dirname, "..", "dist", "public");
-  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs18.existsSync(distPath)}`);
-  if (!fs18.existsSync(distPath)) {
+  const distPath = path20.resolve(import.meta.dirname, "..", "dist", "public");
+  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs19.existsSync(distPath)}`);
+  if (!fs19.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
@@ -114883,7 +115844,7 @@ function serveStatic(app2) {
       }
     }
   }));
-  const indexPath = path19.resolve(distPath, "index.html");
+  const indexPath = path20.resolve(distPath, "index.html");
   const versionScript = `<script>
 (function(){
   try{
@@ -114919,7 +115880,7 @@ function serveStatic(app2) {
         "Expires": "0",
         "Content-Type": "text/html; charset=utf-8"
       });
-      let html = await fs18.promises.readFile(indexPath, "utf-8");
+      let html = await fs19.promises.readFile(indexPath, "utf-8");
       html = await injectBlogSeoMeta(html, req.originalUrl);
       html = html.replace("<head>", "<head>" + versionScript);
       res2.send(html);
@@ -114930,7 +115891,7 @@ function serveStatic(app2) {
 }
 
 // server/index.ts
-import path20 from "path";
+import path21 from "path";
 
 // server/auth.ts
 init_storage();
@@ -115868,19 +116829,19 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   log(`serving on port ${PORT}`);
 });
 setupAuth(app);
-app.use("/uploads", express2.static(path20.join(process.cwd(), "uploads")));
-app.use("/ea-templates", express2.static(path20.join(process.cwd(), "public/ea-templates")));
-app.use("/downloads", express2.static(path20.join(process.cwd(), "public/downloads"), {
+app.use("/uploads", express2.static(path21.join(process.cwd(), "uploads")));
+app.use("/ea-templates", express2.static(path21.join(process.cwd(), "public/ea-templates")));
+app.use("/downloads", express2.static(path21.join(process.cwd(), "public/downloads"), {
   setHeaders: (res2, filePath) => {
     if (filePath.endsWith(".mq5")) {
       res2.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res2.setHeader("Content-Disposition", 'attachment; filename="' + path20.basename(filePath) + '"');
+      res2.setHeader("Content-Disposition", 'attachment; filename="' + path21.basename(filePath) + '"');
     }
   }
 }));
 app.use((req, res2, next) => {
   const start = Date.now();
-  const path21 = req.path;
+  const path22 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res2.json;
   res2.json = function(bodyJson, ...args) {
@@ -115889,8 +116850,8 @@ app.use((req, res2, next) => {
   };
   res2.on("finish", () => {
     const duration = Date.now() - start;
-    if (path21.startsWith("/api")) {
-      let logLine = `${req.method} ${path21} ${res2.statusCode} in ${duration}ms`;
+    if (path22.startsWith("/api")) {
+      let logLine = `${req.method} ${path22} ${res2.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }

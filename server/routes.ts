@@ -31522,6 +31522,50 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ── AI Clipper: paste a link → viral clips (job kind 'viral-clip').
+  // Download → transcribe → AI moment detection → cut/reframe/burn
+  // captions → Saved library. Daily-capped (CLIPPER_DAILY_LIMIT, default
+  // 3 — each run costs a transcription + an AI call + renders).
+  app.post('/api/content-studio/clipper', async (req, res) => {
+    try {
+      const u = (req as any).user;
+      if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+        return res.status(403).json({ message: 'Content Studio is available to ambassadors and admins.' });
+      }
+      const { classifySourceUrl, validateClipperSettings } = await import('./services/clipper-core');
+      const cls = classifySourceUrl(String(req.body?.url || ''));
+      if (cls.kind === 'unsupported') return res.status(400).json({ message: cls.reason });
+      const v = validateClipperSettings(req.body?.settings || {});
+      if (!v.ok) return res.status(400).json({ message: v.error });
+      if (!u.isAdmin) {
+        const { jobsToday } = await import('./services/explainer-video');
+        const limit = Number(process.env.CLIPPER_DAILY_LIMIT || 3) || 3;
+        if ((await jobsToday(u.id, 'viral-clip')) >= limit) {
+          return res.status(429).json({ message: `Daily clipper limit reached (${limit} source videos/day). Try again tomorrow.` });
+        }
+      }
+      const { startClipperJob } = await import('./services/clipper');
+      const jobId = await startClipperJob(u.id, { url: String(req.body.url), settings: v.settings });
+      res.json({ jobId, kind: 'viral-clip' });
+    } catch (e: any) {
+      console.error('[content-studio] clipper error:', e?.message || e);
+      res.status(500).json({ message: 'Failed to start the clipper' });
+    }
+  });
+
+  // Share state for clip results: per-network share targets (direct vs
+  // one-tap fallback, computed truthfully from configured credentials).
+  app.get('/api/content-studio/share-targets', async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) return res.status(401).json({ message: 'Sign in required' });
+      const { buildShareTargets } = await import('./services/clipper-core');
+      res.json({ targets: buildShareTargets(process.env as Record<string, string | undefined>) });
+    } catch (e: any) {
+      console.error('[content-studio] share-targets error:', e?.message || e);
+      res.status(500).json({ message: 'Failed to load share options' });
+    }
+  });
+
   // GET /api/content-studio/jobs/:id — poll a clip/reel job (explainers
   // keep their own poll route; clip/reel results ride in meta.result,
   // the exact payload the old synchronous routes returned).
