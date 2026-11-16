@@ -8790,6 +8790,48 @@ var init_pipUtils = __esm({
   }
 });
 
+// server/utils/symbolAliases.ts
+function cleanSym(symbol) {
+  return String(symbol ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+function canonicalIndexSymbol(symbol) {
+  const clean = cleanSym(symbol);
+  if (ALIAS_TO_CANONICAL[clean]) return ALIAS_TO_CANONICAL[clean];
+  const stripped = clean.replace(TRAILING_SUFFIX, "");
+  if (stripped !== clean && ALIAS_TO_CANONICAL[stripped]) return ALIAS_TO_CANONICAL[stripped];
+  return clean;
+}
+function indexSymbolVariants(symbol) {
+  const clean = cleanSym(symbol);
+  const canonical = canonicalIndexSymbol(symbol);
+  const family = INDEX_SYMBOL_ALIASES[canonical];
+  if (!family) return [clean];
+  const out = [];
+  for (const name of [canonical, ...family, clean]) {
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+var INDEX_SYMBOL_ALIASES, ALIAS_TO_CANONICAL, TRAILING_SUFFIX;
+var init_symbolAliases = __esm({
+  "server/utils/symbolAliases.ts"() {
+    "use strict";
+    INDEX_SYMBOL_ALIASES = {
+      US30: ["US30", "US30CASH", "US30C", "DOW30", "DOWJONES", "DJIA", "DJI", "DJ30", "DJI30", "WS30", "YM", "DOW", "USA30", "CASH30", "US30USD", "DJA", "WALLST30", "WALLSTREET30", "USWALL"],
+      NAS100: ["NAS100", "NAS100CASH", "NAS100C", "NASDAQ100", "USTEC", "NDX100", "US100", "NQ", "NQ100", "NASDAQ", "NASUSD", "NA100", "NDAQ", "QQQ", "TECH100", "USTECH100", "NASD100", "NAS100USD"],
+      US500: ["US500", "SP500", "SPX500", "SPX", "SPXUSD", "SP500USD", "SPX500USD", "US500CASH", "SP500C", "SPXC", "SPXUSDM", "USINDEX", "ES", "USA500"]
+    };
+    ALIAS_TO_CANONICAL = (() => {
+      const map = {};
+      for (const [canonical, names] of Object.entries(INDEX_SYMBOL_ALIASES)) {
+        for (const name of names) map[name] = canonical;
+      }
+      return map;
+    })();
+    TRAILING_SUFFIX = /(CASH|USD|RAW|PRO|ECN|STP|MT5|SB|M|C|I)$/;
+  }
+});
+
 // server/utils/smcUtils.ts
 var smcUtils_exports = {};
 __export(smcUtils_exports, {
@@ -11006,6 +11048,8 @@ var init_service = __esm({
           "NI225",
           "US30",
           "US500",
+          "SP500",
+          "SPX500",
           "US100",
           "NAS100",
           "USTEC",
@@ -15163,6 +15207,7 @@ __export(tradelocker_exports, {
   priceDecimals: () => priceDecimals,
   roundToTick: () => roundToTick,
   setUsdJpyRate: () => setUsdJpyRate,
+  tlCandleVariants: () => tlCandleVariants,
   tlRateLimitStatus: () => tlRateLimitStatus,
   warmTradeLockerConnection: () => warmTradeLockerConnection
 });
@@ -15178,6 +15223,16 @@ function getEncryptionKey2() {
     return key.padEnd(32, "0");
   }
   return key;
+}
+function tlCandleVariants(symbol) {
+  const sym2 = String(symbol || "").toUpperCase();
+  const canonical = canonicalIndexSymbol(sym2);
+  const fromTable = TL_CANDLE_SYMBOL_ALIASES[canonical] || TL_CANDLE_SYMBOL_ALIASES[sym2] || [];
+  const out = [];
+  for (const name of [sym2, canonical, ...fromTable]) {
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
 }
 function priceDecimals(symbol) {
   const s = String(symbol || "").toUpperCase().split(".")[0].replace(/[^A-Z0-9]/g, "");
@@ -15812,6 +15867,7 @@ var init_tradelocker = __esm({
   "server/tradelocker.ts"() {
     "use strict";
     init_candleNormalize();
+    init_symbolAliases();
     IV_LENGTH = 16;
     DEFAULT_ENCRYPTION_KEY = "vedd-tl-default-key-change-me-32chars!!";
     SALT_LENGTH = 16;
@@ -15822,9 +15878,9 @@ var init_tradelocker = __esm({
     SERVICE_CACHE_TTL = 50 * 60 * 1e3;
     TL_CANDLE_SYMBOL_ALIASES = {
       "XAUUSD": ["GOLD", "XAU/USD"],
-      "NAS100": ["USTEC", "US100", "NDX100", "NASDAQ100", "NQ100"],
-      "US30": ["DJ30", "WALLST30", "DJI30", "WS30"],
-      "US500": ["SPX500", "SP500", "SPX"]
+      "NAS100": INDEX_SYMBOL_ALIASES.NAS100.filter((n) => n !== "NAS100"),
+      "US30": INDEX_SYMBOL_ALIASES.US30.filter((n) => n !== "US30"),
+      "US500": INDEX_SYMBOL_ALIASES.US500.filter((n) => n !== "US500")
     };
     rejectPauseUntil = /* @__PURE__ */ new Map();
     REJECT_PAUSE_MS = Number(process.env.TL_REJECT_PAUSE_MINUTES ?? 15) * 6e4;
@@ -16451,17 +16507,20 @@ var init_tradelocker = __esm({
                 "SILVER": ["XAGUSD", "XAG/USD"],
                 "USOIL": ["WTI", "CRUDE", "OIL", "USOUSD"],
                 "UKOIL": ["BRENT", "BRENTOIL"],
-                "NAS100": ["USTEC", "NDX100", "NASDAQ100", "US100", "NQ100"],
+                "NAS100": ["USTEC", "NDX100", "NASDAQ100", "US100", "NQ100", "NQ"],
                 "US500": ["SPX500", "SP500", "US500", "SPX"],
-                "US30": ["DJ30", "WALLST30", "DJI30"],
+                "US30": ["DJ30", "WALLST30", "DJI30", "WS30"],
                 "GER40": ["DAX40", "DE40", "GER30", "GER"],
                 "UK100": ["FTSE100", "UKX"],
                 "JP225": ["JPN225", "NIKKEI", "N225"]
               };
-              const knownAliases = ALIASES[sym2] || [];
+              const knownAliases = ALIASES[canonicalIndexSymbol(sym2)] || ALIASES[sym2] || [];
               for (const alias of knownAliases) {
                 symVariants.push(alias);
                 symVariants.push(alias.replace("/", ""));
+              }
+              for (const alias of indexSymbolVariants(sym2)) {
+                if (!knownAliases.includes(alias)) symVariants.push(alias);
               }
               const seen = /* @__PURE__ */ new Set();
               const uniqueVariants = symVariants.filter((v) => {
@@ -16685,7 +16744,7 @@ var init_tradelocker = __esm({
         } else {
           const { instruments } = await this.fetchInstrumentsPayload();
           const sym2 = symbol.toUpperCase();
-          const variants = [sym2, ...TL_CANDLE_SYMBOL_ALIASES[sym2] || []];
+          const variants = tlCandleVariants(sym2);
           let matched = null;
           for (const v of variants) {
             matched = instruments.find((i) => (i.name || i.symbol || "").toUpperCase().replace(/\s/g, "") === v.replace(/\s/g, ""));
@@ -20661,7 +20720,8 @@ async function executeSignalOnDxtrade(conn, signal) {
     let pos = code ? positions.find((p2) => p2.positionId === String(code)) : void 0;
     if (!pos) {
       const dir = signal.direction ? String(signal.direction).toUpperCase() : null;
-      const matches = positions.filter((p2) => p2.instrument === symbol && (!dir || p2.side === dir));
+      const family = indexSymbolVariants(symbol);
+      const matches = positions.filter((p2) => family.includes(p2.instrument) && (!dir || p2.side === dir));
       if (matches.length > 1 && !dir) {
         return { success: false, error: `multiple ${symbol} positions on this account and no direction given \u2014 refusing to guess the leg` };
       }
@@ -20693,6 +20753,7 @@ var init_dxtrade = __esm({
   "server/dxtrade.ts"() {
     "use strict";
     init_cryptocom();
+    init_symbolAliases();
     DxtradeReadError = class extends Error {
       constructor(message) {
         super(message);
@@ -21019,6 +21080,22 @@ var init_dxtrade = __esm({
         } catch {
           return null;
         }
+      }
+      /**
+       * Alias-aware instrument lookup: try the requested symbol, then every
+       * broker name for the same index (SP500 → SPX500 / US500 / SPX…), each
+       * with getInstrument's exact-match discipline. Returns the matched
+       * instrument — whose `symbol` is the BROKER's own name, the one orders
+       * and position checks must use — or null when NO name matches (the
+       * caller then takes its fail-closed logged skip; never a naked order).
+       * Non-index symbols try only their own name, exactly as before.
+       */
+      async findInstrument(symbol) {
+        for (const variant of indexSymbolVariants(symbol)) {
+          const inst = await this.getInstrument(variant);
+          if (inst) return inst;
+        }
+        return null;
       }
       /** Normalized open positions for an account (id/instrument/side/qty/entry),
        *  tolerant of dxsca shape (portfolio.positions | positions | flat array).
@@ -28174,11 +28251,12 @@ async function processDecision(userId, decision, newsCtx) {
             let qty = 0;
             let sizeLabel = "";
             const _dxSide = decision.direction === "BUY" ? "BUY" : "SELL";
-            const _dxSymNorm = dxSymbol.replace(/\//g, "").toUpperCase();
-            const spec = await svc.getInstrument(dxSymbol);
+            const spec = await svc.findInstrument(dxSymbol);
+            const _dxWireSymbol = String(spec?.symbol || dxSymbol);
+            const _dxSymNorm = _dxWireSymbol.replace(/\//g, "").toUpperCase();
             if (!spec) {
               addActivity(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: instrument spec not found on Velotrade \u2014 skipped (cannot size safely without contract multiplier).` });
-              logDxtradeSkip(userId, dc.id, dxSymbol, "no_instrument_spec", "not tradable on Velotrade");
+              logDxtradeSkip(userId, dc.id, dxSymbol, "no_instrument_spec", `not tradable on Velotrade (tried: ${indexSymbolVariants(dxSymbol).join(", ")})`);
               continue;
             }
             if (!(Number(stopLoss) > 0)) {
@@ -28234,12 +28312,12 @@ async function processDecision(userId, decision, newsCtx) {
             }
             let r;
             try {
-              r = await svc.placeOrder(acct, { instrument: dxSymbol, side: _dxSide, quantity: qty, type: "MARKET" });
+              r = await svc.placeOrder(acct, { instrument: _dxWireSymbol, side: _dxSide, quantity: qty, type: "MARKET" });
             } catch (oe) {
               let _oeClosed = false;
               if (_preDxQty.size === 0) {
                 try {
-                  await svc.closePosition(acct, dxSymbol, _dxSide, qty);
+                  await svc.closePosition(acct, _dxWireSymbol, _dxSide, qty);
                   _oeClosed = true;
                 } catch {
                 }
@@ -28269,7 +28347,7 @@ async function processDecision(userId, decision, newsCtx) {
               if (_verifyError) {
                 let _emClosed = false;
                 try {
-                  await svc.closePosition(acct, dxSymbol, _dxSide, qty);
+                  await svc.closePosition(acct, _dxWireSymbol, _dxSide, qty);
                   _emClosed = true;
                 } catch {
                 }
@@ -28291,7 +28369,7 @@ async function processDecision(userId, decision, newsCtx) {
               } else {
                 let _lateClosed = false;
                 try {
-                  await svc.closePosition(acct, dxSymbol, _dxSide, qty);
+                  await svc.closePosition(acct, _dxWireSymbol, _dxSide, qty);
                   _lateClosed = true;
                 } catch {
                 }
@@ -28302,13 +28380,13 @@ async function processDecision(userId, decision, newsCtx) {
             }
             let _prot = {};
             try {
-              _prot = await svc.modifyProtection(acct, { instrument: dxSymbol, positionSide: _dxSide, quantity: _pos.quantity || qty, stopLoss: stopLoss || void 0, takeProfit: takeProfit || void 0, positionCode: _pos.positionId });
+              _prot = await svc.modifyProtection(acct, { instrument: _dxWireSymbol, positionSide: _dxSide, quantity: _pos.quantity || qty, stopLoss: stopLoss || void 0, takeProfit: takeProfit || void 0, positionCode: _pos.positionId });
             } catch (pe) {
               _prot = { stopError: pe?.message || String(pe) };
             }
             if (!_prot.stop) {
               try {
-                await svc.closePosition(acct, dxSymbol, _dxSide, _pos.quantity || qty, _pos.positionId);
+                await svc.closePosition(acct, _dxWireSymbol, _dxSide, _pos.quantity || qty, _pos.positionId);
                 addActivity(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED (${_prot.stopError || "no stop returned"}) \u2014 position CLOSED immediately to avoid a naked entry.` });
               } catch (ce) {
                 addActivity(userId, { type: "error", symbol: decision.symbol, message: `\u{1F6A8} DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED and emergency close ALSO failed (${ce?.message}) \u2014 MANUAL ACTION NEEDED, position may be naked.` });
@@ -29111,7 +29189,7 @@ function getNYTime(ts) {
 async function getBrokerIndexCandles(userId, symbol, mt5Tf) {
   const cache11 = global.mt5ChartDataCache || {};
   const wanted = new Set(
-    [symbol, ...INDEX_BROKER_ALIASES[symbol] || []].map((s) => s.replace(/[^A-Z0-9]/gi, "").toUpperCase())
+    indexSymbolVariants(symbol).map((s) => s.replace(/[^A-Z0-9]/gi, "").toUpperCase())
   );
   const prefix = `mt5_chart_${userId}_`;
   const suffix = `_${mt5Tf}`;
@@ -30280,6 +30358,7 @@ var init_live_trading_engine = __esm({
     init_news_service();
     init_pipUtils();
     init_candleNormalize();
+    init_symbolAliases();
     init_tl_risk_settings();
     init_smcUtils();
     init_ictMacroUtils();
@@ -30372,9 +30451,9 @@ var init_live_trading_engine = __esm({
       minute: "2-digit"
     });
     INDEX_BROKER_ALIASES = {
-      US30: ["US30CASH", "US30C", "DOW30", "DOWJONES", "DJIA", "DJI", "WS30", "YM", "DOW", "USA30", "CASH30", "US30USD", "DJA", "WALLST30", "WALLSTREET30", "USWALL"],
-      NAS100: ["NAS100CASH", "NAS100C", "NASDAQ100", "USTEC", "NDX100", "US100", "NQ", "NASDAQ", "NASUSD", "NA100", "NDAQ", "QQQ", "TECH100", "USTECH100", "NASD100", "NAS100USD"],
-      US500: ["SPXUSD", "US500CASH", "SP500USD", "USINDEX", "SPX500USD", "ES", "SPX", "SPXC", "SP500C", "SPXUSDM", "SPX500", "SP500"]
+      US30: INDEX_SYMBOL_ALIASES.US30.filter((n) => n !== "US30"),
+      NAS100: INDEX_SYMBOL_ALIASES.NAS100.filter((n) => n !== "NAS100"),
+      US500: INDEX_SYMBOL_ALIASES.US500.filter((n) => n !== "US500")
     };
     _sniperOrbCache = /* @__PURE__ */ new Map();
     FX_LEADER_LOCK_KEY = 918273646;
@@ -31327,7 +31406,7 @@ function summarizeRegimeResolutions(list) {
 }
 function isExcludedPair(model, symbol, engine = "fx") {
   if (engine !== "fx" || !symbol) return false;
-  const sym2 = String(symbol).toUpperCase();
+  const sym2 = canonicalIndexSymbol(String(symbol).toUpperCase());
   if (model === "M1") return M1_PAIRS_EXCLUDED.includes(sym2);
   if (model === "M2") return M2_PAIRS_EXCLUDED.includes(sym2);
   return false;
@@ -31721,7 +31800,7 @@ function m2Reject(symbol, dir, entry, sl, tp, ctx, session3, engine = "fx") {
   const want = dir === "BUY" ? "BULLISH" : "BEARISH";
   if (ctx?.h1?.trend !== want || ctx?.h4?.trend !== want) return `H1 ${ctx?.h1?.trend ?? "n/a"} / H4 ${ctx?.h4?.trend ?? "n/a"} not both ${want}`;
   if (engine !== "fx") return null;
-  if (M2_PAIRS_EXCLUDED.includes(symbol) && !liftsActive()) return `${symbol} excluded from trend model`;
+  if (isExcludedPair("M2", symbol, engine) && !liftsActive()) return `${symbol} excluded from trend model`;
   if (!M2_SESSIONS.includes(session3) && !liftsActive()) return `${session3} session (Model 2 trades ${M2_SESSIONS.join(" / ")} only)`;
   const pd = ctx?.h1?.pd;
   if (dir === "BUY" && pd === "PREMIUM") return "BUY at H1 premium";
@@ -31735,7 +31814,7 @@ function m2Reject(symbol, dir, entry, sl, tp, ctx, session3, engine = "fx") {
 }
 function m1Reject(symbol, dir, entry, sl, ctx, engine = "fx") {
   const r = ctx?.range;
-  if (engine === "fx" && M1_PAIRS_EXCLUDED.includes(symbol) && !liftsActive()) return `${symbol} excluded from range model`;
+  if (isExcludedPair("M1", symbol, engine) && !liftsActive()) return `${symbol} excluded from range model`;
   if (!r) return "range data unavailable";
   if (!r.qualifies) return `no qualified range (touches ${r.touchesHigh}/${r.touchesLow}, BB width pct ${r.bbWidthPercentile})`;
   const atTop = r.positionInRangePct >= 75, atBottom = r.positionInRangePct <= 25;
@@ -31757,7 +31836,7 @@ function m1Reject(symbol, dir, entry, sl, ctx, engine = "fx") {
 function m1Candidate(symbol, ctx, engine = "fx") {
   const r = ctx?.range;
   if (!r?.qualifies) return null;
-  if (engine === "fx" && M1_PAIRS_EXCLUDED.includes(symbol) && !liftsActive()) return null;
+  if (isExcludedPair("M1", symbol, engine) && !liftsActive()) return null;
   const atTop = r.positionInRangePct >= 75, atBottom = r.positionInRangePct <= 25;
   if (!atTop && !atBottom) return null;
   const direction = atTop ? "SELL" : "BUY";
@@ -32815,6 +32894,7 @@ var init_fx_models = __esm({
     "use strict";
     init_db();
     init_pipUtils();
+    init_symbolAliases();
     init_service();
     init_markov_chain();
     init_shadow_lesson_gate();
@@ -32898,9 +32978,9 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
     orbCtxCache = /* @__PURE__ */ new Map();
     lastShadowCandle = /* @__PURE__ */ new Map();
     lastResolveAt2 = 0;
-    M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || "GBPJPY,XAUUSD,BTCUSD,US30,NAS100").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
+    M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || "GBPJPY,XAUUSD,BTCUSD,US30,NAS100,US500").split(",").map((x) => canonicalIndexSymbol(x.trim().toUpperCase())).filter(Boolean);
     rangeCache = /* @__PURE__ */ new Map();
-    M2_PAIRS_EXCLUDED = (process.env.FX_M2_EXCLUDED_PAIRS || "USDJPY").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
+    M2_PAIRS_EXCLUDED = (process.env.FX_M2_EXCLUDED_PAIRS || "USDJPY").split(",").map((x) => canonicalIndexSymbol(x.trim().toUpperCase())).filter(Boolean);
     M2_SESSIONS = (process.env.FX_M2_SESSIONS || "London,London/NY overlap").split(",").map((x) => x.trim()).filter(Boolean);
     M2_MAX_ADX = Number(process.env.FX_M2_MAX_ADX) || 30;
     M2_MIN_RR = Number(process.env.FX_M2_MIN_RR) || 3;
@@ -33230,7 +33310,7 @@ function getAssetSpecificConfig(symbol) {
       ]
     };
   }
-  const INDEX_SYMBOLS = ["US30", "NAS100", "SPX500", "UK100", "GER40", "DAX", "AUS200", "HK50", "JP225", "FRA40", "NASDAQ", "DOW", "SP500", "WALLST", "DJ30", "USTEC"];
+  const INDEX_SYMBOLS = ["US30", "NAS100", "SPX500", "US500", "UK100", "GER40", "DAX", "AUS200", "HK50", "JP225", "FRA40", "NASDAQ", "DOW", "SP500", "WALLST", "DJ30", "USTEC"];
   if (INDEX_SYMBOLS.some((idx) => cleanSymbol.includes(idx))) {
     return {
       assetType: "index",
@@ -37102,7 +37182,7 @@ Create 4-6 modules and 5 assessment questions. Make objectives measurable (Bloom
   }
 }
 async function analyzeORBSignal(params) {
-  const isIndex2 = ["US30", "NAS100", "SPX500", "UK100", "DAX40"].includes(params.symbol.toUpperCase());
+  const isIndex2 = ["US30", "NAS100", "US500", "UK100", "DAX40"].includes(canonicalIndexSymbol(params.symbol));
   const isCommodity = ["XAUUSD", "XAGUSD", "USOIL"].includes(params.symbol.toUpperCase());
   let rangeMinPct = 0.1;
   let rangeMaxPct = 2.5;
@@ -37226,6 +37306,7 @@ var init_openai = __esm({
     init_confirmation_learning();
     init_ai_usage();
     init_pipUtils();
+    init_symbolAliases();
     TOP_PROFITABLE_STRATEGIES = [
       { name: "ICT AMD Kill Zone", pairs: ["XAUUSD", "GBPUSD", "EURUSD"], description: "Asian Range defined 02:00\u201305:00 UTC. London open (06:00\u201308:00) raids Asian low, price reverses. Entry on M15 OB inside Asian boundary + FVG fill. NY session sweeps AMD high.", winConditions: "FVG fill + bullish engulf at OB, ADX > 25, ictMacroValid = true", riskNote: "Avoid if NFP/FOMC within 4h" },
       { name: "SMC Order Block Raid", pairs: ["GBPJPY", "USDJPY", "XAUUSD"], description: "Weekly/Daily OB identified. H4 price sweeps below OB, wicks back inside. Enter on M15 BOS above OB bottom.", winConditions: "Volume spike on wick, RSI divergence on M15, BOS confirmed", riskNote: "Invalid if OB broken on close" },
@@ -72099,7 +72180,7 @@ double PipSize()
    if(StringFind(s, "JPY") >= 0) return 0.01;
    if(StringFind(s, "XAU") >= 0) return 0.1;
    if(StringFind(s, "XAG") >= 0) return 0.001;
-   if(StringFind(s, "US30") >= 0 || StringFind(s, "NAS100") >= 0 || StringFind(s, "USTEC") >= 0 || StringFind(s, "US500") >= 0) return 1.0;
+   if(StringFind(s, "US30") >= 0 || StringFind(s, "NAS100") >= 0 || StringFind(s, "USTEC") >= 0 || StringFind(s, "US500") >= 0 || StringFind(s, "SP500") >= 0 || StringFind(s, "SPX") >= 0) return 1.0;
    if(StringFind(s, "BTC") >= 0) return 1.0;
    if(StringFind(s, "ETH") >= 0 || StringFind(s, "SOL") >= 0) return 0.01;
    if(StringFind(s, "XRP") >= 0) return 0.0001;
@@ -85713,9 +85794,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "d0939c12-dirty";
+var BUILD_COMMIT = "021650b9-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-16T08:33:27.153Z";
+var BUILT_AT = "2026-11-16T08:42:34.839Z";
 
 // server/stripe.ts
 init_db();

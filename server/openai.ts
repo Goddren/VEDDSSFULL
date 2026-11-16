@@ -6,6 +6,7 @@ type PerformanceStats = Record<string, unknown>;
 import { getLearnedInsights, getWinningStrategyPatterns } from "./services/confirmation-learning";
 import { recordAiUsage, isUnderPlatformKeyCostCap } from "./ai-usage";
 import { getPipSize, getPipValue } from "./utils/pipUtils";
+import { canonicalIndexSymbol } from "./utils/symbolAliases";
 
 // Top-8 industry-proven profitable strategies — injected into 2nd confirmation
 const TOP_PROFITABLE_STRATEGIES = [
@@ -120,7 +121,7 @@ function getAssetSpecificConfig(symbol: string): AssetSpecificConfig {
   }
   
   // Equity Index Configuration (US30, NAS100, SPX500, UK100, GER40, DAX, etc.)
-  const INDEX_SYMBOLS = ['US30','NAS100','SPX500','UK100','GER40','DAX','AUS200','HK50','JP225','FRA40','NASDAQ','DOW','SP500','WALLST','DJ30','USTEC'];
+  const INDEX_SYMBOLS = ['US30','NAS100','SPX500','US500','UK100','GER40','DAX','AUS200','HK50','JP225','FRA40','NASDAQ','DOW','SP500','WALLST','DJ30','USTEC'];
   if (INDEX_SYMBOLS.some(idx => cleanSymbol.includes(idx))) {
     return {
       assetType: 'index',
@@ -5323,7 +5324,10 @@ interface ORBAnalysisResult {
 
 export async function analyzeORBSignal(params: ORBAnalysisParams): Promise<ORBAnalysisResult> {
   // Determine optimal range thresholds per instrument type
-  const isIndex = ["US30", "NAS100", "SPX500", "UK100", "DAX40"].includes(params.symbol.toUpperCase());
+  // Canonicalised: SP500 / SPX500 / SPX all resolve to US500, so the S&P
+  // gets the index range thresholds whichever name the broker/config uses
+  // (the raw list had SPX500 only — SP500 and US500 fell to forex bands).
+  const isIndex = ["US30", "NAS100", "US500", "UK100", "DAX40"].includes(canonicalIndexSymbol(params.symbol));
   const isCommodity = ["XAUUSD", "XAGUSD", "USOIL"].includes(params.symbol.toUpperCase());
 
   let rangeMinPct = 0.10;

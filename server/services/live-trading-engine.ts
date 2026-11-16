@@ -14,6 +14,7 @@ import { storage } from '../storage';
 import { newsService } from '../news-service';
 import { getPipSize, getPipValue, setFxRate } from '../utils/pipUtils';
 import { toEpochSeconds } from '../utils/candleNormalize';
+import { indexSymbolVariants, INDEX_SYMBOL_ALIASES } from '../utils/symbolAliases';
 import { getTLRisk } from './tl-risk-settings';
 import { detectBOSCHOCH, detectWyckoff, type BOSCHOCHResult, type WyckoffResult } from '../utils/smcUtils';
 import { getPremiumDiscountContext } from '../utils/ictMacroUtils';
@@ -7182,12 +7183,21 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             // Risk-% sizing off this account's own balance + stop distance.
             let qty = 0; let sizeLabel = '';
             const _dxSide: 'BUY' | 'SELL' = decision.direction === 'BUY' ? 'BUY' : 'SELL';
-            const _dxSymNorm = dxSymbol.replace(/\//g, '').toUpperCase();
-            const spec = await svc.getInstrument(dxSymbol);
+            // SP500 parity: resolve the broker's OWN name for this instrument
+            // (SP500 ↔ SPX500 ↔ US500 ↔ SPX…) before anything broker-facing.
+            // The exact-name lookup used to miss every alias, so the S&P was
+            // untradable on DXtrade accounts naming it differently; and the
+            // order / snapshot / fill-verify / protection steps below all
+            // keyed on the engine's name instead of the broker's. No variant
+            // matched → spec null → the fail-closed logged skip (F3), never
+            // a naked order.
+            const spec = await svc.findInstrument(dxSymbol);
+            const _dxWireSymbol = String((spec as any)?.symbol || dxSymbol);
+            const _dxSymNorm = _dxWireSymbol.replace(/\//g, '').toUpperCase();
             // ── F3: FAIL CLOSED when the instrument spec is unavailable. Without it
             // the contract multiplier is unknown and computeRiskQuantity silently
             // defaults multiplier=1 → wildly mis-sized orders. Skip rather than guess.
-            if (!spec) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: instrument spec not found on Velotrade — skipped (cannot size safely without contract multiplier).` }); logDxtradeSkip(userId, dc.id, dxSymbol, 'no_instrument_spec', 'not tradable on Velotrade'); continue; }
+            if (!spec) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: instrument spec not found on Velotrade — skipped (cannot size safely without contract multiplier).` }); logDxtradeSkip(userId, dc.id, dxSymbol, 'no_instrument_spec', `not tradable on Velotrade (tried: ${indexSymbolVariants(dxSymbol).join(', ')})`); continue; }
             // ── F1: NEVER open a DXtrade position without a stop to attach. dxsca
             // ignores inline SL on the entry; we attach protection separately after
             // the fill (below), so a signal with no stop must not enter at all.
@@ -7264,7 +7274,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             // Open with a bare MARKET order (dxsca silently drops inline SL/TP legs).
             let r: any;
             try {
-              r = await svc.placeOrder(acct, { instrument: dxSymbol, side: _dxSide, quantity: qty, type: 'MARKET' });
+              r = await svc.placeOrder(acct, { instrument: _dxWireSymbol, side: _dxSide, quantity: qty, type: 'MARKET' });
             } catch (oe: any) {
               // Ambiguous outcome: a timeout/network error can mean the
               // broker filled and only the reply was lost. TradeLocker's
@@ -7274,7 +7284,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
               // close-by-symbol when no pre-existing position could be hit.
               let _oeClosed = false;
               if (_preDxQty.size === 0) {
-                try { await svc.closePosition(acct, dxSymbol, _dxSide, qty); _oeClosed = true; } catch { /* best-effort */ }
+                try { await svc.closePosition(acct, _dxWireSymbol, _dxSide, qty); _oeClosed = true; } catch { /* best-effort */ }
               }
               try {
                 const _rcTicket2 = `dx_${acct}_reconcile_${Date.now()}`;
@@ -7308,7 +7318,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 // close-by-symbol (a no-op if nothing filled) and record a
                 // NEEDS_RECONCILE row so a real position can't go untracked/naked.
                 let _emClosed = false;
-                try { await svc.closePosition(acct, dxSymbol, _dxSide, qty); _emClosed = true; } catch { /* best-effort */ }
+                try { await svc.closePosition(acct, _dxWireSymbol, _dxSide, qty); _emClosed = true; } catch { /* best-effort */ }
                 try {
                   const _rcTicket = `dx_${acct}_reconcile_${Date.now()}`;
                   await storage.createAiTradeResult({ userId, symbol: dxSymbol, direction: _dxSide, entryPrice: entryPrice || 0, exitPrice: 0, stopLoss: stopLoss || 0, takeProfit: takeProfit || 0, aiConfidence: adjustedConfidence || 0, result: 'NEEDS_RECONCILE', profitLoss: 0, source: 'dxtrade', connectionId: dc.id, mt5Ticket: _rcTicket, notes: `DXtrade fill UNVERIFIED (broker read failed) — emergency close ${_emClosed ? 'sent' : 'FAILED'}; verify on Velotrade` } as any);
@@ -7337,7 +7347,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 // prevents a late-appearing fill from becoming a naked, untracked
                 // position (the verifyError branch already does this).
                 let _lateClosed = false;
-                try { await svc.closePosition(acct, dxSymbol, _dxSide, qty); _lateClosed = true; } catch { /* no-op if nothing filled */ }
+                try { await svc.closePosition(acct, _dxWireSymbol, _dxSide, qty); _lateClosed = true; } catch { /* no-op if nothing filled */ }
                 addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: order did NOT fill — no position on the broker (likely rejected). Not recorded. Response: ${JSON.stringify(r?.result ?? r).slice(0, 140)}` });
                 logDxtradeSkip(userId, dc.id, dxSymbol, 'no_fill', `qty=${qty} side=${_dxSide} lateClose=${_lateClosed ? 'sent' : 'noop'} orderResp=${JSON.stringify(r?.result ?? r).slice(0, 380)}`);
               }
@@ -7345,13 +7355,13 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             }
             // ── F1: attach protective SL (+ TP) as real STOP/LIMIT close orders.
             let _prot: { stop?: any; takeProfit?: any; stopError?: string; tpError?: string } = {};
-            try { _prot = await svc.modifyProtection(acct, { instrument: dxSymbol, positionSide: _dxSide, quantity: _pos.quantity || qty, stopLoss: stopLoss || undefined, takeProfit: takeProfit || undefined, positionCode: _pos.positionId }); }
+            try { _prot = await svc.modifyProtection(acct, { instrument: _dxWireSymbol, positionSide: _dxSide, quantity: _pos.quantity || qty, stopLoss: stopLoss || undefined, takeProfit: takeProfit || undefined, positionCode: _pos.positionId }); }
             catch (pe: any) { _prot = { stopError: pe?.message || String(pe) }; }
             // B2: only emergency-close when the STOP itself failed (a TP-only failure
             // still leaves the position protected — closing would orphan the resting STOP).
             if (!_prot.stop) {
               try {
-                await svc.closePosition(acct, dxSymbol, _dxSide, _pos.quantity || qty, _pos.positionId);
+                await svc.closePosition(acct, _dxWireSymbol, _dxSide, _pos.quantity || qty, _pos.positionId);
                 addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED (${_prot.stopError || 'no stop returned'}) — position CLOSED immediately to avoid a naked entry.` });
               } catch (ce: any) {
                 addActivity(userId, { type: 'error', symbol: decision.symbol, message: `🚨 DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED and emergency close ALSO failed (${ce?.message}) — MANUAL ACTION NEEDED, position may be naked.` });
@@ -8395,9 +8405,9 @@ export function getNYTime(ts: number): { hour: number; minute: number; dateStr: 
 // right cached MT5 EA chart-data entry (or match a TradeLocker instrument)
 // regardless of what name the user's broker/chart actually uses.
 export const INDEX_BROKER_ALIASES: Record<string, string[]> = {
-  US30: ['US30CASH', 'US30C', 'DOW30', 'DOWJONES', 'DJIA', 'DJI', 'WS30', 'YM', 'DOW', 'USA30', 'CASH30', 'US30USD', 'DJA', 'WALLST30', 'WALLSTREET30', 'USWALL'],
-  NAS100: ['NAS100CASH', 'NAS100C', 'NASDAQ100', 'USTEC', 'NDX100', 'US100', 'NQ', 'NASDAQ', 'NASUSD', 'NA100', 'NDAQ', 'QQQ', 'TECH100', 'USTECH100', 'NASD100', 'NAS100USD'],
-  US500: ['SPXUSD', 'US500CASH', 'SP500USD', 'USINDEX', 'SPX500USD', 'ES', 'SPX', 'SPXC', 'SP500C', 'SPXUSDM', 'SPX500', 'SP500'],
+  US30: INDEX_SYMBOL_ALIASES.US30.filter(n => n !== 'US30'),
+  NAS100: INDEX_SYMBOL_ALIASES.NAS100.filter(n => n !== 'NAS100'),
+  US500: INDEX_SYMBOL_ALIASES.US500.filter(n => n !== 'US500'),
 };
 
 // Twelve Data doesn't carry raw US index tickers (DJI/SPX/NDX) at all — confirmed
@@ -8414,8 +8424,14 @@ async function getBrokerIndexCandles(
   // 1. MT5 EA chart-data cache — real broker index candles, already newest-first
   // (see BuildCandlesJson() in the EA: i=0 is the current/most-recent bar).
   const cache = (global as any).mt5ChartDataCache || {};
+  // Every name for the same index, resolved through the canonical symbol:
+  // the old keyed lookup (INDEX_BROKER_ALIASES[symbol]) returned nothing
+  // when the configured pair was itself an alias — a config saying SP500
+  // never matched an MT5 chart posting SPX500/US500 candles, so ORB saw
+  // no candles and skipped silently. indexSymbolVariants covers the
+  // whole family whichever name the config uses.
   const wanted = new Set(
-    [symbol, ...(INDEX_BROKER_ALIASES[symbol] || [])].map(s => s.replace(/[^A-Z0-9]/gi, '').toUpperCase())
+    indexSymbolVariants(symbol).map(s => s.replace(/[^A-Z0-9]/gi, '').toUpperCase())
   );
   const prefix = `mt5_chart_${userId}_`;
   const suffix = `_${mt5Tf}`;

@@ -14,6 +14,7 @@
 //   Session idle timeout ~30 min.
 
 import { encryptApiSecret, decryptApiSecret } from './cryptocom';
+import { indexSymbolVariants } from './utils/symbolAliases';
 
 export { encryptApiSecret, decryptApiSecret };
 
@@ -468,6 +469,23 @@ export class DxtradeService {
     } catch { return null; }
   }
 
+  /**
+   * Alias-aware instrument lookup: try the requested symbol, then every
+   * broker name for the same index (SP500 → SPX500 / US500 / SPX…), each
+   * with getInstrument's exact-match discipline. Returns the matched
+   * instrument — whose `symbol` is the BROKER's own name, the one orders
+   * and position checks must use — or null when NO name matches (the
+   * caller then takes its fail-closed logged skip; never a naked order).
+   * Non-index symbols try only their own name, exactly as before.
+   */
+  async findInstrument(symbol: string): Promise<any | null> {
+    for (const variant of indexSymbolVariants(symbol)) {
+      const inst = await this.getInstrument(variant);
+      if (inst) return inst;
+    }
+    return null;
+  }
+
   /** Normalized open positions for an account (id/instrument/side/qty/entry),
    *  tolerant of dxsca shape (portfolio.positions | positions | flat array).
    *  sl/tp/unrealizedPnl/openTime are extracted tolerantly when the broker's
@@ -659,7 +677,13 @@ export async function executeSignalOnDxtrade(
     let pos = code ? positions.find((p) => p.positionId === String(code)) : undefined;
     if (!pos) {
       const dir = signal.direction ? String(signal.direction).toUpperCase() : null;
-      const matches = positions.filter((p) => p.instrument === symbol && (!dir || p.side === dir));
+      // Alias-family match: the account may hold the position under a
+      // different name for the same index (engine says SP500, DXtrade
+      // says SPX500) — an exact-name filter used to report "no open
+      // position" and strand the exit. Non-index symbols match only
+      // their own name, as before.
+      const family = indexSymbolVariants(symbol);
+      const matches = positions.filter((p) => family.includes(p.instrument) && (!dir || p.side === dir));
       if (matches.length > 1 && !dir) {
         return { success: false, error: `multiple ${symbol} positions on this account and no direction given — refusing to guess the leg` };
       }
