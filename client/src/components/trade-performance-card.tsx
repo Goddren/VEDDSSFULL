@@ -19,19 +19,31 @@ export interface TlAccountPerf {
   trades: number;
   wins: number;
   losses: number;
+  breakeven?: number;
+  other?: number;
   winRate: number;
   totalPnl: number;
 }
 
+// The residual buckets that make wins + losses + flat + unscored = trades.
+// "flat" = breakeven closes; "unscored" = closed at the broker with no
+// recoverable outcome. Rendered only when non-zero.
+export function residSuffix(t: { breakeven?: number; other?: number }): string {
+  const parts: string[] = [];
+  if (t.breakeven) parts.push(`${t.breakeven} flat`);
+  if (t.other) parts.push(`${t.other} unscored`);
+  return parts.length ? ` · ${parts.join(" · ")}` : "";
+}
+
 export interface TradePerformance {
-  overall: { trades: number; wins: number; losses: number; breakeven: number; winRate: number; totalPnl: number };
+  overall: { trades: number; wins: number; losses: number; breakeven: number; other?: number; winRate: number; totalPnl: number };
   bySource: {
-    mt5: { trades: number; wins: number; losses: number; winRate: number; totalPnl: number };
-    tradelocker: { trades: number; wins: number; losses: number; winRate: number; totalPnl: number };
+    mt5: { trades: number; wins: number; losses: number; breakeven?: number; other?: number; winRate: number; totalPnl: number };
+    tradelocker: { trades: number; wins: number; losses: number; breakeven?: number; other?: number; winRate: number; totalPnl: number };
   };
   tradelockerAccounts?: TlAccountPerf[];
-  propFirm?: { accounts: TlAccountPerf[]; trades: number; wins: number; losses: number; winRate: number; totalPnl: number };
-  today: { trades: number; wins: number; losses: number; winRate: number; totalPnl: number };
+  propFirm?: { accounts: TlAccountPerf[]; trades: number; wins: number; losses: number; breakeven?: number; other?: number; winRate: number; totalPnl: number };
+  today: { trades: number; wins: number; losses: number; breakeven?: number; other?: number; winRate: number; totalPnl: number };
   streak: { type: "win" | "loss" | null; count: number };
   recentTrades: Array<{ symbol: string; direction: string; result: string; profitLoss: number; source: string; closedAt: string }>;
   lastTradeAt: string | null;
@@ -136,7 +148,7 @@ export function TradePerformanceCard({ className = "" }: { className?: string })
                 {usd(data!.today.totalPnl)}
               </p>
               <p className="text-[9px] text-gray-500 mt-0.5">
-                {data!.today.trades} trade{data!.today.trades !== 1 ? "s" : ""} · {data!.today.wins}W/{data!.today.losses}L
+                {data!.today.trades} trade{data!.today.trades !== 1 ? "s" : ""} · {data!.today.wins}W/{data!.today.losses}L{residSuffix(data!.today)}
               </p>
             </div>
             {data!.today.totalPnl >= 0
@@ -153,7 +165,7 @@ export function TradePerformanceCard({ className = "" }: { className?: string })
             <div className="bg-black/25 rounded-lg p-2 text-center">
               <p className="text-[8px] text-gray-500">Win Rate</p>
               <p className="text-base font-black" style={{ color: wrColor(o!.winRate) }}>{o!.winRate}%</p>
-              <p className="text-[7px] text-gray-500">{o!.wins}W/{o!.losses}L</p>
+              <p className="text-[7px] text-gray-500">{o!.wins}W/{o!.losses}L{residSuffix(o!)}</p>
             </div>
             <div className="bg-black/25 rounded-lg p-2 text-center">
               <p className="text-[8px] text-gray-500">Total P&L</p>
@@ -187,7 +199,7 @@ export function TradePerformanceCard({ className = "" }: { className?: string })
                   <div key={src} className="flex items-center justify-between bg-black/20 rounded-lg px-2.5 py-1.5">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${src === "mt5" ? "bg-indigo-500/20 text-indigo-300" : "bg-cyan-500/20 text-cyan-300"}`}>{label}</span>
-                      <span className="text-[9px] text-gray-500">{s.trades} trades · {s.wins}W/{s.losses}L</span>
+                      <span className="text-[9px] text-gray-500">{s.trades} trades · {s.wins}W/{s.losses}L{residSuffix(s)}</span>
                     </div>
                     <div className="flex items-center gap-3 flex-shrink-0">
                       <span className="text-[10px] font-bold" style={{ color: wrColor(s.winRate) }}>{s.trades > 0 ? `${s.winRate}%` : "—"}</span>
@@ -229,7 +241,7 @@ export function TradePerformanceCard({ className = "" }: { className?: string })
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-[9px] text-gray-500">{a.trades} trades · {a.wins}W/{a.losses}L</span>
+                      <span className="text-[9px] text-gray-500">{a.trades} trades · {a.wins}W/{a.losses}L{residSuffix(a)}</span>
                       <div className="flex items-center gap-3">
                         <span className="text-[10px] font-bold" style={{ color: wrColor(a.winRate) }}>{a.trades > 0 ? `${a.winRate}%` : "—"}</span>
                         <span className="text-[10px] font-bold" style={{ color: pnlColor(a.totalPnl) }}>{usd(a.totalPnl)}</span>
@@ -370,7 +382,7 @@ export function TradePerformanceCompact() {
       <div className="flex items-end justify-between">
         <div>
           <p className="text-[10px] text-gray-500">Win Rate</p>
-          <p className="text-sm font-bold" style={{ color: wrColor(o.winRate) }}>{o.winRate}% <span className="text-[9px] text-gray-500">{o.wins}W/{o.losses}L</span></p>
+          <p className="text-sm font-bold" style={{ color: wrColor(o.winRate) }}>{o.winRate}% <span className="text-[9px] text-gray-500">{o.wins}W/{o.losses}L{residSuffix(o)}</span></p>
         </div>
         <div className="text-right">
           <p className="text-[10px] text-gray-500">Total P&L</p>

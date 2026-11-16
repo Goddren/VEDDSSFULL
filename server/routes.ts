@@ -19541,8 +19541,10 @@ Format each recommendation as a clear, concise action item.`;
         else break;
       }
 
-      // Today's P&L
-      const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
+      // Today's P&L — LOCAL day start, matching /api/mt5/daily-summary (this
+      // used UTC midnight, one more reason "today" differed between pages).
+      const _tpNow = new Date();
+      const dayStart = new Date(_tpNow.getFullYear(), _tpNow.getMonth(), _tpNow.getDate());
       const todayRows = closed.filter((t: any) => new Date(t.closedAt) >= dayStart);
 
       // Cumulative P&L curve (chronological) for the dashboard header chart.

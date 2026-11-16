@@ -148,6 +148,22 @@ export default function AmbassadorAgentPage({ embedded = false }: { embedded?: b
   });
   const refCode = (posts[0]?.link || "").match(/\/r\/([^?]+)/)?.[1];
 
+  // The same post text usually goes out on several platforms — group
+  // identical content (hook + body + hashtags) into ONE card instead of
+  // repeating the whole block per platform. A platform gets its own card
+  // only where its content actually differs. Video rendering and posted
+  // state stay per post inside the shared card.
+  const postGroups: Post[][] = [];
+  {
+    const bySig = new Map<string, Post[]>();
+    for (const p of posts) {
+      const sig = [p.hook || "", p.body || "", (p.hashtags || []).join(" ")].join("\n");
+      const g = bySig.get(sig);
+      if (g) g.push(p);
+      else { const arr = [p]; bySig.set(sig, arr); postGroups.push(arr); }
+    }
+  }
+
   return (
     <div className={embedded ? "space-y-4 vedd-rise" : "container max-w-3xl mx-auto px-4 py-6 pb-28 space-y-4 vedd-rise"}>
       <style>{`
@@ -268,29 +284,66 @@ export default function AmbassadorAgentPage({ embedded = false }: { embedded?: b
             </CardContent>
           </Card>
 
-          {posts.map((p) => (
-            <Card key={p.id}>
-              <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-                <CardTitle className="text-base">{LABEL[p.platform] || p.platform}{p.format ? ` · ${p.format}` : ""}</CardTitle>
-                <span className="text-xs text-muted-foreground">{p.clicks} clicks</span>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {p.hook && <p className="font-medium">{p.hook}</p>}
-                <p className="whitespace-pre-wrap text-sm">{p.body}</p>
-                {articleLine && <p className="text-sm">📖 <a className="underline" href={blog!.shareUrl} target="_blank" rel="noopener noreferrer">Read the full lesson</a> <span className="text-xs text-muted-foreground">(added when you copy)</span></p>}
-                {p.hashtags?.length ? <p className="text-sm text-primary">{p.hashtags.join(" ")}</p> : null}
-                {p.platform === "facebook_group" && <p className="text-xs text-muted-foreground">Post by hand in groups you belong to, and follow each group's rules on promotion.</p>}
-                <PostVideo post={p} queueKey={queueKey} />
-                <div className="flex gap-2 pt-1">
-                  <Button size="sm" onClick={() => copy(p)}><Copy className="h-4 w-4 mr-1" />Copy text</Button>
-                  <Button size="sm" variant={p.status === "posted" ? "secondary" : "outline"}
-                    onClick={() => posted.mutate({ id: p.id, value: p.status !== "posted" })}>
-                    <Check className="h-4 w-4 mr-1" />{p.status === "posted" ? "Posted" : "Mark posted"}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+          {postGroups.map((group) => {
+            const p = group[0];
+            if (group.length === 1) {
+              return (
+                <Card key={p.id}>
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+                    <CardTitle className="text-base">{LABEL[p.platform] || p.platform}{p.format ? ` · ${p.format}` : ""}</CardTitle>
+                    <span className="text-xs text-muted-foreground">{p.clicks} clicks</span>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {p.hook && <p className="font-medium">{p.hook}</p>}
+                    <p className="whitespace-pre-wrap text-sm">{p.body}</p>
+                    {articleLine && <p className="text-sm">📖 <a className="underline" href={blog!.shareUrl} target="_blank" rel="noopener noreferrer">Read the full lesson</a> <span className="text-xs text-muted-foreground">(added when you copy)</span></p>}
+                    {p.hashtags?.length ? <p className="text-sm text-primary">{p.hashtags.join(" ")}</p> : null}
+                    {p.platform === "facebook_group" && <p className="text-xs text-muted-foreground">Post by hand in groups you belong to, and follow each group's rules on promotion.</p>}
+                    <PostVideo post={p} queueKey={queueKey} />
+                    <div className="flex gap-2 pt-1">
+                      <Button size="sm" onClick={() => copy(p)}><Copy className="h-4 w-4 mr-1" />Copy text</Button>
+                      <Button size="sm" variant={p.status === "posted" ? "secondary" : "outline"}
+                        onClick={() => posted.mutate({ id: p.id, value: p.status !== "posted" })}>
+                        <Check className="h-4 w-4 mr-1" />{p.status === "posted" ? "Posted" : "Mark posted"}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            }
+            // Shared card: identical text on 2+ platforms — shown ONCE, with a
+            // per-platform row only for the parts that are per post (video
+            // render + copy/posted state).
+            return (
+              <Card key={`group-${p.id}`}>
+                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+                  <CardTitle className="text-base">{group.map((gp) => LABEL[gp.platform] || gp.platform).join(" · ")}</CardTitle>
+                  <span className="text-xs text-muted-foreground">{group.reduce((s, gp) => s + gp.clicks, 0)} clicks</span>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <p className="text-xs text-muted-foreground">Same post for {group.length} platforms — the text is written once; post it on each platform below.</p>
+                  {p.hook && <p className="font-medium">{p.hook}</p>}
+                  <p className="whitespace-pre-wrap text-sm">{p.body}</p>
+                  {articleLine && <p className="text-sm">📖 <a className="underline" href={blog!.shareUrl} target="_blank" rel="noopener noreferrer">Read the full lesson</a> <span className="text-xs text-muted-foreground">(added when you copy)</span></p>}
+                  {p.hashtags?.length ? <p className="text-sm text-primary">{p.hashtags.join(" ")}</p> : null}
+                  {group.some((gp) => gp.platform === "facebook_group") && <p className="text-xs text-muted-foreground">For Facebook groups: post by hand in groups you belong to, and follow each group's rules on promotion.</p>}
+                  {group.map((gp) => (
+                    <div key={gp.id} className="space-y-2 border-t border-dashed pt-2">
+                      <p className="text-xs font-semibold">{LABEL[gp.platform] || gp.platform}{gp.format ? ` · ${gp.format}` : ""} <span className="font-normal text-muted-foreground">· {gp.clicks} clicks</span></p>
+                      <PostVideo post={gp} queueKey={queueKey} />
+                      <div className="flex gap-2 pt-1">
+                        <Button size="sm" onClick={() => copy(gp)}><Copy className="h-4 w-4 mr-1" />Copy text</Button>
+                        <Button size="sm" variant={gp.status === "posted" ? "secondary" : "outline"}
+                          onClick={() => posted.mutate({ id: gp.id, value: gp.status !== "posted" })}>
+                          <Check className="h-4 w-4 mr-1" />{gp.status === "posted" ? "Posted" : "Mark posted"}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </>
       )}
     </div>

@@ -1352,20 +1352,17 @@ const Dashboard: React.FC = () => {
   const mt5LiveAcct   = mt5AccountData?.accounts?.[0];
   const mt5Balance    = mt5LiveAcct?.connected ? (mt5LiveAcct.balance ?? 0) : (platformMonitors?.mt5?.balance ?? 0);
   const tlLiveAccts   = platformMonitors?.tradelocker ?? [];
-  // Daily P&L must combine ALL connected brokers — using only the MT5 figure
-  // when MT5 is connected silently dropped TradeLocker's daily P&L.
-  const tlDailyPnlSum = Array.isArray(tlLiveAccts)
-    ? tlLiveAccts.reduce((s: number, a: any) => s + (a?.dailyPnl ?? 0), 0)
-    : 0;
-  // Realized-only — must match dayProgressPct's basis (todayClosedProfit,
-  // realized-only) so the ring's fill % and its center dollar figure never
-  // visually contradict each other. Previously fell back to `.profit`
-  // (ACCOUNT_PROFIT — floating P&L of open positions, not a daily figure)
-  // when the EA didn't send `dailyPnL`, mislabeling unrealized swings as
-  // "Daily P&L." Unrealized P&L is shown separately (see unrealizedPnL below).
-  const liveDailyPnl  = mt5LiveAcct?.connected
-    ? (mt5LiveAcct.dailyPnL ?? todayClosedProfit) + tlDailyPnlSum
-    : todayClosedProfit;
+  // Daily P&L — ONE source: the server-computed daily summary
+  // (todayClosedProfit above, from /api/mt5/daily-summary merged with the
+  // weekly-strategy live progress — both now counted by the same server
+  // helper over the same trade sets). This ring used to blend the EA's own
+  // per-account dailyPnL report with the platform monitors' TradeLocker
+  // daily sums, which produced a third, different "Daily P&L" that matched
+  // neither the weekly-strategy page nor the goal card. TradeLocker closes
+  // are already inside the summary (syncTradeLockerOutcomes feeds
+  // ai_trade_results before it counts), so nothing is dropped by using the
+  // single figure. Unrealized P&L is shown separately (unrealizedPnL below).
+  const liveDailyPnl  = todayClosedProfit;
   const liveWeeklyPnl = platformMonitors?.mt5?.weeklyPnl ?? weekClosedProfit;
   const weekGoalPct   = Math.min(100, weekProgressPct);
   const dayGoalPct    = Math.min(100, dayProgressPct);
@@ -2315,11 +2312,12 @@ const Dashboard: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-3 text-[11px]">
                     <span className={`font-bold ${(balanceHistory.totalPnL ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {(balanceHistory.totalPnL ?? 0) >= 0 ? '+' : ''}${(balanceHistory.totalPnL ?? 0).toFixed(2)} P&L
+                      {(balanceHistory.totalPnL ?? 0) >= 0 ? '+' : ''}${(balanceHistory.totalPnL ?? 0).toFixed(2)} P&L (all-time, recorded trades)
                     </span>
                     <span className="text-white font-bold">${(balanceHistory.currentBalance ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 </div>
+                <p className="text-[9px] text-gray-600 mb-1">Balance is the connected MT5 account right now; P&L sums every recorded MT5-side trade, so the two don't reconcile against deposits/withdrawals.</p>
                 <ResponsiveContainer width="100%" height={70}>
                   <AreaChart data={balanceHistory.series} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
                     <defs>
@@ -2357,11 +2355,12 @@ const Dashboard: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-3 text-[11px]">
                     <span className={`font-bold ${(tlBalanceHistory.totalPnL ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {(tlBalanceHistory.totalPnL ?? 0) >= 0 ? '+' : ''}${(tlBalanceHistory.totalPnL ?? 0).toFixed(2)} P&L
+                      {(tlBalanceHistory.totalPnL ?? 0) >= 0 ? '+' : ''}${(tlBalanceHistory.totalPnL ?? 0).toFixed(2)} P&L (all-time, recorded trades)
                     </span>
                     <span className="text-white font-bold">${(tlBalanceHistory.currentBalance ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 </div>
+                <p className="text-[9px] text-gray-600 mb-1">Balance is the connected TradeLocker accounts right now; P&L sums every recorded TradeLocker trade, so the two don't reconcile against deposits/withdrawals.</p>
                 <ResponsiveContainer width="100%" height={70}>
                   <AreaChart data={tlBalanceHistory.series} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
                     <defs>
@@ -2866,11 +2865,12 @@ const Dashboard: React.FC = () => {
                   {markovData.overview.slice(0, 4).map((m: any) => {
                     const edge = m.bullishProbability - m.bearishProbability;
                     const bias = edge >= 10 ? 'text-emerald-400' : edge <= -10 ? 'text-red-400' : 'text-gray-400';
+                    // The arrow follows the SIGN of the displayed edge — it
+                    // used to come from the regime state alone, so a pair
+                    // could show ▲ next to a −4% edge.
                     const stateIcon =
-                      m.currentState === 'STRONG_BULL' ? '▲▲' :
-                      m.currentState === 'BULL'        ? '▲' :
-                      m.currentState === 'STRONG_BEAR' ? '▼▼' :
-                      m.currentState === 'BEAR'        ? '▼' : '─';
+                      edge > 0 ? (m.currentState === 'STRONG_BULL' ? '▲▲' : '▲') :
+                      edge < 0 ? (m.currentState === 'STRONG_BEAR' ? '▼▼' : '▼') : '─';
                     return (
                       <div key={m.symbol} className="flex items-center justify-between text-[11px]">
                         <span className="text-gray-400 font-mono w-16">{m.symbol}</span>

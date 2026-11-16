@@ -88,49 +88,6 @@ interface KalshiEvent {
   error?: string;
 }
 
-interface KalshiTradeRecord {
-  id: string;
-  coin?: "BTC" | "ETH" | "SOL" | "XRP" | "DOGE";
-  ticker: string;
-  subtitle: string;
-  entryPriceCents: number;
-  currentPriceCents: number;
-  count: number;
-  stake: number;
-  unrealizedPnl: number;
-  realizedPnl?: number;
-  signal: { direction: "BUY" | "SELL"; confidence: number; btcPrice: number };
-  openedAt: string;
-  closedAt?: string;
-  status: "open" | "closed" | "expired";
-  paper: boolean;
-}
-
-interface KalshiEngineState {
-  isRunning: boolean;
-  isPaperMode: boolean;
-  lastScanAt: string | null;
-  lastScanResult: string | null;
-  openTrades: KalshiTradeRecord[];
-  closedTrades: KalshiTradeRecord[];
-  totalRealizedPnl: number;
-  totalUnrealizedPnl: number;
-  config: {
-    symbols: string[];
-    timeframe?: "hourly" | "fifteen_min";
-    contractsPerTrade: number;
-    maxOpenTrades: number;
-    cooldownMinutes: number;
-    minConfidence: number;
-    requireAlignedHourly: boolean;
-    requireConfluence: boolean;
-    strategy: "momentum" | "volume_profile" | "markov" | "order_flow" | "ensemble" | "auto";
-    autoTradeValuePicks: boolean;
-    minValueScore: number;
-    takeProfitCents: number;
-    stopLossCents: number;
-  };
-}
 
 interface KalshiAccount {
   connected: boolean;
@@ -225,77 +182,6 @@ function findNearestBracket(brackets: KalshiBracket[], btcPrice: number): Kalshi
 }
 
 // ── AI Prediction Review panel — best options to WIN, ranked by the AI ─────────
-function AiPredictionReviewPanel() {
-  const { data, refetch, isFetching } = useQuery<{
-    kalshiPicks: any[];
-    strategyStats: Array<{ strategy: string; winRate: number; trades: number; totalPnl: number }>;
-    engines: { kalshi: any; polymarketUs: any };
-    aiReview: null | {
-      topPicks: Array<{ market: string; winProbability: number; whyItWins: string; strategy: string; suggestedStakeUsd: number; riskNote: string }>;
-      overallRead: string;
-      bestStrategyNow: string;
-    };
-  }>({
-    queryKey: ["/api/predictions/ai-review"],
-    refetchInterval: 5 * 60 * 1000,
-    staleTime: 2 * 60 * 1000,
-  });
-
-  const review = data?.aiReview;
-  return (
-    <div className="mb-3 bg-violet-950/30 border border-violet-700/40 rounded-lg p-3">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5">
-          <Brain className="w-3.5 h-3.5 text-violet-400" />
-          <span className="text-[11px] font-bold text-violet-300">AI Review — Best Options to Win</span>
-          <span className="text-[8px] text-gray-500">Kalshi + Polymarket · edge + track record</span>
-        </div>
-        <button
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="text-[9px] text-violet-300 hover:text-violet-100 px-2 py-0.5 bg-violet-500/10 border border-violet-500/25 rounded disabled:opacity-50"
-        >
-          {isFetching ? "Reviewing…" : "↻ Review"}
-        </button>
-      </div>
-
-      {!data ? (
-        <p className="text-[9px] text-gray-500">Running AI review of live markets…</p>
-      ) : !review || !review.topPicks?.length ? (
-        <p className="text-[9px] text-gray-500">
-          {data.kalshiPicks?.length
-            ? "No high-probability edge right now — the AI recommends waiting rather than forcing a trade. Picks refresh every 5 min."
-            : "No live picks available yet — start the Kalshi engine or wait for the next market window."}
-        </p>
-      ) : (
-        <>
-          {review.overallRead && <p className="text-[9px] text-gray-400 mb-2 leading-snug">{review.overallRead}</p>}
-          <div className="space-y-1.5">
-            {review.topPicks.slice(0, 5).map((p, i) => (
-              <div key={i} className="bg-black/30 rounded-lg px-2.5 py-2 border border-violet-800/30">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-bold text-gray-100 truncate">{p.market}</span>
-                  <span className={`text-[10px] font-black flex-shrink-0 ${p.winProbability >= 75 ? "text-emerald-400" : p.winProbability >= 60 ? "text-amber-400" : "text-gray-400"}`}>
-                    {p.winProbability}% win
-                  </span>
-                </div>
-                <p className="text-[8px] text-gray-400 leading-snug mt-0.5">{p.whyItWins}</p>
-                <div className="flex items-center gap-2 mt-1 flex-wrap">
-                  <span className="text-[8px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300">{p.strategy}</span>
-                  {p.suggestedStakeUsd > 0 && <span className="text-[8px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300">stake ~${Math.round(p.suggestedStakeUsd)}</span>}
-                  {p.riskNote && <span className="text-[8px] text-gray-500">{p.riskNote}</span>}
-                </div>
-              </div>
-            ))}
-          </div>
-          {review.bestStrategyNow && (
-            <p className="text-[8px] text-violet-300/80 mt-2">⚡ Strategy with the edge right now: {review.bestStrategyNow}</p>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -320,24 +206,9 @@ export default function PolymarketEnginePage() {
   const [showKalshiPw, setShowKalshiPw]       = useState(false);
   const [kalshiKeyId, setKalshiKeyId]         = useState("");
   const [kalshiPrivateKey, setKalshiPrivateKey] = useState("");
-  const [showKalshiConfig, setShowKalshiConfig] = useState(false);
   const [gisReady, setGisReady]               = useState(false);
   const [googleEmailPrefilled, setGoogleEmailPrefilled] = useState(false);
   const googleBtnRef                          = useRef<HTMLDivElement>(null);
-  // Which coins' hourly bracket markets to scan (was BTC-only) — empty array
-  // means "untouched this session", falls back to the saved server config.
-  const [kalshiCfgSymbols, setKalshiCfgSymbols] = useState<string[]>([]);
-  const [kalshiCfgTimeframe, setKalshiCfgTimeframe] = useState<"" | "hourly" | "fifteen_min">("");
-  const [kalshiCfgContracts, setKalshiCfgContracts] = useState("");
-  const [kalshiCfgMaxTrades, setKalshiCfgMaxTrades] = useState("");
-  const [kalshiCfgCooldown, setKalshiCfgCooldown]   = useState("");
-  const [kalshiCfgConfidence, setKalshiCfgConfidence] = useState("");
-  const [kalshiCfgStrategy, setKalshiCfgStrategy] = useState<"" | "momentum" | "volume_profile" | "markov" | "order_flow" | "ensemble" | "auto">("");
-  const [kalshiCfgAutoValue, setKalshiCfgAutoValue] = useState<boolean | null>(null);
-  const [kalshiCfgConfluence, setKalshiCfgConfluence] = useState<boolean | null>(null);
-  const [kalshiCfgMinScore, setKalshiCfgMinScore]   = useState("");
-  const [kalshiCfgTakeProfit, setKalshiCfgTakeProfit] = useState("");
-  const [kalshiCfgStopLoss, setKalshiCfgStopLoss]   = useState("");
 
   // Polymarket live key state
   const [showPolyKeySetup, setShowPolyKeySetup] = useState(false);
@@ -447,48 +318,7 @@ export default function PolymarketEnginePage() {
     enabled: !!user,
   });
 
-  // ── Kalshi engine ─────────────────────────────────────────────────────────
-  const { data: kalshiEngineState, refetch: refetchKalshiEngine } = useQuery<KalshiEngineState>({
-    queryKey: ["/api/kalshi/engine/status"],
-    refetchInterval: 8000,
-    enabled: !!user,
-  });
 
-  // High-value / high-accuracy bracket picks (all strategies + value model)
-  const { data: kalshiValuePicks, refetch: refetchValuePicks, isFetching: valuePicksLoading } = useQuery<{
-    consensus: { direction: string; confidence: number; agreement: number; reasons: string[] };
-    btcPrice: number;
-    eventTicker: string | null;
-    minutesToClose: number | null;
-    picks: Array<{ ticker: string; subtitle: string; strikeType: string; marketAskCents: number; modelProbPct: number; edgePct: number; valueScore: number; confidence: number; agreement: number; rationale: string }>;
-    scannedAt: string;
-  }>({
-    queryKey: ["/api/kalshi/value-picks"],
-    refetchInterval: 60000,
-    enabled: !!user,
-  });
-
-  // Per-strategy win-rate / P&L history (learning loop)
-  const { data: kalshiPerf } = useQuery<{
-    byStrategy: Array<{ strategy: string; trades: number; wins: number; losses: number; breakeven: number; totalPnl: number; winRate: number; lastResult: string | null }>;
-    totals: { trades: number; wins: number; losses: number; winRate: number; totalPnl: number };
-  }>({
-    queryKey: ["/api/kalshi/performance"],
-    refetchInterval: 30000,
-    enabled: !!user,
-  });
-
-  // Live per-strategy scan (signal + accuracy) — drives "Auto (Best)" mode
-  const { data: kalshiStratScan, isFetching: stratScanLoading, refetch: refetchStratScan } = useQuery<{
-    rows: Array<{ strategy: string; label: string; direction: string; confidence: number; reason: string; winRate: number; decidedTrades: number; totalPnl: number; selectScore: number; selected: boolean }>;
-    selected: string | null;
-    btcPrice: number;
-    scannedAt: string;
-  }>({
-    queryKey: ["/api/kalshi/strategy-scan"],
-    refetchInterval: 60000,
-    enabled: !!user,
-  });
 
   const { data: kalshiAccount, refetch: refetchKalshiAccount } = useQuery<KalshiAccount>({
     queryKey: ["/api/kalshi/account"],
@@ -589,29 +419,6 @@ export default function PolymarketEnginePage() {
     },
   });
 
-  const startKalshiMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/kalshi/engine/start").then(r => r.json()),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/kalshi/engine/status"] }); toast({ title: "Kalshi engine started" }); },
-  });
-  const stopKalshiMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/kalshi/engine/stop").then(r => r.json()),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/kalshi/engine/status"] }); toast({ title: "Kalshi engine stopped" }); },
-  });
-  const scanKalshiMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/kalshi/engine/scan").then(r => r.json()),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/kalshi/engine/status"] });
-      toast({ title: data.fired ? "Kalshi trade opened!" : "Kalshi scan — no trade", description: data.reason });
-    },
-  });
-  const saveKalshiConfigMutation = useMutation({
-    mutationFn: (cfg: any) => apiRequest("PUT", "/api/kalshi/engine/config", cfg).then(r => r.json()),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/kalshi/engine/status"] }); setShowKalshiConfig(false); toast({ title: "Config saved" }); },
-  });
-  const closeKalshiTradeMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("POST", `/api/kalshi/engine/trades/${id}/close`).then(r => r.json()),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/kalshi/engine/status"] }),
-  });
 
   // Polymarket private key + live mode mutations
   const savePolyKeyMutation = useMutation({
@@ -637,23 +444,6 @@ export default function PolymarketEnginePage() {
     },
   });
 
-  const saveKalshiConfig = () => {
-    const patch: any = {};
-    if (kalshiCfgSymbols.length) patch.symbols = kalshiCfgSymbols;
-    if (kalshiCfgTimeframe) patch.timeframe = kalshiCfgTimeframe;
-    if (kalshiCfgContracts)  patch.contractsPerTrade = Number(kalshiCfgContracts);
-    if (kalshiCfgMaxTrades)  patch.maxOpenTrades     = Number(kalshiCfgMaxTrades);
-    if (kalshiCfgCooldown)   patch.cooldownMinutes   = Number(kalshiCfgCooldown);
-    if (kalshiCfgConfidence) patch.minConfidence     = Number(kalshiCfgConfidence);
-    if (kalshiCfgStrategy)   patch.strategy          = kalshiCfgStrategy;
-    if (kalshiCfgAutoValue !== null) patch.autoTradeValuePicks = kalshiCfgAutoValue;
-    if (kalshiCfgConfluence !== null) patch.requireConfluence = kalshiCfgConfluence;
-    if (kalshiCfgMinScore)   patch.minValueScore     = Number(kalshiCfgMinScore);
-    if (kalshiCfgTakeProfit) patch.takeProfitCents   = Number(kalshiCfgTakeProfit);
-    if (kalshiCfgStopLoss)   patch.stopLossCents     = Number(kalshiCfgStopLoss);
-    if (!Object.keys(patch).length) return;
-    saveKalshiConfigMutation.mutate(patch);
-  };
 
 
   const saveConfig = () => {
@@ -1206,132 +996,24 @@ export default function PolymarketEnginePage() {
           </div>
         ) : null}
 
-        {/* ── Kalshi Auto-Trading Engine ────────────────────────────────────── */}
-        <div id="kalshi" className={`scroll-mt-20 bg-indigo-950/50 border rounded-xl p-4 ${kalshiEngineState?.isRunning ? "border-indigo-600/60" : "border-indigo-800/40"}`}>
+        {/* ── Kalshi account (credentials only) ─────────────────────────────
+            The Kalshi engine surface (stats, value picks, strategy win
+            rates, engine controls, config, open trades) used to be
+            duplicated here AND on the Kalshi Command Center. /kalshi is
+            the single canonical home now — this section keeps ONLY the
+            credential management (which exists nowhere else) + the link. */}
+        <div id="kalshi" className="scroll-mt-20 bg-indigo-950/50 border border-indigo-800/40 rounded-xl p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2 flex-wrap">
               <Shield className="w-4 h-4 text-indigo-400" />
-              <h2 className="text-sm font-bold text-white">Kalshi Auto-Trader</h2>
+              <h2 className="text-sm font-bold text-white">Kalshi Account</h2>
               <span className="text-[9px] text-indigo-300 bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 rounded">CFTC · US-Legal</span>
-              {kalshiEngineState && (
-                <span className={`text-[9px] px-1.5 py-0.5 rounded ${kalshiEngineState.isPaperMode ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"}`}>
-                  {kalshiEngineState.isPaperMode ? "PAPER" : "LIVE"}
-                </span>
-              )}
-              {kalshiEngineState?.config.strategy && (
-                <span className="text-[9px] text-purple-300 bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 rounded">
-                  {kalshiEngineState.config.strategy === "auto" ? "🤖 Auto (Best)" : kalshiEngineState.config.strategy === "ensemble" ? "AI Ensemble" : kalshiEngineState.config.strategy === "volume_profile" ? "Vol Profile" : kalshiEngineState.config.strategy === "markov" ? "Markov" : kalshiEngineState.config.strategy === "order_flow" ? "Order Flow" : "Momentum"}
-                </span>
-              )}
             </div>
-            <button onClick={() => setShowKalshiConfig(v => !v)} className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-white px-2 py-1 bg-gray-800/60 rounded-lg">
-              <Settings className="w-3 h-3" />
-              {showKalshiConfig ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            </button>
+            <Link href="/kalshi" className="shrink-0 text-[10px] font-bold text-indigo-300 bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/30 px-2.5 py-1.5 rounded-lg">
+              Open Kalshi Command Center →
+            </Link>
           </div>
-
-          {/* ── AI Review — best options to WIN (Kalshi + Polymarket) ────────── */}
-          <AiPredictionReviewPanel />
-
-          {/* ── High-Value Picks (all strategies + value model) ─────────────── */}
-          <div className="mb-3 bg-emerald-950/30 border border-emerald-800/40 rounded-lg p-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5">
-                <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-[11px] font-bold text-emerald-300">High-Value Picks</span>
-                <span className="text-[8px] text-gray-500">all strategies · edge-ranked</span>
-              </div>
-              <button
-                onClick={() => refetchValuePicks()}
-                disabled={valuePicksLoading}
-                className="text-[9px] text-emerald-400 hover:text-emerald-200 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded disabled:opacity-50"
-              >
-                {valuePicksLoading ? "Scanning…" : "↻ Rescan"}
-              </button>
-            </div>
-
-            {kalshiValuePicks?.consensus && (
-              <div className="flex items-center gap-2 mb-2 text-[9px] flex-wrap">
-                <span className={`px-1.5 py-0.5 rounded font-bold ${kalshiValuePicks.consensus.direction === "BUY" ? "bg-emerald-500/20 text-emerald-300" : kalshiValuePicks.consensus.direction === "SELL" ? "bg-red-500/20 text-red-300" : "bg-gray-500/20 text-gray-400"}`}>
-                  Consensus: {kalshiValuePicks.consensus.direction}
-                </span>
-                <span className="text-gray-400">{Math.round(kalshiValuePicks.consensus.agreement * 100)}% agree · {kalshiValuePicks.consensus.confidence}% conf</span>
-                {kalshiValuePicks.minutesToClose != null && (
-                  <span className="text-gray-500">· closes in {kalshiValuePicks.minutesToClose}m</span>
-                )}
-              </div>
-            )}
-
-            {!kalshiValuePicks?.picks?.length ? (
-              <p className="text-[10px] text-gray-500 py-1">
-                {valuePicksLoading ? "Analyzing brackets across all strategies…" : "No positive-edge picks right now — strategies don't see a mispriced bracket. Rescans every 60s."}
-              </p>
-            ) : (
-              <div className="space-y-1.5">
-                {kalshiValuePicks.picks.map((p) => (
-                  <div key={p.ticker} className="flex items-center justify-between gap-2 bg-gray-900/50 border border-gray-800/60 rounded-lg px-2.5 py-1.5">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-semibold text-white truncate">{p.subtitle}</p>
-                      <p className="text-[8px] text-gray-500 truncate">{p.rationale}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <div className="text-right">
-                        <p className="text-[8px] text-gray-500">Edge</p>
-                        <p className="text-[11px] font-bold text-emerald-400">+{p.edgePct}¢</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[8px] text-gray-500">Model/Mkt</p>
-                        <p className="text-[10px] font-mono text-gray-300">{p.modelProbPct}%/{p.marketAskCents}¢</p>
-                      </div>
-                      <span className="text-[9px] font-black px-1.5 py-1 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">
-                        {p.valueScore}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-                <p className="text-[8px] text-gray-600 pt-0.5">Score = edge × agreement × confidence × learned win rate. Enable auto-trade in config to fire the top pick automatically.</p>
-              </div>
-            )}
-          </div>
-
-          {/* ── Strategy Performance (learning loop) ─────────────────────────── */}
-          {(kalshiPerf?.byStrategy?.length ?? 0) > 0 && (
-            <div className="mb-3 bg-indigo-950/30 border border-indigo-800/40 rounded-lg p-3">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-1.5">
-                  <BarChart3 className="w-3.5 h-3.5 text-indigo-400" />
-                  <span className="text-[11px] font-bold text-indigo-300">Strategy Win Rate</span>
-                  <span className="text-[8px] text-gray-500">tracked over time · survives restarts</span>
-                </div>
-                {kalshiPerf && (
-                  <span className="text-[9px] text-gray-400">
-                    Overall {kalshiPerf.totals.winRate}% · {kalshiPerf.totals.wins}W/{kalshiPerf.totals.losses}L ·{" "}
-                    <span className={kalshiPerf.totals.totalPnl >= 0 ? "text-emerald-400" : "text-red-400"}>
-                      {kalshiPerf.totals.totalPnl >= 0 ? "+" : ""}${fmt(kalshiPerf.totals.totalPnl)}
-                    </span>
-                  </span>
-                )}
-              </div>
-              <div className="space-y-1">
-                {kalshiPerf!.byStrategy.map(st => {
-                  const label = st.strategy === "volume_profile" ? "Vol Profile" : st.strategy === "order_flow" ? "Order Flow" : st.strategy === "consensus" ? "Value (consensus)" : st.strategy.charAt(0).toUpperCase() + st.strategy.slice(1);
-                  return (
-                    <div key={st.strategy} className="flex items-center justify-between gap-2 text-[10px]">
-                      <span className="text-gray-300 font-medium w-28 truncate">{label}</span>
-                      <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                        <div className="h-full rounded-full" style={{ width: `${st.winRate}%`, background: st.winRate >= 55 ? "#34d399" : st.winRate >= 45 ? "#fbbf24" : "#f87171" }} />
-                      </div>
-                      <span className="text-gray-400 w-9 text-right">{st.winRate}%</span>
-                      <span className="text-gray-500 w-14 text-right">{st.wins}W/{st.losses}L</span>
-                      <span className={`w-14 text-right font-bold ${st.totalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>{st.totalPnl >= 0 ? "+" : ""}${fmt(st.totalPnl)}</span>
-                    </div>
-                  );
-                })}
-              </div>
-              <p className="text-[8px] text-gray-600 mt-1.5">Win rate feeds back into value-pick scoring once a strategy has 5+ decided trades — proven strategies get prioritized.</p>
-            </div>
-          )}
-
+          <p className="text-[10px] text-gray-400 mb-3">Engine status, strategy win rates, value picks, stock-perp shadow + live, weather and sports lanes all live on the Kalshi Command Center. This section is only for connecting the account itself.</p>
           {/* Credential setup */}
           {!kalshiAccount?.connected ? (
             <div>
@@ -1425,314 +1107,6 @@ export default function PolymarketEnginePage() {
                 </div>
                 <button onClick={() => disconnectKalshiMutation.mutate()} className="text-[9px] text-red-400/70 hover:text-red-400 ml-2">Disconnect</button>
               </div>
-
-              {/* Engine stats */}
-              <div className="grid grid-cols-3 gap-2">
-                <div className="bg-black/30 rounded-lg p-2 text-center">
-                  <p className="text-[8px] text-gray-500">Open</p>
-                  <p className="text-sm font-bold text-white">{kalshiEngineState?.openTrades.length ?? 0}</p>
-                </div>
-                <div className="bg-black/30 rounded-lg p-2 text-center">
-                  <p className="text-[8px] text-gray-500">Closed</p>
-                  <p className="text-sm font-bold text-white">{kalshiEngineState?.closedTrades.length ?? 0}</p>
-                </div>
-                <div className={`rounded-lg p-2 text-center border ${pnlBg((kalshiEngineState?.totalRealizedPnl ?? 0) + (kalshiEngineState?.totalUnrealizedPnl ?? 0))}`}>
-                  <p className="text-[8px] text-gray-500">P&L</p>
-                  <p className={`text-sm font-bold ${pnlColor((kalshiEngineState?.totalRealizedPnl ?? 0) + (kalshiEngineState?.totalUnrealizedPnl ?? 0))}`}>
-                    {((kalshiEngineState?.totalRealizedPnl ?? 0) + (kalshiEngineState?.totalUnrealizedPnl ?? 0)) >= 0 ? "+" : ""}
-                    ${fmt((kalshiEngineState?.totalRealizedPnl ?? 0) + (kalshiEngineState?.totalUnrealizedPnl ?? 0))}
-                  </p>
-                </div>
-              </div>
-
-              {/* Engine controls */}
-              <div className="flex gap-2">
-                {kalshiEngineState?.isRunning ? (
-                  <button onClick={() => stopKalshiMutation.mutate()} disabled={stopKalshiMutation.isPending}
-                    className="flex-1 flex items-center justify-center gap-1.5 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 text-xs font-bold rounded-lg py-2.5">
-                    <Square className="w-3.5 h-3.5" />Stop
-                  </button>
-                ) : (
-                  <button onClick={() => startKalshiMutation.mutate()} disabled={startKalshiMutation.isPending}
-                    className="flex-1 flex items-center justify-center gap-1.5 bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/30 text-indigo-400 text-xs font-bold rounded-lg py-2.5">
-                    <Play className="w-3.5 h-3.5" />Start Engine
-                  </button>
-                )}
-                <button onClick={() => scanKalshiMutation.mutate()} disabled={scanKalshiMutation.isPending}
-                  className="flex items-center gap-1.5 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-purple-300 text-xs font-semibold rounded-lg px-3 py-2.5">
-                  <RefreshCw className={`w-3.5 h-3.5 ${scanKalshiMutation.isPending ? "animate-spin" : ""}`} />Scan
-                </button>
-              </div>
-
-              {kalshiEngineState?.lastScanAt && (
-                <div className="bg-black/20 rounded-lg px-3 py-2">
-                  <p className="text-[9px] text-gray-500">Last scan: {timeAgo(kalshiEngineState.lastScanAt)}</p>
-                  {kalshiEngineState.lastScanResult && <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{kalshiEngineState.lastScanResult}</p>}
-                </div>
-              )}
-
-              {/* Config panel */}
-              {showKalshiConfig && (
-                <div className="bg-black/30 rounded-xl p-3 border border-gray-700/40">
-                  <p className="text-[10px] font-bold text-indigo-300 mb-3">Kalshi Engine Config</p>
-
-                  {/* Strategy selector */}
-                  <div className="mb-3">
-                    <label className="text-[9px] text-gray-400 block mb-1">Auto-Trade Strategy</label>
-                    {/* Auto (Best) — full-width, picks best strategy by accuracy */}
-                    {(() => {
-                      const active = (kalshiCfgStrategy || kalshiEngineState?.config.strategy || "momentum") === "auto";
-                      return (
-                        <button
-                          onClick={() => setKalshiCfgStrategy("auto")}
-                          className={`w-full mb-1.5 rounded-lg px-2 py-2 text-center border transition-colors ${active ? "bg-emerald-600/40 border-emerald-500/60 text-emerald-100" : "bg-gray-800/60 border-gray-700/60 text-gray-400 hover:text-gray-200"}`}
-                        >
-                          <span className="block text-[10px] font-bold leading-tight">🤖 Auto (Best) — AI picks the strongest strategy</span>
-                          <span className="block text-[8px] text-gray-400 leading-tight mt-0.5">Scans all 4 each cycle · trades whichever has the best live confidence × accuracy</span>
-                        </button>
-                      );
-                    })()}
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {([
-                        { key: "ensemble",       label: "AI Ensemble", sub: "multi-factor + regime filter ★" },
-                        { key: "momentum",       label: "Momentum",    sub: "RSI/MACD/EMA" },
-                        { key: "volume_profile", label: "Vol Profile", sub: "POC / value area" },
-                        { key: "markov",         label: "Markov",      sub: "state transitions" },
-                        { key: "order_flow",     label: "Order Flow",  sub: "CVD / delta / absorption" },
-                      ] as const).map(opt => {
-                        const active = (kalshiCfgStrategy || kalshiEngineState?.config.strategy || "momentum") === opt.key;
-                        return (
-                          <button
-                            key={opt.key}
-                            onClick={() => setKalshiCfgStrategy(opt.key)}
-                            className={`rounded-lg px-1.5 py-2 text-center border transition-colors ${active ? "bg-indigo-600/40 border-indigo-500/50 text-indigo-200" : "bg-gray-800/60 border-gray-700/60 text-gray-400 hover:text-gray-200"}`}
-                          >
-                            <span className="block text-[10px] font-bold leading-tight">{opt.label}</span>
-                            <span className="block text-[8px] text-gray-500 leading-tight mt-0.5">{opt.sub}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Symbol selector — which coins/assets' bracket markets to scan.
-                      Was BTC-only; SOL sometimes has no currently-open hourly event
-                      (skipped that cycle, not an error) so it's still offered. GOLD
-                      trades hourly only (its 15-min series isn't broker-tradeable on
-                      Kalshi's side) — switching to 15-min timeframe with GOLD
-                      selected just skips it with a clear reason each cycle. */}
-                  <div className="mb-3">
-                    <label className="text-[9px] text-gray-400 block mb-1">Coins/Assets to Trade</label>
-                    <div className="grid grid-cols-6 gap-1.5">
-                      {(["BTC", "ETH", "SOL", "XRP", "DOGE", "GOLD"] as const).map(coin => {
-                        const current = kalshiCfgSymbols.length ? kalshiCfgSymbols : (kalshiEngineState?.config.symbols ?? ["BTC"]);
-                        const active = current.includes(coin);
-                        return (
-                          <button
-                            key={coin}
-                            onClick={() => {
-                              const base = kalshiCfgSymbols.length ? kalshiCfgSymbols : (kalshiEngineState?.config.symbols ?? ["BTC"]);
-                              const next = base.includes(coin) ? base.filter(c => c !== coin) : [...base, coin];
-                              setKalshiCfgSymbols(next.length ? next : ["BTC"]);
-                            }}
-                            className={`rounded-lg px-1.5 py-2 text-center border transition-colors ${active ? "bg-amber-600/40 border-amber-500/50 text-amber-200" : "bg-gray-800/60 border-gray-700/60 text-gray-400 hover:text-gray-200"}`}
-                          >
-                            <span className="block text-[10px] font-bold leading-tight">{coin}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <p className="text-[8px] text-gray-500 leading-snug mt-1">Engine scans each selected coin's bracket market every cycle and trades the first one that clears every gate.</p>
-                  </div>
-
-                  {/* Timeframe selector — hourly multi-bracket vs 15-min single-market events */}
-                  <div className="mb-3">
-                    <label className="text-[9px] text-gray-400 block mb-1">Market Cadence</label>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {([
-                        { key: "hourly" as const, label: "Hourly", sub: "multi-bracket price range" },
-                        { key: "fifteen_min" as const, label: "15-Minute", sub: "single up/down bet · faster cycle" },
-                      ]).map(opt => {
-                        const active = (kalshiCfgTimeframe || kalshiEngineState?.config.timeframe || "hourly") === opt.key;
-                        return (
-                          <button
-                            key={opt.key}
-                            onClick={() => setKalshiCfgTimeframe(opt.key)}
-                            className={`rounded-lg px-1.5 py-2 text-center border transition-colors ${active ? "bg-cyan-600/40 border-cyan-500/50 text-cyan-200" : "bg-gray-800/60 border-gray-700/60 text-gray-400 hover:text-gray-200"}`}
-                          >
-                            <span className="block text-[10px] font-bold leading-tight">{opt.label}</span>
-                            <span className="block text-[8px] text-gray-500 leading-tight mt-0.5">{opt.sub}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <p className="text-[8px] text-gray-500 leading-snug mt-1">15-min markets are a single "will price stay above $X" bet per window — only BUY-direction signals trade them (there's no separate bracket to buy for a bearish view). Hourly markets support both directions across multiple price brackets.</p>
-                  </div>
-
-                  {/* Confluence requirement */}
-                  <label className="flex items-center justify-between cursor-pointer mb-3 bg-black/20 rounded-lg px-2.5 py-2">
-                    <div>
-                      <span className="text-[10px] font-bold text-emerald-300">Require multi-strategy confluence</span>
-                      <p className="text-[8px] text-gray-500 leading-snug mt-0.5">Only trade when ≥60% of strategies agree on direction. Strongly reduces losses from single-strategy whipsaws.</p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={kalshiCfgConfluence ?? kalshiEngineState?.config.requireConfluence ?? true}
-                      onChange={e => setKalshiCfgConfluence(e.target.checked)}
-                      className="accent-emerald-500 w-4 h-4 flex-shrink-0 ml-2"
-                    />
-                  </label>
-
-                  {/* Compounding growth mode */}
-                  <div className="mb-3 bg-black/20 rounded-lg px-2.5 py-2 border border-amber-500/20">
-                    <label className="flex items-center justify-between cursor-pointer">
-                      <div>
-                        <span className="text-[10px] font-bold text-amber-300">📈 Compounding Growth Mode</span>
-                        <p className="text-[8px] text-gray-500 leading-snug mt-0.5">Stake a % of your growing bankroll instead of a fixed contract count — wins automatically raise the next stake to grow the account fast.</p>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={(kalshiEngineState?.config as any)?.compounding ?? false}
-                        onChange={e => saveKalshiConfigMutation.mutate({ compounding: e.target.checked })}
-                        className="accent-amber-500 w-4 h-4 flex-shrink-0 ml-2"
-                      />
-                    </label>
-                    {(kalshiEngineState?.config as any)?.compounding && (
-                      <div className="flex items-center gap-3 mt-2">
-                        <label className="text-[9px] text-gray-400">Risk per trade
-                          <select
-                            value={(kalshiEngineState?.config as any)?.riskPctPerTrade ?? 5}
-                            onChange={e => saveKalshiConfigMutation.mutate({ riskPctPerTrade: parseInt(e.target.value) })}
-                            className="ml-1.5 bg-gray-800 border border-gray-700 text-white rounded px-1.5 py-0.5 text-[9px]"
-                          >
-                            {[2, 3, 5, 8, 10, 15, 20].map(p => <option key={p} value={p}>{p}%</option>)}
-                          </select>
-                        </label>
-                        <label className="text-[9px] text-gray-400">Starting bankroll $
-                          <input
-                            type="number" min={10} step={10}
-                            defaultValue={(kalshiEngineState?.config as any)?.startingBankroll ?? 100}
-                            onBlur={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 10) saveKalshiConfigMutation.mutate({ startingBankroll: v }); }}
-                            className="ml-1.5 w-16 bg-gray-800 border border-gray-700 text-white rounded px-1.5 py-0.5 text-[9px]"
-                          />
-                        </label>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Live strategy scan — the "column of scans per strategy" comparison */}
-                  <div className="mb-3 bg-black/30 border border-gray-800/60 rounded-lg p-2.5">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[10px] font-bold text-gray-300">Live Strategy Scan</span>
-                      <button onClick={() => refetchStratScan()} disabled={stratScanLoading}
-                        className="text-[9px] text-gray-400 hover:text-white px-1.5 py-0.5 bg-gray-800/60 rounded disabled:opacity-50">
-                        {stratScanLoading ? "Scanning…" : "↻"}
-                      </button>
-                    </div>
-                    {!kalshiStratScan?.rows?.length ? (
-                      <p className="text-[9px] text-gray-500">Scanning all strategies…</p>
-                    ) : (
-                      <div className="space-y-1">
-                        {kalshiStratScan.rows.map(r => (
-                          <div key={r.strategy} className={`flex items-center justify-between gap-2 px-2 py-1 rounded ${r.selected ? "bg-emerald-500/15 border border-emerald-500/30" : "bg-gray-900/40"}`}>
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              {r.selected && <span className="text-[8px] text-emerald-400 font-bold">★</span>}
-                              <span className="text-[10px] text-gray-200 font-medium w-20 truncate">{r.label}</span>
-                            </div>
-                            <span className={`text-[9px] font-bold w-12 text-center ${r.direction === "BUY" ? "text-emerald-400" : r.direction === "SELL" ? "text-red-400" : "text-gray-500"}`}>{r.direction}</span>
-                            <span className="text-[9px] text-gray-400 w-10 text-right">{r.confidence}%</span>
-                            <span className="text-[9px] text-gray-500 w-16 text-right">{r.decidedTrades > 0 ? `${r.winRate}% acc` : "no hist"}</span>
-                            <span className="text-[9px] font-bold text-indigo-300 w-8 text-right">{r.selectScore}</span>
-                          </div>
-                        ))}
-                        <p className="text-[8px] text-gray-600 pt-0.5">★ = the pick "Auto (Best)" would trade now. Score = live confidence blended with historical accuracy (needs 3+ trades to weight accuracy).</p>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    {([
-                      { label: "Contracts/trade", val: kalshiCfgContracts, set: setKalshiCfgContracts, ph: String(kalshiEngineState?.config.contractsPerTrade ?? 5) },
-                      { label: "Max open trades", val: kalshiCfgMaxTrades,  set: setKalshiCfgMaxTrades,  ph: String(kalshiEngineState?.config.maxOpenTrades ?? 3) },
-                      { label: "Cooldown (min)",   val: kalshiCfgCooldown,   set: setKalshiCfgCooldown,   ph: String(kalshiEngineState?.config.cooldownMinutes ?? 20) },
-                      { label: "Min confidence %", val: kalshiCfgConfidence, set: setKalshiCfgConfidence, ph: String(kalshiEngineState?.config.minConfidence ?? 60) },
-                    ] as const).map(f => (
-                      <div key={f.label}>
-                        <label className="text-[9px] text-gray-400 block mb-0.5">{f.label}</label>
-                        <input type="number" value={f.val} placeholder={f.ph}
-                          onChange={e => (f.set as any)(e.target.value)}
-                          className="w-full bg-gray-800 border border-gray-700 rounded-lg text-xs text-white px-2 py-1.5" />
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* ── Auto-trade value picks + auto-exit ─────────────────── */}
-                  <div className="mt-3 pt-3 border-t border-indigo-800/40">
-                    <label className="flex items-center justify-between cursor-pointer mb-2">
-                      <span className="text-[10px] font-bold text-emerald-300">Auto-trade High-Value Picks</span>
-                      <input
-                        type="checkbox"
-                        checked={kalshiCfgAutoValue ?? kalshiEngineState?.config.autoTradeValuePicks ?? false}
-                        onChange={e => setKalshiCfgAutoValue(e.target.checked)}
-                        className="accent-emerald-500 w-4 h-4"
-                      />
-                    </label>
-                    <p className="text-[8px] text-gray-500 mb-2 leading-snug">
-                      When ON, the engine auto-buys the top edge-ranked pick (all-strategy consensus) instead of the single strategy above — and manages the exit below. Take-profit/stop-loss are % moves relative to YOUR entry price, not fixed absolute levels or flat cents — e.g. stop-loss 40% on a 10¢ entry exits around 6¢, and on a 50¢ entry exits around 30¢, scaling correctly either way.
-                    </p>
-                    <div className="grid grid-cols-3 gap-2">
-                      {([
-                        { label: "Min score",   val: kalshiCfgMinScore,   set: setKalshiCfgMinScore,   ph: String(kalshiEngineState?.config.minValueScore ?? 8) },
-                        { label: "Take-profit % (above entry)", val: kalshiCfgTakeProfit, set: setKalshiCfgTakeProfit, ph: String(kalshiEngineState?.config.takeProfitCents ?? 50) },
-                        { label: "Stop-loss % (below entry)",  val: kalshiCfgStopLoss,   set: setKalshiCfgStopLoss,   ph: String(kalshiEngineState?.config.stopLossCents ?? 40) },
-                      ] as const).map(f => (
-                        <div key={f.label}>
-                          <label className="text-[9px] text-gray-400 block mb-0.5">{f.label}</label>
-                          <input type="number" value={f.val} placeholder={f.ph}
-                            onChange={e => (f.set as any)(e.target.value)}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg text-xs text-white px-2 py-1.5" />
-                        </div>
-                      ))}
-                    </div>
-                    <p className="text-[8px] text-gray-600 mt-1.5">Take-profit/Stop-loss close positions early at the contract price (¢). Set to 0 to disable and hold to settlement.</p>
-                  </div>
-
-                  <button onClick={saveKalshiConfig} disabled={saveKalshiConfigMutation.isPending}
-                    className="w-full mt-3 bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-300 text-xs font-bold rounded-lg py-2">
-                    Save Config
-                  </button>
-                </div>
-              )}
-
-              {/* Open Kalshi trades */}
-              {(kalshiEngineState?.openTrades.length ?? 0) > 0 && (
-                <div className="space-y-2">
-                  <p className="text-[10px] font-bold text-indigo-300">Open Kalshi Trades</p>
-                  {kalshiEngineState!.openTrades.map(t => (
-                    <div key={t.id} className="bg-black/30 border border-indigo-800/40 rounded-xl p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[10px] text-gray-200 leading-snug truncate">{t.subtitle}</p>
-                          <p className={`text-[9px] font-bold mt-0.5 ${t.signal.direction === "BUY" ? "text-emerald-400" : "text-red-400"}`}>
-                            {t.signal.direction} signal · {t.signal.confidence}% conf · BTC ${fmtPrice(t.signal.btcPrice)}
-                          </p>
-                        </div>
-                        <button onClick={() => closeKalshiTradeMutation.mutate(t.id)} className="shrink-0 p-1 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400">
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-4 gap-1.5 mt-2">
-                        <div><p className="text-[8px] text-gray-500">Entry</p><p className="text-[10px] font-bold text-white">{t.entryPriceCents}¢</p></div>
-                        <div><p className="text-[8px] text-gray-500">Now</p><p className="text-[10px] font-bold text-white">{t.currentPriceCents}¢</p></div>
-                        <div><p className="text-[8px] text-gray-500">P&L</p><p className={`text-[10px] font-bold ${t.unrealizedPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>{t.unrealizedPnl >= 0 ? "+" : ""}${fmt(t.unrealizedPnl)}</p></div>
-                        <div><p className="text-[8px] text-gray-500">Stake</p><p className="text-[10px] font-bold text-white">${fmt(t.stake)}</p></div>
-                      </div>
-                      {!t.paper && <p className="text-[8px] text-emerald-400/70 mt-1.5">● LIVE ORDER</p>}
-                      {t.paper  && <p className="text-[8px] text-amber-400/70 mt-1.5">○ PAPER</p>}
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           )}
         </div>
