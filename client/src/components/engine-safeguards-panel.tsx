@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ShieldCheck, GraduationCap, Receipt, Route, Ban, Activity } from "lucide-react";
+import { ShieldCheck, GraduationCap, Receipt, Route, Ban, Activity, Power } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { InfoExplainer } from "@/components/info-explainer";
+import { ShadowLiveToggleRow, type ShadowBarItem } from "@/components/shadow-live-toggle";
 
 // Shared panel chrome (Nov 8, 2026 polish pass): one header treatment for
 // every engine panel — a tinted icon square, title with a subtitle line
@@ -352,6 +353,111 @@ export function CryptoShadowPromotionsPanel({ className = "" }: { className?: st
       )}
       {(promote.isError || retire.isError) && (
         <div className="text-[10px] text-red-300 mt-1">That didn't go through — the bucket may no longer qualify. The list refreshes automatically.</div>
+      )}
+    </div>
+  );
+}
+
+// Crypto go-live toggles (Nov 15, 2026): each crypto strategy practices in
+// shadow mode; when its record clears the proof bar, its toggle here flips
+// it live on the DeFi hot wallet — instantly, no deploy. The server
+// re-verifies the bar at flip time and refuses with the missing pieces;
+// the bar progress under each toggle shows exactly where it stands.
+type CryptoBarT = { trades: number; meanNetPct: number | null; avgR: number | null; winRate: number | null; maxDrawdownPct: number; losingWeek: boolean; meetsBar: boolean; missing: string[] };
+type CryptoToggleStrategyT = { strategy: string; on: boolean; updatedAt: string | null; bar: CryptoBarT };
+const CRYPTO_STRATEGY_LABEL: Record<string, string> = {
+  trend_following: "Trend following", momentum: "Momentum", order_flow: "Order flow",
+  volume_profile: "Volume profile", breakout: "Breakout", structure: "Structure",
+  divergence: "Divergence", composite_autonomous: "Composite — strategies agree",
+};
+export function CryptoLiveTogglesPanel({ className = "" }: { className?: string }) {
+  const qc = useQueryClient();
+  const { data } = useQuery<{ enabled: boolean; strategies: CryptoToggleStrategyT[] }>({
+    queryKey: ["/api/engine/crypto-live-toggles"],
+    refetchInterval: 60000,
+  });
+  const [flipError, setFlipError] = useState<{ strategy: string; message: string } | null>(null);
+  const flip = useMutation({
+    mutationFn: async (v: { strategy: string; on: boolean }) => apiRequest("POST", "/api/engine/crypto-live-toggles", v),
+    onSuccess: () => { setFlipError(null); qc.invalidateQueries({ queryKey: ["/api/engine/crypto-live-toggles"] }); },
+    onError: (err: any, v) => {
+      // apiRequest throws "422: {json}" — surface the server's own words,
+      // which name the missing bar pieces.
+      let message = "That flip didn't go through. The list refreshes automatically.";
+      try {
+        const body = JSON.parse(String(err?.message ?? "").replace(/^\d+: /, ""));
+        if (body?.error) message = body.error;
+      } catch { /* keep the generic line */ }
+      setFlipError({ strategy: v.strategy, message });
+      qc.invalidateQueries({ queryKey: ["/api/engine/crypto-live-toggles"] });
+    },
+  });
+  const barItems = (bar: CryptoBarT): ShadowBarItem[] => [
+    { label: "Trades", display: `${bar.trades}/50`, met: bar.trades >= 50 },
+    { label: "Avg net", display: bar.meanNetPct == null ? "—" : `${bar.meanNetPct >= 0 ? "+" : ""}${bar.meanNetPct.toFixed(2)}%`, met: bar.meanNetPct != null && bar.meanNetPct > 0 },
+    { label: "Win rate", display: bar.winRate == null ? "—" : `${Math.round(bar.winRate * 100)}%`, met: bar.winRate != null && bar.winRate >= 0.4 },
+    { label: "Last 2 weeks", display: bar.losingWeek ? "a losing week" : "no losing week", met: !bar.losingWeek },
+    { label: "Drawdown", display: `${bar.maxDrawdownPct.toFixed(1)}%`, met: bar.maxDrawdownPct <= 10 },
+  ];
+  return (
+    <div className={`rounded-md border border-white/10 bg-white/[0.03] p-2 overflow-hidden ${className}`} data-testid="crypto-live-toggles-panel">
+      <PanelHeader
+        compact
+        icon={<Power className="w-3.5 h-3.5" />}
+        tint="bg-emerald-500/15 text-emerald-300"
+        title="Crypto strategies — go live"
+        subtitle="Every strategy practices in shadow mode first. When one clears the proof bar, flip its toggle and it trades real money on the DeFi hot wallet — right away, no update needed. A strategy trades live on the hot wallet ONLY while its toggle is on."
+        explainer={<InfoExplainer title="Crypto strategies — go live" accent="border-l-emerald-300/60">
+          <p>Each crypto strategy also runs in <b>shadow mode</b>: virtual trades on the same DeFi tokens, scored net of costs. That record is the proof. The <b>go-live bar</b>: 50 or more closed shadow trades in the last 90 days, a positive average result, at least 40% wins, no losing week in the last two weeks, and a worst dip (drawdown) of 10% or less.</p>
+          <p>Flipping a toggle on is instant — and the server <b>re-checks the record at the moment you tap</b>. If the bar isn't met, the flip is refused and the missing pieces are listed under the toggle (they're already shown as ✗ marks). Flipping off is instant and unconditional.</p>
+          <p><b>What changed:</b> before these toggles, the hot wallet traded every strategy the engine picked. Now a strategy needs its toggle on. The shadow lesson gates and any promoted guards above still apply to a live strategy — the toggle makes it eligible, it doesn't exempt it.</p>
+          <p><b>Scope:</b> the DeFi hot wallet only — that's the arm the shadow record comes from. The perps, Hyperliquid and exchange-spot arms are not covered by these toggles. Paper trading is never blocked; it keeps building the record.</p>
+        </InfoExplainer>}
+      />
+      {!data ? (
+        <p className="text-[11px] text-gray-500 py-2">Reading the shadow records…</p>
+      ) : (
+        <>
+          {!data.enabled && (
+            <div className="text-[10px] text-amber-300 rounded bg-amber-500/10 border border-amber-400/20 px-2 py-1.5 mb-1.5 break-words">
+              Go-live toggles are switched off right now (kill switch CRYPTO_LIVE_TOGGLE=off). The toggles below are disabled and the DeFi hot wallet is running on its existing engine switches, as it did before.
+            </div>
+          )}
+          <div className="space-y-1">
+            {data.strategies.map((s) => (
+              <div key={s.strategy}>
+                <ShadowLiveToggleRow
+                  name={CRYPTO_STRATEGY_LABEL[s.strategy] || s.strategy}
+                  nameDetail={s.strategy}
+                  on={s.on}
+                  onText="LIVE"
+                  offText="SHADOW ONLY"
+                  disabled={!data.enabled}
+                  flipping={flip.isPending && flip.variables?.strategy === s.strategy}
+                  barItems={barItems(s.bar)}
+                  note={s.on
+                    ? `Live on the DeFi hot wallet${s.updatedAt ? ` since ${new Date(s.updatedAt).toLocaleDateString()}` : ""}. Lesson gates and promoted guards still apply.`
+                    : s.bar.meetsBar
+                      ? "Cleared the proof bar — flip it on to trade it live."
+                      : `Still proving itself: ${s.bar.missing.join(" · ")}.`}
+                  onFlip={(next) => {
+                    if (next) {
+                      const msg = `Turn ${CRYPTO_STRATEGY_LABEL[s.strategy] || s.strategy} LIVE on the DeFi hot wallet?\n\nIt cleared the proof bar: ${s.bar.trades} shadow trades, average net ${s.bar.meanNetPct != null ? `${s.bar.meanNetPct >= 0 ? "+" : ""}${s.bar.meanNetPct.toFixed(2)}%` : "—"}, ${s.bar.winRate != null ? Math.round(s.bar.winRate * 100) : "—"}% wins, drawdown ${s.bar.maxDrawdownPct.toFixed(1)}%.\n\nIts signals will trade REAL money on the hot wallet (long-only swaps, your usual size and safety gates). The server re-checks the bar when you tap. Flip it off here any time to stop.`;
+                      if (!window.confirm(msg)) return;
+                    }
+                    flip.mutate({ strategy: s.strategy, on: next });
+                  }}
+                />
+                {flipError?.strategy === s.strategy && (
+                  <div className="text-[10px] text-red-300 mt-1 break-words">{flipError.message}</div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="text-[9px] text-gray-600 mt-1.5 break-words">
+            Bar, per strategy over the last 90 days of shadow trading: 50+ closed trades · average net above 0% · 40%+ wins · no losing week in the last two · drawdown ≤ 10%. Records keep updating, so a strategy that clears the bar today shows it here within the hour.
+          </div>
+        </>
       )}
     </div>
   );

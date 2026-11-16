@@ -1340,6 +1340,21 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
     }
     const chain = (cfg as any).defiChain || 'base';
     const slip = (cfg as any).defiSlippageBps ?? 100;
+    // ── Shadow → live go-live toggle (2026-11-15) ─────────────────────────
+    // A strategy trades real money on this arm only while its owner has
+    // its go-live toggle ON (shadow-live-toggles.ts; the flip re-verified
+    // the strategy's shadow record against the proof bar at flip time).
+    // Paper is practice and is never blocked. Kill switch
+    // CRYPTO_LIVE_TOGGLE=off bypasses this consult entirely — the arm
+    // then runs on its existing switches, exactly as before. The consult
+    // never throws; an unreadable toggle store means NOT live.
+    if (!(cfg as any)._paper) {
+      const toggles = await import('./shadow-live-toggles').catch(() => null);
+      if (toggles && !(await toggles.isCryptoStrategyLiveEnabled(userId, result.strategy))) {
+        await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: ${result.strategy} isn't switched live — a strategy trades real money on the DeFi hot wallet only while its go-live toggle is ON (Guards & Trails → "Crypto strategies — go live"). Its shadow record keeps building either way.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' }).catch(() => {});
+        return;
+      }
+    }
     // ── Promoted crypto shadow lessons (2026-11-15) ────────────────────────
     // A shadow 'avoid' bucket the owner promoted into a live guard blocks
     // matching hot-wallet entries BEFORE any sizing or swap work. The
