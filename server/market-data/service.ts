@@ -143,8 +143,15 @@ class MarketDataService {
     }
 
     // Include common CFD broker names (US30=Dow, US500=S&P, UK100=FTSE, etc.)
+    // NAS100 / USTEC / WS30 / DJ30 were missing: 'NAS100' contains none of
+    // the substrings below (it is not 'US100', 'NDX' or 'SPX'), so the
+    // canonical Nasdaq CFD name fell through to 'stock' — which silently
+    // routed it AWAY from every index path, including the ORB builder's
+    // broker-candle source (getOrbStateFull branches on 'index') and the
+    // Twelve Data index symbol map. US30 was detected correctly; NAS100
+    // was not, so the two indices behaved differently for no reason.
     const indices = ['SPX', 'NDX', 'DJI', 'VIX', 'FTSE', 'DAX', 'NI225',
-      'US30', 'US500', 'US100', 'UK100', 'GER40', 'DE40', 'FRA40', 'JP225', 'JPN225', 'AU200', 'HK50'];
+      'US30', 'US500', 'US100', 'NAS100', 'USTEC', 'WS30', 'DJ30', 'UK100', 'GER40', 'DE40', 'FRA40', 'JP225', 'JPN225', 'AU200', 'HK50'];
     if (indices.some(i => upper.includes(i))) {
       return 'index';
     }

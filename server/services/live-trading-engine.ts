@@ -13,6 +13,7 @@ import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import { storage } from '../storage';
 import { newsService } from '../news-service';
 import { getPipSize, getPipValue, setFxRate } from '../utils/pipUtils';
+import { toEpochSeconds } from '../utils/candleNormalize';
 import { getTLRisk } from './tl-risk-settings';
 import { detectBOSCHOCH, detectWyckoff, type BOSCHOCHResult, type WyckoffResult } from '../utils/smcUtils';
 import { getPremiumDiscountContext } from '../utils/ictMacroUtils';
@@ -4667,7 +4668,7 @@ Your job is to protect what's been built and claw back to the peak methodically.
           if (state.orbDailyFired?.[sym] === _orbTodayKey) continue; // ORB slot already used today
           const st = await getSniperOrbState(userId, sym);
           if (!st || st.phase === 'no_range') continue;
-          const base = `${sym}: ORB range ${st.orbLow.toFixed(5)}–${st.orbHigh.toFixed(5)} (width ${(st.range * 10000).toFixed(0)} pips), price ${st.currentPrice.toFixed(5)}`;
+          const base = `${sym}: ORB range ${st.orbLow.toFixed(5)}–${st.orbHigh.toFixed(5)} (width ${(st.range / getPipSize(sym)).toFixed(0)} pips), price ${st.currentPrice.toFixed(5)}`;
           if (st.phase === 'retest') {
             _orbLines.push(`- ${base} — CONFIRMED ${st.breakoutDir} breakout, price is RETESTING the broken level NOW ✓ SNIPER-ORB SETUP LIVE`);
           } else if (st.phase === 'breakout') {
@@ -8231,7 +8232,7 @@ export function getNYTime(ts: number): { hour: number; minute: number; dateStr: 
 // Broker instrument-name variants per canonical index symbol — used to find the
 // right cached MT5 EA chart-data entry (or match a TradeLocker instrument)
 // regardless of what name the user's broker/chart actually uses.
-const INDEX_BROKER_ALIASES: Record<string, string[]> = {
+export const INDEX_BROKER_ALIASES: Record<string, string[]> = {
   US30: ['US30CASH', 'US30C', 'DOW30', 'DOWJONES', 'DJIA', 'DJI', 'WS30', 'YM', 'DOW', 'USA30', 'CASH30', 'US30USD', 'DJA', 'WALLST30', 'WALLSTREET30', 'USWALL'],
   NAS100: ['NAS100CASH', 'NAS100C', 'NASDAQ100', 'USTEC', 'NDX100', 'US100', 'NQ', 'NASDAQ', 'NASUSD', 'NA100', 'NDAQ', 'QQQ', 'TECH100', 'USTECH100', 'NASD100', 'NAS100USD'],
   US500: ['SPXUSD', 'US500CASH', 'SP500USD', 'USINDEX', 'SPX500USD', 'ES', 'SPX', 'SPXC', 'SP500C', 'SPXUSDM', 'SPX500', 'SP500'],
@@ -8261,7 +8262,7 @@ async function getBrokerIndexCandles(
     const symPart = key.slice(prefix.length, key.length - suffix.length);
     if (wanted.has(symPart.replace(/[^A-Z0-9]/gi, '').toUpperCase())) {
       const entry = cache[key];
-      if (entry?.candles?.length) return entry.candles;
+      if (entry?.candles?.length) return normalizeOrbBarTimes(entry.candles);
     }
   }
 
@@ -8274,11 +8275,25 @@ async function getBrokerIndexCandles(
       const svc = await getTradeLockerService(active);
       const resMinutes = mt5Tf === 'H1' ? 60 : 5;
       const bars = await svc.getCandlesticks(symbol, resMinutes);
-      if (bars?.length) return [...bars].reverse();
+      if (bars?.length) return normalizeOrbBarTimes([...bars].reverse());
     }
   } catch (_) { /* no TL connection, or fetch failed — non-fatal, caller just skips */ }
 
   return null;
+}
+
+// OrbCandle's contract is `t` in epoch SECONDS (computeOrbStateFromCandles
+// feeds it to getNYTime as c.t * 1000). The MT5 EA already posts seconds and
+// getCandlesticks now normalises to seconds at its source, but this is the
+// last boundary before the ORB math — normalise by magnitude here too, so a
+// future source that hands back milliseconds degrades to a correct range
+// instead of a silent "no range today". No-op for seconds input.
+function normalizeOrbBarTimes<T extends { t: number }>(bars: T[]): T[] {
+  return bars.map(b => {
+    if (!b) return b;
+    const t = toEpochSeconds(b.t);
+    return t > 0 && t !== b.t ? { ...b, t } : b;
+  });
 }
 
 // ── ORB state (shared: autonomous lane + sniper path) ───────────────────────
@@ -8515,7 +8530,7 @@ async function runORBAutonomousScan(userId: number): Promise<void> {
         lotSize:     config.baseLotSize,
         holdTime:    '2-4 hours',
         urgency:     'ENTER_NOW',
-        reason:      `ORB Autonomous — ${direction} retest of ${direction === 'BUY' ? `ORB High ${orbHigh.toFixed(4)}` : `ORB Low ${orbLow.toFixed(4)}`} | Range ${(orbRange * 10000).toFixed(0)} pips | SS AI ${aiScore}/100 | ${scoreResult.summary.split('\n')[0]}`,
+        reason:      `ORB Autonomous — ${direction} retest of ${direction === 'BUY' ? `ORB High ${orbHigh.toFixed(4)}` : `ORB Low ${orbLow.toFixed(4)}`} | Range ${(orbRange / getPipSize(symbol)).toFixed(0)} pips | SS AI ${aiScore}/100 | ${scoreResult.summary.split('\n')[0]}`,
         confluences: [
           `ORB range: ${orbLow.toFixed(4)}–${orbHigh.toFixed(4)}`,
           `Breakout direction: ${direction}`,
