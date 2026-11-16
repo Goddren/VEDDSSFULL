@@ -30,9 +30,10 @@ function aggregateEvents<T extends GuardEventT>(events: T[]): Array<T & { aggCou
 function sharedSummaryOf(values: string[]): { text: string; count: number } | null {
   const counts = new Map<string, number>();
   for (const v of values) counts.set(v, (counts.get(v) || 0) + 1);
-  let best: { text: string; count: number } | null = null;
-  for (const [text, count] of counts) if (!best || count > best.count) best = { text, count };
-  return best && best.count >= 2 ? best : null;
+  let bestText: string | null = null;
+  let bestCount = 0;
+  counts.forEach((count, text) => { if (count > bestCount) { bestCount = count; bestText = text; } });
+  return bestText !== null && bestCount >= 2 ? { text: bestText, count: bestCount } : null;
 }
 
 // Shared panel chrome (Nov 8, 2026 polish pass): one header treatment for

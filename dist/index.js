@@ -86327,6 +86327,86 @@ function livePlanRulesText() {
 - So a realistic week is a few percent of the account, not a doubling. Set "suggestedTarget" from this \u2014 about (trades per week \xD7 40\u201350% win rate \xD7 2R \u2212 losses) \xD7 0.5% risk \u2014 and mark the feasibility honestly. Do not plan compounding beyond that.`;
 }
 
+// server/services/streak-view.ts
+init_schema();
+var TIER_ORDER = ["YG", "Rising", "Pro", "Elite", "OG"];
+function tierForXp(xp) {
+  let tier = "YG";
+  for (const key of TIER_ORDER) {
+    if (xp >= TIER_CONFIG[key].minXP) tier = key;
+  }
+  return tier;
+}
+function tierProgressForXp(xp) {
+  const tier = tierForXp(xp);
+  const cfg = TIER_CONFIG[tier];
+  if (!cfg.nextTier) return 100;
+  const next = TIER_CONFIG[cfg.nextTier];
+  const span = next.minXP - cfg.minXP;
+  if (span <= 0) return 100;
+  return Math.max(0, Math.min(100, Math.round((xp - cfg.minXP) / span * 100)));
+}
+function localDayStart(d) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+function effectiveStreakView(row, now = /* @__PURE__ */ new Date()) {
+  const xp = row.xpPoints ?? 0;
+  let currentStreak = row.currentStreak ?? 0;
+  if (row.lastActivityDate) {
+    const last2 = row.lastActivityDate instanceof Date ? row.lastActivityDate : new Date(row.lastActivityDate);
+    if (!Number.isNaN(last2.getTime())) {
+      const diffDays = Math.floor((localDayStart(now) - localDayStart(last2)) / 864e5);
+      if (diffDays > 1) currentStreak = 0;
+    }
+  }
+  return { ...row, currentStreak, tier: tierForXp(xp), tierProgress: tierProgressForXp(xp) };
+}
+
+// server/services/closed-trade-stats.ts
+function summarizeClosed(dbRows, cacheRows) {
+  let wins = 0;
+  let losses = 0;
+  let pnl = 0;
+  for (const t of dbRows || []) {
+    pnl += t.profitLoss || 0;
+    if (t.result === "WIN") wins++;
+    else if (t.result === "LOSS") losses++;
+  }
+  for (const t of cacheRows || []) {
+    const p2 = t.profit || 0;
+    pnl += p2;
+    if (p2 > 0) wins++;
+    else if (p2 < 0) losses++;
+  }
+  const trades = (dbRows?.length || 0) + (cacheRows?.length || 0);
+  return { trades, wins, losses, flat: trades - wins - losses, pnl };
+}
+
+// server/services/exec-error-text.ts
+var GENERIC = "Execution error \u2014 details in the trade log";
+var INTERNAL_TOKENS = [
+  "process.",
+  "processTicksAndRejections",
+  "at Object.",
+  "at async",
+  "node:internal",
+  "<-",
+  "(MODIFY by"
+];
+function humanizeExecError(raw) {
+  if (!raw) return null;
+  let s = String(raw).trim();
+  if (!s) return null;
+  if (INTERNAL_TOKENS.some((t) => s.includes(t))) return GENERIC;
+  const pipe = s.indexOf(" | ");
+  if (pipe >= 0) s = s.slice(0, pipe);
+  s = s.replace(/\s+/g, " ").trim();
+  if (!s || /[a-z][a-zA-Z]*[A-Z][a-zA-Z]*\(/.test(s)) {
+    return GENERIC;
+  }
+  return s.length > 120 ? s.slice(0, 117).trimEnd() + "\u2026" : s;
+}
+
 // server/routes.ts
 import { createServer } from "http";
 
@@ -86908,9 +86988,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "d6da054b-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-16T09:19:55.385Z";
+var BUILD_COMMIT = "6e844a01-dirty";
+var BUILD_BRANCH = "feat/cleanup-consistency";
+var BUILT_AT = "2026-11-16T10:53:40.511Z";
 
 // server/stripe.ts
 init_db();
@@ -93525,7 +93605,8 @@ Respond ONLY in valid JSON format with these exact keys:
         return res2.status(401).json({ message: "Authentication required" });
       }
       const userId = req.user.id;
-      const streak = await storage.getUserStreak(userId);
+      const streakRow = await storage.getUserStreak(userId);
+      const streak = streakRow ? effectiveStreakView(streakRow) : streakRow;
       if (!streak) {
         return res2.json({
           currentStreak: 0,
@@ -101220,12 +101301,14 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
       tlDataComplete = false;
     }
     const unrealizedPnL = mt5UnrealizedPnL + tlUnrealizedPnL;
-    const todayClosedProfit = todayDb.reduce((s, t) => s + (t.profitLoss || 0), 0) + todayCache.reduce((s, t) => s + (t.profit || 0), 0) + tlTodayClosedPnL;
-    const weekClosedProfit = weekDb.reduce((s, t) => s + (t.profitLoss || 0), 0) + weekCache.reduce((s, t) => s + (t.profit || 0), 0) + tlWeekClosedPnL;
-    const todayTrades = todayDb.length + todayCache.length;
-    const todayWins = todayDb.filter((t) => t.result === "WIN").length + todayCache.filter((t) => (t.profit || 0) > 0).length;
-    const weekTrades = weekDb.length + weekCache.length;
-    const weekWins = weekDb.filter((t) => t.result === "WIN").length + weekCache.filter((t) => (t.profit || 0) > 0).length;
+    const todaySum = summarizeClosed(todayDb, todayCache);
+    const weekSum = summarizeClosed(weekDb, weekCache);
+    const todayClosedProfit = todaySum.pnl + tlTodayClosedPnL;
+    const weekClosedProfit = weekSum.pnl + tlWeekClosedPnL;
+    const todayTrades = todaySum.trades;
+    const todayWins = todaySum.wins;
+    const weekTrades = weekSum.trades;
+    const weekWins = weekSum.wins;
     const dbStrat = await storage.getActiveWeeklyStrategy(userId);
     const weeklyTarget = dbStrat?.profitTarget || 0;
     const dailyTarget = weeklyTarget > 0 ? Math.round(weeklyTarget / 5 * 100) / 100 : 0;
@@ -101242,9 +101325,9 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     const allTimeBreakeven = allTimeTrades - allTimeWins - allTimeLosses;
     const allTimePnL = allTimeClosed.reduce((s, t) => s + (t.profitLoss || 0), 0) + allTimeCacheExtra.reduce((s, t) => s + (t.profit || 0), 0);
     const allTimeWinRate = allTimeTrades > 0 ? Math.round(allTimeWins / allTimeTrades * 100) : 0;
-    const weekWinCount = weekDb.filter((t) => t.result === "WIN").length + weekCache.filter((t) => (t.profit || 0) > 0).length;
-    const weekLossCount = weekDb.filter((t) => t.result === "LOSS").length + weekCache.filter((t) => (t.profit || 0) < 0).length;
-    const todayLosses = todayDb.filter((t) => t.result === "LOSS").length + todayCache.filter((t) => (t.profit || 0) < 0).length;
+    const weekWinCount = weekSum.wins;
+    const weekLossCount = weekSum.losses;
+    const todayLosses = todaySum.losses;
     const weekAllPnL = [
       ...weekDb.map((t) => t.profitLoss || 0),
       ...weekCache.map((t) => t.profit || 0)
@@ -101257,12 +101340,17 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
       todayTrades,
       todayWins,
       todayLosses,
+      // Residual so wins + losses + flat = trades everywhere (breakeven and
+      // $0 cache closes) — previously invisible, which made the counts look
+      // like they didn't add up.
+      todayFlat: todaySum.flat,
       todayWinRate: todayTrades > 0 ? Math.round(todayWins / todayTrades * 100) : 0,
       weekClosedProfit: Math.round(weekClosedProfit * 100) / 100,
       weekTotalProfit: Math.round((weekClosedProfit + unrealizedPnL) * 100) / 100,
       weekTrades,
       weekWins: weekWinCount,
       weekLosses: weekLossCount,
+      weekFlat: weekSum.flat,
       weekWinRate: weekTrades > 0 ? Math.round(weekWins / weekTrades * 100) : 0,
       bestTrade: Math.round(bestTrade * 100) / 100,
       worstTrade: Math.round(worstTrade * 100) / 100,
@@ -101387,7 +101475,10 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     const allPoints = [
       ...closed.map((t) => ({ pnl: t.profitLoss || 0, date: t.closedAt || t.createdAt })),
       ...cacheExtra.map((t) => ({ pnl: t.profitLoss || 0, date: t.closedAt }))
-    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    ].filter((p2) => {
+      const ts = new Date(p2.date).getTime();
+      return Number.isFinite(ts) && ts >= Date.UTC(2e3, 0, 1);
+    }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const totalPnL = allPoints.reduce((s, p2) => s + p2.pnl, 0);
     const startBalance = currentBalance > 0 ? currentBalance - totalPnL : 0;
     const dailyMap = {};
@@ -101417,7 +101508,10 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     const userId = req.user.id;
     const allTrades = await storage.getAiTradeResults(userId, 5e3);
     const closed = allTrades.filter((t) => t.result && t.result !== "PENDING" && (t.closedAt || t.createdAt)).filter((t) => t.source === "tradelocker" || t.source === "tradelocker_auto").sort((a, b) => new Date(a.closedAt || a.createdAt).getTime() - new Date(b.closedAt || b.createdAt).getTime());
-    const allPoints = closed.map((t) => ({ pnl: t.profitLoss || 0, date: t.closedAt || t.createdAt }));
+    const allPoints = closed.map((t) => ({ pnl: t.profitLoss || 0, date: t.closedAt || t.createdAt })).filter((p2) => {
+      const ts = new Date(p2.date).getTime();
+      return Number.isFinite(ts) && ts >= Date.UTC(2e3, 0, 1);
+    });
     const { getTlAccountData: getTlAccountData2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
     const tlLive = getTlAccountData2(userId);
     const currentBalance = tlLive?.totalBalance || 0;
@@ -102348,17 +102442,17 @@ Respond with ONLY valid JSON:
     if (!strategy) {
       const dbStrat = await storage.getActiveWeeklyStrategy(userId);
       if (!dbStrat) {
-        const dbTradesFallback = await storage.getAiTradeResults(userId, 500);
+        const dbTradesFallback = await storage.getAiTradeResults(userId, 5e3);
         const weekStartFallback = tradingWeekStartUTC();
-        const todayStartFallback = /* @__PURE__ */ new Date();
-        todayStartFallback.setUTCHours(0, 0, 0, 0);
+        const _fbNow = /* @__PURE__ */ new Date();
+        const todayStartFallback = new Date(_fbNow.getFullYear(), _fbNow.getMonth(), _fbNow.getDate());
         const weekTradesFallback = dbTradesFallback.filter((t) => {
           const d = new Date(t.closedAt || t.createdAt);
-          return d >= weekStartFallback && t.result !== "PENDING";
+          return d >= weekStartFallback && t.result && t.result !== "PENDING";
         });
         const todayTradesFallback = dbTradesFallback.filter((t) => {
           const d = new Date(t.closedAt || t.createdAt);
-          return d >= todayStartFallback && t.result !== "PENDING";
+          return d >= todayStartFallback && t.result && t.result !== "PENDING";
         });
         const weekProfitFallback = weekTradesFallback.reduce((s, t) => s + (t.profitLoss || 0), 0);
         const todayProfitFallback = todayTradesFallback.reduce((s, t) => s + (t.profitLoss || 0), 0);
@@ -102410,7 +102504,7 @@ Respond with ONLY valid JSON:
     const weekStart2 = tradingWeekStartUTC();
     strategy.progressWeekStart = weekStart2.toISOString();
     const planPairs = (strategy.pairs || []).map((p2) => p2.toUpperCase().replace("/", ""));
-    const dbTrades = await storage.getAiTradeResults(userId, 500);
+    const dbTrades = await storage.getAiTradeResults(userId, 5e3);
     const dbWeekTrades = dbTrades.filter((t) => {
       const tradeDate = new Date(t.closedAt || t.createdAt);
       return tradeDate >= weekStart2 && t.result && t.result !== "PENDING";
@@ -102422,11 +102516,10 @@ Respond with ONLY valid JSON:
       const ticket = t.ticket?.toString();
       return tradeDate >= weekStart2 && (!ticket || !dbTickets.has(ticket));
     });
-    const dbProfit = dbWeekTrades.reduce((s, t) => s + (t.profitLoss || 0), 0);
-    const cacheProfit = cacheWeekTrades.reduce((s, t) => s + (t.profit || 0), 0);
-    const closedProfit = dbProfit + cacheProfit;
-    const tradeCount = dbWeekTrades.length + cacheWeekTrades.length;
-    const wins = dbWeekTrades.filter((t) => t.result === "WIN").length + cacheWeekTrades.filter((t) => (t.profit || 0) > 0).length;
+    const weekSummary = summarizeClosed(dbWeekTrades, cacheWeekTrades);
+    const closedProfit = weekSummary.pnl;
+    const tradeCount = weekSummary.trades;
+    const wins = weekSummary.wins;
     const winRate2 = tradeCount > 0 ? Math.round(wins / tradeCount * 100) : 0;
     const openPosData = global.mt5OpenPositions?.[userId];
     const allOpenPositions = openPosData?.positions || [];
@@ -102464,8 +102557,8 @@ Respond with ONLY valid JSON:
         lotOverrideValue: lotOverride || null
       };
     });
-    const todayStart = /* @__PURE__ */ new Date();
-    todayStart.setUTCHours(0, 0, 0, 0);
+    const _nowLocal = /* @__PURE__ */ new Date();
+    const todayStart = new Date(_nowLocal.getFullYear(), _nowLocal.getMonth(), _nowLocal.getDate());
     const pairDailyStats = {};
     for (const pair of planPairs) {
       const pairDbToday = dbWeekTrades.filter((t) => {
@@ -102529,15 +102622,16 @@ Respond with ONLY valid JSON:
       const ticket = t.ticket?.toString();
       return !ticket || !todayDbTickets.has(ticket);
     });
-    const todayClosedProfit = todayAllDbTrades.reduce((s, t) => s + (t.profitLoss || 0), 0) + todayCacheDeduped.reduce((s, t) => s + (t.profit || 0), 0);
+    const todaySummary = summarizeClosed(todayAllDbTrades, todayCacheDeduped);
+    const todayClosedProfit = todaySummary.pnl;
     const todayTotalProfit = Math.round((todayClosedProfit + unrealizedPnL) * 100) / 100;
     const tradingDaysInWeek = 5;
     const daysLeft = getDaysRemainingInWeek();
     const dailyTarget = strategy.profitTarget > 0 ? Math.round(strategy.profitTarget / tradingDaysInWeek * 100) / 100 : 0;
     const dailyProgressClosed = dailyTarget > 0 ? Math.min(100, Math.max(0, Math.round(todayClosedProfit / dailyTarget * 100))) : 0;
     const dailyProgressTotal = dailyTarget > 0 ? Math.min(100, Math.max(0, Math.round(todayTotalProfit / dailyTarget * 100))) : 0;
-    const todayWinsAll = todayAllDbTrades.filter((t) => t.result === "WIN").length + todayCacheDeduped.filter((t) => (t.profit || 0) > 0).length;
-    const todayTradesAll = todayAllDbTrades.length + todayCacheDeduped.length;
+    const todayWinsAll = todaySummary.wins;
+    const todayTradesAll = todaySummary.trades;
     const todayWinRateAll = todayTradesAll > 0 ? Math.round(todayWinsAll / todayTradesAll * 100) : 0;
     try {
       await storage.updateWeeklyStrategyProgress(userId, {
@@ -103558,7 +103652,7 @@ Rules:
       const blockedReasons = [];
       if (!c.isActive) blockedReasons.push("isActive = false \u2014 toggle ON in TradeLocker settings");
       if (!c.autoExecute) blockedReasons.push("autoExecute = false \u2014 enable Auto-Execute in TradeLocker settings");
-      if (c.lastError) blockedReasons.push(`Last error: ${c.lastError}`);
+      if (c.lastError) blockedReasons.push(`Last error: ${humanizeExecError(c.lastError)}`);
       return {
         id: c.id,
         accountId: c.accountId,
@@ -103575,11 +103669,11 @@ Rules:
           symbol: lastTrade.symbol,
           direction: lastTrade.direction,
           status: lastTrade.status,
-          error: lastTrade.errorMessage,
+          error: humanizeExecError(lastTrade.errorMessage),
           time: lastTrade.createdAt,
           volume: lastTrade.volume
         } : null,
-        lastError: c.lastError,
+        lastError: humanizeExecError(c.lastError),
         lastConnectedAt: c.lastConnectedAt
       };
     });
@@ -106432,7 +106526,8 @@ Format each recommendation as a clear, concise action item.`;
         const be = rows.filter((r) => r.result === "BREAKEVEN").length;
         const pnl = Math.round(rows.reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100;
         const decided = wins + losses;
-        return { trades: rows.length, wins, losses, breakeven: be, winRate: decided > 0 ? Math.round(wins / decided * 100) : 0, totalPnl: pnl };
+        const other = rows.length - wins - losses - be;
+        return { trades: rows.length, wins, losses, breakeven: be, other, winRate: decided > 0 ? Math.round(wins / decided * 100) : 0, totalPnl: pnl };
       };
       const isTLSource = (s) => s === "tradelocker" || s === "tradelocker_auto";
       const mt5Rows = closed.filter((t) => t.source === "mt5_ea" || t.source === "mt5_copier");
@@ -106483,8 +106578,8 @@ Format each recommendation as a clear, concise action item.`;
         } else if (streakType === r) streakCount++;
         else break;
       }
-      const dayStart = /* @__PURE__ */ new Date();
-      dayStart.setUTCHours(0, 0, 0, 0);
+      const _tpNow = /* @__PURE__ */ new Date();
+      const dayStart = new Date(_tpNow.getFullYear(), _tpNow.getMonth(), _tpNow.getDate());
       const todayRows = closed.filter((t) => new Date(t.closedAt) >= dayStart);
       const _chrono = [...closed].reverse();
       let _cum = 0;
@@ -106558,6 +106653,8 @@ Format each recommendation as a clear, concise action item.`;
           trades: a.trades,
           wins: a.wins,
           losses: a.losses,
+          breakeven: a.breakeven,
+          other: a.other,
           winRate: a.winRate,
           totalPnl: a.totalPnl,
           openCount: a.openCount,
@@ -114599,7 +114696,19 @@ This request will not trigger a transaction or cost any fees.`;
     const cfg = state.config;
     const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
     const todayPnL = state.pnlToday ?? 0;
-    const balance = cfg.accountBalance || 0;
+    let balance = cfg.accountBalance || 0;
+    try {
+      const { getTlAccountData: getTlAccountData2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
+      const tlLive = getTlAccountData2(userId);
+      if (tlLive.accounts.length > 0) {
+        const tlConns = await storage.getUserTradelockerConnections(userId).catch(() => []);
+        const propConn = tlConns.find((c) => c.isActive && c.isPropFirmAccount);
+        const propLive = propConn ? tlLive.accounts.find((a) => a.connectionId === propConn.id) : null;
+        const liveBal = propLive?.balance ?? tlLive.accounts[0]?.balance;
+        if (typeof liveBal === "number" && liveBal > 0) balance = liveBal;
+      }
+    } catch {
+    }
     const challengePnLHistory = state.challengeDailyPnL ?? {};
     challengePnLHistory[today] = todayPnL;
     const periodKeys = Object.keys(challengePnLHistory).sort().slice(-(cfg.consistencyPeriodDays || 15));

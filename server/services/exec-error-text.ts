@@ -23,17 +23,17 @@ export function humanizeExecError(raw: string | null | undefined): string | null
   if (!raw) return null;
   let s = String(raw).trim();
   if (!s) return null;
+  // Anything carrying a call-chain/stack marker ANYWHERE is internals —
+  // generic line. (Checked on the raw string: cutting first would leave a
+  // bare executor name like "executeMT5SignalOnTradeLocker" behind.)
+  if (INTERNAL_TOKENS.some((t) => s.includes(t))) return GENERIC;
   // Cut anything appended after the internal-detail separators.
-  const arrow = s.indexOf(" <- ");
-  if (arrow >= 0) s = s.slice(0, arrow);
   const pipe = s.indexOf(" | ");
   if (pipe >= 0) s = s.slice(0, pipe);
-  const modify = s.indexOf("(MODIFY by");
-  if (modify >= 0) s = s.slice(0, modify);
   s = s.replace(/\s+/g, " ").trim();
-  // Still looks like internals (call chain, stack frame, long camelCase
-  // executor identifier) → generic line instead of leaking it.
-  if (!s || INTERNAL_TOKENS.some((t) => s.includes(t)) || /[a-z][a-zA-Z]*[A-Z][a-zA-Z]*\(/.test(s)) {
+  // Still looks like internals (a camelCase executor identifier being
+  // invoked) → generic line instead of leaking it.
+  if (!s || /[a-z][a-zA-Z]*[A-Z][a-zA-Z]*\(/.test(s)) {
     return GENERIC;
   }
   return s.length > 120 ? s.slice(0, 117).trimEnd() + "…" : s;
