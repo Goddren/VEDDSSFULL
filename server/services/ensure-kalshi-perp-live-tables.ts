@@ -48,6 +48,15 @@ export function ensureKalshiPerpLiveTables(): Promise<void> {
       error text, reconcile_attempts int NOT NULL DEFAULT 0,
       created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now())`))
       .then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_live_orders_trade ON kalshi_perp_live_orders (live_trade_id)`))
+      // Exact-cost build (2026-11-16, kalshi-perp-costs.ts): live closes
+      // now deduct the same fee math the shadow lane proves with.
+      // fees_usd = open leg + close leg at the resolved schedule;
+      // cost_model stamps the era ('exact_v1', or 'legacy' when the
+      // KALSHI_PERP_EXACT_COSTS kill switch is off and closes keep the
+      // pre-build no-fee accounting). Rows closed before this build keep
+      // NULLs — history is never rewritten.
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_live_trades ADD COLUMN IF NOT EXISTS fees_usd double precision`))
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_live_trades ADD COLUMN IF NOT EXISTS cost_model text`))
       .then(() => undefined)
       .catch((e) => { _ensured = null; throw e; });
   }
