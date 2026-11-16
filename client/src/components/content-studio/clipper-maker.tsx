@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import {
   Scissors, Sparkles, Download, Share2, Copy, Check,
-  ExternalLink, Loader2, Film, Clock, Gauge,
+  ExternalLink, Loader2, Film, Clock, Gauge, Upload, Link2,
 } from 'lucide-react';
 
 /**
@@ -53,6 +53,8 @@ const scoreClass = (n: number) => (n >= 80 ? 'bg-emerald-500/15 text-emerald-300
 
 export default function ClipperMaker() {
   const { toast } = useToast();
+  const [mode, setMode] = useState<'link' | 'upload'>('link');
+  const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState('');
   const [topic, setTopic] = useState('');
   const [platform, setPlatform] = useState('tiktok');
@@ -90,13 +92,20 @@ export default function ClipperMaker() {
     (j) => { setFailed(j.error || 'The clipper failed on that video.'); setJobId(null); });
 
   const start = async () => {
-    if (!url.trim()) { toast({ title: 'Paste a video link first', variant: 'destructive' }); return; }
+    const settings = { clipCount, lengthPreset, minVirality, captionStyle, platform, aspect, silenceTrim, topic: topic.trim() };
+    if (mode === 'link' && !url.trim()) { toast({ title: 'Paste a video link first', variant: 'destructive' }); return; }
+    if (mode === 'upload' && !file) { toast({ title: 'Pick a video file first', variant: 'destructive' }); return; }
     setStarting(true); setFailed(''); setClips([]);
     try {
-      const res = await apiRequest('POST', '/api/content-studio/clipper', {
-        url: url.trim(),
-        settings: { clipCount, lengthPreset, minVirality, captionStyle, platform, aspect, silenceTrim, topic: topic.trim() },
-      });
+      let res: Response;
+      if (mode === 'upload') {
+        const fd = new FormData();
+        fd.append('file', file!);
+        fd.append('settings', JSON.stringify(settings));
+        res = await apiRequest('POST', '/api/content-studio/clipper/upload', fd);
+      } else {
+        res = await apiRequest('POST', '/api/content-studio/clipper', { url: url.trim(), settings });
+      }
       const data = await res.json();
       setJobId(data.jobId);
     } catch (e: any) {
@@ -134,15 +143,33 @@ export default function ClipperMaker() {
         <div>
           <h3 className="font-semibold flex items-center gap-2"><Scissors className="h-4 w-4 text-primary" /> AI Clipper</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Paste a link to a long video. The AI finds the moments most likely to travel, cuts them,
-            and burns in captions with a hook headline — ready to post. Works best with direct video
-            file links; YouTube can block server downloads (you'll get a plain message if it does).
-            Videos up to 60 minutes.
+            Paste a link to a long video — or upload the video file. The AI finds the moments most
+            likely to travel, cuts them, and burns in captions with a hook headline — ready to post.
+            YouTube links are fetched with yt-dlp; if YouTube blocks one anyway, you'll get the exact
+            reason — and uploading the file always works. Videos up to 60 minutes.
           </p>
         </div>
         <div className="space-y-2">
-          <Label>Video link</Label>
-          <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://… (YouTube or a direct .mp4/.webm link)" className="min-h-[44px]" data-testid="clipper-url" />
+          <div className="flex flex-wrap gap-1.5">
+            <Button type="button" size="sm" variant={mode === 'link' ? 'default' : 'outline'} className="min-h-[40px]" data-testid="clipper-mode-link"
+              onClick={() => setMode('link')}><Link2 className="h-4 w-4 mr-1.5" /> Paste a link</Button>
+            <Button type="button" size="sm" variant={mode === 'upload' ? 'default' : 'outline'} className="min-h-[40px]" data-testid="clipper-mode-upload"
+              onClick={() => setMode('upload')}><Upload className="h-4 w-4 mr-1.5" /> Upload a file</Button>
+          </div>
+          {mode === 'link' ? (
+            <>
+              <Label>Video link</Label>
+              <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://… (YouTube or a direct .mp4/.webm link)" className="min-h-[44px]" data-testid="clipper-url" />
+            </>
+          ) : (
+            <>
+              <Label>Video file</Label>
+              <Input type="file" accept="video/*,.mkv" onChange={(e) => setFile(e.target.files?.[0] || null)} className="min-h-[44px]" data-testid="clipper-file" />
+              {file
+                ? <p className="text-xs text-muted-foreground">{file.name} — {(file.size / (1024 * 1024)).toFixed(1)}MB</p>
+                : <p className="text-xs text-muted-foreground">MP4, MOV, WebM or MKV, up to 25MB and 60 minutes. For a bigger video, paste a direct file link instead.</p>}
+            </>
+          )}
           <Input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Optional focus — e.g. 'risk management stories'" className="min-h-[44px]" />
         </div>
 

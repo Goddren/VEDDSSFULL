@@ -11,3 +11,6 @@ data/curricula.json
 .env
 .env.*
 !.env.example
+
+# yt-dlp binary (pinned; fetched by scripts/fetch-ytdlp.mjs postinstall)
+server/assets/bin/

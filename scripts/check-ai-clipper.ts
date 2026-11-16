@@ -18,6 +18,9 @@
  * J. Job steps + progress bands.
  * K. Source pins: routes + gates + caps, client wiring, and the clipper
  *    importing nothing from the trading engines.
+ * L. yt-dlp ingestion (the ytdl-core replacement): client chain, CLI
+ *    args, error classification → specific user messages, the pinned
+ *    provisioning script, and the upload fallback's validation + wiring.
  */
 import { readFileSync } from 'fs';
 import {
@@ -26,6 +29,9 @@ import {
   buildAssDocument, assTime, escapeAss, wrapTitleLines, buildReframeFilter,
   frameForAspect, buildShareTargets, buildShareCaption,
   CLIPPER_STEPS, clipperStepProgress, LENGTH_PRESETS,
+  ytdlpClientChain, buildYtdlpInfoArgs, buildYtdlpDownloadArgs,
+  classifyYtdlpError, ytdlpErrorMessage, validateClipperUpload,
+  CLIPPER_UPLOAD_MAX_BYTES, YTDLP_DEFAULT_CLIENTS, type YtdlpErrorCode,
   type WordTiming, type MomentSeed,
 } from '../server/services/clipper-core';
 
@@ -201,7 +207,75 @@ console.log('K. Source pins');
   check('K11 client share panel honest', maker.includes('One-tap share') && maker.includes('share-targets') && maker.includes('nothing is ever posted without you pressing Post'));
   check('K12 input caps stated', clipper.includes('CLIPPER_MAX_MINUTES') && clipper.includes('CLIPPER_MAX_SOURCE_MB'));
   const sw = readFileSync('client/public/sw.js', 'utf8');
-  check('K13 sw bumped for the client change', sw.includes("CACHE_VERSION = 'vedd-v276'"));
+  check('K13 sw bumped for the client change', sw.includes("CACHE_VERSION = 'vedd-v277'"));
+}
+
+// ─── L. yt-dlp ingestion + upload fallback ──────────────────────────────────
+console.log('L. yt-dlp ingestion + upload fallback');
+{
+  // Client chain: tv first (the client that answers datacenter IPs),
+  // env override sanitized.
+  check('L1 default chain is tv-first', ytdlpClientChain()[0] === 'tv' && ytdlpClientChain().join(',') === YTDLP_DEFAULT_CLIENTS.join(','));
+  check('L2 env chain override sanitized', ytdlpClientChain(' web , bad client!, ios ').join(',') === 'web,ios');
+  check('L3 junk env falls back to default', ytdlpClientChain('!!!').join(',') === YTDLP_DEFAULT_CLIENTS.join(','));
+
+  const infoArgs = buildYtdlpInfoArgs('https://youtu.be/x', ['tv', 'ios']);
+  check('L4 info args dump json via the chain', infoArgs.includes('--dump-single-json')
+    && infoArgs[infoArgs.indexOf('--extractor-args') + 1] === 'youtube:player_client=tv,ios'
+    && infoArgs.includes('--no-playlist'));
+  const dlArgs = buildYtdlpDownloadArgs('https://youtu.be/x', {
+    outputTemplate: '/tmp/source.%(ext)s', maxBytes: 1234, clients: ['tv'], ffmpegLocation: '/bin/ffmpeg',
+  });
+  check('L5 download args: format + merge + caps', dlArgs[dlArgs.indexOf('-f') + 1].includes('height<=720')
+    && dlArgs[dlArgs.indexOf('--merge-output-format') + 1] === 'mp4'
+    && dlArgs[dlArgs.indexOf('--max-filesize') + 1] === '1234'
+    && dlArgs[dlArgs.indexOf('--ffmpeg-location') + 1] === '/bin/ffmpeg'
+    && dlArgs.includes('--fragment-retries'));
+  check('L6 no-cert-checks only when asked', !dlArgs.includes('--no-check-certificates')
+    && buildYtdlpDownloadArgs('u', { outputTemplate: 'o', maxBytes: 1, clients: ['tv'], noCheckCerts: true }).includes('--no-check-certificates'));
+
+  // Error classification: real yt-dlp failure text → stable codes.
+  check('L7 bot block classified', classifyYtdlpError('ERROR: [youtube] abc: Sign in to confirm you\u2019re not a bot') === 'bot-blocked');
+  check('L8 age beats bot (order matters)', classifyYtdlpError('ERROR: Sign in to confirm your age') === 'age-restricted');
+  check('L9 private classified', classifyYtdlpError('ERROR: This video is private') === 'private');
+  check('L10 unavailable classified', classifyYtdlpError('ERROR: Video unavailable') === 'unavailable');
+  check('L11 geo classified', classifyYtdlpError('ERROR: The uploader has not made this video available in your country') === 'geo-blocked');
+  check('L12 network classified', classifyYtdlpError('Unable to download API page: Read timed out. (read timeout=30)') === 'network');
+  check('L13 unknown stays unknown', classifyYtdlpError('something entirely different') === 'unknown');
+
+  // Every code → a specific message that names the cause and the upload
+  // path; none of them is the old generic fallback.
+  const codes: YtdlpErrorCode[] = ['bot-blocked', 'unavailable', 'private', 'age-restricted', 'geo-blocked', 'network', 'binary-missing', 'unknown'];
+  const msgs = codes.map(ytdlpErrorMessage);
+  check('L14 every code has a distinct message', new Set(msgs).size === codes.length);
+  check('L15 messages point at upload, never generic', msgs.every((m) => /upload/i.test(m))
+    && msgs.every((m) => m !== 'The clipper hit a problem processing that video. Please try again.'));
+
+  // Upload validation boundaries (asset-store 25MB cap).
+  check('L16 upload ok at exactly the cap', validateClipperUpload({ size: CLIPPER_UPLOAD_MAX_BYTES, mime: 'video/mp4', name: 'a.mp4' }).ok);
+  check('L17 upload rejected over the cap', !validateClipperUpload({ size: CLIPPER_UPLOAD_MAX_BYTES + 1, mime: 'video/mp4', name: 'a.mp4' }).ok);
+  check('L18 upload rejected for non-video', !validateClipperUpload({ size: 1000, mime: 'image/png', name: 'a.png' }).ok);
+  check('L19 mkv accepted via extension', validateClipperUpload({ size: 1000, mime: 'application/octet-stream', name: 'a.mkv' }).ok);
+  check('L20 empty upload rejected', !validateClipperUpload({ size: 0, mime: 'video/mp4', name: 'a.mp4' }).ok);
+
+  // Source pins: the new path is wired and the old one is gone.
+  const clipper = readFileSync('server/services/clipper.ts', 'utf8');
+  const ytdlp = readFileSync('server/services/ytdlp.ts', 'utf8');
+  const routes = readFileSync('server/routes.ts', 'utf8');
+  const maker = readFileSync('client/src/components/content-studio/clipper-maker.tsx', 'utf8');
+  const pkg = readFileSync('package.json', 'utf8');
+  const fetchScript = readFileSync('scripts/fetch-ytdlp.mjs', 'utf8');
+  check('L21 clipper uses yt-dlp, ytdl-core gone', clipper.includes("from './ytdlp'")
+    && !/import\s*\(\s*['"]@distube\/ytdl-core/.test(clipper) && !/from\s+['"]@distube\/ytdl-core/.test(clipper)
+    && !pkg.includes('@distube/ytdl-core'));
+  check('L22 runner is pinned + classified', ytdlp.includes("YTDLP_VERSION = '2026.10.26'") && ytdlp.includes('classifyYtdlpError') && ytdlp.includes('binary-missing'));
+  check('L23 postinstall provisions the binary', pkg.includes('"postinstall": "node scripts/fetch-ytdlp.mjs"')
+    && fetchScript.includes('2026.10.26') && /[0-9a-f]{64}/.test(fetchScript) && fetchScript.includes('sha256'));
+  check('L24 upload route wired with gates', routes.includes("app.post('/api/content-studio/clipper/upload'")
+    && routes.includes('persistBuffer') && routes.includes('validateClipperUpload'));
+  check('L25 upload job carries the asset id', clipper.includes('uploadAssetId') && clipper.includes('getPersistedAsset'));
+  check('L26 client offers the upload path', maker.includes('clipper-mode-upload') && maker.includes('clipper-file') && maker.includes('/api/content-studio/clipper/upload'));
+  check('L27 friendlyError honors yt codes first', clipper.includes('ytdlpCode') && clipper.includes('ytdlpErrorMessage'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
