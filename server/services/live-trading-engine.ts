@@ -3593,7 +3593,7 @@ async function applyTrailBrainFx(
       if (!state.positionTrailState[key]) {
         state.positionTrailState[key] = {
           highestHigh: px, lowestLow: px, sar: openP, ep: px,
-          af: state.config.trailSarInitialAF ?? 0.02, bullish: isBuy, peakProfit: 0,
+          af: state.config.trailSarInitialAF ?? 0.02, bullish: isBuy,
         };
       }
       const ts = state.positionTrailState[key];

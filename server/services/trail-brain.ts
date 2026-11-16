@@ -292,23 +292,34 @@ export function adjustTrailBrainParams(engine: TrailBrainEngine, params: TrailBr
 }
 
 // ── Store (runtime_state, cached like the trail guards) ───────────────────
-const _cache = new Map<number, { at: number; store: TrailBrainStore }>();
+// The cache records whether the read actually succeeded: an UNREADABLE
+// store is not the same as an empty one. Consults fail open on an
+// unreadable store (no governing at all — a group the learner stood
+// down must not spring back during an outage), while panel/learning
+// reads degrade to the empty store.
+const _cache = new Map<number, { at: number; store: TrailBrainStore; ok: boolean }>();
 const CACHE_MS = 30_000;
 
-export async function getTrailBrainStore(userId: number): Promise<TrailBrainStore> {
+async function loadTrailBrainStore(userId: number): Promise<{ store: TrailBrainStore; ok: boolean }> {
   const hit = _cache.get(userId);
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.store;
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit;
   let store: TrailBrainStore = { groups: {} };
+  let ok = true;
   try {
     const v = await getRuntimeStateStrict(STORE_SCOPE, String(userId));
     if (v && typeof v === 'object' && v.groups && typeof v.groups === 'object') store = v as TrailBrainStore;
-  } catch { /* fail open: empty store = defaults everywhere */ }
-  _cache.set(userId, { at: Date.now(), store });
-  return store;
+  } catch { ok = false; }
+  const entry = { at: Date.now(), store, ok };
+  _cache.set(userId, entry);
+  return entry;
+}
+
+export async function getTrailBrainStore(userId: number): Promise<TrailBrainStore> {
+  return (await loadTrailBrainStore(userId)).store;
 }
 
 export async function saveTrailBrainStore(userId: number, store: TrailBrainStore): Promise<void> {
-  _cache.set(userId, { at: Date.now(), store });
+  _cache.set(userId, { at: Date.now(), store, ok: true });
   saveRuntimeState(STORE_SCOPE, String(userId), store);
 }
 
@@ -346,7 +357,8 @@ export async function trailBrainConsult(
   if (!trailBrainOn(engine)) return null;
   try {
     if (!(await userEngineOn(userId, engine))) return null;
-    const store = await getTrailBrainStore(userId);
+    const { store, ok } = await loadTrailBrainStore(userId);
+    if (!ok) return null; // store unreadable → no governing (fail open)
     const key = groupKeyFor(engine, strategy, condition);
     let g = store.groups[key];
     if (!g) {

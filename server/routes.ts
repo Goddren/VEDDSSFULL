@@ -17694,7 +17694,7 @@ Rules:
       }
       const userId = (req.user as User).id;
       const s = await getTrailBrainSettings(userId);
-      s.engines[engine] = on;
+      s.engines[engine as 'crypto' | 'fx' | 'sol' | 'kalshi'] = on;
       await saveTrailBrainSettings(userId, s);
       res.json({ ok: true, engine, on });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
