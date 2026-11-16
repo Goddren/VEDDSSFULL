@@ -304,7 +304,7 @@ function KalshiPerpLiveSection() {
         <>
           <p className="mt-1 text-[10px] leading-snug text-gray-400">
             Real orders on your Kalshi margin account — but only for a strategy you have <b>armed</b>, only after it clears the
-            promotion bar on its shadow record (50+ trades, avg +0.2R or better, 40%+ wins, no losing week, drawdown within 10%),
+            promotion bar on its shadow record (50+ trades, avg +0.2R or better, 40%+ wins, no losing week in the last two weeks, drawdown within 10%),
             and only while Kalshi reports margin enabled. Every cycle re-checks all three. Caps: {data.caps.maxOpen} open,{" "}
             {fmtMoney(data.caps.notionalUsd)} per trade, {data.caps.maxOrdersPerDay} orders a day, entries halt at −{data.caps.dailyLossPct}% on the day.
           </p>

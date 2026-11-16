@@ -25,11 +25,12 @@
 //      — default NOT armed; an unreadable arm state reads as not armed).
 //   7. The strategy meets the EXISTING promotion bar on FRESH shadow
 //      stats: ≥50 resolved trades net of fees+funding, avg ≥ +0.2R,
-//      win rate ≥ 40%, no losing week, $100-replay drawdown ≤ 10%.
-//   8. Blast-radius caps: ≤3 live open (env KALSHI_PERP_LIVE_MAX_OPEN),
-//      ≤2 per strategy, ≤10 live orders per UTC day, one live position
-//      per strategy+underlying, per-trade notional ≤ the shadow model's
-//      $250 AND ≤ 25% of margin equity.
+//      win rate ≥ 40%, no losing week in the last two calendar weeks,
+//      $100-replay drawdown ≤ 10% (the same bar PR #89's panel states).
+//   8. Blast-radius caps: ≤3 live open or in flight (env
+//      KALSHI_PERP_LIVE_MAX_OPEN), ≤2 per strategy, ≤10 live orders per
+//      UTC day, one live position per strategy+underlying, per-trade
+//      notional ≤ the shadow model's $250 AND ≤ 25% of margin equity.
 // EXITS are not gated by 1–8: exit monitoring and reconciliation run even
 // with the kill switch off, because stranding a real position is worse
 // than closing it. The kill switch stops NEW entries, never exits.
@@ -110,10 +111,15 @@ export function isoWeekKey(ms: number): string {
 /**
  * The shadow→live promotion bar, pure and deterministic: ≥50 resolved
  * trades (net of fees+funding — the shadow lane's return_pct already is),
- * avg ≥ +0.2R, win rate ≥ 40%, no losing week (a week whose summed net
- * return is negative), and the $100-account replay drawdown ≤ 10%.
+ * avg ≥ +0.2R, win rate ≥ 40%, no losing week in the last two calendar
+ * weeks, and the $100-account replay drawdown ≤ 10%. This is the SAME bar
+ * the arming panel states (PR #89's evaluateKalshiBar): the losing-week
+ * rule is weekly R sums over the current + previous Monday-start UTC
+ * weeks, and a week with no R-carrying closes never condemns — an early
+ * bad week must not brick a strategy forever once its recent record is
+ * clean, and the panel must never say "bar met" while execution refuses.
  */
-export function evaluatePerpPromotionBar(closes: PerpPromotionCloses[]): PerpPromotionBar {
+export function evaluatePerpPromotionBar(closes: PerpPromotionCloses[], nowMs: number = Date.now()): PerpPromotionBar {
   const valid = closes
     .filter((c) => Number.isFinite(c.returnPct) && Number.isFinite(c.closedAtMs))
     .sort((a, b) => a.closedAtMs - b.closedAtMs);
@@ -121,15 +127,22 @@ export function evaluatePerpPromotionBar(closes: PerpPromotionCloses[]): PerpPro
   const rRows = valid.filter((c) => c.rMultiple != null && Number.isFinite(c.rMultiple));
   const avgR = rRows.length ? rRows.reduce((a, c) => a + (c.rMultiple as number), 0) / rRows.length : null;
   const winRate = trades ? valid.filter((c) => c.returnPct > 0).length / trades : null;
+  const now = new Date(nowMs);
+  const dow = (now.getUTCDay() + 6) % 7; // Mon=0
+  const windowStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - dow) - 7 * 86_400_000;
   const byWeek = new Map<string, number>();
-  for (const c of valid) byWeek.set(isoWeekKey(c.closedAtMs), (byWeek.get(isoWeekKey(c.closedAtMs)) ?? 0) + c.returnPct);
+  for (const c of valid) {
+    if (c.closedAtMs < windowStart || c.rMultiple == null || !Number.isFinite(c.rMultiple)) continue;
+    const k = isoWeekKey(c.closedAtMs);
+    byWeek.set(k, (byWeek.get(k) ?? 0) + (c.rMultiple as number));
+  }
   const losingWeeks = Array.from(byWeek.entries()).filter(([, sum]) => sum < 0).map(([k]) => k).sort();
   const maxDrawdownPct = accountReplay(valid.map((c) => c.returnPct)).maxDrawdownPct;
   const reasons: string[] = [];
   if (trades < 50) reasons.push(`${trades}/50 resolved shadow trades`);
   if (avgR == null || avgR < 0.2) reasons.push(`avg ${avgR == null ? '—' : avgR.toFixed(2)}R is below the +0.2R bar`);
   if (winRate == null || winRate < 0.4) reasons.push(`win rate ${winRate == null ? '—' : `${Math.round(winRate * 100)}%`} is below 40%`);
-  if (losingWeeks.length) reasons.push(`losing week(s): ${losingWeeks.join(', ')}`);
+  if (losingWeeks.length) reasons.push(`losing week in the last two weeks: ${losingWeeks.join(', ')}`);
   if (maxDrawdownPct > 10) reasons.push(`shadow drawdown ${maxDrawdownPct.toFixed(1)}% exceeds 10%`);
   return { met: reasons.length === 0, trades, avgR, winRate, losingWeeks, maxDrawdownPct, reasons };
 }
@@ -199,14 +212,16 @@ export function scanExitTrigger(
 }
 
 // ── INTEGRATION POINT — the "Arm for live" toggle state ────────────────────
-// The toggle build (panel switch + readiness checklist) stores the owner's
-// arming choices per user. Until that store lands, and whenever it is
-// unreadable, this function returns an EMPTY set — not armed is the only
-// safe default, and gate 6 fails closed on any read error. When the toggle
-// build's store lands under a different scope/shape, THIS is the single
-// function to repoint; everything downstream already treats its result as
-// fresh-per-cycle truth.
-const ARM_SCOPES = ['kalshi_perp_live_arm', 'kalshi_perp_arm'];
+// The toggle build (PR #89, server/services/shadow-live-toggles.ts) stores
+// the owner's arming choices per user in runtime_state scope
+// 'kalshi_perp_armed', keyed by userId, as a record keyed by strategy:
+// { [strategy]: { armed: boolean, updatedAt, bar } }. That scope is read
+// FIRST; the older provisional scopes remain as fallbacks. Whenever the
+// store is unreadable this returns an EMPTY set — not armed is the only
+// safe default, and gate 6 fails closed on any read error. Everything
+// downstream treats the result as fresh-per-cycle truth (no caching here:
+// PR #89's own 30s read cache is on the panel side, never on this gate).
+const ARM_SCOPES = ['kalshi_perp_armed', 'kalshi_perp_live_arm', 'kalshi_perp_arm'];
 export function parseArmedStrategies(v: any): Set<string> {
   const out = new Set<string>();
   const add = (s: unknown) => { if (typeof s === 'string' && s.trim()) out.add(s.trim()); };
@@ -217,6 +232,13 @@ export function parseArmedStrategies(v: any): Set<string> {
     else if (v.armed && typeof v.armed === 'object') for (const [k, on] of Object.entries(v.armed)) if (on) add(k);
     if (v.armedStrategies && typeof v.armedStrategies === 'object') {
       for (const [k, on] of Object.entries(v.armedStrategies)) if (on) add(k);
+    }
+    // PR #89's store shape: a record keyed by strategy whose values are
+    // arm entries ({ armed: true, … }) — or, in a plain boolean map, true.
+    for (const [k, val] of Object.entries(v)) {
+      if (k === 'strategies' || k === 'armed' || k === 'armedStrategies') continue;
+      if (val === true) add(k);
+      else if (val && typeof val === 'object' && (val as any).armed === true) add(k);
     }
   }
   return out;
@@ -714,7 +736,11 @@ async function processLiveEntries(
     `SELECT count(*)::int AS n FROM kalshi_perp_live_orders WHERE user_id=$1 AND created_at >= $2::date`, [userId, today]);
   let ordersToday = Number(orderCountRows[0]?.n) || 0;
   const marketByTicker = new Map(markets.map((m) => [m.ticker, m]));
-  let openLive = openRows.filter((r: any) => r.status === 'open' || r.status === 'closing');
+  // Caps + the one-position-per-strategy+underlying rule count positions
+  // IN FLIGHT ('pending_entry') as well as open ones: an unresolved entry
+  // may already be a real position on Kalshi, so it must consume cap and
+  // uniqueness exactly like an open row until reconciliation resolves it.
+  let openLive = [...openRows];
 
   for (const s of candidates) {
     const strategy = String(s.strategy);
@@ -769,6 +795,10 @@ async function processLiveEntries(
         [liveId, `entry rejected: ${res.code} ${res.message}`.slice(0, 300)]);
       block(`${strategy}/${s.ticker} entry rejected by Kalshi: ${res.code} ${res.message}`);
     } else {
+      // Blocked = the order may exist on Kalshi. Count the in-flight row
+      // against this cycle's caps/uniqueness so no second candidate for
+      // the same strategy+underlying can fire behind it.
+      openLive = [...openLive, { strategy, underlying: String(s.underlying), status: 'pending_entry' }];
       block(`${strategy}/${s.ticker}: ${res.why}`);
     }
   }
