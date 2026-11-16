@@ -12053,6 +12053,354 @@ var init_crypto_paper = __esm({
   }
 });
 
+// server/services/trail-brain.ts
+var trail_brain_exports = {};
+__export(trail_brain_exports, {
+  TRAIL_BRAIN_MIN_EVIDENCE: () => TRAIL_BRAIN_MIN_EVIDENCE,
+  adjustTrailBrainParams: () => adjustTrailBrainParams,
+  clampTrailBrainParams: () => clampTrailBrainParams,
+  defaultTrailBrainParams: () => defaultTrailBrainParams,
+  ensureTrailBrainColumns: () => ensureTrailBrainColumns,
+  getTrailBrainLog: () => getTrailBrainLog,
+  getTrailBrainReport: () => getTrailBrainReport,
+  getTrailBrainSettings: () => getTrailBrainSettings,
+  getTrailBrainStore: () => getTrailBrainStore,
+  groupKeyFor: () => groupKeyFor,
+  logTrailBrainDecision: () => logTrailBrainDecision,
+  noteTrailBrainFxGoverned: () => noteTrailBrainFxGoverned,
+  resetTrailBrainGroup: () => resetTrailBrainGroup,
+  saveTrailBrainSettings: () => saveTrailBrainSettings,
+  saveTrailBrainStore: () => saveTrailBrainStore,
+  stampTrailBrainTrade: () => stampTrailBrainTrade,
+  takeTrailBrainFxAttribution: () => takeTrailBrainFxAttribution,
+  trailBrainClamps: () => trailBrainClamps,
+  trailBrainConsult: () => trailBrainConsult,
+  trailBrainDecide: () => trailBrainDecide,
+  trailBrainOn: () => trailBrainOn,
+  trailBrainParamsSummary: () => trailBrainParamsSummary,
+  trailBrainSolConsult: () => trailBrainSolConsult,
+  trailBrainStopPrice: () => trailBrainStopPrice,
+  trailBrainUnit: () => trailBrainUnit
+});
+function trailBrainUnit(engine) {
+  return engine === "sol" || engine === "kalshi" ? "pct" : "R";
+}
+function trailBrainOn(engine) {
+  if (process.env.TRAIL_BRAIN === "off") return false;
+  if (engine && process.env[ENGINE_ENV[engine]] === "off") return false;
+  return true;
+}
+function groupKeyFor(engine, strategy, condition) {
+  return `${engine}|${strategy || "all"}|${condition || "all"}`;
+}
+function trailBrainClamps(engine) {
+  switch (engine) {
+    case "sol":
+      return { activation: [8, 40], trailDist: [3, 15], giveBackCap: [5, 25], lockAtPeak: [10, 80], step: 1, harmDelta: 1.5 };
+    case "kalshi":
+      return { activation: [8, 35], trailDist: [2.5, 12], giveBackCap: [4, 20], lockAtPeak: [10, 60], step: 1, harmDelta: 1.5 };
+    default:
+      return { activation: [0.5, 3], trailDist: [0.3, 1.5], giveBackCap: [0.4, 2], lockAtPeak: [1, 6], step: 0.1, harmDelta: 0.15 };
+  }
+}
+function defaultTrailBrainParams(engine) {
+  switch (engine) {
+    case "sol":
+      return { activation: 20, trailDist: 8, giveBackCap: 12, lockSteps: [{ atPeak: 30, lock: 8 }, { atPeak: 50, lock: 25 }] };
+    case "kalshi":
+      return { activation: 15, trailDist: 6, giveBackCap: 10, lockSteps: [{ atPeak: 25, lock: 5 }, { atPeak: 40, lock: 15 }] };
+    default:
+      return { activation: 1, trailDist: 0.75, giveBackCap: 1, lockSteps: [{ atPeak: 2, lock: 0.5 }, { atPeak: 3, lock: 1.5 }] };
+  }
+}
+function clampTrailBrainParams(engine, p2) {
+  const c = trailBrainClamps(engine);
+  const d = defaultTrailBrainParams(engine);
+  const gap = engine === "sol" || engine === "kalshi" ? 1 : 0.1;
+  const lockSteps = (Array.isArray(p2.lockSteps) ? p2.lockSteps : []).filter((s) => s && Number.isFinite(s.atPeak) && Number.isFinite(s.lock)).map((s) => {
+    const atPeak = clampNum(s.atPeak, c.lockAtPeak, d.lockSteps[0].atPeak);
+    return { atPeak, lock: Math.max(0, Math.min(s.lock, atPeak - gap)) };
+  }).sort((a, b) => a.atPeak - b.atPeak).slice(0, 4);
+  return {
+    activation: clampNum(p2.activation, c.activation, d.activation),
+    trailDist: clampNum(p2.trailDist, c.trailDist, d.trailDist),
+    giveBackCap: clampNum(p2.giveBackCap, c.giveBackCap, d.giveBackCap),
+    lockSteps: lockSteps.length ? lockSteps : d.lockSteps
+  };
+}
+function trailBrainDecide(params, input) {
+  const { peak, current, stopFloor } = input;
+  if (!Number.isFinite(peak) || !Number.isFinite(current) || !Number.isFinite(stopFloor) || peak < params.activation) {
+    return { armed: false, floor: stopFloor, exitNow: false, binding: false };
+  }
+  const effDist = Math.min(params.trailDist, params.giveBackCap);
+  let floor = peak - effDist;
+  for (const s of params.lockSteps) {
+    if (peak >= s.atPeak) floor = Math.max(floor, s.lock);
+  }
+  floor = Math.max(floor, stopFloor);
+  return { armed: true, floor, exitNow: current <= floor, binding: floor > stopFloor };
+}
+function trailBrainStopPrice(input) {
+  const { entryPrice, peakGainPct, currentGainPct, slPct, params } = input;
+  if (!(entryPrice > 0) || !(slPct > 0)) return null;
+  const d = trailBrainDecide(params, { peak: peakGainPct, current: currentGainPct, stopFloor: -slPct });
+  if (!d.binding) return null;
+  const short = input.direction === "short";
+  const stopPrice = short ? entryPrice * (1 - d.floor / 100) : entryPrice * (1 + d.floor / 100);
+  return { stopPrice, floorPct: d.floor, exitNow: d.exitNow };
+}
+function adjustTrailBrainParams(engine, params, ev) {
+  const c = trailBrainClamps(engine);
+  const unit = trailBrainUnit(engine);
+  const min = TRAIL_BRAIN_MIN_EVIDENCE();
+  if (ev.brainTrades < min || ev.brainAvgFinal == null) {
+    return { action: "none", reason: `watching \u2014 ${ev.brainTrades}/${min} brain-guided closes so far` };
+  }
+  const fmt = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(unit === "R" ? 2 : 1)}${unit === "R" ? "R" : "%"}`;
+  const hasBase = ev.baseTrades >= MIN_BASELINE && ev.baseAvgFinal != null;
+  if (hasBase && ev.brainAvgFinal <= ev.baseAvgFinal - c.harmDelta) {
+    const loosest = params.trailDist >= c.trailDist[1] - 1e-9 && params.activation >= c.activation[1] - 1e-9;
+    if (loosest) {
+      return { action: "dormant", reason: `brain-guided closes average ${fmt(ev.brainAvgFinal)} vs ${fmt(ev.baseAvgFinal)} before it, and the settings are already at their loosest \u2014 the brain stands down for this group` };
+    }
+    const next = clampTrailBrainParams(engine, {
+      ...params,
+      trailDist: params.trailDist + c.step,
+      activation: params.activation + c.step / 2
+    });
+    return { action: "loosen", params: next, reason: `brain-guided closes average ${fmt(ev.brainAvgFinal)} vs ${fmt(ev.baseAvgFinal)} un-guided \u2014 winners are being cut short, so the trail loosens one step` };
+  }
+  if (ev.brainAvgGiveback != null && ev.brainAvgGiveback > params.giveBackCap) {
+    const next = clampTrailBrainParams(engine, {
+      ...params,
+      trailDist: params.trailDist - c.step,
+      activation: params.activation - c.step / 2
+    });
+    if (next.trailDist === params.trailDist && next.activation === params.activation) {
+      return { action: "none", reason: `give-back ${fmt(ev.brainAvgGiveback)} is over the ${fmt(params.giveBackCap)} cap but the settings are already at their tightest` };
+    }
+    return { action: "tighten", params: next, reason: `brain-guided closes give back ${fmt(ev.brainAvgGiveback)} from peak on average, over the ${fmt(params.giveBackCap)} cap \u2014 the trail tightens one step` };
+  }
+  if (hasBase && ev.baseAvgGiveback != null && ev.brainAvgGiveback != null && ev.brainAvgGiveback < ev.baseAvgGiveback && ev.brainAvgFinal >= ev.baseAvgFinal) {
+    const next = clampTrailBrainParams(engine, { ...params, trailDist: params.trailDist - c.step / 2 });
+    if (next.trailDist === params.trailDist) return { action: "none", reason: "the trail is working and already at its tightest useful setting" };
+    return { action: "tighten", params: next, reason: `give-back is down (${fmt(ev.brainAvgGiveback)} vs ${fmt(ev.baseAvgGiveback)}) and closes are not worse \u2014 squeezing half a step tighter` };
+  }
+  return { action: "none", reason: "the current settings are holding \u2014 no change this pass" };
+}
+async function loadTrailBrainStore(userId) {
+  const hit = _cache3.get(userId);
+  if (hit && Date.now() - hit.at < CACHE_MS2) return hit;
+  let store = { groups: {} };
+  let ok = true;
+  try {
+    const v = await getRuntimeStateStrict(STORE_SCOPE, String(userId));
+    if (v && typeof v === "object" && v.groups && typeof v.groups === "object") store = v;
+  } catch {
+    ok = false;
+  }
+  const entry = { at: Date.now(), store, ok };
+  _cache3.set(userId, entry);
+  return entry;
+}
+async function getTrailBrainStore(userId) {
+  return (await loadTrailBrainStore(userId)).store;
+}
+async function saveTrailBrainStore(userId, store) {
+  _cache3.set(userId, { at: Date.now(), store, ok: true });
+  saveRuntimeState(STORE_SCOPE, String(userId), store);
+}
+async function getTrailBrainSettings(userId) {
+  try {
+    const v = await getRuntimeStateStrict(SETTINGS_SCOPE, String(userId));
+    if (v && typeof v === "object" && v.engines) return v;
+  } catch {
+  }
+  return { engines: {} };
+}
+async function saveTrailBrainSettings(userId, s) {
+  saveRuntimeState(SETTINGS_SCOPE, String(userId), s);
+}
+async function userEngineOn(userId, engine) {
+  const s = await getTrailBrainSettings(userId);
+  return s.engines[engine] !== false;
+}
+async function trailBrainConsult(userId, engine, strategy, condition) {
+  if (!trailBrainOn(engine)) return null;
+  try {
+    if (!await userEngineOn(userId, engine)) return null;
+    const { store, ok } = await loadTrailBrainStore(userId);
+    if (!ok) return null;
+    const key = groupKeyFor(engine, strategy, condition);
+    let g = store.groups[key];
+    if (!g) {
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      g = {
+        key,
+        engine,
+        strategy: strategy || "all",
+        condition: condition || "all",
+        unit: trailBrainUnit(engine),
+        params: defaultTrailBrainParams(engine),
+        version: 1,
+        status: "active",
+        evidence: null,
+        lastAdjustment: null,
+        createdAt: now,
+        updatedAt: now
+      };
+      store.groups[key] = g;
+      void saveTrailBrainStore(userId, store);
+    }
+    if (g.status === "dormant") return null;
+    return { groupKey: key, engine, unit: g.unit, params: clampTrailBrainParams(engine, g.params), version: g.version };
+  } catch {
+    return null;
+  }
+}
+async function trailBrainSolConsult(userId, strategyId) {
+  return trailBrainConsult(userId, "sol", strategyId || "all", "all");
+}
+async function resetTrailBrainGroup(userId, groupKey) {
+  try {
+    const store = await getTrailBrainStore(userId);
+    if (!store.groups[groupKey]) return false;
+    delete store.groups[groupKey];
+    await saveTrailBrainStore(userId, store);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function ensureTrailBrainColumns(table) {
+  let p2 = _colsEnsured2.get(table);
+  if (!p2) {
+    p2 = pool.query(`ALTER TABLE ${table}
+        ADD COLUMN IF NOT EXISTS trail_brain_version integer,
+        ADD COLUMN IF NOT EXISTS trail_brain_group text`).then(() => void 0).catch((e) => {
+      _colsEnsured2.delete(table);
+      console.error(`[trail-brain] stamp-column ensure failed for ${table} (non-fatal, will retry):`, e?.message || e);
+    });
+    _colsEnsured2.set(table, p2);
+  }
+  return p2;
+}
+async function stampTrailBrainTrade(table, id, consult) {
+  const memo = `${table}:${id}:${consult.version}`;
+  if (_stamped2.has(memo)) return;
+  _stamped2.add(memo);
+  try {
+    await ensureTrailBrainColumns(table);
+    await pool.query(
+      `UPDATE ${table} SET trail_brain_version = $2, trail_brain_group = $3 WHERE id = $1`,
+      [id, consult.version, consult.groupKey]
+    );
+  } catch (e) {
+    _stamped2.delete(memo);
+    console.error("[trail-brain] stamp failed (non-fatal):", e?.message || e);
+  }
+}
+function logTrailBrainDecision(userId, entry) {
+  try {
+    let b = _logBuffer.get(userId);
+    if (!b) {
+      b = { entries: [], lastFlush: Date.now() };
+      _logBuffer.set(userId, b);
+    }
+    b.entries.push({ ...entry, at: (/* @__PURE__ */ new Date()).toISOString() });
+    if (b.entries.length > 50) b.entries = b.entries.slice(-50);
+    if (b.entries.length >= 5 || Date.now() - b.lastFlush > 6e4) {
+      const flush = b.entries.splice(0, b.entries.length);
+      b.lastFlush = Date.now();
+      void (async () => {
+        try {
+          const prev = await getRuntimeStateStrict(LOG_SCOPE, String(userId)).catch(() => null);
+          const merged = [...Array.isArray(prev) ? prev : [], ...flush].slice(-40);
+          saveRuntimeState(LOG_SCOPE, String(userId), merged);
+        } catch {
+        }
+      })();
+    }
+  } catch {
+  }
+}
+async function getTrailBrainLog(userId) {
+  try {
+    const v = await getRuntimeStateStrict(LOG_SCOPE, String(userId));
+    const stored = Array.isArray(v) ? v : [];
+    const pending = _logBuffer.get(userId)?.entries ?? [];
+    return [...stored, ...pending].slice(-40).reverse();
+  } catch {
+    return [];
+  }
+}
+function noteTrailBrainFxGoverned(userId, symbol, direction, consult) {
+  _fxGoverned.set(`${userId}|${String(symbol).toUpperCase()}|${String(direction).toUpperCase()}`, {
+    version: consult.version,
+    groupKey: consult.groupKey,
+    at: Date.now()
+  });
+}
+function takeTrailBrainFxAttribution(userId, symbol, direction) {
+  const k2 = `${userId}|${String(symbol).toUpperCase()}|${String(direction).toUpperCase()}`;
+  const hit = _fxGoverned.get(k2);
+  if (!hit) return null;
+  if (Date.now() - hit.at > FX_GOVERNED_TTL_MS) {
+    _fxGoverned.delete(k2);
+    return null;
+  }
+  return { version: hit.version, groupKey: hit.groupKey };
+}
+function trailBrainParamsSummary(engine, p2) {
+  const u = trailBrainUnit(engine) === "R" ? "R" : "%";
+  const f = (v) => `${v}${u}`;
+  const locks = p2.lockSteps.map((s) => `locks ${f(s.lock)} at ${f(s.atPeak)}`).join(", ");
+  return `arms at ${f(p2.activation)}, trails ${f(p2.trailDist)} behind the peak, gives back at most ${f(p2.giveBackCap)}${locks ? `, ${locks}` : ""}`;
+}
+async function getTrailBrainReport(userId) {
+  const [store, settings, log2] = await Promise.all([
+    getTrailBrainStore(userId),
+    getTrailBrainSettings(userId),
+    getTrailBrainLog(userId)
+  ]);
+  const engines = ["crypto", "fx", "sol", "kalshi"].map((engine) => ({
+    engine,
+    envOn: trailBrainOn(engine),
+    userOn: settings.engines[engine] !== false,
+    on: trailBrainOn(engine) && settings.engines[engine] !== false
+  }));
+  const groups = Object.values(store.groups).sort((a, b) => a.engine.localeCompare(b.engine) || a.key.localeCompare(b.key)).map((g) => ({ ...g, paramsSummary: trailBrainParamsSummary(g.engine, g.params) }));
+  return { engines, groups, decisions: log2 };
+}
+var STORE_SCOPE, SETTINGS_SCOPE, LOG_SCOPE, ENGINE_ENV, clampNum, TRAIL_BRAIN_MIN_EVIDENCE, MIN_BASELINE, _cache3, CACHE_MS2, _colsEnsured2, _stamped2, _logBuffer, _fxGoverned, FX_GOVERNED_TTL_MS;
+var init_trail_brain = __esm({
+  "server/services/trail-brain.ts"() {
+    "use strict";
+    init_db();
+    init_runtime_state();
+    STORE_SCOPE = "trail_brain";
+    SETTINGS_SCOPE = "trail_brain_settings";
+    LOG_SCOPE = "trail_brain_log";
+    ENGINE_ENV = {
+      crypto: "TRAIL_BRAIN_CRYPTO",
+      fx: "TRAIL_BRAIN_FX",
+      sol: "TRAIL_BRAIN_SOL",
+      kalshi: "TRAIL_BRAIN_KALSHI"
+    };
+    clampNum = (v, [lo2, hi2], fallback) => Number.isFinite(v) ? Math.min(hi2, Math.max(lo2, v)) : fallback;
+    TRAIL_BRAIN_MIN_EVIDENCE = () => Math.max(3, Math.floor(Number(process.env.TRAIL_BRAIN_MIN_TRADES ?? 10) || 10));
+    MIN_BASELINE = 5;
+    _cache3 = /* @__PURE__ */ new Map();
+    CACHE_MS2 = 3e4;
+    _colsEnsured2 = /* @__PURE__ */ new Map();
+    _stamped2 = /* @__PURE__ */ new Set();
+    _logBuffer = /* @__PURE__ */ new Map();
+    _fxGoverned = /* @__PURE__ */ new Map();
+    FX_GOVERNED_TTL_MS = 24 * 36e5;
+  }
+});
+
 // server/services/crypto-ports.ts
 var crypto_ports_exports = {};
 __export(crypto_ports_exports, {
@@ -12497,7 +12845,24 @@ async function resolveCryptoShadowTrades(userId) {
       } else if (short ? px <= t.take_profit : px >= t.take_profit) {
         exit = t.take_profit;
         why = "target";
-      } else if (ageH >= t.max_hours) {
+      }
+      if (!why) {
+        const tb = await trailBrainConsult(userId, "crypto", String(t.strategy || "all"), String(t.symbol || "all"));
+        if (tb && Number(t.sl_pct) > 0) {
+          const peakGain = Math.max(Number(t.peak_gain_pct) || -Infinity, move);
+          const d = trailBrainDecide(tb.params, { peak: peakGain / Number(t.sl_pct), current: move / Number(t.sl_pct), stopFloor: -1 });
+          if (d.binding) {
+            void stampTrailBrainTrade("crypto_shadow_trades", t.id, tb);
+            const floorPct = d.floor * Number(t.sl_pct);
+            const ts = short ? Number(t.entry_price) * (1 - floorPct / 100) : Number(t.entry_price) * (1 + floorPct / 100);
+            if (short ? px >= ts : px <= ts) {
+              exit = short ? Math.max(px, ts) : Math.min(px, ts);
+              why = "trail";
+            }
+          }
+        }
+      }
+      if (!why && ageH >= t.max_hours) {
         exit = px;
         why = "time limit";
       }
@@ -12688,6 +13053,7 @@ var init_crypto_shadow = __esm({
     "use strict";
     init_db();
     init_shadow_lesson_gate();
+    init_trail_brain();
     num3 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
@@ -13333,7 +13699,18 @@ async function monitorFollowerPositions() {
     const newPeak = !pos.peak_price || price > Number(pos.peak_price) ? price : Number(pos.peak_price);
     await pool.query(`UPDATE sol_follower_positions SET peak_price=$2, last_price=$3 WHERE id=$1`, [pos.id, newPeak, price]);
     const gross = (price - Number(pos.entry_price)) / Number(pos.entry_price) * 100;
-    if (gross >= FOLLOWER_TP_PCT) await closePositionFully(pos, gross, "tp");
+    let brainExit = false;
+    const tb = await trailBrainSolConsult(Number(pos.user_id), "sol_follower");
+    if (tb) {
+      const peakGain = (newPeak - Number(pos.entry_price)) / Number(pos.entry_price) * 100;
+      const d = trailBrainDecide(tb.params, { peak: Math.max(peakGain, gross), current: gross, stopFloor: -(Number(pos.sl_pct) || FOLLOWER_SL_PCT) });
+      if (d.binding) {
+        void stampTrailBrainTrade("sol_follower_positions", pos.id, tb);
+        brainExit = d.exitNow;
+      }
+    }
+    if (brainExit) await closePositionFully(pos, gross, "trail_brain");
+    else if (gross >= FOLLOWER_TP_PCT) await closePositionFully(pos, gross, "tp");
     else if (gross <= -FOLLOWER_SL_PCT) await closePositionFully(pos, gross, "sl");
     else if (isMaxHold) await closePositionFully(pos, gross, "max_hold");
   }
@@ -13426,6 +13803,7 @@ var init_sol_follower = __esm({
     "use strict";
     init_db();
     init_paper_costs();
+    init_trail_brain();
     _envInt = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? Math.floor(v) : d;
@@ -18644,6 +19022,9 @@ async function _recordFxBrainOutcome(userId, conn, existing, match, result, prof
     const { canonSession: canonSession2 } = await Promise.resolve().then(() => (init_session(), session_exports));
     const session3 = canonSession2(f.session, hour) ?? canonSession2(null, hour);
     const holdRegime = await _classifyHoldRegime(conn, symbol, openedAt, closedAt);
+    const { takeTrailBrainFxAttribution: takeTrailBrainFxAttribution2, ensureTrailBrainColumns: ensureTrailBrainColumns2 } = await Promise.resolve().then(() => (init_trail_brain(), trail_brain_exports));
+    await ensureTrailBrainColumns2("fx_brain_outcomes");
+    const tbAttr = takeTrailBrainFxAttribution2(userId, symbol, direction);
     await pool2.query(
       `INSERT INTO fx_brain_outcomes
         (user_id, symbol, direction, timeframe, hour_utc, session, day_of_week,
@@ -18651,8 +19032,9 @@ async function _recordFxBrainOutcome(userId, conn, existing, match, result, prof
          smc_verdict, ict_macro_valid, htf_aligned, ea_confidence, ai_confidence,
          entry_price, exit_price, stop_loss, take_profit, planned_rr, realised_rr,
          result, profit_loss, holding_minutes, connection_id, account_id, ticket, closed_at,
-         mae_pnl, mfe_pnl, minutes_to_mae, minutes_to_mfe, hold_regime)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
+         mae_pnl, mfe_pnl, minutes_to_mae, minutes_to_mfe, hold_regime,
+         trail_brain_version, trail_brain_group)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37)
        ON CONFLICT (user_id, ticket) WHERE ticket IS NOT NULL DO NOTHING`,
       [
         userId,
@@ -18689,7 +19071,9 @@ async function _recordFxBrainOutcome(userId, conn, existing, match, result, prof
         Number.isFinite(mfePnl) ? mfePnl : null,
         existing.maeAt && openedAt ? Math.max(0, Math.round((new Date(existing.maeAt).getTime() - openedAt.getTime()) / 6e4)) : null,
         existing.mfeAt && openedAt ? Math.max(0, Math.round((new Date(existing.mfeAt).getTime() - openedAt.getTime()) / 6e4)) : null,
-        holdRegime
+        holdRegime,
+        tbAttr?.version ?? null,
+        tbAttr?.groupKey ?? null
       ]
     );
     console.log(`[FxBrain] recorded ${symbol} ${direction} ${result} ${profit >= 0 ? "+" : ""}${profit.toFixed(2)}` + (f.adx_value != null ? ` (adx ${Number(f.adx_value).toFixed(1)}, grade ${f.confluence_grade ?? "n/a"})` : " (setup unknown)"));
@@ -20263,7 +20647,7 @@ function logDecisionShadow(r) {
     _seen.set(k2, Date.now());
     if (_seen.size > 5e3) _seen.clear();
   }
-  const num16 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  const num17 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
   void ensureDecisionShadowTable().then(() => pool.query(
     `INSERT INTO fx_decision_shadow (user_id, scan_id, symbol, session, hour_utc, lane, mode, acted, picked, ai_status,
        direction, score, terms, entry, sl, tp, gate_result)
@@ -20280,11 +20664,11 @@ function logDecisionShadow(r) {
       !!r.picked,
       r.aiStatus ?? null,
       r.direction ?? null,
-      num16(r.score),
+      num17(r.score),
       r.terms == null ? null : JSON.stringify(r.terms),
-      num16(r.entry),
-      num16(r.sl),
-      num16(r.tp),
+      num17(r.entry),
+      num17(r.sl),
+      num17(r.tp),
       r.gateResult ?? null
     ]
   )).catch(() => {
@@ -22130,19 +22514,19 @@ __export(promoted_rules_exports, {
   retireRule: () => retireRule
 });
 async function getPromotedRules(userId) {
-  const hit = _cache3.get(userId);
-  if (hit && Date.now() - hit.at < CACHE_MS2) return hit.rules;
+  const hit = _cache4.get(userId);
+  if (hit && Date.now() - hit.at < CACHE_MS3) return hit.rules;
   let rules = [];
   try {
     const v = await getRuntimeStateStrict(SCOPE2, String(userId));
     if (Array.isArray(v)) rules = v;
   } catch {
   }
-  _cache3.set(userId, { at: Date.now(), rules });
+  _cache4.set(userId, { at: Date.now(), rules });
   return rules;
 }
 async function storeRules(userId, rules) {
-  _cache3.set(userId, { at: Date.now(), rules });
+  _cache4.set(userId, { at: Date.now(), rules });
   saveRuntimeState(SCOPE2, String(userId), rules);
 }
 async function hasWinningWeek(userId, lesson) {
@@ -22244,7 +22628,7 @@ async function checkPromotedRules(userId, ctx) {
   }
   return null;
 }
-var SCOPE2, PROMOTABLE_DIMS, MIN_TRADES5, MAX_AVG_R, MAX_WIN_RATE, DIM_EXPR, _cache3, CACHE_MS2, normSym;
+var SCOPE2, PROMOTABLE_DIMS, MIN_TRADES5, MAX_AVG_R, MAX_WIN_RATE, DIM_EXPR, _cache4, CACHE_MS3, normSym;
 var init_promoted_rules = __esm({
   "server/services/promoted-rules.ts"() {
     "use strict";
@@ -22265,8 +22649,8 @@ var init_promoted_rules = __esm({
       day_type: { expr: `day_type`, where: `day_type IS NOT NULL` },
       "strategy+direction": { expr: `strategy || ' \xB7 ' || direction` }
     };
-    _cache3 = /* @__PURE__ */ new Map();
-    CACHE_MS2 = 3e4;
+    _cache4 = /* @__PURE__ */ new Map();
+    CACHE_MS3 = 3e4;
     normSym = (s) => s.toUpperCase().replace("/", "");
   }
 });
@@ -24255,6 +24639,7 @@ async function scanMarkets(userId) {
     await manageBtcTrail(userId, currentOpenPositions, marketAnalysis).catch((e) => console.error("[BTC trail] scan pass failed (non-fatal):", e?.message));
     await manageProfitLock(userId, currentOpenPositions, marketAnalysis).catch((e) => console.error("[Profit lock] scan pass failed (non-fatal):", e?.message));
     await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
+    await applyTrailBrainFx(userId, currentOpenPositions, marketAnalysis).catch((e) => console.error("[trail-brain] FX scan pass failed (non-fatal):", e?.message));
     try {
       await runORBAutonomousScan(userId);
     } catch {
@@ -25108,6 +25493,12 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       logGuard(userId, "stop_through_price_refused", pos.symbol, `trail ${newSL} vs price ${_px}`);
       continue;
     }
+    await applyFxTrailStop(userId, pos, newSL, methodLabel, currentSL, tlConnections, dxConnections);
+  }
+}
+async function applyFxTrailStop(userId, pos, newSL, label, currentSL, tlConnections, dxConnections) {
+  _fxTrailAppliedSl.set(`${userId}:${String(pos.ticket || pos.id || pos.symbol)}`, newSL);
+  {
     if (pos.source === "mt5") broadcastMT5Signal(userId, {
       id: `trail_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -25119,7 +25510,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       stopLoss: Math.round(newSL * 1e5) / 1e5,
       takeProfit: pos.tp || null,
       confidence: 100,
-      reason: `${methodLabel}: auto-trail SL \u2192 ${Math.round(newSL * 1e5) / 1e5}`,
+      reason: `${label}: auto-trail SL \u2192 ${Math.round(newSL * 1e5) / 1e5}`,
       holdTime: "",
       strategy: "position_management",
       confluences: [],
@@ -25130,7 +25521,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
     addActivity(userId, {
       type: "position_update",
       symbol: pos.symbol,
-      message: `\u{1F4D0} ${methodLabel}: ${pos.symbol} ${pos.direction} trail \u2192 SL ${Math.round(newSL * 1e5) / 1e5} (was ${currentSL || "none"})`
+      message: `\u{1F4D0} ${label}: ${pos.symbol} ${pos.direction} trail \u2192 SL ${Math.round(newSL * 1e5) / 1e5} (was ${currentSL || "none"})`
     });
     const _tlT = pos.source === "tl" ? tlTargetOf(pos, tlConnections) : null;
     if (_tlT) {
@@ -25203,6 +25594,67 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
     }
   }
 }
+async function applyTrailBrainFx(userId, openPositions, marketAnalysis) {
+  void marketAnalysis;
+  const state = engineStates[userId];
+  if (!state || openPositions.length === 0) return;
+  if (!trailBrainOn("fx")) return;
+  if (!state.positionTrailState) state.positionTrailState = {};
+  let tlConnections = [];
+  try {
+    const allTL = await storage.getUserTradelockerConnections(userId);
+    tlConnections = allTL.filter((c) => c.isActive);
+  } catch {
+  }
+  const dxConnections = await loadDxConnections(userId);
+  for (const pos of openPositions) {
+    try {
+      const openP = Number(pos.openPrice) || 0;
+      const px = Number(pos.currentPrice) || 0;
+      if (!(openP > 0) || !(px > 0)) continue;
+      const isBuy = pos.direction === "BUY";
+      const origSL = Number(pos.originalSL || pos.sl) || 0;
+      const slOnLossSide = origSL > 0 && (isBuy ? origSL < openP : origSL > openP);
+      if (!slOnLossSide) continue;
+      const rDist = Math.abs(openP - origSL);
+      if (rDist <= 0) continue;
+      const key = String(pos.ticket || pos.id || pos.symbol);
+      if (!state.positionTrailState[key]) {
+        state.positionTrailState[key] = {
+          highestHigh: px,
+          lowestLow: px,
+          sar: openP,
+          ep: px,
+          af: state.config.trailSarInitialAF ?? 0.02,
+          bullish: isBuy
+        };
+      }
+      const ts = state.positionTrailState[key];
+      if (px > ts.highestHigh) ts.highestHigh = px;
+      if (!ts.lowestLow || px < ts.lowestLow) ts.lowestLow = px;
+      const peakPrice = isBuy ? ts.highestHigh : ts.lowestLow;
+      const peakR = (isBuy ? peakPrice - openP : openP - peakPrice) / rDist;
+      const currentR = (isBuy ? px - openP : openP - px) / rDist;
+      if (currentR < stopHoldUntilR(userId)) continue;
+      const tb = await trailBrainConsult(userId, "fx", String(pos.strategy || "all"), String(pos.symbol || "all"));
+      if (!tb) continue;
+      const d = trailBrainDecide(tb.params, { peak: peakR, current: currentR, stopFloor: -1 });
+      if (!d.binding) continue;
+      const brainSL = Math.round((openP + (isBuy ? 1 : -1) * d.floor * rDist) * 1e5) / 1e5;
+      let currentSL = pos.sl || Number(pos.brokerSl) || 0;
+      const known = _fxTrailAppliedSl.get(`${userId}:${key}`);
+      if (known) currentSL = currentSL === 0 ? known : isBuy ? Math.max(currentSL, known) : Math.min(currentSL, known);
+      const improved = isBuy ? brainSL > currentSL : currentSL === 0 || brainSL < currentSL;
+      if (!improved) continue;
+      if (isBuy ? brainSL >= px : brainSL <= px) continue;
+      noteTrailBrainFxGoverned(userId, String(pos.symbol || ""), String(pos.direction || ""), tb);
+      logTrailBrainDecision(userId, { engine: "fx", groupKey: tb.groupKey, version: tb.version, text: `${pos.symbol} ${pos.direction}: stop trailed to ${brainSL} \u2014 peaked ${peakR.toFixed(2)}R, learned floor ${d.floor.toFixed(2)}R` });
+      await applyFxTrailStop(userId, pos, brainSL, "Trail Brain", currentSL, tlConnections, dxConnections);
+    } catch (e) {
+      console.error(`[trail-brain] FX adapter failed for ${pos?.symbol} (non-fatal):`, e?.message || e);
+    }
+  }
+}
 async function monitorPositions(userId) {
   const state = engineStates[userId];
   if (!state || !positionMonitorIntervals[userId]) return;
@@ -25221,6 +25673,7 @@ async function monitorPositions(userId) {
       await manageBtcTrail(userId, positions, lastAnalysis).catch((e) => console.error("[BTC trail] monitor pass failed (non-fatal):", e?.message));
       await manageProfitLock(userId, positions, lastAnalysis).catch((e) => console.error("[Profit lock] monitor pass failed (non-fatal):", e?.message));
       await applyServerSideTrails(userId, positions, lastAnalysis);
+      await applyTrailBrainFx(userId, positions, lastAnalysis).catch((e) => console.error("[trail-brain] FX monitor pass failed (non-fatal):", e?.message));
     } else if (state.status === "stopped" && positionMonitorIntervals[userId]) {
       clearInterval(positionMonitorIntervals[userId]);
       delete positionMonitorIntervals[userId];
@@ -30338,11 +30791,12 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var MAJOR_RELEASE_KEYWORDS, FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _activityTableReady, _activityLastPrune, _activitySeen, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, tlStopLatest, tlStopInitial, dxLockInitial, _modelIdeaCache, NY_TIME_FMT, INDEX_BROKER_ALIASES, _sniperOrbCache, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
+var MAJOR_RELEASE_KEYWORDS, FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, _activityTableReady, _activityLastPrune, _activitySeen, _dxSkipTableReady, countedTradeKeys, h4BiasCache, H4_REFRESH_MS, TRAIL_METHOD_LABELS, xauPeakPts, xauLockedPts, btcInitialStop, btcLastStop, tlStopLatest, tlStopInitial, dxLockInitial, _fxTrailAppliedSl, _modelIdeaCache, NY_TIME_FMT, INDEX_BROKER_ALIASES, _sniperOrbCache, FX_LEADER_LOCK_KEY, FX_LEADER_STALE_MS, _fxLeaderClient, _fxIsLeader, _fxLeaderLoop, hardHalted;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
     init_session();
+    init_trail_brain();
     init_pair_key();
     init_service();
     init_guard_events();
@@ -30440,6 +30894,7 @@ var init_live_trading_engine = __esm({
     tlStopLatest = /* @__PURE__ */ new Map();
     tlStopInitial = /* @__PURE__ */ new Map();
     dxLockInitial = /* @__PURE__ */ new Map();
+    _fxTrailAppliedSl = /* @__PURE__ */ new Map();
     _modelIdeaCache = /* @__PURE__ */ new Map();
     NY_TIME_FMT = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York",
@@ -31487,9 +31942,9 @@ function propSimulate(decisions, opts = {}) {
       continue;
     }
     const prior = slicePrior.get(sliceKey2) || { n: 0, wins: 0 };
-    const confFactor = clampNum((confidence ?? 50) / 100, 0.4, 1);
-    const accFactor = prior.n >= 10 ? clampNum(prior.wins / prior.n, 0.5, 1) : 0.75;
-    const riskPct = clampNum(baseRiskPct * confFactor * accFactor, minRiskPct, maxRiskPct);
+    const confFactor = clampNum2((confidence ?? 50) / 100, 0.4, 1);
+    const accFactor = prior.n >= 10 ? clampNum2(prior.wins / prior.n, 0.5, 1) : 0.75;
+    const riskPct = clampNum2(baseRiskPct * confFactor * accFactor, minRiskPct, maxRiskPct);
     const riskDollars = balance * (riskPct / 100);
     const pnl = riskDollars * r;
     balance += pnl;
@@ -32888,7 +33343,7 @@ async function getModelMastery(userId, opts = {}) {
     regimeStats: summarizeRegimeStats(regimeRows)
   };
 }
-var DDL3, ensured3, barsProviders, barsFor, pipSize, modelsEnrichOn, MODELS_EPOCH, PREVIOUS_MODELS_EPOCH, modelsEpochOn, modelsAiRegimeOn, currentModelsEpoch, aiRegimeMinConfidence, DAY_TYPES, scorecardIsBorderline, modelsLiftsOn, fxModelMarketplaceLiveOn, liftsActive, clampNum, round22, d1CtxCache, orbCtxCache, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, STRATEGY_NAME_ALIASES, _deadSliceCache, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
+var DDL3, ensured3, barsProviders, barsFor, pipSize, modelsEnrichOn, MODELS_EPOCH, PREVIOUS_MODELS_EPOCH, modelsEpochOn, modelsAiRegimeOn, currentModelsEpoch, aiRegimeMinConfidence, DAY_TYPES, scorecardIsBorderline, modelsLiftsOn, fxModelMarketplaceLiveOn, liftsActive, clampNum2, round22, d1CtxCache, orbCtxCache, lastShadowCandle, lastResolveAt2, M1_PAIRS_EXCLUDED, rangeCache, M2_PAIRS_EXCLUDED, M2_SESSIONS, M2_MAX_ADX, M2_MIN_RR, STRATEGY_NAME_ALIASES, _deadSliceCache, FX_MODEL_MIN_TO_LIST, DEFAULT_SETTINGS, LIVE_LEVELS, GO_LIVE, emaLast;
 var init_fx_models = __esm({
   "server/services/fx-models.ts"() {
     "use strict";
@@ -32972,7 +33427,7 @@ ALTER TABLE fx_day_regimes ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT
     modelsLiftsOn = () => process.env.FX_MODELS_LIFTS !== "off";
     fxModelMarketplaceLiveOn = () => process.env.FX_MODEL_MARKETPLACE_LIVE !== "off";
     liftsActive = () => modelsEnrichOn() && modelsLiftsOn();
-    clampNum = (x, lo2, hi2) => Math.max(lo2, Math.min(hi2, x));
+    clampNum2 = (x, lo2, hi2) => Math.max(lo2, Math.min(hi2, x));
     round22 = (x) => Math.round(x * 100) / 100;
     d1CtxCache = /* @__PURE__ */ new Map();
     orbCtxCache = /* @__PURE__ */ new Map();
@@ -44022,20 +44477,20 @@ async function learnFromSolTrades(userId) {
     else insights.push(`${sym2}: still learning (${k2.wins + k2.losses}/${MIN_TRADES6}).`);
   }
   const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
-  _cache4.set(userId, { brain, at: Date.now() });
+  _cache5.set(userId, { brain, at: Date.now() });
   return brain;
 }
 async function getOrRefreshSolBrain(userId, force = false) {
-  const hit = _cache4.get(userId);
+  const hit = _cache5.get(userId);
   if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS2) return hit.brain;
   return learnFromSolTrades(userId);
 }
 function solBrainSizeMultiplier(userId, symbol) {
-  const k2 = _cache4.get(userId)?.brain?.symbolKnowledge[symbol];
+  const k2 = _cache5.get(userId)?.brain?.symbolKnowledge[symbol];
   return k2 ? k2.recommendedSizeMultiplier : 1;
 }
 function solBrainGate(userId, symbol, strategy, hourUtc) {
-  const k2 = _cache4.get(userId)?.brain?.symbolKnowledge[symbol];
+  const k2 = _cache5.get(userId)?.brain?.symbolKnowledge[symbol];
   if (!k2) return { blocked: false, reason: "" };
   const decided = k2.wins + k2.losses;
   if (decided >= 15 && k2.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Sol brain: ${symbol} ${k2.winRate}% WR over ${decided} \u2014 skipping symbol` };
@@ -44083,7 +44538,7 @@ async function recordSolBrainOutcome(o) {
     console.error("[sol-brain] recordSolBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var MIN_TRADES6, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, BAD_PRICE_SYMBOLS, _ensured9, _cache4;
+var MIN_TRADES6, REFRESH_TTL_MS2, BAD_PRICE_ERA_END, QUARANTINE_MAX_HOLD_MIN, QUARANTINE_MIN_ABS_RETURN_PCT, BAD_PRICE_SYMBOLS, _ensured9, _cache5;
 var init_sol_brain = __esm({
   "server/services/sol-brain.ts"() {
     "use strict";
@@ -44095,7 +44550,7 @@ var init_sol_brain = __esm({
     QUARANTINE_MIN_ABS_RETURN_PCT = 40;
     BAD_PRICE_SYMBOLS = ["RAY", "mSOL"];
     _ensured9 = false;
-    _cache4 = /* @__PURE__ */ new Map();
+    _cache5 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -44291,10 +44746,13 @@ async function recordSolShadowEntry(c, adviceAtEntry) {
 async function recordSolShadowClose(o) {
   try {
     await ensureSolShadowContextTable();
+    const { ensureTrailBrainColumns: ensureTrailBrainColumns2 } = await Promise.resolve().then(() => (init_trail_brain(), trail_brain_exports));
+    await ensureTrailBrainColumns2("sol_shadow_context");
     await pool.query(
       `UPDATE sol_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, gross_pct=$4, net_pct=$5, peak_gain_pct=$6,
               trail_guard_id=COALESCE($7, trail_guard_id), trail_guard_action=COALESCE($8, trail_guard_action),
-              trail_guard_profile=COALESCE($9::jsonb, trail_guard_profile)
+              trail_guard_profile=COALESCE($9::jsonb, trail_guard_profile),
+              trail_brain_version=COALESCE($10, trail_brain_version), trail_brain_group=COALESCE($11, trail_brain_group)
         WHERE position_id=$1 AND closed_at IS NULL`,
       [
         o.positionId,
@@ -44305,7 +44763,9 @@ async function recordSolShadowClose(o) {
         o.peakGainPct,
         o.trailGuardId ?? null,
         o.trailGuardAction ?? null,
-        o.trailGuardProfile != null ? JSON.stringify(o.trailGuardProfile) : null
+        o.trailGuardProfile != null ? JSON.stringify(o.trailGuardProfile) : null,
+        o.trailBrainVersion ?? null,
+        o.trailBrainGroup ?? null
       ]
     );
   } catch (e) {
@@ -44313,7 +44773,7 @@ async function recordSolShadowClose(o) {
   }
 }
 async function computeSolShadowStats(userId, force = false) {
-  const hit = _cache5.get(userId);
+  const hit = _cache6.get(userId);
   if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.stats;
   await ensureSolShadowContextTable();
   const { rows } = await pool.query(
@@ -44323,7 +44783,7 @@ async function computeSolShadowStats(userId, force = false) {
     [userId]
   );
   const stats = aggregate2(rows);
-  _cache5.set(userId, { at: Date.now(), stats });
+  _cache6.set(userId, { at: Date.now(), stats });
   return stats;
 }
 function adviceFor2(stats, strategyId, ctx) {
@@ -44345,7 +44805,7 @@ async function getSolShadowStatsText(userId, max = 12) {
     return "";
   }
 }
-var num5, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured10, _trailColsEnsured, _cache5;
+var num5, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured10, _trailColsEnsured, _cache6;
 var init_sol_shadow_stats = __esm({
   "server/services/sol-shadow-stats.ts"() {
     "use strict";
@@ -44359,7 +44819,7 @@ var init_sol_shadow_stats = __esm({
     AVOID_PCT = () => num5("SOL_SHADOW_AVOID_MEDIAN_PCT", 2);
     _ensured10 = null;
     _trailColsEnsured = null;
-    _cache5 = /* @__PURE__ */ new Map();
+    _cache6 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -45550,6 +46010,18 @@ async function monitorPaperPositions(userId, state) {
           addActivity2(state, { type: "info", message: `\u{1F4B0} Paper partial: ${pos.symbol} half closed at +${step.partialJustTaken.toFixed(1)}% \u2014 rest trails ${SOL_LR.trailDistPct}% under the peak` });
         }
       }
+      if (!tgGuard) {
+        const tb = await trailBrainSolConsult(userId, pos.strategyId);
+        if (tb) {
+          const peakGain = pos.peakPrice && pos.entryPrice > 0 ? (pos.peakPrice - pos.entryPrice) / pos.entryPrice * 100 : gainPct;
+          const d = trailBrainDecide(tb.params, { peak: Math.max(peakGain, gainPct), current: gainPct, stopFloor: -(pos.slPct || 15) });
+          if (d.binding) {
+            pos.trailBrainVersion = tb.version;
+            pos.trailBrainGroup = tb.groupKey;
+            if (d.exitNow) isTrailHit = true;
+          }
+        }
+      }
     }
     if (isWin || isLoss || isTrailHit || isMaxHold) {
       const reason = isMaxHold ? "max_hold" : lrBreakeven ? "breakeven" : isTrailHit ? "trail" : isWin ? "tp" : "sl";
@@ -45809,6 +46281,18 @@ async function monitorShadowPositions(userId, state) {
         if (step.breakevenJustSet) pos.breakevenActive = true;
         if (step.partialJustTaken != null) pos.partialGainPct = step.partialJustTaken;
       }
+      if (!tgGuard) {
+        const tb = await trailBrainSolConsult(userId, pos.strategyId);
+        if (tb) {
+          const peakGain = pos.peakPrice && pos.entryPrice > 0 ? (pos.peakPrice - pos.entryPrice) / pos.entryPrice * 100 : rawGainPct;
+          const d = trailBrainDecide(tb.params, { peak: Math.max(peakGain, rawGainPct), current: rawGainPct, stopFloor: -(pos.slPct || 15) });
+          if (d.binding) {
+            pos.trailBrainVersion = tb.version;
+            pos.trailBrainGroup = tb.groupKey;
+            if (d.exitNow && !lrReason) lrReason = "trail";
+          }
+        }
+      }
     }
     const gainPct = blendGain(rawGainPct, pos.partialGainPct);
     if (isWin || isLoss || isMaxHold || lrReason) {
@@ -45828,7 +46312,9 @@ async function monitorShadowPositions(userId, state) {
         peakGainPct: pos.peakPrice && pos.entryPrice > 0 ? (pos.peakPrice - pos.entryPrice) / pos.entryPrice * 100 : null,
         trailGuardId: pos.trailGuardId ?? null,
         trailGuardAction: pos.trailGuardAction ?? null,
-        trailGuardProfile: pos.trailGuardProfile ?? null
+        trailGuardProfile: pos.trailGuardProfile ?? null,
+        trailBrainVersion: pos.trailBrainVersion ?? null,
+        trailBrainGroup: pos.trailBrainGroup ?? null
       })).catch(() => {
       });
       state.closedShadowPositions.unshift(pos);
@@ -45916,6 +46402,21 @@ async function monitorLivePositions(userId, state) {
       const dist2 = computeServerTrailDist(gainPct, volStatus);
       const effectiveFloor = Math.max(pos.peakPrice * (1 - dist2 / 100), pos.entryPrice);
       if (currentPrice <= effectiveFloor) trailHit = true;
+    }
+    if (!trailHit && pos.peakPrice) {
+      const tb = await trailBrainSolConsult(userId, pos.strategyId);
+      if (tb) {
+        const peakGain = (pos.peakPrice - pos.entryPrice) / pos.entryPrice * 100;
+        const d = trailBrainDecide(tb.params, { peak: Math.max(peakGain, gainPct), current: gainPct, stopFloor: -(pos.slPct || 15) });
+        if (d.binding) {
+          pos.trailBrainVersion = tb.version;
+          pos.trailBrainGroup = tb.groupKey;
+          if (d.exitNow) {
+            trailHit = true;
+            addActivity2(state, { type: "info", message: `\u{1F9E0} Trail Brain exit: ${pos.symbol} at ${gainPct.toFixed(1)}% \u2014 peaked +${peakGain.toFixed(1)}%, learned floor ${d.floor.toFixed(1)}% (group v${tb.version})` });
+          }
+        }
+      }
     }
     const tpHit = gainPct >= pos.targetPct;
     const slHit = gainPct <= -pos.slPct;
@@ -47019,6 +47520,7 @@ var init_sol_engine = __esm({
     init_weekend_boost();
     init_sol_learned_rules();
     init_trail_guards();
+    init_trail_brain();
     SOL_BRAIN_ENABLED = true;
     SOL_BRAIN_GATING = true;
     SOL_CONFLUENCE_REQUIRED = 2;
@@ -48268,7 +48770,7 @@ async function cryptocomTicker(sym2) {
 }
 async function getAggregatedQuote(symbol) {
   const sym2 = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const hit = _cache6.get(sym2);
+  const hit = _cache7.get(sym2);
   if (hit && Date.now() - hit.ts < TTL_MS6) return hit.q;
   const venues = await Promise.all([coinbaseSpot(sym2), krakenTicker(sym2), geminiTicker(sym2), cryptocomTicker(sym2)]);
   const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
@@ -48281,19 +48783,19 @@ async function getAggregatedQuote(symbol) {
     spreadPct = lo2.price > 0 ? Math.round((hi2.price - lo2.price) / lo2.price * 1e4) / 100 : null;
   }
   const q = { symbol: sym2, best, spreadPct, venues, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
-  _cache6.set(sym2, { q, ts: Date.now() });
+  _cache7.set(sym2, { q, ts: Date.now() });
   return q;
 }
 async function getAggregatedQuotes(symbols) {
   const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
   return Promise.all(uniq.map(getAggregatedQuote));
 }
-var TTL_MS6, _cache6;
+var TTL_MS6, _cache7;
 var init_crypto_market_data = __esm({
   "server/services/crypto-market-data.ts"() {
     "use strict";
     TTL_MS6 = 15e3;
-    _cache6 = /* @__PURE__ */ new Map();
+    _cache7 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -50781,12 +51283,12 @@ function linregSlope(values) {
   const xs = values.map((_, i) => i);
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = values.reduce((a, b) => a + b, 0) / n;
-  let num16 = 0, den = 0;
+  let num17 = 0, den = 0;
   for (let i = 0; i < n; i++) {
-    num16 += (xs[i] - mx) * (values[i] - my);
+    num17 += (xs[i] - mx) * (values[i] - my);
     den += (xs[i] - mx) ** 2;
   }
-  return den === 0 ? 0 : num16 / den;
+  return den === 0 ? 0 : num17 / den;
 }
 function ensembleSignal(candles) {
   const price = candles[candles.length - 1].close;
@@ -51210,24 +51712,24 @@ async function learnFromKalshiTrades(userId) {
     coinKnowledge: coins,
     insights
   };
-  _cache7.set(userId, { brain, at: Date.now() });
+  _cache8.set(userId, { brain, at: Date.now() });
   return brain;
 }
 async function getOrRefreshKalshiBrain(userId, force = false) {
-  const hit = _cache7.get(userId);
+  const hit = _cache8.get(userId);
   if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS3) return hit.brain;
   return learnFromKalshiTrades(userId);
 }
 function cachedKalshiBrain(userId) {
-  return _cache7.get(userId)?.brain ?? null;
+  return _cache8.get(userId)?.brain ?? null;
 }
 function kalshiBrainSizeMultiplier(userId, coin) {
-  const b = _cache7.get(userId)?.brain;
+  const b = _cache8.get(userId)?.brain;
   const k2 = b?.coinKnowledge[coin];
   return k2 ? k2.recommendedSizeMultiplier : 1;
 }
 function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence) {
-  const k2 = _cache7.get(userId)?.brain?.coinKnowledge[coin];
+  const k2 = _cache8.get(userId)?.brain?.coinKnowledge[coin];
   if (!k2) return { blocked: false, reason: "" };
   const decided = k2.wins + k2.losses;
   if (decided >= 15 && k2.winRate < 35) {
@@ -51254,7 +51756,7 @@ function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence) {
   return { blocked: false, reason: "" };
 }
 function kalshiBrainValueWeight(userId, coin, strikeType) {
-  const k2 = _cache7.get(userId)?.brain?.coinKnowledge[coin];
+  const k2 = _cache8.get(userId)?.brain?.coinKnowledge[coin];
   if (!k2) return 1;
   let w = k2.valueScoreWeight;
   if (strikeType) {
@@ -51263,7 +51765,7 @@ function kalshiBrainValueWeight(userId, coin, strikeType) {
   }
   return Math.max(0.6, Math.min(1.4, Math.round(w * 100) / 100));
 }
-var MIN_TRADES_FOR_COIN, REFRESH_TTL_MS3, _cache7;
+var MIN_TRADES_FOR_COIN, REFRESH_TTL_MS3, _cache8;
 var init_kalshi_brain = __esm({
   "server/services/kalshi-brain.ts"() {
     "use strict";
@@ -51271,7 +51773,7 @@ var init_kalshi_brain = __esm({
     init_schema();
     MIN_TRADES_FOR_COIN = 10;
     REFRESH_TTL_MS3 = 60 * 1e3;
-    _cache7 = /* @__PURE__ */ new Map();
+    _cache8 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -56209,7 +56711,7 @@ async function buildPositions(userId) {
 }
 async function buildEngineRoom(userId) {
   const hit = cache8.get(userId);
-  if (hit && Date.now() - hit.at < CACHE_MS3) return hit.room;
+  if (hit && Date.now() - hit.at < CACHE_MS4) return hit.room;
   const guard = await buildGuardPressure(userId);
   const [engines, acct, positions] = await Promise.all([
     buildEngines(userId, guard.map),
@@ -56269,7 +56771,7 @@ function engineRoomContextText(room) {
   for (const u of room.unknowns) lines.push(`UNKNOWN: ${u}`);
   return lines.join("\n");
 }
-var cache8, CACHE_MS3;
+var cache8, CACHE_MS4;
 var init_abba_engine_room = __esm({
   "server/services/abba-engine-room.ts"() {
     "use strict";
@@ -56279,7 +56781,7 @@ var init_abba_engine_room = __esm({
     init_trade_source();
     init_engine_watchdog();
     cache8 = /* @__PURE__ */ new Map();
-    CACHE_MS3 = 3e4;
+    CACHE_MS4 = 3e4;
   }
 });
 
@@ -56933,8 +57435,8 @@ async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilen
         analysis.takeProfit,
         ...supportResistanceLevels
       ].map((p2) => {
-        const num16 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
-        return isNaN(num16) ? 0 : num16;
+        const num17 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
+        return isNaN(num17) ? 0 : num17;
       }).filter((p2) => p2 > 0);
       if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
       const minPrice = Math.min(...prices);
@@ -61621,6 +62123,310 @@ var init_trail_guard_learning = __esm({
   }
 });
 
+// server/services/trail-brain-learning.ts
+var trail_brain_learning_exports = {};
+__export(trail_brain_learning_exports, {
+  runTrailBrainLearningForUser: () => runTrailBrainLearningForUser,
+  startTrailBrainLearning: () => startTrailBrainLearning,
+  trailBrainGroupEvidence: () => trailBrainGroupEvidence,
+  trailBrainLearningOn: () => trailBrainLearningOn
+});
+function trailBrainLearningOn() {
+  return process.env.TRAIL_BRAIN_LEARNING !== "off";
+}
+async function trailBrainGroupEvidence(userId, g) {
+  try {
+    let brain = EMPTY, base = EMPTY;
+    if (g.engine === "crypto") {
+      await ensureTrailBrainColumns("cryptocom_engine_trades");
+      await ensureTrailBrainColumns("crypto_shadow_trades");
+      const zero = { trades: 0, sumFinal: 0, nFinal: 0, sumGb: 0, nGb: 0 };
+      const toSums = (r) => ({
+        trades: Number(r?.trades) || 0,
+        sumFinal: Number(r?.sum_final) || 0,
+        nFinal: Number(r?.n_final) || 0,
+        sumGb: Number(r?.sum_gb) || 0,
+        nGb: Number(r?.n_gb) || 0
+      });
+      const merge = (a, b) => ({
+        trades: a.trades + b.trades,
+        avgFinal: a.nFinal + b.nFinal > 0 ? num8((a.sumFinal + b.sumFinal) / (a.nFinal + b.nFinal)) : null,
+        avgGiveback: a.nGb + b.nGb > 0 ? num8((a.sumGb + b.sumGb) / (a.nGb + b.nGb)) : null
+      });
+      const liveBrain = await pool.query(
+        `SELECT COUNT(*)::int AS trades, SUM(${CRYPTO_FINAL_R}) AS sum_final, COUNT(${CRYPTO_FINAL_R})::int AS n_final,
+                SUM(CASE WHEN t.peak_r_multiple > 0 THEN t.peak_r_multiple - ${CRYPTO_FINAL_R} END) AS sum_gb,
+                COUNT(CASE WHEN t.peak_r_multiple > 0 THEN 1 END)::int AS n_gb
+           FROM cryptocom_engine_trades t
+          WHERE t.user_id = $1 AND t.trail_brain_group = $3 AND t.status = 'closed'
+            AND t.closed_at >= now() - ($2 || ' days')::interval`,
+        [userId, String(WINDOW_DAYS2), g.key]
+      ).then((r) => toSums(r.rows[0]));
+      const liveBase = await pool.query(
+        `SELECT COUNT(*)::int AS trades, SUM(${CRYPTO_FINAL_R}) AS sum_final, COUNT(${CRYPTO_FINAL_R})::int AS n_final,
+                SUM(CASE WHEN t.peak_r_multiple > 0 THEN t.peak_r_multiple - ${CRYPTO_FINAL_R} END) AS sum_gb,
+                COUNT(CASE WHEN t.peak_r_multiple > 0 THEN 1 END)::int AS n_gb
+           FROM cryptocom_engine_trades t
+          WHERE t.user_id = $1 AND t.strategy = $3 AND t.symbol = $4 AND t.trail_brain_version IS NULL AND t.status = 'closed'
+            AND t.closed_at >= now() - ($2 || ' days')::interval`,
+        [userId, String(WINDOW_DAYS2), g.strategy, g.condition]
+      ).then((r) => toSums(r.rows[0]));
+      const shadowBrain = await pool.query(
+        `SELECT COUNT(*)::int AS trades, SUM(r_multiple) AS sum_final, COUNT(r_multiple)::int AS n_final,
+                SUM(CASE WHEN peak_gain_pct IS NOT NULL AND sl_pct > 0 THEN peak_gain_pct / sl_pct - r_multiple END) AS sum_gb,
+                COUNT(CASE WHEN peak_gain_pct IS NOT NULL AND sl_pct > 0 AND r_multiple IS NOT NULL THEN 1 END)::int AS n_gb
+           FROM crypto_shadow_trades
+          WHERE user_id = $1 AND trail_brain_group = $3 AND status = 'closed'
+            AND closed_at >= now() - ($2 || ' days')::interval`,
+        [userId, String(WINDOW_DAYS2), g.key]
+      ).then((r) => toSums(r.rows[0]));
+      const shadowBase = await pool.query(
+        `SELECT COUNT(*)::int AS trades, SUM(r_multiple) AS sum_final, COUNT(r_multiple)::int AS n_final,
+                SUM(CASE WHEN peak_gain_pct IS NOT NULL AND sl_pct > 0 THEN peak_gain_pct / sl_pct - r_multiple END) AS sum_gb,
+                COUNT(CASE WHEN peak_gain_pct IS NOT NULL AND sl_pct > 0 AND r_multiple IS NOT NULL THEN 1 END)::int AS n_gb
+           FROM crypto_shadow_trades
+          WHERE user_id = $1 AND strategy = $3 AND symbol = $4 AND trail_brain_version IS NULL AND status = 'closed'
+            AND closed_at >= now() - ($2 || ' days')::interval`,
+        [userId, String(WINDOW_DAYS2), g.strategy, g.condition]
+      ).then((r) => toSums(r.rows[0]));
+      void zero;
+      brain = merge(liveBrain, shadowBrain);
+      base = merge(liveBase, shadowBase);
+    } else if (g.engine === "fx") {
+      await ensureTrailBrainColumns("fx_brain_outcomes");
+      const peakR = `CASE WHEN entry_price IS NULL OR stop_loss IS NULL OR mfe_price IS NULL OR ABS(entry_price - stop_loss) <= 0 THEN NULL
+                           ELSE mfe_price / ABS(entry_price - stop_loss) END`;
+      const q = async (where, params) => {
+        const { rows } = await pool.query(
+          `SELECT COUNT(*)::int AS trades, AVG(realised_rr) AS avg_final,
+                  AVG(CASE WHEN ${peakR} > 0 THEN ${peakR} - realised_rr END) AS avg_giveback
+             FROM fx_brain_outcomes WHERE ${where}`,
+          params
+        );
+        const r = rows[0] ?? {};
+        return { trades: Number(r.trades) || 0, avgFinal: num8(r.avg_final), avgGiveback: num8(r.avg_giveback) };
+      };
+      brain = await q(
+        `user_id = $1 AND trail_brain_group = $2 AND closed_at >= now() - ($3 || ' days')::interval`,
+        [userId, g.key, String(WINDOW_DAYS2)]
+      );
+      base = await q(
+        `user_id = $1 AND strategy_mode = $2 AND symbol = $3 AND trail_brain_version IS NULL AND closed_at >= now() - ($4 || ' days')::interval`,
+        [userId, g.strategy, g.condition, String(WINDOW_DAYS2)]
+      );
+    } else if (g.engine === "sol" && g.strategy === "sol_follower") {
+      await ensureTrailBrainColumns("sol_follower_positions");
+      const q = async (where, params) => {
+        const { rows } = await pool.query(
+          `SELECT COUNT(*)::int AS trades, AVG(net_pct) AS avg_final,
+                  AVG(CASE WHEN peak_price IS NOT NULL AND entry_price > 0 AND gross_pct IS NOT NULL
+                           THEN ((peak_price - entry_price) / entry_price) * 100 - gross_pct END) AS avg_giveback
+             FROM sol_follower_positions WHERE ${where}`,
+          params
+        );
+        const r = rows[0] ?? {};
+        return { trades: Number(r.trades) || 0, avgFinal: num8(r.avg_final), avgGiveback: num8(r.avg_giveback) };
+      };
+      brain = await q(
+        `user_id = $1 AND trail_brain_group = $2 AND status = 'closed' AND closed_at >= now() - ($3 || ' days')::interval`,
+        [userId, g.key, String(WINDOW_DAYS2)]
+      );
+      base = await q(
+        `user_id = $1 AND trail_brain_version IS NULL AND status = 'closed' AND closed_at >= now() - ($2 || ' days')::interval`,
+        [userId, String(WINDOW_DAYS2)]
+      );
+    } else if (g.engine === "sol") {
+      await ensureTrailBrainColumns("sol_shadow_context");
+      const q = async (where, params) => {
+        const { rows } = await pool.query(
+          `SELECT COUNT(*)::int AS trades, AVG(net_pct) AS avg_final,
+                  AVG(CASE WHEN peak_gain_pct IS NOT NULL AND gross_pct IS NOT NULL THEN peak_gain_pct - gross_pct END) AS avg_giveback
+             FROM sol_shadow_context WHERE ${where}`,
+          params
+        );
+        const r = rows[0] ?? {};
+        return { trades: Number(r.trades) || 0, avgFinal: num8(r.avg_final), avgGiveback: num8(r.avg_giveback) };
+      };
+      brain = await q(
+        `user_id = $1 AND trail_brain_group = $2 AND closed_at IS NOT NULL AND closed_at >= now() - ($3 || ' days')::interval`,
+        [userId, g.key, String(WINDOW_DAYS2)]
+      );
+      base = await q(
+        `user_id = $1 AND strategy_id = $2 AND trail_brain_version IS NULL AND closed_at IS NOT NULL AND closed_at >= now() - ($3 || ' days')::interval`,
+        [userId, g.strategy, String(WINDOW_DAYS2)]
+      );
+    } else {
+      await ensureTrailBrainColumns("kalshi_perp_shadow_trades");
+      const q = async (where, params) => {
+        const { rows } = await pool.query(
+          `SELECT COUNT(*)::int AS trades, AVG(return_pct) AS avg_final,
+                  AVG(CASE WHEN peak_gain_pct IS NOT NULL AND gross_return_pct IS NOT NULL THEN peak_gain_pct - gross_return_pct END) AS avg_giveback
+             FROM kalshi_perp_shadow_trades WHERE ${where}`,
+          params
+        );
+        const r = rows[0] ?? {};
+        return { trades: Number(r.trades) || 0, avgFinal: num8(r.avg_final), avgGiveback: num8(r.avg_giveback) };
+      };
+      brain = await q(
+        `user_id = $1 AND trail_brain_group = $2 AND status = 'closed' AND closed_at >= now() - ($3 || ' days')::interval`,
+        [userId, g.key, String(WINDOW_DAYS2)]
+      );
+      base = await q(
+        `user_id = $1 AND strategy = $2 AND underlying = $3 AND trail_brain_version IS NULL AND status = 'closed' AND closed_at >= now() - ($4 || ' days')::interval`,
+        [userId, g.strategy, g.condition, String(WINDOW_DAYS2)]
+      );
+    }
+    return {
+      brainTrades: brain.trades,
+      brainAvgFinal: brain.avgFinal,
+      brainAvgGiveback: brain.avgGiveback,
+      baseTrades: base.trades,
+      baseAvgFinal: base.avgFinal,
+      baseAvgGiveback: base.avgGiveback
+    };
+  } catch (e) {
+    console.error(`[trail-brain] evidence read failed for group ${g.key} (non-fatal):`, e?.message || e);
+    return null;
+  }
+}
+async function stampedGroupKeys(userId) {
+  const tables = [
+    ["cryptocom_engine_trades", `status = 'closed'`],
+    ["crypto_shadow_trades", `status = 'closed'`],
+    ["fx_brain_outcomes", `1 = 1`],
+    ["sol_shadow_context", `closed_at IS NOT NULL`],
+    ["sol_follower_positions", `status = 'closed'`],
+    ["kalshi_perp_shadow_trades", `status = 'closed'`]
+  ];
+  const keys = /* @__PURE__ */ new Set();
+  for (const [table, extra] of tables) {
+    try {
+      await ensureTrailBrainColumns(table);
+      const { rows } = await pool.query(
+        `SELECT DISTINCT trail_brain_group AS k FROM ${table} WHERE user_id = $1 AND trail_brain_group IS NOT NULL AND ${extra}`,
+        [userId]
+      );
+      for (const r of rows) if (r.k) keys.add(String(r.k));
+    } catch {
+    }
+  }
+  return Array.from(keys);
+}
+function groupFromKey(key) {
+  const [engine, strategy, condition] = key.split("|");
+  if (!engine || !["crypto", "fx", "sol", "kalshi"].includes(engine)) return null;
+  const e = engine;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  return {
+    key,
+    engine: e,
+    strategy: strategy || "all",
+    condition: condition || "all",
+    unit: trailBrainUnit(e),
+    params: defaultTrailBrainParams(e),
+    version: 1,
+    status: "active",
+    evidence: null,
+    lastAdjustment: null,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+async function runTrailBrainLearningForUser(userId, force = false) {
+  if (!trailBrainLearningOn() || !trailBrainOn()) return;
+  const last2 = _lastRun2.get(userId) ?? 0;
+  if (!force && Date.now() - last2 < THROTTLE_MS2) return;
+  _lastRun2.set(userId, Date.now());
+  try {
+    const store = await getTrailBrainStore(userId);
+    for (const key of await stampedGroupKeys(userId)) {
+      if (!store.groups[key]) {
+        const g = groupFromKey(key);
+        if (g) store.groups[key] = g;
+      }
+    }
+    let changed = false;
+    for (const g of Object.values(store.groups)) {
+      try {
+        const ev = await trailBrainGroupEvidence(userId, g);
+        if (!ev) continue;
+        g.evidence = { ...ev, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+        changed = true;
+        if (g.status === "dormant") continue;
+        const adj = adjustTrailBrainParams(g.engine, g.params, ev);
+        if (adj.action === "tighten" || adj.action === "loosen") {
+          g.params = adj.params;
+          g.version += 1;
+          g.lastAdjustment = { at: (/* @__PURE__ */ new Date()).toISOString(), action: adj.action, reason: adj.reason };
+          g.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+          logTrailBrainDecision(userId, { engine: g.engine, groupKey: g.key, version: g.version, text: `Learned: ${adj.reason}` });
+          console.log(`[trail-brain] user ${userId} group ${g.key}: ${adj.action} \u2192 v${g.version} \u2014 ${adj.reason}`);
+        } else if (adj.action === "dormant") {
+          g.status = "dormant";
+          g.lastAdjustment = { at: (/* @__PURE__ */ new Date()).toISOString(), action: "dormant", reason: adj.reason };
+          g.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+          logTrailBrainDecision(userId, { engine: g.engine, groupKey: g.key, version: g.version, text: `Stood down: ${adj.reason}` });
+          console.log(`[trail-brain] user ${userId} group ${g.key}: DORMANT \u2014 ${adj.reason}`);
+        }
+      } catch (e) {
+        console.error(`[trail-brain] learning failed for group ${g.key} (non-fatal):`, e?.message || e);
+      }
+    }
+    if (changed) await saveTrailBrainStore(userId, store);
+  } catch (e) {
+    console.error("[trail-brain] user learning failed (non-fatal):", e?.message || e);
+  }
+}
+function startTrailBrainLearning() {
+  if (_started4) return;
+  _started4 = true;
+  for (const t of ["cryptocom_engine_trades", "fx_brain_outcomes", "sol_shadow_context", "kalshi_perp_shadow_trades", "kalshi_perp_live_trades", "crypto_shadow_trades", "sol_follower_positions"]) {
+    void ensureTrailBrainColumns(t);
+  }
+  const sweep = async () => {
+    if (!trailBrainLearningOn()) return;
+    try {
+      const rows = await loadRuntimeState("trail_brain");
+      for (const row of rows) {
+        const userId = Number(row.key);
+        if (!Number.isFinite(userId)) continue;
+        await runTrailBrainLearningForUser(userId);
+      }
+    } catch (e) {
+      console.error("[trail-brain] sweep failed (non-fatal):", e?.message || e);
+    }
+  };
+  setTimeout(() => {
+    void sweep();
+  }, 7 * 6e4).unref?.();
+  setInterval(() => {
+    void sweep();
+  }, THROTTLE_MS2).unref?.();
+  console.log("[trail-brain] learning started \u2014 trail parameters re-scored every 30 min.");
+}
+var WINDOW_DAYS2, THROTTLE_MS2, num8, EMPTY, CRYPTO_FINAL_R, _lastRun2, _started4;
+var init_trail_brain_learning = __esm({
+  "server/services/trail-brain-learning.ts"() {
+    "use strict";
+    init_db();
+    init_runtime_state();
+    init_trail_brain();
+    WINDOW_DAYS2 = 90;
+    THROTTLE_MS2 = 30 * 6e4;
+    num8 = (v) => v == null || isNaN(Number(v)) ? null : Math.round(Number(v) * 100) / 100;
+    EMPTY = { trades: 0, avgFinal: null, avgGiveback: null };
+    CRYPTO_FINAL_R = `
+  CASE WHEN t.stop_loss IS NULL OR t.exit_price IS NULL THEN NULL
+       WHEN lower(t.direction) IN ('long','buy') AND t.entry_price > t.stop_loss
+         THEN (t.exit_price - t.entry_price) / (t.entry_price - t.stop_loss)
+       WHEN lower(t.direction) IN ('short','sell') AND t.stop_loss > t.entry_price
+         THEN (t.entry_price - t.exit_price) / (t.stop_loss - t.entry_price)
+       ELSE NULL END`;
+    _lastRun2 = /* @__PURE__ */ new Map();
+    _started4 = false;
+  }
+});
+
 // server/services/crypto-shadow-promotions.ts
 var crypto_shadow_promotions_exports = {};
 __export(crypto_shadow_promotions_exports, {
@@ -61638,19 +62444,19 @@ function cryptoShadowPromotionsOn() {
   return process.env.CRYPTO_SHADOW_PROMOTIONS !== "off";
 }
 async function getCryptoPromotions(userId) {
-  const hit = _cache8.get(userId);
-  if (hit && Date.now() - hit.at < CACHE_MS4) return hit.promotions;
+  const hit = _cache9.get(userId);
+  if (hit && Date.now() - hit.at < CACHE_MS5) return hit.promotions;
   let promotions = [];
   try {
     const v = await getRuntimeStateStrict(SCOPE3, String(userId));
     if (Array.isArray(v)) promotions = v;
   } catch {
   }
-  _cache8.set(userId, { at: Date.now(), promotions });
+  _cache9.set(userId, { at: Date.now(), promotions });
   return promotions;
 }
 async function storePromotions(userId, promotions) {
-  _cache8.set(userId, { at: Date.now(), promotions });
+  _cache9.set(userId, { at: Date.now(), promotions });
   saveRuntimeState(SCOPE3, String(userId), promotions);
 }
 async function getCryptoPromotionPanel(userId) {
@@ -61730,15 +62536,15 @@ async function checkCryptoPromotion(userId, strategy, buckets) {
     return null;
   }
 }
-var SCOPE3, _cache8, CACHE_MS4;
+var SCOPE3, _cache9, CACHE_MS5;
 var init_crypto_shadow_promotions = __esm({
   "server/services/crypto-shadow-promotions.ts"() {
     "use strict";
     init_runtime_state();
     init_crypto_shadow();
     SCOPE3 = "crypto_shadow_promotions";
-    _cache8 = /* @__PURE__ */ new Map();
-    CACHE_MS4 = 3e4;
+    _cache9 = /* @__PURE__ */ new Map();
+    CACHE_MS5 = 3e4;
   }
 });
 
@@ -61872,7 +62678,7 @@ async function getCryptoStrategyBar(userId, strategy) {
 }
 async function getCryptoLiveToggles(userId) {
   const hit = _cryptoCache.get(userId);
-  if (hit && Date.now() - hit.at < CACHE_MS5) return hit.toggles;
+  if (hit && Date.now() - hit.at < CACHE_MS6) return hit.toggles;
   let toggles = {};
   try {
     const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
@@ -61982,7 +62788,7 @@ async function getKalshiStrategyBar(userId, strategy) {
 }
 async function getKalshiPerpArms(userId) {
   const hit = _kalshiCache.get(userId);
-  if (hit && Date.now() - hit.at < CACHE_MS5) return hit.arms;
+  if (hit && Date.now() - hit.at < CACHE_MS6) return hit.arms;
   let arms = {};
   try {
     const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
@@ -62056,7 +62862,7 @@ async function setKalshiPerpArmed(userId, strategy, armed) {
   });
   return { ok: true, bar: cleanBar ?? void 0 };
 }
-var _auditEnsured, pct1, signedPct, wrPct, CRYPTO_LIVE_BAR, CRYPTO_LIVE_STRATEGIES, CRYPTO_SCOPE, _cryptoCache, CACHE_MS5, KALSHI_PERP_BAR, KALSHI_SCOPE, _kalshiCache;
+var _auditEnsured, pct1, signedPct, wrPct, CRYPTO_LIVE_BAR, CRYPTO_LIVE_STRATEGIES, CRYPTO_SCOPE, _cryptoCache, CACHE_MS6, KALSHI_PERP_BAR, KALSHI_SCOPE, _kalshiCache;
 var init_shadow_live_toggles = __esm({
   "server/services/shadow-live-toggles.ts"() {
     "use strict";
@@ -62081,7 +62887,7 @@ var init_shadow_live_toggles = __esm({
     ];
     CRYPTO_SCOPE = "crypto_live_toggles";
     _cryptoCache = /* @__PURE__ */ new Map();
-    CACHE_MS5 = 3e4;
+    CACHE_MS6 = 3e4;
     KALSHI_PERP_BAR = { minTrades: 50, minAvgR: 0.2, minWinRate: 0.4, maxDrawdownPct: 10 };
     KALSHI_SCOPE = "kalshi_perp_armed";
     _kalshiCache = /* @__PURE__ */ new Map();
@@ -62396,17 +63202,17 @@ async function getEarningsInfo(symbol, universe, nowMs = Date.now(), fetcher = f
   const snap = await ensureEarningsSnapshot(universe, nowMs, fetcher).catch(() => null);
   return lookupInSnapshot(snap, symbol);
 }
-var perpEarningsEnabled, num8, earningsWindowH, FETCH_DAYS, NASDAQ_URL, STATE_SCOPE, STATE_KEY, etPartsFmt2, UNKNOWN_LOOKUP, fetchNasdaqEarningsDay, _snap, _loaded, _refreshing;
+var perpEarningsEnabled, num9, earningsWindowH, FETCH_DAYS, NASDAQ_URL, STATE_SCOPE, STATE_KEY, etPartsFmt2, UNKNOWN_LOOKUP, fetchNasdaqEarningsDay, _snap, _loaded, _refreshing;
 var init_kalshi_earnings_calendar = __esm({
   "server/services/kalshi-earnings-calendar.ts"() {
     "use strict";
     init_runtime_state();
     perpEarningsEnabled = () => process.env.KALSHI_PERP_EARNINGS !== "off";
-    num8 = (n, d) => {
+    num9 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
-    earningsWindowH = () => num8("KALSHI_PERP_EARNINGS_WINDOW_H", 48);
+    earningsWindowH = () => num9("KALSHI_PERP_EARNINGS_WINDOW_H", 48);
     FETCH_DAYS = 4;
     NASDAQ_URL = "https://api.nasdaq.com/api/calendar/earnings";
     STATE_SCOPE = "kalshi_earnings_calendar";
@@ -62498,18 +63304,18 @@ function fundingFadeForTicker(ticker, book, minHistory = fundingFadeMinHistory()
   }
   return decideFundingFade(t.latestRate, book.pool, "lane", minHistory);
 }
-var fundingFadeEnabled, num9, fundingFadeMinHistory, fundingFadeWindowDays, BOOK_TTL_MS, _bookCache;
+var fundingFadeEnabled, num10, fundingFadeMinHistory, fundingFadeWindowDays, BOOK_TTL_MS, _bookCache;
 var init_kalshi_funding_fade = __esm({
   "server/services/kalshi-funding-fade.ts"() {
     "use strict";
     init_kalshi_perps();
     fundingFadeEnabled = () => process.env.KALSHI_FUNDING_FADE !== "off";
-    num9 = (n, d) => {
+    num10 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
-    fundingFadeMinHistory = () => Math.floor(num9("KALSHI_FUNDING_FADE_MIN_HISTORY", 30));
-    fundingFadeWindowDays = () => num9("KALSHI_FUNDING_FADE_WINDOW_DAYS", 90);
+    fundingFadeMinHistory = () => Math.floor(num10("KALSHI_FUNDING_FADE_MIN_HISTORY", 30));
+    fundingFadeWindowDays = () => num10("KALSHI_FUNDING_FADE_WINDOW_DAYS", 90);
     BOOK_TTL_MS = 30 * 6e4;
     _bookCache = null;
   }
@@ -64789,6 +65595,45 @@ async function monitorOpenPositions(userId, cfg) {
           await closePosition2(userId, trade, px, "stop_loss");
           continue;
         }
+        if (Number(trade.stopLoss) > 0 && trade.entryPrice > 0) {
+          try {
+            const tb = await trailBrainConsult(userId, "crypto", trade.strategy || "all", trade.symbol || "all");
+            if (tb) {
+              const { getRuntimeStateStrict: getRuntimeStateStrict2, insertRuntimeStateIfAbsent: insertRuntimeStateIfAbsent2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+              const k2 = String(trade.id);
+              const stored = await getRuntimeStateStrict2("crypto_initial_stop", k2);
+              const initial = Number(stored?.sl) > 0 ? Number(stored.sl) : Number((await insertRuntimeStateIfAbsent2("crypto_initial_stop", k2, { sl: trade.stopLoss }))?.sl);
+              const risk = trade.entryPrice - initial;
+              if (risk > 0) {
+                const favR = (px - trade.entryPrice) / risk;
+                const peakR2 = Math.max(Number(trade.peakRMultiple) || 0, favR);
+                if (peakR2 > (Number(trade.peakRMultiple) || 0)) {
+                  trade.peakRMultiple = peakR2;
+                  await storage.updateCryptocomEngineTradeTrailState(trade.id, { peakRMultiple: peakR2, trailArmed: !!trade.trailArmed }).catch(() => {
+                  });
+                }
+                const d = trailBrainDecide(tb.params, { peak: peakR2, current: favR, stopFloor: -1 });
+                if (d.binding) {
+                  void stampTrailBrainTrade("cryptocom_engine_trades", trade.id, tb);
+                  if (d.exitNow) {
+                    logTrailBrainDecision(userId, { engine: "crypto", groupKey: tb.groupKey, version: tb.version, text: `${trade.symbol}: trail exit at ${favR.toFixed(2)}R \u2014 peaked ${peakR2.toFixed(2)}R, learned floor ${d.floor.toFixed(2)}R` });
+                    await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "exit", strategy: trade.strategy, reasoning: `${trade.symbol}: Trail Brain exit \u2014 peaked +${peakR2.toFixed(2)}R, now +${favR.toFixed(2)}R, at the learned floor ${d.floor.toFixed(2)}R (group v${tb.version}).`, score: null, price: px, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+                    });
+                    await closePosition2(userId, trade, px, "trail_brain");
+                    continue;
+                  }
+                  const want = trade.entryPrice + d.floor * risk;
+                  if (want > Number(trade.stopLoss) && want < px) {
+                    const { pool: dbp } = await Promise.resolve().then(() => (init_db(), db_exports));
+                    await dbp.query(`UPDATE cryptocom_engine_trades SET stop_loss=$2 WHERE id=$1 AND status='open' AND (stop_loss IS NULL OR stop_loss < $2)`, [trade.id, want]);
+                    trade.stopLoss = want;
+                  }
+                }
+              }
+            }
+          } catch {
+          }
+        }
         if (process.env.CRYPTO_TRAIL !== "off" && Number(trade.stopLoss) > 0 && trade.entryPrice > 0) {
           try {
             const { getRuntimeStateStrict: getRuntimeStateStrict2, insertRuntimeStateIfAbsent: insertRuntimeStateIfAbsent2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
@@ -64872,16 +65717,31 @@ async function monitorOpenPositions(userId, cfg) {
       if (tgGuard) void stampCryptoTradeTrailGuard(userId, trade.id, tgGuard);
       const tCfg = tgProfile ? { ...cfg, trailMethod: tgProfile.method, trailActivationR: tgProfile.activationR, trailFixedR: tgProfile.fixedR, trailStepR: tgProfile.stepR, trailProfitLockPct: tgProfile.profitLockPct, trailSarInitialAF: tgProfile.sarInitialAF, trailSarMaxAF: tgProfile.sarMaxAF, breakevenBufferR: tgProfile.breakevenBufferR } : cfg;
       const armed = trade.trailArmed || peakR >= tCfg.trailActivationR;
+      let brainFloor = -Infinity;
+      let brainConsult = null;
+      if (!tgGuard) {
+        brainConsult = await trailBrainConsult(userId, "crypto", trade.strategy || "all", trade.symbol || "all");
+        if (brainConsult) {
+          const d = trailBrainDecide(brainConsult.params, { peak: peakR, current: currentR, stopFloor: -1 });
+          if (d.binding) {
+            brainFloor = d.floor;
+            void stampTrailBrainTrade("cryptocom_engine_trades", trade.id, brainConsult);
+          }
+        }
+      }
       if (currentR <= -1) {
         await closePosition2(userId, trade, currentPrice, "stop_loss");
         continue;
       }
-      if (tCfg.trailMethod !== "none" && armed) {
-        const floor = Math.max(computeTrailFloorR(tCfg, peakR), tCfg.breakevenBufferR);
-        if (currentR <= floor) {
-          await closePosition2(userId, trade, currentPrice, "trailing_stop");
-          continue;
+      const cfgFloor = tCfg.trailMethod !== "none" && armed ? Math.max(computeTrailFloorR(tCfg, peakR), tCfg.breakevenBufferR) : -Infinity;
+      const floor = Math.max(cfgFloor, brainFloor);
+      if (floor > -Infinity && currentR <= floor) {
+        const brainBound = brainFloor > cfgFloor;
+        if (brainBound && brainConsult) {
+          logTrailBrainDecision(userId, { engine: "crypto", groupKey: brainConsult.groupKey, version: brainConsult.version, text: `${trade.symbol}: trail exit at ${currentR.toFixed(2)}R \u2014 peaked ${peakR.toFixed(2)}R, learned floor ${brainFloor.toFixed(2)}R` });
         }
+        await closePosition2(userId, trade, currentPrice, brainBound ? "trail_brain" : "trailing_stop");
+        continue;
       }
       if (peakR !== trade.peakRMultiple || armed !== trade.trailArmed) {
         await storage.updateCryptocomEngineTradeTrailState(trade.id, { peakRMultiple: peakR, trailArmed: armed });
@@ -66189,6 +67049,7 @@ var init_cryptocom_scanner = __esm({
     init_weekend_boost();
     init_process_fingerprint();
     init_trail_guards();
+    init_trail_brain();
     init_cefi_executor();
     MIN_SCAN_INTERVAL_MS = 6e4;
     lastScanAt = /* @__PURE__ */ new Map();
@@ -68718,7 +69579,7 @@ function aggregateKalshiStats(rows) {
       (g.get(k2) ?? g.set(k2, []).get(k2)).push(v);
     }
   }
-  const minN = num10("KALSHI_STOCK_SHADOW_STATS_MIN_N", 15), fav = num10("KALSHI_STOCK_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num10("KALSHI_STOCK_SHADOW_AVOID_MEDIAN_PCT", 1);
+  const minN = num11("KALSHI_STOCK_SHADOW_STATS_MIN_N", 15), fav = num11("KALSHI_STOCK_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num11("KALSHI_STOCK_SHADOW_AVOID_MEDIAN_PCT", 1);
   return Array.from(g.entries()).map(([k2, v]) => {
     const [strategy, dim, bucket] = k2.split("|");
     const s = v.slice().sort((a, b) => a - b);
@@ -69061,6 +69922,7 @@ async function resolveKalshiStockShadowTrades(userId) {
     const short = t.direction === "short";
     const ageH = (Date.now() - openedMs) / 36e5;
     let exit = null, why = "";
+    const tb = await trailBrainConsult(userId, "kalshi", String(t.strategy || "all"), String(t.underlying || "all"));
     if (candles.length) {
       for (const cd of candles) {
         if (cd.t + 6e4 <= openedMs) continue;
@@ -69074,6 +69936,17 @@ async function resolveKalshiStockShadowTrades(userId) {
           exit = short ? Math.max(t.stop_loss, cd.ask.o) : Math.min(t.stop_loss, cd.bid.o);
           why = "stop";
           break;
+        }
+        if (tb) {
+          const ts = trailBrainStopPrice({ direction: String(t.direction), entryPrice: Number(t.entry_price), peakGainPct: Number(t.peak_gain_pct) || 0, currentGainPct: gain, slPct: Number(t.sl_pct), params: tb.params });
+          if (ts) {
+            void stampTrailBrainTrade("kalshi_perp_shadow_trades", t.id, tb);
+            if (short ? cd.ask.h >= ts.stopPrice : cd.bid.l <= ts.stopPrice) {
+              exit = short ? Math.max(ts.stopPrice, cd.ask.o) : Math.min(ts.stopPrice, cd.bid.o);
+              why = "trail";
+              break;
+            }
+          }
         }
         if (short ? cd.ask.l <= t.take_profit : cd.bid.h >= t.take_profit) {
           exit = Number(t.take_profit);
@@ -69375,8 +70248,8 @@ async function resolveOwnerUserId() {
   return _ownerId;
 }
 function startKalshiStockShadow() {
-  if (_started4) return;
-  _started4 = true;
+  if (_started5) return;
+  _started5 = true;
   if (!stockShadowEnabled()) {
     console.log("[kalshi-stock-shadow] disabled (KALSHI_STOCK_SHADOW=off).");
     return;
@@ -69393,35 +70266,36 @@ function startKalshiStockShadow() {
   setInterval(tick3, 5 * 6e4).unref?.();
   console.log("[kalshi-stock-shadow] started \u2014 SHADOW lane on public Kalshi perp data (no credentials, no orders).");
 }
-var stockOrbEnabled, num10, stockShadowEnabled, accountSimEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started4;
+var stockOrbEnabled, num11, stockShadowEnabled, accountSimEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started5;
 var init_kalshi_stock_shadow = __esm({
   "server/services/kalshi-stock-shadow.ts"() {
     "use strict";
     init_db();
     init_ensure_kalshi_perp_shadow_tables();
+    init_trail_brain();
     init_kalshi_perps();
     init_kalshi_orb();
     init_kalshi_perp_brain();
     init_kalshi_earnings_calendar();
     init_kalshi_funding_fade();
     stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== "off";
-    num10 = (n, d) => {
+    num11 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
     stockShadowEnabled = () => process.env.KALSHI_STOCK_SHADOW !== "off";
     accountSimEnabled = () => process.env.KALSHI_ACCOUNT_SIM !== "off";
-    MAX_OPEN2 = () => Math.floor(num10("KALSHI_STOCK_SHADOW_MAX_OPEN", 30));
-    MAX_PER_STRAT2 = () => Math.floor(num10("KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY", 3));
-    COOLDOWN_MS2 = () => num10("KALSHI_STOCK_SHADOW_COOLDOWN_MIN", 60) * 6e4;
-    EVERY_MS2 = () => num10("KALSHI_STOCK_SHADOW_EVERY_MIN", 10) * 6e4;
-    NOTIONAL2 = () => num10("KALSHI_STOCK_SHADOW_NOTIONAL_USD", 250);
-    MIN_CONF = () => num10("KALSHI_STOCK_SHADOW_MIN_CONFIDENCE", 70);
-    FEE_BPS = () => num10("KALSHI_STOCK_SHADOW_FEE_BPS", 20);
-    SL_LO = () => num10("KALSHI_STOCK_SHADOW_SL_MIN_PCT", 0.8);
-    SL_HI = () => num10("KALSHI_STOCK_SHADOW_SL_MAX_PCT", 4);
-    ATR_MULT2 = () => num10("KALSHI_STOCK_SHADOW_SL_ATR_MULT", 1.5);
-    RR = () => num10("KALSHI_STOCK_SHADOW_RR", 2);
+    MAX_OPEN2 = () => Math.floor(num11("KALSHI_STOCK_SHADOW_MAX_OPEN", 30));
+    MAX_PER_STRAT2 = () => Math.floor(num11("KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY", 3));
+    COOLDOWN_MS2 = () => num11("KALSHI_STOCK_SHADOW_COOLDOWN_MIN", 60) * 6e4;
+    EVERY_MS2 = () => num11("KALSHI_STOCK_SHADOW_EVERY_MIN", 10) * 6e4;
+    NOTIONAL2 = () => num11("KALSHI_STOCK_SHADOW_NOTIONAL_USD", 250);
+    MIN_CONF = () => num11("KALSHI_STOCK_SHADOW_MIN_CONFIDENCE", 70);
+    FEE_BPS = () => num11("KALSHI_STOCK_SHADOW_FEE_BPS", 20);
+    SL_LO = () => num11("KALSHI_STOCK_SHADOW_SL_MIN_PCT", 0.8);
+    SL_HI = () => num11("KALSHI_STOCK_SHADOW_SL_MAX_PCT", 4);
+    ATR_MULT2 = () => num11("KALSHI_STOCK_SHADOW_SL_ATR_MULT", 1.5);
+    RR = () => num11("KALSHI_STOCK_SHADOW_RR", 2);
     CRYPTO_PORTS = ["breakout", "trend_following", "structure", "divergence", "order_flow", "volume_profile"];
     OPTIONS_PORTS = ["orb", "volume_profile", "breakout", "momentum", "order_flow"];
     etFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit", weekday: "short" });
@@ -69461,7 +70335,7 @@ var init_kalshi_stock_shadow = __esm({
     };
     _lastEntryRun = /* @__PURE__ */ new Map();
     _ownerId = null;
-    _started4 = false;
+    _started5 = false;
   }
 });
 
@@ -69907,6 +70781,15 @@ async function reconcileLivePositions(userId, state) {
   state.unknownPositions = positions.filter((p2) => !claimed.has(p2.ticker)).map((p2) => ({ ticker: p2.ticker, contracts: p2.contracts, seenAt: (/* @__PURE__ */ new Date()).toISOString() }));
   return { positions, byTicker };
 }
+function ensureLivePeakColumn() {
+  if (!_livePeakEnsured) {
+    _livePeakEnsured = pool.query(`ALTER TABLE kalshi_perp_live_trades ADD COLUMN IF NOT EXISTS peak_gain_pct double precision`).then(() => void 0).catch((e) => {
+      _livePeakEnsured = null;
+      console.error("[kalshi-perp-live] peak-column ensure failed (non-fatal, will retry):", e?.message || e);
+    });
+  }
+  return _livePeakEnsured;
+}
 async function monitorLiveExits(userId, actions) {
   const { rows } = await pool.query(
     `SELECT * FROM kalshi_perp_live_trades WHERE user_id=$1 AND status IN ('open','closing') ORDER BY id ASC`,
@@ -69924,7 +70807,39 @@ async function monitorLiveExits(userId, actions) {
         const candles = await getPerpCandles(String(t.ticker), 1, mins).catch(() => []);
         const fresh = candles.filter((c) => c.t + 6e4 > since);
         if (fresh.length) {
-          why = scanExitTrigger(fresh, String(t.direction), Number(t.stop_loss), Number(t.take_profit));
+          const tb = await trailBrainConsult(userId, "kalshi", String(t.strategy || "all"), String(t.underlying || "all"));
+          if (tb) {
+            const short = t.direction === "short";
+            let peak = Number(t.peak_gain_pct) || 0;
+            let effStop = Number(t.stop_loss);
+            let trailBound = false;
+            for (const cd of fresh) {
+              const gain = short ? (Number(t.entry_price) - cd.ask.l) / Number(t.entry_price) * 100 : (cd.bid.h - Number(t.entry_price)) / Number(t.entry_price) * 100;
+              if (gain > peak) peak = gain;
+              const ts = trailBrainStopPrice({ direction: String(t.direction), entryPrice: Number(t.entry_price), peakGainPct: peak, currentGainPct: gain, slPct: Number(t.sl_pct), params: tb.params });
+              if (ts) {
+                effStop = short ? Math.min(effStop, ts.stopPrice) : Math.max(effStop, ts.stopPrice);
+                trailBound = true;
+              }
+              if (short ? cd.ask.h >= effStop : cd.bid.l <= effStop) {
+                why = trailBound && effStop !== Number(t.stop_loss) ? "trail" : "stop";
+                break;
+              }
+              if (short ? cd.ask.l <= Number(t.take_profit) : cd.bid.h >= Number(t.take_profit)) {
+                why = "target";
+                break;
+              }
+            }
+            if (peak !== (Number(t.peak_gain_pct) || 0)) {
+              await ensureLivePeakColumn();
+              await pool.query(`UPDATE kalshi_perp_live_trades SET peak_gain_pct=$2 WHERE id=$1`, [t.id, peak]).catch(() => {
+              });
+              t.peak_gain_pct = peak;
+            }
+            if (trailBound) void stampTrailBrainTrade("kalshi_perp_live_trades", t.id, tb);
+          } else {
+            why = scanExitTrigger(fresh, String(t.direction), Number(t.stop_loss), Number(t.take_profit));
+          }
           _exitWatermark.set(Number(t.id), fresh[fresh.length - 1].t + 6e4);
         }
         if (!why && (Date.now() - openedMs) / 36e5 >= Number(t.max_hours)) why = "time limit";
@@ -70306,8 +71221,8 @@ async function resolveOwnerUserId2() {
   return _ownerId2;
 }
 function startKalshiPerpLive() {
-  if (_started5) return;
-  _started5 = true;
+  if (_started6) return;
+  _started6 = true;
   const tick3 = async () => {
     try {
       const uid2 = await resolveOwnerUserId2();
@@ -70320,30 +71235,31 @@ function startKalshiPerpLive() {
   setInterval(tick3, 6e4).unref?.();
   console.log(perpLiveEnabled() ? "[kalshi-perp-live] started \u2014 LIVE perp lane: entries require arm + promotion bar + margin-enabled, re-verified every cycle." : "[kalshi-perp-live] started with KALSHI_PERP_LIVE=off \u2014 entries disabled; exit monitoring + reconciliation active.");
 }
-var num11, perpLiveEnabled, NOTIONAL3, MAX_OPEN3, MAX_PER_STRAT3, MAX_ORDERS_DAY, MAX_EQUITY_PCT, DAILY_LOSS_PCT, SIGNAL_MAX_AGE_MIN, EXIT_SLIPPAGE_PCT, ERROR_STORM_LIMIT, ERROR_PAUSE_MS, AMBIGUOUS_ABANDON_MS, ARM_SCOPES, STATE_SCOPE2, defaultState, utcDayKey, _exitWatermark, _ownerId2, _started5;
+var num12, perpLiveEnabled, NOTIONAL3, MAX_OPEN3, MAX_PER_STRAT3, MAX_ORDERS_DAY, MAX_EQUITY_PCT, DAILY_LOSS_PCT, SIGNAL_MAX_AGE_MIN, EXIT_SLIPPAGE_PCT, ERROR_STORM_LIMIT, ERROR_PAUSE_MS, AMBIGUOUS_ABANDON_MS, ARM_SCOPES, STATE_SCOPE2, defaultState, utcDayKey, _exitWatermark, _livePeakEnsured, _ownerId2, _started6;
 var init_kalshi_perp_live = __esm({
   "server/services/kalshi-perp-live.ts"() {
     "use strict";
     init_db();
     init_ensure_kalshi_perp_live_tables();
+    init_trail_brain();
     init_ensure_kalshi_perp_shadow_tables();
     init_runtime_state();
     init_kalshi_perps();
     init_kalshi_trading();
     init_kalshi_stock_shadow();
-    num11 = (n, d) => {
+    num12 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
     perpLiveEnabled = () => process.env.KALSHI_PERP_LIVE !== "off";
-    NOTIONAL3 = () => num11("KALSHI_PERP_LIVE_NOTIONAL_USD", 250);
-    MAX_OPEN3 = () => Math.max(1, Math.floor(num11("KALSHI_PERP_LIVE_MAX_OPEN", 3)));
-    MAX_PER_STRAT3 = () => Math.max(1, Math.floor(num11("KALSHI_PERP_LIVE_MAX_PER_STRATEGY", 2)));
-    MAX_ORDERS_DAY = () => Math.max(1, Math.floor(num11("KALSHI_PERP_LIVE_MAX_ORDERS_PER_DAY", 10)));
-    MAX_EQUITY_PCT = () => num11("KALSHI_PERP_LIVE_MAX_EQUITY_PCT_PER_TRADE", 25);
-    DAILY_LOSS_PCT = () => num11("KALSHI_PERP_LIVE_DAILY_LOSS_PCT", 5);
-    SIGNAL_MAX_AGE_MIN = () => num11("KALSHI_PERP_LIVE_SIGNAL_MAX_AGE_MIN", 10);
-    EXIT_SLIPPAGE_PCT = () => num11("KALSHI_PERP_LIVE_EXIT_SLIPPAGE_PCT", 0.5);
+    NOTIONAL3 = () => num12("KALSHI_PERP_LIVE_NOTIONAL_USD", 250);
+    MAX_OPEN3 = () => Math.max(1, Math.floor(num12("KALSHI_PERP_LIVE_MAX_OPEN", 3)));
+    MAX_PER_STRAT3 = () => Math.max(1, Math.floor(num12("KALSHI_PERP_LIVE_MAX_PER_STRATEGY", 2)));
+    MAX_ORDERS_DAY = () => Math.max(1, Math.floor(num12("KALSHI_PERP_LIVE_MAX_ORDERS_PER_DAY", 10)));
+    MAX_EQUITY_PCT = () => num12("KALSHI_PERP_LIVE_MAX_EQUITY_PCT_PER_TRADE", 25);
+    DAILY_LOSS_PCT = () => num12("KALSHI_PERP_LIVE_DAILY_LOSS_PCT", 5);
+    SIGNAL_MAX_AGE_MIN = () => num12("KALSHI_PERP_LIVE_SIGNAL_MAX_AGE_MIN", 10);
+    EXIT_SLIPPAGE_PCT = () => num12("KALSHI_PERP_LIVE_EXIT_SLIPPAGE_PCT", 0.5);
     ERROR_STORM_LIMIT = 3;
     ERROR_PAUSE_MS = 30 * 6e4;
     AMBIGUOUS_ABANDON_MS = 15 * 6e4;
@@ -70361,8 +71277,9 @@ var init_kalshi_perp_live = __esm({
     });
     utcDayKey = (ms) => new Date(ms).toISOString().slice(0, 10);
     _exitWatermark = /* @__PURE__ */ new Map();
+    _livePeakEnsured = null;
     _ownerId2 = null;
-    _started5 = false;
+    _started6 = false;
   }
 });
 
@@ -70935,8 +71852,8 @@ async function resolveOwnerUserId3() {
   return _ownerId3;
 }
 function startKalshiWeatherShadow() {
-  if (_started6) return;
-  _started6 = true;
+  if (_started7) return;
+  _started7 = true;
   if (!weatherEnsembleShadowEnabled()) {
     console.log("[kalshi-weather-shadow] disabled (KALSHI_WEATHER_ENSEMBLE=off).");
     return;
@@ -70953,7 +71870,7 @@ function startKalshiWeatherShadow() {
   setInterval(tick3, EVERY_MS3()).unref?.();
   console.log("[kalshi-weather-shadow] started \u2014 SHADOW lane on Open-Meteo ensembles + public Kalshi data (no credentials, no orders).");
 }
-var LANE, STRATEGY, weatherEnsembleShadowEnabled, num12, MIN_EDGE_CENTS, MIN_ENTRY_CENTS, MAX_ENTRY_CENTS, SPREAD_MAX_CENTS, MAX_BIAS_DEGREES, MAX_OPEN4, MAX_PER_EVENT, NOTIONAL_USD, EVERY_MS3, ALL_CITY_KEYS, defaultFetcher, _ecmwfCache, _nwsCache, _lastCycle, _ownerId3, _started6;
+var LANE, STRATEGY, weatherEnsembleShadowEnabled, num13, MIN_EDGE_CENTS, MIN_ENTRY_CENTS, MAX_ENTRY_CENTS, SPREAD_MAX_CENTS, MAX_BIAS_DEGREES, MAX_OPEN4, MAX_PER_EVENT, NOTIONAL_USD, EVERY_MS3, ALL_CITY_KEYS, defaultFetcher, _ecmwfCache, _nwsCache, _lastCycle, _ownerId3, _started7;
 var init_kalshi_weather_shadow = __esm({
   "server/services/kalshi-weather-shadow.ts"() {
     "use strict";
@@ -70966,19 +71883,19 @@ var init_kalshi_weather_shadow = __esm({
     LANE = "kalshi_weather_shadow";
     STRATEGY = "weather_ensemble";
     weatherEnsembleShadowEnabled = () => process.env.KALSHI_WEATHER_ENSEMBLE !== "off";
-    num12 = (n, d) => {
+    num13 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
-    MIN_EDGE_CENTS = () => num12("KALSHI_WEATHER_SHADOW_MIN_EDGE_CENTS", 8);
-    MIN_ENTRY_CENTS = () => Math.floor(num12("KALSHI_WEATHER_SHADOW_MIN_ENTRY_CENTS", 15));
-    MAX_ENTRY_CENTS = () => Math.floor(num12("KALSHI_WEATHER_SHADOW_MAX_ENTRY_CENTS", 96));
-    SPREAD_MAX_CENTS = () => Math.floor(num12("KALSHI_WEATHER_SHADOW_SPREAD_MAX_CENTS", 12));
-    MAX_BIAS_DEGREES = () => num12("KALSHI_WEATHER_SHADOW_MAX_BIAS_DEGREES", 3);
-    MAX_OPEN4 = () => Math.floor(num12("KALSHI_WEATHER_SHADOW_MAX_OPEN", 30));
-    MAX_PER_EVENT = () => Math.floor(num12("KALSHI_WEATHER_SHADOW_MAX_PER_EVENT", 3));
-    NOTIONAL_USD = () => num12("KALSHI_WEATHER_SHADOW_NOTIONAL_USD", 100);
-    EVERY_MS3 = () => num12("KALSHI_WEATHER_SHADOW_EVERY_MIN", 30) * 6e4;
+    MIN_EDGE_CENTS = () => num13("KALSHI_WEATHER_SHADOW_MIN_EDGE_CENTS", 8);
+    MIN_ENTRY_CENTS = () => Math.floor(num13("KALSHI_WEATHER_SHADOW_MIN_ENTRY_CENTS", 15));
+    MAX_ENTRY_CENTS = () => Math.floor(num13("KALSHI_WEATHER_SHADOW_MAX_ENTRY_CENTS", 96));
+    SPREAD_MAX_CENTS = () => Math.floor(num13("KALSHI_WEATHER_SHADOW_SPREAD_MAX_CENTS", 12));
+    MAX_BIAS_DEGREES = () => num13("KALSHI_WEATHER_SHADOW_MAX_BIAS_DEGREES", 3);
+    MAX_OPEN4 = () => Math.floor(num13("KALSHI_WEATHER_SHADOW_MAX_OPEN", 30));
+    MAX_PER_EVENT = () => Math.floor(num13("KALSHI_WEATHER_SHADOW_MAX_PER_EVENT", 3));
+    NOTIONAL_USD = () => num13("KALSHI_WEATHER_SHADOW_NOTIONAL_USD", 100);
+    EVERY_MS3 = () => num13("KALSHI_WEATHER_SHADOW_EVERY_MIN", 30) * 6e4;
     ALL_CITY_KEYS = Object.keys(WEATHER_CITIES);
     defaultFetcher = async (url) => {
       const res2 = await fetch(url, { headers: { "User-Agent": "VEDD-Trading-AI/1.0" }, signal: AbortSignal.timeout(1e4) });
@@ -70989,7 +71906,7 @@ var init_kalshi_weather_shadow = __esm({
     _nwsCache = /* @__PURE__ */ new Map();
     _lastCycle = null;
     _ownerId3 = null;
-    _started6 = false;
+    _started7 = false;
   }
 });
 
@@ -71645,8 +72562,8 @@ async function resolveOwnerUserId4() {
   return _ownerId4;
 }
 function startKalshiSportsShadow() {
-  if (_started7) return;
-  _started7 = true;
+  if (_started8) return;
+  _started8 = true;
   if (!sportsOddsShadowEnabled()) {
     console.log("[kalshi-sports-shadow] disabled (KALSHI_SPORTS_ODDS=off).");
     return;
@@ -71667,7 +72584,7 @@ function startKalshiSportsShadow() {
   setInterval(tick3, EVERY_MS4()).unref?.();
   console.log("[kalshi-sports-shadow] started \u2014 SHADOW lane on de-vigged book odds vs public Kalshi prices (no Kalshi credentials, no orders).");
 }
-var LANE2, STRATEGY2, sportsOddsShadowEnabled, num13, MIN_DIVERGENCE_PTS, MIN_ENTRY_CENTS2, MAX_ENTRY_CENTS2, SPREAD_MAX_CENTS2, MAX_OPEN5, MAX_PER_CYCLE, ODDSPAPI_ODDS_CALL_CAP, NOTIONAL_USD2, EVERY_MS4, LEAGUES, BOOK_PREFERENCE, defaultFetcher2, KALSHI_BASE3, dollarsToCents, _papiSportsCache, _papiCatalogCache, _lastCycle2, _ownerId4, _started7, _idleLogged;
+var LANE2, STRATEGY2, sportsOddsShadowEnabled, num14, MIN_DIVERGENCE_PTS, MIN_ENTRY_CENTS2, MAX_ENTRY_CENTS2, SPREAD_MAX_CENTS2, MAX_OPEN5, MAX_PER_CYCLE, ODDSPAPI_ODDS_CALL_CAP, NOTIONAL_USD2, EVERY_MS4, LEAGUES, BOOK_PREFERENCE, defaultFetcher2, KALSHI_BASE3, dollarsToCents, _papiSportsCache, _papiCatalogCache, _lastCycle2, _ownerId4, _started8, _idleLogged;
 var init_kalshi_sports_shadow = __esm({
   "server/services/kalshi-sports-shadow.ts"() {
     "use strict";
@@ -71679,19 +72596,19 @@ var init_kalshi_sports_shadow = __esm({
     LANE2 = "kalshi_sports_shadow";
     STRATEGY2 = "sports_odds_benchmark";
     sportsOddsShadowEnabled = () => process.env.KALSHI_SPORTS_ODDS !== "off";
-    num13 = (n, d) => {
+    num14 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
-    MIN_DIVERGENCE_PTS = () => num13("KALSHI_SPORTS_SHADOW_MIN_DIVERGENCE_PTS", 4);
-    MIN_ENTRY_CENTS2 = () => Math.floor(num13("KALSHI_SPORTS_SHADOW_MIN_ENTRY_CENTS", 5));
-    MAX_ENTRY_CENTS2 = () => Math.floor(num13("KALSHI_SPORTS_SHADOW_MAX_ENTRY_CENTS", 96));
-    SPREAD_MAX_CENTS2 = () => Math.floor(num13("KALSHI_SPORTS_SHADOW_SPREAD_MAX_CENTS", 10));
-    MAX_OPEN5 = () => Math.floor(num13("KALSHI_SPORTS_SHADOW_MAX_OPEN", 40));
-    MAX_PER_CYCLE = () => Math.floor(num13("KALSHI_SPORTS_SHADOW_MAX_PER_CYCLE", 10));
-    ODDSPAPI_ODDS_CALL_CAP = () => Math.floor(num13("KALSHI_SPORTS_ODDSPAPI_CALL_CAP", 8));
-    NOTIONAL_USD2 = () => num13("KALSHI_SPORTS_SHADOW_NOTIONAL_USD", 100);
-    EVERY_MS4 = () => num13("KALSHI_SPORTS_SHADOW_EVERY_MIN", 360) * 6e4;
+    MIN_DIVERGENCE_PTS = () => num14("KALSHI_SPORTS_SHADOW_MIN_DIVERGENCE_PTS", 4);
+    MIN_ENTRY_CENTS2 = () => Math.floor(num14("KALSHI_SPORTS_SHADOW_MIN_ENTRY_CENTS", 5));
+    MAX_ENTRY_CENTS2 = () => Math.floor(num14("KALSHI_SPORTS_SHADOW_MAX_ENTRY_CENTS", 96));
+    SPREAD_MAX_CENTS2 = () => Math.floor(num14("KALSHI_SPORTS_SHADOW_SPREAD_MAX_CENTS", 10));
+    MAX_OPEN5 = () => Math.floor(num14("KALSHI_SPORTS_SHADOW_MAX_OPEN", 40));
+    MAX_PER_CYCLE = () => Math.floor(num14("KALSHI_SPORTS_SHADOW_MAX_PER_CYCLE", 10));
+    ODDSPAPI_ODDS_CALL_CAP = () => Math.floor(num14("KALSHI_SPORTS_ODDSPAPI_CALL_CAP", 8));
+    NOTIONAL_USD2 = () => num14("KALSHI_SPORTS_SHADOW_NOTIONAL_USD", 100);
+    EVERY_MS4 = () => num14("KALSHI_SPORTS_SHADOW_EVERY_MIN", 360) * 6e4;
     LEAGUES = [
       { key: "NFL", kalshiSeries: "KXNFLGAME", oddsApiSportKey: "americanfootball_nfl", oddspapiSportSlug: "american-football" },
       { key: "NBA", kalshiSeries: "KXNBAGAME", oddsApiSportKey: "basketball_nba", oddspapiSportSlug: "basketball" },
@@ -71715,7 +72632,7 @@ var init_kalshi_sports_shadow = __esm({
     _papiCatalogCache = /* @__PURE__ */ new Map();
     _lastCycle2 = null;
     _ownerId4 = null;
-    _started7 = false;
+    _started8 = false;
     _idleLogged = false;
   }
 });
@@ -72688,7 +73605,7 @@ async function runRuinConeSimulation(userId, params = {}) {
     source
   };
   if (!params.noCache) {
-    const hit = _cache9.get(_cacheKey(userId, resolved));
+    const hit = _cache10.get(_cacheKey(userId, resolved));
     if (hit && hit.expires > Date.now()) return hit.result;
   }
   const rows = await db.select({ pnl: aiTradeResults.profitLoss, closedAt: aiTradeResults.closedAt }).from(aiTradeResults).where(and10(
@@ -72736,7 +73653,7 @@ async function runRuinConeSimulation(userId, params = {}) {
       },
       warning: `Only ${sourceTradeCount} closed '${source}' trade(s) on record \u2014 need at least 2 to simulate. Let the scanner build more history.`
     };
-    _cache9.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS8, result: result2 });
+    _cache10.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS8, result: result2 });
     return result2;
   }
   const paths = new Array(numSimulations);
@@ -72836,10 +73753,10 @@ async function runRuinConeSimulation(userId, params = {}) {
     },
     warning: sourceTradeCount < 20 ? `Thin history: only ${sourceTradeCount} closed '${source}' trade(s). Results are indicative only until more trades accumulate.` : void 0
   };
-  _cache9.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS8, result });
+  _cache10.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS8, result });
   return result;
 }
-var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS8, _cache9;
+var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS8, _cache10;
 var init_ruin_cone = __esm({
   "server/services/ruin-cone.ts"() {
     "use strict";
@@ -72860,7 +73777,7 @@ var init_ruin_cone = __esm({
     DEFAULT_NUM_TRADES = 100;
     DEFAULT_SOURCE_LIMIT = 200;
     CACHE_TTL_MS8 = 5 * 60 * 1e3;
-    _cache9 = /* @__PURE__ */ new Map();
+    _cache10 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -72905,12 +73822,12 @@ async function getSettingsOverview(userId) {
   }
   return { engines };
 }
-var num14, bool, text2, secs, ENGINES;
+var num15, bool, text2, secs, ENGINES;
 var init_settings_overview = __esm({
   "server/services/settings-overview.ts"() {
     "use strict";
     init_db();
-    num14 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
+    num15 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
     bool = (key, label, standard, from) => ({ key, from, label, standard, fmt: "bool" });
     text2 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "text" });
     secs = (key, label, standard, from) => ({ key, from, label, standard, fmt: "secs" });
@@ -72920,24 +73837,24 @@ var init_settings_overview = __esm({
         name: "FX Engine",
         // Standards: getDefaultConfig() literal in live-trading-engine.ts.
         fields: [
-          num14("minConfidence", "Minimum confidence to trade", 70),
+          num15("minConfidence", "Minimum confidence to trade", 70),
           text2("strategyMode", "Strategy mode", "aggressive"),
-          num14("maxOpenTrades", "Max open trades at once", 5),
-          num14("riskPerTrade", "Risk per trade (%)", 1),
-          num14("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
-          num14("maxDailyLossPct", "Daily loss breaker (%)", 4),
-          num14("dailyLossLimit", "Daily loss limit (%)", 5),
-          num14("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
-          num14("drawdownShieldThreshold", "Drawdown shield (%)", 3),
-          num14("maxLotSize", "Max lot size", 0.1),
-          num14("maxLot", "Absolute lot ceiling (0 = none)", 0),
-          num14("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num14("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
+          num15("maxOpenTrades", "Max open trades at once", 5),
+          num15("riskPerTrade", "Risk per trade (%)", 1),
+          num15("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
+          num15("maxDailyLossPct", "Daily loss breaker (%)", 4),
+          num15("dailyLossLimit", "Daily loss limit (%)", 5),
+          num15("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
+          num15("drawdownShieldThreshold", "Drawdown shield (%)", 3),
+          num15("maxLotSize", "Max lot size", 0.1),
+          num15("maxLot", "Absolute lot ceiling (0 = none)", 0),
+          num15("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num15("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
           bool("trailingStopEnabled", "Trailing stops", true),
           bool("profitLockEnabled", "Profit lock from +1R", true),
-          num14("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
+          num15("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
           bool("propFirmMode", "Prop firm mode", false),
-          num14("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
+          num15("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
           bool("autoFlattenOnBreach", "Close trades when a breaker trips", false),
           bool("brainLearningMode", "Brain learning", true),
           bool("brainShadowEnabled", "Practice results feed the brain", true),
@@ -72954,12 +73871,12 @@ var init_settings_overview = __esm({
         name: "Sol Engine",
         // Standards: DEFAULT_CONFIG in sol-engine.ts.
         fields: [
-          num14("minConfidence", "Minimum confidence to trade", 65),
-          num14("riskPerTradePct", "Risk per trade (%)", 1),
-          num14("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num14("maxTokens", "Max tokens tracked at once", 10),
+          num15("minConfidence", "Minimum confidence to trade", 65),
+          num15("riskPerTradePct", "Risk per trade (%)", 1),
+          num15("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num15("maxTokens", "Max tokens tracked at once", 10),
           bool("shieldEnabled", "Loss shield", true),
-          num14("shieldThreshold", "Shield trips at drawdown (%)", 10),
+          num15("shieldThreshold", "Shield trips at drawdown (%)", 10),
           bool("useKelly", "Kelly position sizing", false),
           text2("directionFilter", "Direction filter", "buy_only"),
           bool("stopOrdersEnabled", "Stop orders", false),
@@ -72978,22 +73895,22 @@ var init_settings_overview = __esm({
         name: "Kalshi Engine",
         // Standards: DEFAULT_CONFIG in kalshi-engine.ts.
         fields: [
-          num14("minConfidence", "Minimum confidence to trade", 70),
-          num14("maxOpenTrades", "Max open trades at once", 3),
-          num14("maxTradesPerDay", "Max trades per day", 10),
-          num14("contractsPerTrade", "Contracts per trade", 5),
-          num14("riskPctPerTrade", "Risk per trade (%)", 5),
-          num14("takeProfitCents", "Take profit (%)", 50),
-          num14("stopLossCents", "Stop loss (%)", 40),
-          num14("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
+          num15("minConfidence", "Minimum confidence to trade", 70),
+          num15("maxOpenTrades", "Max open trades at once", 3),
+          num15("maxTradesPerDay", "Max trades per day", 10),
+          num15("contractsPerTrade", "Contracts per trade", 5),
+          num15("riskPctPerTrade", "Risk per trade (%)", 5),
+          num15("takeProfitCents", "Take profit (%)", 50),
+          num15("stopLossCents", "Stop loss (%)", 40),
+          num15("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
           bool("requireConfluence", "Requires confluence", true),
           bool("ruinGuardEnabled", "Ruin guard (bad-day halt)", true),
-          num14("dailyLossLimitPct", "Daily loss limit (%)", 5),
-          num14("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
+          num15("dailyLossLimitPct", "Daily loss limit (%)", 5),
+          num15("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
           bool("kalshiBrainGating", "Brain can hard-block setups", true),
           bool("brainLearningMode", "Brain learning", true),
           bool("weatherEnabled", "Weather engine", false),
-          num14("cooldownMinutes", "Cooldown between trades (min)", 20)
+          num15("cooldownMinutes", "Cooldown between trades (min)", 20)
         ],
         load: async (userId) => {
           const { getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
@@ -73005,17 +73922,17 @@ var init_settings_overview = __esm({
         name: "Crypto Engine",
         // Standards: column defaults in ensure-cryptocom-engine-tables.ts.
         fields: [
-          num14("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
-          num14("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
-          num14("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
-          num14("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
-          num14("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
-          num14("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
-          num14("leverage", "Leverage", 3, "leverage"),
+          num15("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
+          num15("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
+          num15("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
+          num15("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
+          num15("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
+          num15("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
+          num15("leverage", "Leverage", 3, "leverage"),
           text2("directionFilter", "Direction filter", "both", "direction_filter"),
           bool("brainLearning", "Brain learning", true, "brain_learning_mode"),
           bool("cryptoBrain", "Crypto brain", true, "crypto_brain_enabled"),
-          num14("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
+          num15("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
           bool("autoExecution", "Auto execution", false, "enable_auto_execution"),
           bool("kelly", "Kelly position sizing", false, "use_kelly_criterion"),
           secs("scanInterval", "Scan interval", 12e4, "scan_interval_ms"),
@@ -73043,13 +73960,13 @@ __export(practice_costs_report_exports, {
 });
 function costModelConstants() {
   return {
-    cryptoFeeBps: num15("CRYPTO_PAPER_FEE_BPS", 30),
-    cryptoFeeDeepBps: num15("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
-    cryptoFloorMult: num15("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
-    solSlippagePct: num15("SOL_PAPER_SLIPPAGE_PCT", 0.5),
-    solFeePumpfunPct: num15("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
-    solFeeDefaultPct: num15("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
-    solImpactFallbackPct: num15("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
+    cryptoFeeBps: num16("CRYPTO_PAPER_FEE_BPS", 30),
+    cryptoFeeDeepBps: num16("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
+    cryptoFloorMult: num16("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
+    solSlippagePct: num16("SOL_PAPER_SLIPPAGE_PCT", 0.5),
+    solFeePumpfunPct: num16("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
+    solFeeDefaultPct: num16("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
+    solImpactFallbackPct: num16("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
   };
 }
 async function practiceCostReport(userId, days = 90) {
@@ -73083,12 +74000,12 @@ async function practiceCostReport(userId, days = 90) {
   }
   return out;
 }
-var num15, BANDS;
+var num16, BANDS;
 var init_practice_costs_report = __esm({
   "server/services/practice-costs-report.ts"() {
     "use strict";
     init_db();
-    num15 = (name, dflt) => {
+    num16 = (name, dflt) => {
       const v = Number(process.env[name]);
       return Number.isFinite(v) && v >= 0 ? v : dflt;
     };
@@ -85794,9 +86711,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "021650b9-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-16T08:42:34.839Z";
+var BUILD_COMMIT = "9fdc3039";
+var BUILD_BRANCH = "feat/trail-brain";
+var BUILT_AT = "2026-11-16T09:13:10.756Z";
 
 // server/stripe.ts
 init_db();
@@ -103775,6 +104692,51 @@ Rules:
       res2.status(500).json({ error: err.message });
     }
   });
+  app2.get("/api/engine/trail-brain", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const userId = req.user.id;
+      try {
+        const learning = await Promise.resolve().then(() => (init_trail_brain_learning(), trail_brain_learning_exports));
+        await learning.runTrailBrainLearningForUser(userId);
+      } catch {
+      }
+      const { getTrailBrainReport: getTrailBrainReport2 } = await Promise.resolve().then(() => (init_trail_brain(), trail_brain_exports));
+      res2.json(await getTrailBrainReport2(userId));
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/engine/trail-brain/engine", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { getTrailBrainSettings: getTrailBrainSettings2, saveTrailBrainSettings: saveTrailBrainSettings2 } = await Promise.resolve().then(() => (init_trail_brain(), trail_brain_exports));
+      const { engine, on } = req.body || {};
+      if (!["crypto", "fx", "sol", "kalshi"].includes(engine) || typeof on !== "boolean") {
+        return res2.status(400).json({ error: "engine (crypto|fx|sol|kalshi) and on (boolean) are required" });
+      }
+      const userId = req.user.id;
+      const s = await getTrailBrainSettings2(userId);
+      s.engines[engine] = on;
+      await saveTrailBrainSettings2(userId, s);
+      res2.json({ ok: true, engine, on });
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/engine/trail-brain/reset", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { resetTrailBrainGroup: resetTrailBrainGroup2 } = await Promise.resolve().then(() => (init_trail_brain(), trail_brain_exports));
+      const { groupKey } = req.body || {};
+      if (!groupKey) return res2.status(400).json({ error: "groupKey is required" });
+      const ok = await resetTrailBrainGroup2(req.user.id, String(groupKey));
+      if (!ok) return res2.status(404).json({ error: "group not found" });
+      res2.json({ ok: true });
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
   app2.get("/api/engine/gate-calibration", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     try {
@@ -108526,16 +109488,16 @@ Respond with ONLY valid JSON:
     try {
       const { runRuinConeSimulation: runRuinConeSimulation2 } = await Promise.resolve().then(() => (init_ruin_cone(), ruin_cone_exports));
       const q = req.query;
-      const num16 = (v) => v != null && v !== "" ? Number(v) : void 0;
+      const num17 = (v) => v != null && v !== "" ? Number(v) : void 0;
       const result = await runRuinConeSimulation2(userId, {
-        numSimulations: num16(q.numSimulations),
-        numTrades: num16(q.numTrades),
-        startingEquity: num16(q.startingEquity),
-        dailyLossLimit: num16(q.dailyLossLimit),
-        maxDrawdownLimit: num16(q.maxDrawdownLimit),
-        consistencyRuleThreshold: num16(q.consistencyRuleThreshold),
-        profitTarget: num16(q.profitTarget),
-        sourceLimit: num16(q.sourceLimit),
+        numSimulations: num17(q.numSimulations),
+        numTrades: num17(q.numTrades),
+        startingEquity: num17(q.startingEquity),
+        dailyLossLimit: num17(q.dailyLossLimit),
+        maxDrawdownLimit: num17(q.maxDrawdownLimit),
+        consistencyRuleThreshold: num17(q.consistencyRuleThreshold),
+        profitTarget: num17(q.profitTarget),
+        sourceLimit: num17(q.sourceLimit),
         source: q.source ? String(q.source) : void 0,
         noCache: q.nocache === "1" || q.noCache === "true"
       });
@@ -121407,6 +122369,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startEngineWatchdog2();
     const { startTrailGuardLearning: startTrailGuardLearning2 } = await Promise.resolve().then(() => (init_trail_guard_learning(), trail_guard_learning_exports));
     startTrailGuardLearning2();
+    const { startTrailBrainLearning: startTrailBrainLearning2 } = await Promise.resolve().then(() => (init_trail_brain_learning(), trail_brain_learning_exports));
+    startTrailBrainLearning2();
     const { startKalshiStockShadow: startKalshiStockShadow2 } = await Promise.resolve().then(() => (init_kalshi_stock_shadow(), kalshi_stock_shadow_exports));
     startKalshiStockShadow2();
     const { startKalshiPerpLive: startKalshiPerpLive2 } = await Promise.resolve().then(() => (init_kalshi_perp_live(), kalshi_perp_live_exports));
