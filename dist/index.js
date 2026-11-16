@@ -69646,6 +69646,7 @@ var init_strategy_backtest = __esm({
 // server/services/kalshi-stock-shadow.ts
 var kalshi_stock_shadow_exports = {};
 __export(kalshi_stock_shadow_exports, {
+  STATS_REPAIR_REASON: () => STATS_REPAIR_REASON,
   accountReplay: () => accountReplay,
   accountSimEnabled: () => accountSimEnabled,
   aggregateKalshiStats: () => aggregateKalshiStats,
@@ -69657,11 +69658,14 @@ __export(kalshi_stock_shadow_exports, {
   maxValidEntryUsd: () => maxValidEntryUsd,
   maxValidNotionalUsd: () => maxValidNotionalUsd,
   maxValidReturnPct: () => maxValidReturnPct,
+  repairKalshiPerpShadowStats: () => repairKalshiPerpShadowStats,
   resolveKalshiStockShadowTrades: () => resolveKalshiStockShadowTrades,
   runKalshiStockShadowCycle: () => runKalshiStockShadowCycle,
   sessionEt: () => sessionEt,
   shadowCloseInvalidReason: () => shadowCloseInvalidReason,
+  shadowRowNeedsStatsRepair: () => shadowRowNeedsStatsRepair,
   startKalshiStockShadow: () => startKalshiStockShadow,
+  statsRepairEnabled: () => statsRepairEnabled,
   stockOrbEnabled: () => stockOrbEnabled,
   stockShadowEnabled: () => stockShadowEnabled
 });
@@ -69691,6 +69695,46 @@ function shadowCloseInvalidReason(parts) {
   if (parts.fundingPct != null && (!Number.isFinite(parts.fundingPct) || Math.abs(parts.fundingPct) > bound)) return "funding";
   if (parts.netPct != null && (!Number.isFinite(parts.netPct) || Math.abs(parts.netPct) > bound)) return "net_return";
   return null;
+}
+function shadowRowNeedsStatsRepair(row) {
+  if (String(row.status) !== "closed") return false;
+  if (row.excludeFromStats === true) return false;
+  const rp = row.returnPct == null ? null : Number(row.returnPct);
+  if (rp != null && (!Number.isFinite(rp) || Math.abs(rp) > maxValidReturnPct())) return true;
+  const entry = Number(row.entryPrice);
+  if (Number.isFinite(entry) && entry > maxValidEntryUsd()) return true;
+  const notional = Number(row.notionalUsd);
+  if (Number.isFinite(notional) && notional > maxValidNotionalUsd(entry, row.targetNotionalUsd ?? NOTIONAL2())) return true;
+  return false;
+}
+function repairKalshiPerpShadowStats() {
+  if (!_statsRepair) {
+    _statsRepair = (async () => {
+      if (!statsRepairEnabled()) return 0;
+      await ensureKalshiPerpShadowTables();
+      const res2 = await pool.query(
+        `UPDATE kalshi_perp_shadow_trades
+           SET exclude_from_stats = true,
+               stats_invalid_reason = COALESCE(stats_invalid_reason, $4)
+         WHERE status='closed' AND exclude_from_stats IS NOT TRUE
+           AND (abs(return_pct) > $1::float
+                OR entry_price > $2::float
+                OR notional_usd > greatest($3::float, entry_price * 1.5))
+         RETURNING id`,
+        [maxValidReturnPct(), maxValidEntryUsd(), 2 * NOTIONAL2(), STATS_REPAIR_REASON]
+      );
+      const ids = (res2.rows || []).map((r) => r.id);
+      if (ids.length) {
+        console.warn(`[kalshi-stock-shadow] stats auto-repair: stamped ${ids.length} pre-fix closed trade(s) excluded from stats (ids: ${ids.join(", ")}) \u2014 invalid close geometry, values left untouched`);
+      }
+      return ids.length;
+    })().catch((e) => {
+      _statsRepair = null;
+      console.error("[kalshi-stock-shadow] stats auto-repair failed (non-fatal):", e?.message ?? e);
+      return 0;
+    });
+  }
+  return _statsRepair;
 }
 function etParts(ts) {
   const parts = etFmt.formatToParts(new Date(ts));
@@ -70539,7 +70583,7 @@ function startKalshiStockShadow() {
   setInterval(tick3, 5 * 6e4).unref?.();
   console.log("[kalshi-stock-shadow] started \u2014 SHADOW lane on public Kalshi perp data (no credentials, no orders).");
 }
-var stockOrbEnabled, num11, stockShadowEnabled, accountSimEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, maxValidReturnPct, maxValidEntryUsd, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started5;
+var stockOrbEnabled, num11, stockShadowEnabled, accountSimEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, maxValidReturnPct, maxValidEntryUsd, statsRepairEnabled, STATS_REPAIR_REASON, _statsRepair, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started5;
 var init_kalshi_stock_shadow = __esm({
   "server/services/kalshi-stock-shadow.ts"() {
     "use strict";
@@ -70572,6 +70616,9 @@ var init_kalshi_stock_shadow = __esm({
     RR = () => num11("KALSHI_STOCK_SHADOW_RR", 2);
     maxValidReturnPct = () => num11("KALSHI_STOCK_SHADOW_MAX_VALID_RETURN_PCT", 100);
     maxValidEntryUsd = () => num11("KALSHI_STOCK_SHADOW_MAX_VALID_ENTRY_USD", 1e6);
+    statsRepairEnabled = () => process.env.KALSHI_PERP_STATS_REPAIR !== "off";
+    STATS_REPAIR_REASON = "auto-repair: invalid close geometry";
+    _statsRepair = null;
     CRYPTO_PORTS = ["breakout", "trend_following", "structure", "divergence", "order_flow", "volume_profile"];
     OPTIONS_PORTS = ["orb", "volume_profile", "breakout", "momentum", "order_flow"];
     etFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit", weekday: "short" });
@@ -86992,9 +87039,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "5bb1d0bb";
+var BUILD_COMMIT = "8e693e0a";
 var BUILD_BRANCH = "feat/kalshi-perp-stats-fix";
-var BUILT_AT = "2026-11-16T10:30:07.857Z";
+var BUILT_AT = "2026-11-16T10:37:50.618Z";
 
 // server/stripe.ts
 init_db();
@@ -122386,6 +122433,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       await Promise.resolve().then(() => (init_sol_shadow_stats(), sol_shadow_stats_exports)).then((m) => m.ensureSolShadowContextTable());
       await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports)).then((m) => m.ensureCryptoShadowTables()).catch((e) => console.error("[startup] crypto shadow tables (non-fatal):", e?.message ?? e));
       await Promise.resolve().then(() => (init_ensure_kalshi_perp_shadow_tables(), ensure_kalshi_perp_shadow_tables_exports)).then((m) => m.ensureKalshiPerpShadowTables()).catch((e) => console.error("[startup] kalshi perp shadow tables (non-fatal):", e?.message ?? e));
+      await Promise.resolve().then(() => (init_kalshi_stock_shadow(), kalshi_stock_shadow_exports)).then((m) => m.repairKalshiPerpShadowStats()).catch((e) => console.error("[startup] kalshi perp shadow stats repair (non-fatal):", e?.message ?? e));
       console.log("[startup] SOL Engine tables created/verified.");
     } catch (err) {
       console.error("[startup] SOL Engine tables migration (non-fatal):", err.message);
