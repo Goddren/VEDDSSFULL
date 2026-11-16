@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3 } from "lucide-react";
 import { InfoExplainer } from "@/components/info-explainer";
+import { KalshiPerpArmingSection } from "@/components/kalshi-perp-arming";
 import { fmtMoney } from "@/lib/utils";
 
 interface KalshiShadowSummary {
@@ -152,39 +153,10 @@ function fmtHold(minutes: number | null | undefined): string {
   return `${(minutes / 60).toFixed(1)} h`;
 }
 
-// Friendly names for the lane's strategy keys. The raw key stays visible in
-// small text next to the friendly name, so nothing about which engine or
-// variant produced a result is hidden — this only translates the shorthand.
-const STRATEGY_LABELS: Record<string, string> = {
-  orb: "ORB (opening range)",
-  opt_orb: "Options ORB",
-  opt_volume_profile: "Options volume profile",
-  opt_breakout: "Options breakout",
-  opt_momentum: "Options momentum",
-  opt_order_flow: "Options order flow",
-  fx_scalping: "FX scalping",
-  fx_momentum: "FX momentum",
-  fx_aggressive: "FX aggressive compound",
-  fx_sniper: "FX sniper",
-  fx_prop_firm_sniper: "FX prop-firm sniper",
-  breakout: "Breakout",
-  trend_following: "Trend following",
-  structure: "Market structure",
-  divergence: "Divergence",
-  order_flow: "Order flow",
-  volume_profile: "Volume profile",
-  composite_autonomous: "Combined signals (composite)",
-  funding_fade: "Funding extremes fade",
-};
-
-function strategyLabel(key: string): string {
-  const known = STRATEGY_LABELS[key];
-  if (known) return known;
-  // Fallback for any future key: expand the prefix and snake_case.
-  const prefixed = key.replace(/^fx_/, "FX ").replace(/^opt_/, "Options ");
-  const words = prefixed.replace(/_/g, " ").trim();
-  return words ? words.charAt(0).toUpperCase() + words.slice(1) : key;
-}
+// Strategy-key labels live in kalshi-strategy-labels.ts (shared with the
+// "Arm for live" section); re-exported here for existing imports.
+import { strategyLabel } from "@/components/kalshi-strategy-labels";
+export { strategyLabel };
 
 // Plain words for the perp brain's bucket dimensions and values, so a block
 // line reads like a sentence instead of a database row.
@@ -532,6 +504,8 @@ export function KalshiShadowPanel({ className = "" }: { className?: string }) {
           )}
         </>
       ) : null}
+
+      <KalshiPerpArmingSection />
 
       <p className="mt-3 break-words text-[9px] leading-relaxed text-gray-600">
         Practice results only — no orders are placed and no real money moves. Net results already include modeled trading costs and the daily funding charge. Trades that spanned a stock split or similar corporate action are left out of every stat and list, because prices from before and after a split can't be compared honestly.

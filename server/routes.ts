@@ -17681,6 +17681,48 @@ Rules:
       res.json(out);
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
+  // Shadow → live go-live toggles (2026-11-15): per-strategy toggles that
+  // flip a shadow lane live when its proof bar is met. Crypto is fully
+  // functional (DeFi hot-wallet arm); the flip re-verifies the bar against
+  // fresh stats server-side and refuses with the missing pieces. Kalshi
+  // stock perps are ARMING ONLY — no live order path exists for them, so
+  // that toggle records intent and never trades (see shadow-live-toggles).
+  app.get("/api/engine/crypto-live-toggles", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getCryptoLiveTogglePanel } = await import('./services/shadow-live-toggles');
+      res.json(await getCryptoLiveTogglePanel((req.user as User).id));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  app.post("/api/engine/crypto-live-toggles", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { flipCryptoLiveToggle } = await import('./services/shadow-live-toggles');
+      const { strategy, on } = req.body || {};
+      if (!strategy || typeof on !== 'boolean') return res.status(400).json({ error: "strategy and on (boolean) are required" });
+      const out = await flipCryptoLiveToggle((req.user as User).id, String(strategy), on);
+      if (!out.ok) return res.status(out.status ?? 422).json({ error: out.error, missing: out.missing, bar: out.bar });
+      res.json(out);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  app.get("/api/engine/kalshi-perp-arming", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getKalshiPerpArmingPanel } = await import('./services/shadow-live-toggles');
+      res.json(await getKalshiPerpArmingPanel((req.user as User).id));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  app.post("/api/engine/kalshi-perp-arming", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { setKalshiPerpArmed } = await import('./services/shadow-live-toggles');
+      const { strategy, armed } = req.body || {};
+      if (!strategy || typeof armed !== 'boolean') return res.status(400).json({ error: "strategy and armed (boolean) are required" });
+      const out = await setKalshiPerpArmed((req.user as User).id, String(strategy), armed);
+      if (!out.ok) return res.status(out.status ?? 422).json({ error: out.error });
+      res.json(out);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
   app.get("/api/shadow-ledger", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {
