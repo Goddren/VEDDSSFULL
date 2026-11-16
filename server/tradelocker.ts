@@ -99,7 +99,11 @@ export function tlCandleVariants(symbol: string): string[] {
   const sym = String(symbol || '').toUpperCase();
   const canonical = canonicalIndexSymbol(sym);
   const fromTable = TL_CANDLE_SYMBOL_ALIASES[canonical] || TL_CANDLE_SYMBOL_ALIASES[sym] || [];
-  return [...new Set([sym, canonical, ...fromTable])];
+  const out: string[] = [];
+  for (const name of [sym, canonical, ...fromTable]) {
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
 }
 
 /** Price decimals by instrument class (TradeLocker CFD conventions). */

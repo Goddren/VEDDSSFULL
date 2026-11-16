@@ -30,7 +30,7 @@ function cleanSym(symbol: string): string {
  * and the Twelve Data alias map, re-audited for SP500 parity.
  */
 export const INDEX_SYMBOL_ALIASES: Record<string, string[]> = {
-  US30: ['US30', 'US30CASH', 'US30C', 'DOW30', 'DOWJONES', 'DJIA', 'DJI', 'DJ30', 'WS30', 'YM', 'DOW', 'USA30', 'CASH30', 'US30USD', 'DJA', 'WALLST30', 'WALLSTREET30', 'USWALL'],
+  US30: ['US30', 'US30CASH', 'US30C', 'DOW30', 'DOWJONES', 'DJIA', 'DJI', 'DJ30', 'DJI30', 'WS30', 'YM', 'DOW', 'USA30', 'CASH30', 'US30USD', 'DJA', 'WALLST30', 'WALLSTREET30', 'USWALL'],
   NAS100: ['NAS100', 'NAS100CASH', 'NAS100C', 'NASDAQ100', 'USTEC', 'NDX100', 'US100', 'NQ', 'NQ100', 'NASDAQ', 'NASUSD', 'NA100', 'NDAQ', 'QQQ', 'TECH100', 'USTECH100', 'NASD100', 'NAS100USD'],
   US500: ['US500', 'SP500', 'SPX500', 'SPX', 'SPXUSD', 'SP500USD', 'SPX500USD', 'US500CASH', 'SP500C', 'SPXC', 'SPXUSDM', 'USINDEX', 'ES', 'USA500'],
 };
