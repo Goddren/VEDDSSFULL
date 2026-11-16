@@ -662,7 +662,7 @@ const Header: React.FC = () => {
             {user && !killConfirm && (
               <button
                 onClick={() => setKillConfirm(true)}
-                title={anyTradeActive ? 'Trading engines active — click to stop all' : 'No trading engines running'}
+                title={anyTradeActive ? 'Forex EA / Polymarket active — click to stop them' : 'Forex EA + Polymarket are off (Kalshi, Sol and Crypto engines have their own switches)'}
                 className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
                   anyTradeActive
                     ? 'bg-red-500/15 border border-red-500/40 text-red-400 hover:bg-red-500/25'
@@ -676,7 +676,7 @@ const Header: React.FC = () => {
             )}
             {user && killConfirm && (
               <div className="hidden md:flex items-center gap-1.5">
-                <span className="text-xs text-red-300 font-semibold">Stop all trading?</span>
+                <span className="text-xs text-red-300 font-semibold">Stop Forex EA + Polymarket?</span>
                 <button
                   onClick={() => killAllMutation.mutate()}
                   disabled={killAllMutation.isPending}
@@ -954,12 +954,12 @@ const Header: React.FC = () => {
                       </span>
                       <div className="flex-1 text-left">
                         <p className={`text-sm font-bold ${anyTradeActive ? 'text-red-300' : 'text-gray-400'}`}>
-                          {anyTradeActive ? '● TRADING ACTIVE' : 'All Trading OFF'}
+                          {anyTradeActive ? '● TRADING ACTIVE' : 'Forex EA + Polymarket OFF'}
                         </p>
                         <p className="text-[10px] text-gray-500 mt-0.5">
                           {anyTradeActive
                             ? `${forexActive ? 'Forex EA' : ''}${forexActive && polyActive ? ' + ' : ''}${polyActive ? 'Polymarket' : ''} running — tap to stop`
-                            : 'No engines running'}
+                            : 'This switch covers the Forex EA + Polymarket only — Kalshi, Sol and Crypto have their own switches'}
                         </p>
                       </div>
                       {anyTradeActive && <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse shrink-0" />}
@@ -967,7 +967,7 @@ const Header: React.FC = () => {
                   ) : (
                     <div className="rounded-2xl p-3 bg-red-500/15 border border-red-500/50">
                       <p className="text-sm font-bold text-red-300 mb-1 flex items-center gap-2">
-                        <AlertTriangle className="h-4 w-4" /> Stop ALL trading engines?
+                        <AlertTriangle className="h-4 w-4" /> Stop Forex EA + Polymarket?
                       </p>
                       <p className="text-[10px] text-red-300/60 mb-3">Forex EA + Polymarket engine will stop. MT5 receives CLOSE_ALL on next poll.</p>
                       <div className="flex gap-2">

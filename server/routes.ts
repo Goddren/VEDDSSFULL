@@ -1,4 +1,5 @@
 ﻿import { livePlanRulesText } from './services/engine-plan-rules';
+import { effectiveStreakView } from './services/streak-view';
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { getRequestCookie } from "./utils/cookies";
@@ -4159,8 +4160,11 @@ Respond ONLY in valid JSON format with these exact keys:
       }
 
       const userId = (req.user as Express.User).id;
-      const streak = await storage.getUserStreak(userId);
-      
+      const streakRow = await storage.getUserStreak(userId);
+      // Single display source: derive tier/progress from XP and the effective
+      // (not stale) current streak at read time — see services/streak-view.ts.
+      const streak = streakRow ? effectiveStreakView(streakRow as any) : streakRow;
+
       if (!streak) {
         // Return default streak data for new users
         return res.json({
