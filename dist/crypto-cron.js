@@ -13582,6 +13582,10 @@ var init_service = __esm({
           "US30",
           "US500",
           "US100",
+          "NAS100",
+          "USTEC",
+          "WS30",
+          "DJ30",
           "UK100",
           "GER40",
           "DE40",
@@ -15807,9 +15811,22 @@ var init_fx_rules_score = __esm({
   }
 });
 
+// server/utils/candleNormalize.ts
+function toEpochSeconds(t) {
+  const n = typeof t === "string" ? Number(t) : t;
+  if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return 0;
+  return n > 1e11 ? Math.floor(n / 1e3) : Math.floor(n);
+}
+var init_candleNormalize = __esm({
+  "server/utils/candleNormalize.ts"() {
+    "use strict";
+  }
+});
+
 // server/tradelocker.ts
 var tradelocker_exports = {};
 __export(tradelocker_exports, {
+  TL_CANDLE_SYMBOL_ALIASES: () => TL_CANDLE_SYMBOL_ALIASES,
   TradeLockerReadError: () => TradeLockerReadError,
   TradeLockerService: () => TradeLockerService,
   decryptPassword: () => decryptPassword,
@@ -16465,10 +16482,11 @@ async function executeMT5SignalOnTradeLocker(connection, signal) {
     };
   }
 }
-var IV_LENGTH2, DEFAULT_ENCRYPTION_KEY2, SALT_LENGTH2, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TL_READ_CACHE_MS, TL_BAN_MS, TL_STALE_OK_MS, TL_FRESH_WAIT_MAX_MS, tlBannedUntil, _tlIsRateLimit, tlReadCache, tlInflight, modifyChain, TL_STOP_DEDUPE_MS, lastStopSet, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity, UNKNOWN_OUTCOME_PAUSE_MS, GUARD_CACHE_MS, guardCache, _isRateLimit;
+var IV_LENGTH2, DEFAULT_ENCRYPTION_KEY2, SALT_LENGTH2, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, TL_CANDLE_SYMBOL_ALIASES, rejectPauseUntil, REJECT_PAUSE_MS, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerReadError, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, USDJPY_FALLBACK, _usdJpyLive, _usdJpyObserved, TL_READ_CACHE_MS, TL_BAN_MS, TL_STALE_OK_MS, TL_FRESH_WAIT_MAX_MS, tlBannedUntil, _tlIsRateLimit, tlReadCache, tlInflight, modifyChain, TL_STOP_DEDUPE_MS, lastStopSet, TradeLockerService, TL_VALUE_TTL, tlDayStartEquity, UNKNOWN_OUTCOME_PAUSE_MS, GUARD_CACHE_MS, guardCache, _isRateLimit;
 var init_tradelocker = __esm({
   "server/tradelocker.ts"() {
     "use strict";
+    init_candleNormalize();
     IV_LENGTH2 = 16;
     DEFAULT_ENCRYPTION_KEY2 = "vedd-tl-default-key-change-me-32chars!!";
     SALT_LENGTH2 = 16;
@@ -16477,6 +16495,12 @@ var init_tradelocker = __esm({
     instrumentsListCache = /* @__PURE__ */ new Map();
     serviceCache = /* @__PURE__ */ new Map();
     SERVICE_CACHE_TTL = 50 * 60 * 1e3;
+    TL_CANDLE_SYMBOL_ALIASES = {
+      "XAUUSD": ["GOLD", "XAU/USD"],
+      "NAS100": ["USTEC", "US100", "NDX100", "NASDAQ100", "NQ100"],
+      "US30": ["DJ30", "WALLST30", "DJI30", "WS30"],
+      "US500": ["SPX500", "SP500", "SPX"]
+    };
     rejectPauseUntil = /* @__PURE__ */ new Map();
     REJECT_PAUSE_MS = Number(process.env.TL_REJECT_PAUSE_MINUTES ?? 15) * 6e4;
     RETRY_DELAYS = [1e3, 2e3];
@@ -17336,13 +17360,7 @@ var init_tradelocker = __esm({
         } else {
           const { instruments } = await this.fetchInstrumentsPayload();
           const sym = symbol.toUpperCase();
-          const ALIASES = {
-            "XAUUSD": ["GOLD", "XAU/USD"],
-            "NAS100": ["USTEC", "US100", "NDX100"],
-            "US30": ["DJ30", "WALLST30"],
-            "US500": ["SPX500", "SP500", "SPX"]
-          };
-          const variants = [sym, ...ALIASES[sym] || []];
+          const variants = [sym, ...TL_CANDLE_SYMBOL_ALIASES[sym] || []];
           let matched = null;
           for (const v of variants) {
             matched = instruments.find((i) => (i.name || i.symbol || "").toUpperCase().replace(/\s/g, "") === v.replace(/\s/g, ""));
@@ -17376,7 +17394,7 @@ var init_tradelocker = __esm({
         const histData = await histResp.json();
         const bars = histData.d?.barDetails || histData.d?.bars || histData.barDetails || histData.bars || [];
         return bars.map((b) => ({
-          t: b.t ?? b.time ?? b.timestamp ?? 0,
+          t: toEpochSeconds(b.t ?? b.time ?? b.timestamp ?? 0),
           o: b.o ?? b.open ?? 0,
           h: b.h ?? b.high ?? 0,
           l: b.l ?? b.low ?? 0,
@@ -22330,6 +22348,7 @@ var init_hour_filter = __esm({
 // server/services/live-trading-engine.ts
 var live_trading_engine_exports = {};
 __export(live_trading_engine_exports, {
+  INDEX_BROKER_ALIASES: () => INDEX_BROKER_ALIASES,
   adxOrNull: () => adxOrNull,
   broadcastMT5Signal: () => broadcastMT5Signal,
   computeHtfBias: () => computeHtfBias,
@@ -25809,7 +25828,7 @@ Your job is to protect what's been built and claw back to the peak methodically.
           if (state.orbDailyFired?.[sym] === _orbTodayKey) continue;
           const st = await getSniperOrbState(userId, sym);
           if (!st || st.phase === "no_range") continue;
-          const base = `${sym}: ORB range ${st.orbLow.toFixed(5)}\u2013${st.orbHigh.toFixed(5)} (width ${(st.range * 1e4).toFixed(0)} pips), price ${st.currentPrice.toFixed(5)}`;
+          const base = `${sym}: ORB range ${st.orbLow.toFixed(5)}\u2013${st.orbHigh.toFixed(5)} (width ${(st.range / getPipSize(sym)).toFixed(0)} pips), price ${st.currentPrice.toFixed(5)}`;
           if (st.phase === "retest") {
             _orbLines.push(`- ${base} \u2014 CONFIRMED ${st.breakoutDir} breakout, price is RETESTING the broken level NOW \u2713 SNIPER-ORB SETUP LIVE`);
           } else if (st.phase === "breakout") {
@@ -28679,7 +28698,7 @@ async function getBrokerIndexCandles(userId, symbol, mt5Tf) {
     const symPart = key.slice(prefix.length, key.length - suffix.length);
     if (wanted.has(symPart.replace(/[^A-Z0-9]/gi, "").toUpperCase())) {
       const entry = cache7[key];
-      if (entry?.candles?.length) return entry.candles;
+      if (entry?.candles?.length) return normalizeOrbBarTimes(entry.candles);
     }
   }
   try {
@@ -28689,11 +28708,18 @@ async function getBrokerIndexCandles(userId, symbol, mt5Tf) {
       const svc = await getOrCreateService(active);
       const resMinutes = mt5Tf === "H1" ? 60 : 5;
       const bars = await svc.getCandlesticks(symbol, resMinutes);
-      if (bars?.length) return [...bars].reverse();
+      if (bars?.length) return normalizeOrbBarTimes([...bars].reverse());
     }
   } catch (_) {
   }
   return null;
+}
+function normalizeOrbBarTimes(bars) {
+  return bars.map((b) => {
+    if (!b) return b;
+    const t = toEpochSeconds(b.t);
+    return t > 0 && t !== b.t ? { ...b, t } : b;
+  });
 }
 function computeOrbStateFromCandles(m5BC, currentPrice, todayKey) {
   let orbHigh = 0, orbLow = 0;
@@ -28857,7 +28883,7 @@ async function runORBAutonomousScan(userId) {
         lotSize: config.baseLotSize,
         holdTime: "2-4 hours",
         urgency: "ENTER_NOW",
-        reason: `ORB Autonomous \u2014 ${direction} retest of ${direction === "BUY" ? `ORB High ${orbHigh.toFixed(4)}` : `ORB Low ${orbLow.toFixed(4)}`} | Range ${(orbRange * 1e4).toFixed(0)} pips | SS AI ${aiScore}/100 | ${scoreResult.summary.split("\n")[0]}`,
+        reason: `ORB Autonomous \u2014 ${direction} retest of ${direction === "BUY" ? `ORB High ${orbHigh.toFixed(4)}` : `ORB Low ${orbLow.toFixed(4)}`} | Range ${(orbRange / getPipSize(symbol)).toFixed(0)} pips | SS AI ${aiScore}/100 | ${scoreResult.summary.split("\n")[0]}`,
         confluences: [
           `ORB range: ${orbLow.toFixed(4)}\u2013${orbHigh.toFixed(4)}`,
           `Breakout direction: ${direction}`,
@@ -29809,6 +29835,7 @@ var init_live_trading_engine = __esm({
     init_storage();
     init_news_service();
     init_pipUtils();
+    init_candleNormalize();
     init_tl_risk_settings();
     init_smcUtils();
     init_ictMacroUtils();
