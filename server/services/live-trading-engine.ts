@@ -83,6 +83,12 @@ interface NewsContext {
   highImpactSoonOrb: boolean;
   marketSentiment: string;
   tradingWindowWarning: string | null;
+  // ISO time of the most recent ALREADY-RELEASED high-impact event in the
+  // calendar window, when one exists. news_fade measures "minutes since the
+  // print" from this — stamping Date.now() on every scan while the blackout
+  // was active made the fade window open 5–30 min after the blackout LIFTED
+  // (95–120 min after a major print) instead of after the print itself.
+  lastEventAt?: string | null;
 }
 
 // ── Major-release tier for the news blackout ─────────────────────────────────
@@ -182,6 +188,36 @@ export function newsGateBlocks(newsCtx: NewsContext | undefined | null, orbOrigi
   return newsCtx.highImpactSoon === true;
 }
 
+/**
+ * Parse an economic-calendar event time to epoch ms.
+ *
+ * Finnhub's /calendar/economic returns `time` as a FULL datetime —
+ * "2026-11-10 08:30:00" (UTC, space-separated) or ISO "2026-11-10T08:30:00".
+ * The original parse split on ':' and read an hour out of "2026-11-10 08",
+ * got NaN, and silently skipped EVERY high-impact event — the standard,
+ * major-release (90-min) and ORB (30-min) blackouts never engaged against
+ * the real feed. Bare "HH:MM" (a legacy/fallback shape) is still accepted
+ * and pinned to today UTC. Returns null when nothing parseable is there.
+ */
+export function parseNewsEventTime(time: unknown, nowMs: number = Date.now()): number | null {
+  const s = String(time ?? '').trim();
+  if (!s) return null;
+  const hm = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (hm) {
+    const h = Number(hm[1]), m = Number(hm[2]), sec = Number(hm[3] || 0);
+    if (h > 23 || m > 59 || sec > 59) return null;
+    const d = new Date(nowMs);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h, m, sec);
+  }
+  // Full datetime. Finnhub stamps UTC with no offset marker — append Z when
+  // the string carries no offset of its own so Date.parse doesn't read it
+  // as server-local time.
+  const iso = s.includes('T') ? s : s.replace(' ', 'T');
+  const hasOffset = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso);
+  const t = Date.parse(hasOffset ? iso : `${iso}Z`);
+  return Number.isFinite(t) ? t : null;
+}
+
 async function fetchNewsContext(pairs: string[]): Promise<NewsContext> {
   const context: NewsContext = {
     headlines: [],
@@ -190,6 +226,7 @@ async function fetchNewsContext(pairs: string[]): Promise<NewsContext> {
     highImpactSoonOrb: false,
     marketSentiment: 'neutral',
     tradingWindowWarning: null,
+    lastEventAt: null,
   };
 
   try {
@@ -232,31 +269,33 @@ async function fetchNewsContext(pairs: string[]): Promise<NewsContext> {
         context.economicEvents.push(eventStr);
 
         if (event.impact === 'high') {
-          const timeStr = event.time || '';
-          if (timeStr) {
-            const [h, m] = timeStr.split(':').map(Number);
-            if (!isNaN(h) && h >= 0 && h <= 23) {
-              const today = new Date();
-              const eventDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), h, m || 0, 0, 0));
-              const diff = eventDate.getTime() - now;
-              // Post-release window: 5 min for a standard high-impact event;
-              // major releases (CPI/NFP/FOMC/GDP/retail sales) stay blacked
-              // out for newsMajorPostMinutes() — post-print chop protection.
-              // The ORB verdict is computed alongside (same pre-release
-              // window; only the major-release POST window is shorter) and
-              // only GATE 1 reads it, only for ORB-originated decisions.
-              const verdicts = newsBlackoutVerdicts(diff, event.event || '');
-              if (verdicts.orb) context.highImpactSoonOrb = true;
-              if (verdicts.standard) {
-                const major = newsWidenEnabled() && isMajorNewsRelease(event.event || '');
-                const majorPostMin = newsMajorPostMinutes();
-                context.highImpactSoon = true;
-                const minsAway = Math.round(diff / 60000);
-                if (major && minsAway < 0) {
-                  context.tradingWindowWarning = `MAJOR RELEASE EXTENDED BLACKOUT: ${event.event} (${eventCurrency}) released ${-minsAway} min ago — no new entries until ${majorPostMin} min after the print (post-print chop protection).`;
-                } else {
-                  context.tradingWindowWarning = `HIGH IMPACT EVENT ${minsAway > 0 ? `in ${minsAway} minutes` : 'HAPPENING NOW'}: ${event.event} (${eventCurrency}). Consider widening stops or avoiding new entries for affected pairs.`;
-                }
+          // Parse the event's REAL datetime (see parseNewsEventTime — the
+          // old HH:MM-only parse NaN'd on Finnhub's full-datetime format
+          // and silently disabled every blackout). The event's own date is
+          // used, so tomorrow's early prints get their pre-release window.
+          const eventMs = parseNewsEventTime(event.time, now);
+          if (eventMs != null) {
+            const diff = eventMs - now;
+            if (diff <= 0 && (!context.lastEventAt || eventMs > Date.parse(context.lastEventAt))) {
+              context.lastEventAt = new Date(eventMs).toISOString();
+            }
+            // Post-release window: 5 min for a standard high-impact event;
+            // major releases (CPI/NFP/FOMC/GDP/retail sales) stay blacked
+            // out for newsMajorPostMinutes() — post-print chop protection.
+            // The ORB verdict is computed alongside (same pre-release
+            // window; only the major-release POST window is shorter) and
+            // only GATE 1 reads it, only for ORB-originated decisions.
+            const verdicts = newsBlackoutVerdicts(diff, event.event || '');
+            if (verdicts.orb) context.highImpactSoonOrb = true;
+            if (verdicts.standard) {
+              const major = newsWidenEnabled() && isMajorNewsRelease(event.event || '');
+              const majorPostMin = newsMajorPostMinutes();
+              context.highImpactSoon = true;
+              const minsAway = Math.round(diff / 60000);
+              if (major && minsAway < 0) {
+                context.tradingWindowWarning = `MAJOR RELEASE EXTENDED BLACKOUT: ${event.event} (${eventCurrency}) released ${-minsAway} min ago — no new entries until ${majorPostMin} min after the print (post-print chop protection).`;
+              } else {
+                context.tradingWindowWarning = `HIGH IMPACT EVENT ${minsAway > 0 ? `in ${minsAway} minutes` : 'HAPPENING NOW'}: ${event.event} (${eventCurrency}). Consider widening stops or avoiding new entries for affected pairs.`;
               }
             }
           }
@@ -748,7 +787,12 @@ function applyBrainEnforcement(
   if (sessionData && sessionData.total >= _minN && sessionData.winRate < _sessWR && _blendWR >= _sessWR) {
     logGuard(userId, 'brain_block_shadow_lift', symbol, `${session} real ${sessionData.winRate}%/${sessionData.total}${_shadowTxt} — unblocked by shadow results`);
   }
-  if (sessionData && sessionData.total >= _minN && _blendWR < _sessWR) {
+  // Shadow evidence may only CREATE a block (real WR at/above the floor but
+  // the blend dragged below it) once the shadow sample itself is meaningful
+  // — the rules lane already requires shN >= 5 for the same blend. Without
+  // the floor, 1–2 losing shadow trades could impose/extend a block on a
+  // session whose real record has recovered.
+  if (sessionData && sessionData.total >= _minN && _blendWR < _sessWR && (sessionData.winRate < _sessWR || _shN >= 5)) {
     const msg = `🧠 Brain block: ${symbol} ${session} session only ${sessionData.winRate}% WR (${sessionData.total} trades)${_shadowTxt} — below ${_sessWR}% threshold, skipping`;
     pushEnforcementLog(userId, { symbol, rule: 'session_block', direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
@@ -978,8 +1022,21 @@ function getAdaptiveScanInterval(config: LiveEngineConfig): number {
  */
 export function fxMarketClosedFor(symbol: string, now = new Date()): boolean {
   if (/^(BTC|ETH|SOL|LTC|XRP|DOGE|ADA|BNB)/i.test(String(symbol || ''))) return false;
-  const d = now.getUTCDay(), h = now.getUTCHours();
-  return d === 6 || (d === 5 && h >= 21) || (d === 0 && h < 21);
+  // FX closes Fri 17:00 ET and reopens Sun 17:00 ET. The old fixed 21:00 UTC
+  // window only matched EDT weeks: in EST the market stays closed until
+  // 22:00 UTC Sunday (the engine sent orders into it — the exact "off
+  // quotes" failure this guard exists to prevent) and is still open Fri
+  // 21:00–22:00 UTC (an hour of tradable time wrongly blocked). Read the
+  // New York wall clock instead so the window tracks DST.
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', weekday: 'short', hour: '2-digit', hourCycle: 'h23',
+  }).formatToParts(now);
+  const wd = parts.find(p => p.type === 'weekday')?.value || '';
+  const hr = Number(parts.find(p => p.type === 'hour')?.value ?? NaN);
+  if (wd === 'Sat') return true;
+  if (wd === 'Fri' && hr >= 17) return true;
+  if (wd === 'Sun' && hr < 17) return true;
+  return false;
 }
 
 function getAdaptiveScanIntervalBase(config: LiveEngineConfig): number {
@@ -2359,7 +2416,7 @@ function computeStagedVolumeSL(position: any, config?: { breakevenBufferPips?: n
     : position.openPrice - lockPips * pipSize;
 }
 
-function computeChandelierSL(
+export function computeChandelierSL(
   position: any,
   atr: number,
   multiplier: number,
@@ -2367,7 +2424,12 @@ function computeChandelierSL(
 ): number {
   const price = position.currentPrice;
   if (!price || price <= 0) return position.sl || 0;
-  const effectiveATR = atr > 0 ? atr : (position.symbol?.includes('JPY') ? 0.50 : 0.0050);
+  // Fallback ATR when no live ATR is available: 50 pips in the pair's own
+  // pip size. The old flat 0.0050 (JPY 0.50) was an FX-sized distance — on
+  // XAUUSD/BTCUSD/indices the chandelier stop landed ~$0.0075 behind the
+  // extreme, i.e. at the price, so the trail instantly stopped out or was
+  // refused every cycle. 50 pips reproduces the old FX/JPY values exactly.
+  const effectiveATR = atr > 0 ? atr : 50 * getPipSize(position.symbol || '');
   if (position.direction === 'BUY') {
     if (price > (trailState.highestHigh || 0)) trailState.highestHigh = price;
     return (trailState.highestHigh || price) - effectiveATR * multiplier;
@@ -3272,7 +3334,10 @@ async function applyServerSideTrails(
     }
 
     const symData = marketAnalysis[pos.symbol?.replace('/', '')] || marketAnalysis[pos.symbol] || {};
-    const atr = symData.atr?.value ?? symData.atr ?? 0;
+    // ATR lives at volatilityContext.currentATR on these analysis entries —
+    // the old read (symData.atr) was always undefined, so the chandelier
+    // trail ran permanently on its fallback distance.
+    const atr = symData.volatilityContext?.currentATR ?? symData.atr?.value ?? symData.atr ?? 0;
     const multiplier = config.trailingStopATRMultiplier || 3.0;
 
     let newSL = 0;
@@ -4380,9 +4445,13 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
       }
     }
 
-    // Track last high-impact news timestamp for news fade strategy
-    if (newsContext?.highImpactSoon) {
-      state.lastHighImpactNewsAt = new Date().toISOString();
+    // Track last high-impact news timestamp for news fade strategy. Stamp
+    // the EVENT's time, not the scan time: re-stamping Date.now() on every
+    // scan while the blackout was active made news_fade's "5–30 min after
+    // the event" window open 5–30 min after the blackout LIFTED (up to
+    // ~2h after a major print) instead of after the print.
+    if (newsContext?.lastEventAt) {
+      state.lastHighImpactNewsAt = newsContext.lastEventAt;
     }
 
     // ── Per-pair adaptive strategy selection ─────────────────────────────
@@ -4427,7 +4496,7 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
       const vm = data.volumeMetrics as VolumeMetrics | undefined;
       const asiaH = state.asiaRangeHigh[sym];
       const asiaL = state.asiaRangeLow[sym];
-      const asiaRangeStr = (asiaH && asiaL) ? `, AsiaHigh=${asiaH}, AsiaLow=${asiaL}, AsiaRange=${(Math.abs(asiaH - asiaL) * (sym.includes('JPY') ? 100 : 10000)).toFixed(1)}pips` : '';
+      const asiaRangeStr = (asiaH && asiaL) ? `, AsiaHigh=${asiaH}, AsiaLow=${asiaL}, AsiaRange=${(Math.abs(asiaH - asiaL) / getPipSize(sym)).toFixed(1)}pips` : '';
       const vwapVal = data.vwap?.value;
       const vwapDev = (vwapVal && data.currentPrice) ? ((data.currentPrice - vwapVal) / vwapVal * 100).toFixed(3) : 'N/A';
       const htf = htfMarketData?.[sym];
@@ -5311,6 +5380,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           return;
         }
         state.orbDailyFired[decision.symbol] = _orbTodayKey;
+        void persistDailyFired(userId, state);
         (decision as any).orbContext = { orb: true, phase: 'retest' };
         if (Array.isArray(decision.confluences) && !decision.confluences.includes('ORB breakout+retest')) {
           decision.confluences = [...decision.confluences, 'ORB breakout+retest'];
@@ -6086,6 +6156,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     if ((decision as any).__markStrategyFired) {
       if (!state.strategyDailyFired) state.strategyDailyFired = {};
       state.strategyDailyFired[(decision as any).__markStrategyFired] = true;
+      void persistDailyFired(userId, state);
     }
 
     addActivity(userId, {
@@ -6855,7 +6926,10 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     if (isDynamicSizingEnabled) {
       const confTier   = getConfidenceLotMultiplier(adjustedConfidence);
       const stratTier  = getStrategyLotMultiplier(decision.strategy || 'auto');
-      const openCount  = (global as any).mt5OpenPositions?.[userId]?.positions?.length ?? state.openPositionCount;
+      // Merged book (MT5 + TL + DX), same source as the conflicting-position
+      // gate above. This used to read MT5-only positions, so on a TL/DX-only
+      // account the exposure tier always saw 0 open positions.
+      const openCount  = _mergedPositionsForGates.length;
       const expTier    = getExposureLotMultiplier(openCount);
 
       const combinedMult = confTier.mult * stratTier.mult * expTier.mult;
@@ -6967,8 +7041,16 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           }
         }
       }
-      const _posAgg = (global as any).mt5OpenPositions?.[userId]?.positions ?? [];
-      const _openLots = _posAgg.reduce((s: number, p: any) => s + (p.lots || p.volume || p.size || 0), 0);
+      // Aggregate exposure across ALL brokers (merged book), not MT5 only —
+      // on a TL/DX-only account the old MT5-only sum read 0 and this cap
+      // never engaged. DXtrade merged rows carry raw broker UNITS in
+      // `volume` (10,000 units = 0.10 lot on a 100k-contract FX instrument),
+      // so convert those; MT5/TL rows are already lot-denominated.
+      const _posAgg = _mergedPositionsForGates;
+      const _openLots = _posAgg.reduce((s: number, p: any) => {
+        const v = p.lots || p.volume || p.size || 0;
+        return s + (p.source === 'dx' ? v / 100000 : v);
+      }, 0);
       const _aggCap = safeMaxLot * (config.maxOpenTrades || 3) * 1.5;
       if (_openLots + lotSize > _aggCap) {
         addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: aggregate exposure ${(_openLots + lotSize).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)} — trade skipped` });
@@ -7146,7 +7228,15 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             // DOWN to the instrument's quantity increment (B4: a plain round could
             // nudge the qty back off-increment and slightly up).
             const _dxMult = (Number(dc.lot_multiplier) || 1) * _dxConsistencyMult;
-            const _dxIncr = Number(spec?.quantityIncrement) > 0 ? Number(spec.quantityIncrement) : (Number(spec?.lotSize) > 0 ? Number(spec.lotSize) : 0);
+            // Effective step, mirroring computeRiskQuantity: Velotrade
+            // advertises quantityIncrement 1 for FX but enforces lotSize/100
+            // (1000 units). Snapping to the advertised step after a lot
+            // multiplier produced off-increment quantities the broker
+            // rejected ("order size must be an increment of 1000.00").
+            const _dxSpecIncr = Number(spec?.quantityIncrement) > 0 ? Number(spec.quantityIncrement) : 0;
+            const _dxLotSize = Number(spec?.lotSize) > 0 ? Number(spec.lotSize) : 0;
+            const _dxIsFx = /forex|fx/i.test(String((spec as any)?.type ?? (spec as any)?.assetClass ?? '')) || _dxLotSize >= 1000;
+            const _dxIncr = _dxIsFx && _dxLotSize > 0 ? Math.max(_dxSpecIncr, _dxLotSize / 100) : _dxSpecIncr;
             if (qty > 0 && _dxMult !== 1) {
               qty = qty * _dxMult;
               if (_dxIncr > 0) qty = Math.floor(qty / _dxIncr) * _dxIncr;
@@ -7154,8 +7244,45 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
               if (_dxConsistencyMult < 1) sizeLabel += ` · consistency ${Math.round(_dxConsistencyMult * 100)}%`;
             }
             if (!(qty > 0)) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: could not risk-size (need balance + stop). Skipped — set a stop or check the symbol exists on Velotrade.` }); logDxtradeSkip(userId, dc.id, dxSymbol, 'zero_qty', `qty=${qty} entry=${entryPrice} stop=${stopLoss} riskPct=${dc.risk_percent}`); continue; }
+            // Snapshot this pair/side's existing positions BEFORE ordering.
+            // The fill verification below must never mistake a PRE-EXISTING
+            // position for this order's fill: it would attach this signal's
+            // SL/TP to the old position, log a phantom execution, and — if
+            // the stop attach then failed — emergency-close the OLD position
+            // while a real fill sat naked. A position counts as our fill
+            // only if it is new, or the pre-existing one GREW by the fill.
+            const _preDxQty = new Map<string, number>();
+            try {
+              const _prePoss = await svc.getPositions(acct);
+              for (const pp of _prePoss) {
+                if (pp.instrument === _dxSymNorm && pp.side === _dxSide && pp.positionId != null) {
+                  _preDxQty.set(String(pp.positionId), Number(pp.quantity) || 0);
+                }
+              }
+            } catch { /* best-effort — an empty snapshot keeps the prior behaviour */ }
             // Open with a bare MARKET order (dxsca silently drops inline SL/TP legs).
-            const r = await svc.placeOrder(acct, { instrument: dxSymbol, side: _dxSide, quantity: qty, type: 'MARKET' });
+            let r: any;
+            try {
+              r = await svc.placeOrder(acct, { instrument: dxSymbol, side: _dxSide, quantity: qty, type: 'MARKET' });
+            } catch (oe: any) {
+              // Ambiguous outcome: a timeout/network error can mean the
+              // broker filled and only the reply was lost. TradeLocker's
+              // path resolves this case explicitly; DXtrade's used to just
+              // log execution_error, leaving a possible fill naked and
+              // untracked. Flag NEEDS_RECONCILE, and only attempt a
+              // close-by-symbol when no pre-existing position could be hit.
+              let _oeClosed = false;
+              if (_preDxQty.size === 0) {
+                try { await svc.closePosition(acct, dxSymbol, _dxSide, qty); _oeClosed = true; } catch { /* best-effort */ }
+              }
+              try {
+                const _rcTicket2 = `dx_${acct}_reconcile_${Date.now()}`;
+                await storage.createAiTradeResult({ userId, symbol: dxSymbol, direction: _dxSide, entryPrice: entryPrice || 0, exitPrice: 0, stopLoss: stopLoss || 0, takeProfit: takeProfit || 0, aiConfidence: adjustedConfidence || 0, result: 'NEEDS_RECONCILE', profitLoss: 0, source: 'dxtrade', connectionId: dc.id, mt5Ticket: _rcTicket2, notes: `DXtrade order call FAILED ambiguously (${oe?.message ?? oe}) — fill unknown; emergency close ${_oeClosed ? 'sent' : 'not sent'}; verify on Velotrade` } as any);
+              } catch { /* record best-effort */ }
+              addActivity(userId, { type: 'error', symbol: decision.symbol, message: `🚨 DXtrade [${acct}] ${dxSymbol}: order call failed ambiguously (${oe?.message ?? oe}) — the order MAY have filled. Flagged NEEDS_RECONCILE${_preDxQty.size === 0 ? `; emergency close ${_oeClosed ? 'sent' : 'FAILED'}` : ' (pre-existing position present — no blind close sent)'} — CHECK Velotrade manually.` });
+              logDxtradeSkip(userId, dc.id, dxSymbol, 'order_call_ambiguous', String(oe?.message ?? oe));
+              continue;
+            }
             // ── B1: VERIFY THE FILL — POLL, and NEVER equate "couldn't verify" with
             // "not filled". A filled order that we fail to confirm must not be
             // silently abandoned stopless+untracked. getPositions normalizes the
@@ -7166,7 +7293,8 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
               await new Promise(res => setTimeout(res, 1000));
               try {
                 const _poss = await svc.getPositions(acct);
-                _pos = _poss.find(p => p.instrument === _dxSymNorm && p.side === _dxSide) || null;
+                _pos = _poss.find(p => p.instrument === _dxSymNorm && p.side === _dxSide
+                  && !(_preDxQty.has(String(p.positionId)) && (Number(p.quantity) || 0) <= (_preDxQty.get(String(p.positionId)) || 0))) || null;
                 _verifyError = false; // a clean read (even if empty) clears the error flag
               } catch (ve: any) {
                 _verifyError = true; // could NOT read positions this attempt
@@ -7186,6 +7314,19 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 } catch { /* record best-effort */ }
                 addActivity(userId, { type: 'error', symbol: decision.symbol, message: `🚨 DXtrade [${acct}] ${dxSymbol}: could NOT verify fill (broker read failed). Emergency close ${_emClosed ? 'sent' : 'FAILED'} + flagged NEEDS_RECONCILE — CHECK Velotrade manually.` });
                 logDxtradeSkip(userId, dc.id, dxSymbol, 'verify_fill_failed', `emergency_close=${_emClosed ? 'sent' : 'FAILED'}`);
+              } else if (_preDxQty.size > 0) {
+                // Clean read, but no NEW/grown position — and a pre-existing
+                // position sits on this pair/side. "Order rejected" and
+                // "fill netted into the existing position, quantity not yet
+                // updated" are indistinguishable here, and the old blind
+                // close-by-symbol would have eaten qty out of the user's
+                // EXISTING position. Flag for manual verification instead.
+                try {
+                  const _rcTicket3 = `dx_${acct}_reconcile_${Date.now()}`;
+                  await storage.createAiTradeResult({ userId, symbol: dxSymbol, direction: _dxSide, entryPrice: entryPrice || 0, exitPrice: 0, stopLoss: stopLoss || 0, takeProfit: takeProfit || 0, aiConfidence: adjustedConfidence || 0, result: 'NEEDS_RECONCILE', profitLoss: 0, source: 'dxtrade', connectionId: dc.id, mt5Ticket: _rcTicket3, notes: `DXtrade fill could not be distinguished from a pre-existing ${dxSymbol} position — verify size/protection on Velotrade` } as any);
+                } catch { /* record best-effort */ }
+                addActivity(userId, { type: 'error', symbol: decision.symbol, message: `⚠️ DXtrade [${acct}] ${dxSymbol}: no new position verified and a pre-existing ${dxSymbol} position exists — fill ambiguous, flagged NEEDS_RECONCILE. CHECK Velotrade manually.` });
+                logDxtradeSkip(userId, dc.id, dxSymbol, 'fill_ambiguous_preexisting', `qty=${qty} side=${_dxSide} orderResp=${JSON.stringify(r?.result ?? r).slice(0, 380)}`);
               } else {
                 // Confirmed clean empty portfolio → the order genuinely did not fill
                 // (or the fill hasn't surfaced within the verify window). Persist the
@@ -7247,6 +7388,11 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 // engaged: the gate at the top of this function always read 0
                 // regardless of how many DXtrade trades had actually opened today.
                 state.tradesOpenedToday++;
+                // Arm the shared per-symbol cooldown — it was only ever set
+                // on the TradeLocker branch, so a DXtrade-only user could be
+                // re-fired on the same pair by the next scan.
+                (global as any).recentTrades = (global as any).recentTrades || {};
+                (global as any).recentTrades[`last_trade_${userId}_${_dxSymNorm}`] = Date.now();
               }
             } catch (_dxRec: any) {
               console.error('[live-engine] DXtrade open-record failed (non-fatal):', _dxRec?.message ?? _dxRec);
@@ -7899,7 +8045,15 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             // THIS account's own matching open position by symbol/direction
             // instead of trusting the MT5-scoped id.
             const svc = await getTradeLockerService(tlConn);
-            const tlPositions = await svc.getPositionsNormalized().catch(() => []);
+            // A failed position read must not read as "no position": the
+            // CLOSE/MODIFY below would silently no-op during a broker read
+            // outage, with nothing in the activity feed to say so.
+            let _tlMgmtReadErr: any = null;
+            const tlPositions = await svc.getPositionsNormalized().catch((e: any) => { _tlMgmtReadErr = e; return [] as any[]; });
+            if (_tlMgmtReadErr) {
+              addActivity(userId, { type: 'error', symbol: decision.symbol, message: `⚠️ ${acctLabel}: TradeLocker position read failed (${_tlMgmtReadErr?.message || _tlMgmtReadErr}) — management action for ${decision.symbol} NOT applied this pass.` });
+              return;
+            }
             // The AI often names only the symbol. Defaulting a missing
             // direction to BUY meant a SELL was never found, so it was never
             // closed or trailed. No direction → match either side.
@@ -8064,7 +8218,15 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             await svc.ensureLoggedIn();
             const acct = dc.account_code || extractAccountCode(await svc.getAccounts());
             if (!acct) return;
-            const positions = await svc.getPositions(acct).catch(() => [] as any[]);
+            // getPositions throws DxtradeReadError precisely so a failed
+            // read is never mistaken for an empty book — this catch used to
+            // defeat that, silently no-op'ing CLOSE/MODIFY during outages.
+            let _dxMgmtReadErr: any = null;
+            const positions = await svc.getPositions(acct).catch((e: any) => { _dxMgmtReadErr = e; return [] as any[]; });
+            if (_dxMgmtReadErr) {
+              addActivity(userId, { type: 'error', symbol: decision.symbol, message: `⚠️ ${acctLabel}: DXtrade position read failed (${_dxMgmtReadErr?.message || _dxMgmtReadErr}) — management action for ${decision.symbol} NOT applied this pass.` });
+              return;
+            }
             const matchDir = decision.direction ? String(decision.direction).toUpperCase() : null;
             const symMatches = positions.filter((p: any) =>
               (p.instrument || '').toUpperCase().replace('/', '') === decision.symbol?.toUpperCase().replace('/', ''));
@@ -8501,6 +8663,7 @@ async function runORBAutonomousScan(userId: number): Promise<void> {
       });
 
       state.orbDailyFired[symbol] = todayKey;
+      void persistDailyFired(userId, state);
 
       await processDecision(userId, {
         action:      'OPEN_TRADE',
@@ -8936,7 +9099,25 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
       const { pool: _cPool } = await import('../db');
       const days = Math.max(15, (fullConfig.consistencyPeriodDays || 15) + 5);
       const cutoff = new Date(Date.now() - days * 86400000).toISOString();
-      const _sources = `('tradelocker','tradelocker_auto','mt5_ea','mt5_copier','manual','brain_autoexec')`;
+      // Once-per-day markers (ORB per pair, single-strategy lock) are
+      // memory-only by default — hydrate the persisted marks so a restart
+      // inside the session can't re-fire them. Stale dates are inert
+      // (every read compares against today's key), so load as stored.
+      try {
+        const { getRuntimeStateStrict } = await import('./runtime-state');
+        const _st0 = engineStates[userId];
+        if (_st0) {
+          const _orbStored = await getRuntimeStateStrict('fx_orb_daily_fired', String(userId));
+          if (_orbStored && typeof _orbStored === 'object') _st0.orbDailyFired = { ..._orbStored };
+          const _stratStored = await getRuntimeStateStrict('fx_strategy_daily_fired', String(userId));
+          if (_stratStored && typeof _stratStored === 'object') _st0.strategyDailyFired = { ..._stratStored };
+        }
+      } catch { /* keep the empty in-memory maps */ }
+      // 'dxtrade' was missing: DX closes write source='dxtrade', so the
+      // restore rebuilt pnlToday / weekly tracker / tradesOpenedToday with
+      // every DXtrade result invisible — a day that breached the loss limit
+      // on DX alone restarted un-halted with caps reset.
+      const _sources = `('tradelocker','tradelocker_auto','mt5_ea','mt5_copier','manual','brain_autoexec','dxtrade')`;
       const rows = (await _cPool.query(
         `SELECT (closed_at AT TIME ZONE 'UTC')::date AS d, COALESCE(SUM(profit_loss),0) AS pnl
            FROM ai_trade_results
@@ -9634,6 +9815,22 @@ export function confirmMT5Signal(
   return signal;
 }
 
+// ── Durable once-per-day markers ─────────────────────────────────────────
+// orbDailyFired / strategyDailyFired lived only in memory, so any restart
+// (deploy, crash) inside the trading day re-armed them: a second ORB entry
+// on the same pair/day (the stated invariant is ONE across both paths), or
+// a second fire of a once-per-day strategy. Both maps are written through
+// to runtime_state on every mark and hydrated back at engine start (see
+// _dayStateRestore in startLiveEngine). Best-effort: the in-memory map
+// still guards the current process if the write fails.
+async function persistDailyFired(userId: number, state: any): Promise<void> {
+  try {
+    const { saveRuntimeState } = await import('./runtime-state');
+    saveRuntimeState('fx_orb_daily_fired', String(userId), state?.orbDailyFired || {});
+    saveRuntimeState('fx_strategy_daily_fired', String(userId), state?.strategyDailyFired || {});
+  } catch { /* non-fatal */ }
+}
+
 function _postConfirmActivity(userId: number, signal: PendingMT5Signal, executed: boolean): void {
   addActivity(userId, {
     type: executed ? 'trade_open' : 'info',
@@ -9650,6 +9847,11 @@ function _postConfirmActivity(userId: number, signal: PendingMT5Signal, executed
       state.tradesExecuted++;
       state.openPositionCount++;
     }
+    // Arm the shared per-symbol cooldown for MT5 executions too — it was
+    // only ever set on the TradeLocker branch, so an MT5-only user could be
+    // re-fired on the same pair by the next scan.
+    (global as any).recentTrades = (global as any).recentTrades || {};
+    (global as any).recentTrades[`last_trade_${userId}_${String(signal.symbol || '').toUpperCase().replace('/', '')}`] = Date.now();
   }
 }
 

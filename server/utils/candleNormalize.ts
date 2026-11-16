@@ -50,6 +50,32 @@ const V = ['v', 'volume', 'Volume', 'tick_volume', 'tickVolume', 'V'];
 const T = ['t', 'time', 'Time', 'timestamp', 'T'];
 
 /**
+ * Coerce a candle timestamp to epoch SECONDS — the unit every downstream
+ * reader assumes. The OHLC fields were normalised here but `t` passed
+ * through raw, so an EA build posting milliseconds (exactly what
+ * TradeLocker's own feed did) or an ISO string silently corrupted every
+ * time filter downstream (ORB day windows compared seconds against ms and
+ * matched nothing / everything). Numbers and numeric strings >= 1e12 are
+ * read as ms, 9–11-digit values as seconds; ISO strings go through
+ * Date.parse. Anything unrecognisable passes through untouched, as before.
+ */
+export function coerceEpochSeconds(tRaw: any): any {
+  if (typeof tRaw === 'number' && isFinite(tRaw)) {
+    return tRaw >= 1e12 ? Math.floor(tRaw / 1000) : tRaw;
+  }
+  if (typeof tRaw === 'string') {
+    const s = tRaw.trim();
+    if (/^\d+(\.\d+)?$/.test(s)) {
+      const n = Number(s);
+      return n >= 1e12 ? Math.floor(n / 1000) : n;
+    }
+    const parsed = Date.parse(s);
+    if (isFinite(parsed)) return Math.floor(parsed / 1000);
+  }
+  return tRaw;
+}
+
+/**
  * Map one bar onto the canonical short keys.
  *
  * The original properties are preserved alongside, so any reader that already
@@ -69,7 +95,7 @@ export function normalizeCandle(raw: any): any {
   if (c !== undefined) out.c = c;
   const v = pick(raw, V); if (v !== undefined) out.v = v;
   const tRaw = raw.t ?? raw.time ?? raw.Time ?? raw.timestamp ?? raw.T;
-  if (tRaw !== undefined) out.t = tRaw;
+  if (tRaw !== undefined) out.t = coerceEpochSeconds(tRaw);
   return out;
 }
 

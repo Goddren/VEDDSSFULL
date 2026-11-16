@@ -326,8 +326,12 @@ export async function checkFxBrainHealth(windowHours = 24): Promise<FxBrainHealt
   const { pool } = await import('../db');
   const [{ rows: closes }, { rows: brainRows }, { rows: lastRow }] = await Promise.all([
     pool.query(
+      // All engine close sources, not just TradeLocker: DXtrade/MT5 closes
+      // never write fx_brain_outcomes at all, and a TradeLocker-only
+      // denominator baked that invisibility into the watchdog — it could
+      // report "3/3 recorded" while every DX close went unrecorded.
       `SELECT count(*)::int AS n FROM ai_trade_results
-        WHERE source IN ('tradelocker','tradelocker_auto')
+        WHERE source IN ('tradelocker','tradelocker_auto','dxtrade','mt5_ea','mt5_copier','manual','brain_autoexec')
           AND result IN ('WIN','LOSS','BREAKEVEN')
           AND closed_at > now() - ($1 || ' hours')::interval`,
       [windowHours],
@@ -346,9 +350,14 @@ export async function checkFxBrainHealth(windowHours = 24): Promise<FxBrainHealt
 
   // Real trades closed, the brain recorded NONE of them. Unambiguous: this is
   // exactly the shape of the 4-day-silent failure, not a slow trading day.
-  const stalled = realClosesInWindow > 0 && brainRowsInWindow === 0;
+  // The old test required ZERO brain rows, so the documented 2026-10-04
+  // failure mode (1 of 5 closes recorded) never tripped it — partial silent
+  // skipping is now flagged too: with 3+ closes, recording under half of
+  // them is a stall, not a slow day.
+  const stalled = realClosesInWindow > 0 && brainRowsInWindow === 0
+    || (realClosesInWindow >= 3 && brainRowsInWindow / realClosesInWindow < 0.5);
   const message = stalled
-    ? `FX BRAIN STALLED: ${realClosesInWindow} real TradeLocker close(s) in the last ${windowHours}h, 0 recorded to fx_brain_outcomes. Last successful brain row was ${hoursSinceLastBrainRow ?? '?'}h ago. The gate and AI prompt are running on stale data — check _recordFxBrainOutcome in tradelocker-sync.ts.`
+    ? `FX BRAIN STALLED: ${realClosesInWindow} real close(s) in the last ${windowHours}h, only ${brainRowsInWindow} recorded to fx_brain_outcomes. Last successful brain row was ${hoursSinceLastBrainRow ?? '?'}h ago. The gate and AI prompt are running on stale data — check _recordFxBrainOutcome in tradelocker-sync.ts (note: DXtrade/MT5 closes currently have no brain writer).`
     : `FX brain OK — ${brainRowsInWindow}/${realClosesInWindow} closes recorded in the last ${windowHours}h.`;
 
   return { stalled, windowHours, realClosesInWindow, brainRowsInWindow, lastBrainRowAt: lastAt?.toISOString() ?? null, hoursSinceLastBrainRow, message };

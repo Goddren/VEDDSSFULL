@@ -1,9 +1,16 @@
-function getNYOffset(date: Date): number {
+export function getNYOffset(date: Date): number {
   const year = date.getUTCFullYear();
+  // Second Sunday of March. The old formula yielded the THIRD Sunday in
+  // years when Mar 1 is itself a Sunday (2026 is one: it produced Mar 15
+  // instead of Mar 8), shifting every ICT macro/kill-zone window by an
+  // hour for Mar 8–14. First Sunday = 1 + ((7 - dow) % 7); second = +7.
   const dstStart = new Date(Date.UTC(year, 2, 1));
-  dstStart.setUTCDate(8 - ((dstStart.getUTCDay() + 7) % 7) + 7);
+  dstStart.setUTCDate(1 + ((7 - dstStart.getUTCDay()) % 7) + 7);
+  dstStart.setUTCHours(7, 0, 0, 0); // spring forward: 2:00 EST = 07:00 UTC
+  // First Sunday of November (this formula was already correct).
   const dstEnd = new Date(Date.UTC(year, 10, 1));
   dstEnd.setUTCDate(1 + (7 - dstEnd.getUTCDay()) % 7);
+  dstEnd.setUTCHours(6, 0, 0, 0); // fall back: 2:00 EDT = 06:00 UTC
   return date >= dstStart && date < dstEnd ? -4 : -5;
 }
 

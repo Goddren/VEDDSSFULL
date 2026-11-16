@@ -97,6 +97,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { pool } from '../db';
+import { getPipSize } from '../utils/pipUtils';
 import { marketDataService } from '../market-data/service';
 import { getCachedMatrix, getMarkovSnapshot } from './markov-chain';
 import { fxModelsLessonGateOn, logShadowLessonBlock, promotionBarLoser } from './shadow-lesson-gate';
@@ -190,7 +191,14 @@ const barsProviders: Record<string, BarsFn> = {
 export function registerBarsProvider(engine: ModelEngine, fn: BarsFn): void { barsProviders[engine] = fn; }
 export const barsFor = (engine: string): BarsFn => barsProviders[engine] || barsProviders.fx;
 
-export const pipSize = (sym: string) => /JPY/.test(sym) ? 0.01 : /^XAU/.test(sym) ? 0.1 : /^(BTC|ETH)/.test(sym) ? 1 : /^(US30|NAS|SPX|GER|UK1|JP2)/.test(sym) ? 1 : 0.0001;
+// Canonical pip size (utils/pipUtils). The old local regex copy agreed on
+// the default universe (EURUSD/GBPUSD/USDJPY/XAUUSD/BTCUSD/US30/NAS100),
+// which is why it survived — but it mis-scaled every user-addable class
+// beyond it: XAGUSD 10x, XPT/oil 100x, NGAS 10x, USTEC/US100/DAX/FTSE100
+// 10,000x in the stored pips column, and ETH 100x; it was also case-
+// sensitive and ^-anchored, so lowercase/broker-prefixed symbols fell
+// through to the FX default.
+export const pipSize = (sym: string) => getPipSize(sym);
 
 /**
  * Day type from trend strength, higher-timeframe agreement, volume and
@@ -751,6 +759,21 @@ export async function runFxModelsCycle(userId: number, ctx: {
     const day = now.toISOString().slice(0, 10);
     const hour = now.getUTCHours();
     const pairs: Array<{ symbol: string; ctx: any }> = [];
+    // Restart durability: lastShadowCandle is memory-only, so a mid-hour
+    // restart used to re-decide the same H1 candle — duplicate
+    // fx_model_decisions rows for one hour (inflating slice counts toward
+    // the 50-trade go-live bar) and a duplicate maybeGoLive pass. The
+    // crypto cycle already treats fx_day_regimes as the durable record;
+    // mirror it. Loaded BEFORE this pass's upserts below, so only hours
+    // written by an earlier pass/process count as decided.
+    const _decidedHours = new Set<string>();
+    try {
+      const { rows: _regRows } = await pool.query(
+        `SELECT symbol, hour_utc FROM fx_day_regimes WHERE user_id = $1 AND day = $2`,
+        [userId, day],
+      );
+      for (const r of _regRows) _decidedHours.add(`${r.symbol}|${r.hour_utc}`);
+    } catch { /* fail open to the in-memory gate */ }
 
     for (const [symbol, a] of Object.entries(ctx.marketAnalysis || {})) {
       const snap = ctx.snapshot?.[symbol] || {};
@@ -782,7 +805,7 @@ export async function runFxModelsCycle(userId: number, ctx: {
       ).catch(() => {});
       const candle = Math.floor(now.getTime() / 3_600_000);
       const key = `${userId}|${symbol}`;
-      if (lastShadowCandle.get(key) !== candle && Number(features.price) > 0) {
+      if (lastShadowCandle.get(key) !== candle && !_decidedHours.has(`${symbol}|${hour}`) && Number(features.price) > 0) {
         lastShadowCandle.set(key, candle);
         pairs.push({ symbol, ctx: { ...features, dayType: cls.dayType, autoModel: cls.autoModel, trendScore: cls.score } });
       }

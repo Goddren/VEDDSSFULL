@@ -5,6 +5,7 @@ import { getStrategyContext, formatStrategyContextForPrompt } from "./services/g
 type PerformanceStats = Record<string, unknown>;
 import { getLearnedInsights, getWinningStrategyPatterns } from "./services/confirmation-learning";
 import { recordAiUsage, isUnderPlatformKeyCostCap } from "./ai-usage";
+import { getPipSize, getPipValue } from "./utils/pipUtils";
 
 // Top-8 industry-proven profitable strategies — injected into 2nd confirmation
 const TOP_PROFITABLE_STRATEGIES = [
@@ -192,7 +193,7 @@ function getAssetSpecificPrompt(symbol: string): string {
        - If unsure, signal should be NEUTRAL with reduced confidence
        
     6. STOP LOSS RULES FOR GOLD:
-       - Minimum 200-300 pips from entry (gold pips are 0.01)
+       - Minimum 200-300 pips from entry (gold pips are 0.10, so 300 pips = $30)
        - Place below/above significant swing points
        - Never use tight stops on gold - they will get hunted`;
   }
@@ -929,12 +930,11 @@ interface SmcContext {
 }
 
 function estimatePipSize(symbol: string): number {
-  const s = symbol.toUpperCase();
-  if (s.includes('XAU') || s.includes('GOLD')) return 0.1;
-  if (s.includes('JPY')) return 0.01;
-  if (['US30', 'NAS100', 'GER40', 'UK100', 'SPX500', 'DAX', 'AUS200', 'HK50', 'JP225', 'FRA40'].some(idx => s.includes(idx))) return 1.0;
-  if (s.includes('BTC') || s.includes('ETH') || s.includes('XBT')) return 1.0;
-  return 0.0001;
+  // Canonical pip size. The old local copy disagreed with pipUtils for
+  // several classes — ETH returned 1.0 (canonical 0.01, 100x) and
+  // XAG/XPT/oil/NGAS fell through to 0.0001 (10–100x off) — skewing the
+  // equal-highs/lows distance this feeds.
+  return getPipSize(symbol);
 }
 
 function buildTrailSignalSummary(
@@ -1729,11 +1729,16 @@ async function buildConfirmationPrompt(
       drawdownAlert = `\n⚠ DAILY BUFFER LOW: Only ${remainingDailyBuffer.toFixed(2)}% remaining — micro lot only or skip this trade.`;
     }
 
-    // Estimate risk %
+    // Estimate risk % — canonical pip size/value. The old inline copy used
+    // a JPY pip value of 1000 (that's the value in YEN per lot, never
+    // converted to USD — ~147x too high), so every USDJPY prop-firm check
+    // computed a wildly overstated risk % and warned the AI off valid
+    // trades; BTC/indices/XAG fell into the 0.0001 branch and blew up
+    // entirely (a $500 BTC stop read as 5,000,000 "pips").
     if (tradePlan?.entry && tradePlan?.stopLoss && tradePlan?.lotSize && propFirmContext.accountBalance > 0) {
-      const pipSize = symbol.includes('JPY') ? 0.01 : symbol.includes('XAU') || symbol.includes('GOLD') ? 0.1 : 0.0001;
+      const pipSize = getPipSize(symbol);
       const pipDist = Math.abs(tradePlan.entry - tradePlan.stopLoss) / pipSize;
-      const pipValuePerLot = symbol.includes('JPY') ? 1000 : symbol.includes('XAU') || symbol.includes('GOLD') ? 10 : 10;
+      const pipValuePerLot = getPipValue(symbol);
       const dollarRisk = pipDist * pipValuePerLot * tradePlan.lotSize;
       computedRiskPct = (dollarRisk / propFirmContext.accountBalance) * 100;
     }
