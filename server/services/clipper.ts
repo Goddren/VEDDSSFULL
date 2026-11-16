@@ -17,7 +17,10 @@
  * datacenter IPs with LOGIN_REQUIRED and no formats. yt-dlp can still
  * be blocked on some videos/IPs; when it is, the job fails with the
  * specific reason (bot block, private, age-restricted, …) and points at
- * the upload path, which always works. Uploads ride the asset store
+ * the upload path, which always works. If the owner configures a saved
+ * YouTube login (YOUTUBE_COOKIES env — see ytdlp.ts), downloads run as
+ * that session, and a bot block then reports the login as rejected
+ * instead. Uploads ride the asset store
  * (25MB cap) and are probed with the same 60-minute cap as links.
  * Direct .mp4/.webm/.mov/.m4v/.mkv links remain a verified path.
  */
@@ -31,7 +34,7 @@ import { storage } from '../storage';
 import { ensureJobTable, updateContentJob } from './explainer-video';
 import { runFfmpeg, probe } from './ffmpeg';
 import { persistBuffer, getPersistedAsset } from './content-asset-store';
-import { downloadYouTubeVideo } from './ytdlp';
+import { downloadYouTubeVideo, youtubeCookiesConfigured } from './ytdlp';
 import { getPlatformOpenAIClient, getUniversalAIClientForUser, extractFirstJsonObject } from '../openai';
 import {
   classifySourceUrl, finalizeMoments, buildCaptionCues,
@@ -69,8 +72,10 @@ async function insertJob(userId: number, payload: ClipperJobPayload): Promise<nu
 function friendlyError(e: any): string {
   // yt-dlp failures arrive pre-classified into stable codes — a known
   // cause ALWAYS maps to its specific message, never the generic one.
+  // With a saved YouTube login configured, a bot block means the login
+  // was rejected — the message says so (see ytdlpErrorMessage).
   const ytCode = (e as any)?.ytdlpCode as YtdlpErrorCode | undefined;
-  if (ytCode) return ytdlpErrorMessage(ytCode);
+  if (ytCode) return ytdlpErrorMessage(ytCode, { cookiesConfigured: youtubeCookiesConfigured() });
   const m = String(e?.message || e || '');
   if (/too long|exceeds the/i.test(m)) return `That video is longer than the ${MAX_MINUTES}-minute limit for clipping. Try a shorter video.`;
   if (/no audio/i.test(m)) return 'That video has no audio track, so there is nothing to transcribe or caption.';
