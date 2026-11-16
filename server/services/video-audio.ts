@@ -103,25 +103,26 @@ export function resolveMusicBed(): { name: string; file: string } | null {
  * sentence longer than the cap is hard-truncated — the narrator never reads
  * a paragraph over a 6-second clip.
  */
-export function capNarrationText(raw: string): string {
+export function capNarrationText(raw: string, maxWords: number = MAX_NARRATION_WORDS): string {
+  const cap = Math.max(1, Math.floor(maxWords) || MAX_NARRATION_WORDS);
   const clean = String(raw || '')
     .replace(/https?:\/\/\S+/g, '')
     .replace(/[*_~`#>]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 600);
+    .slice(0, Math.max(600, cap * 12));
   if (!clean) return '';
   const sentences = clean.match(/[^.!?]+[.!?]+/g) || [clean];
   const out: string[] = [];
   let words = 0;
   for (const s of sentences) {
     const w = s.trim().split(/\s+/).filter(Boolean).length;
-    if (words + w > MAX_NARRATION_WORDS) break;
+    if (words + w > cap) break;
     out.push(s.trim());
     words += w;
   }
   if (out.length) return out.join(' ');
-  return clean.split(/\s+/).slice(0, MAX_NARRATION_WORDS).join(' ');
+  return clean.split(/\s+/).slice(0, cap).join(' ');
 }
 
 /** One cheap AI call: write the voiceover for a clip that carries no script. */
@@ -213,6 +214,10 @@ export interface ApplyAudioOptions {
   /** Prompt/shot text to write narration from when none is carried (clips). */
   sourceText?: string;
   userId?: number;
+  /** Word cap for carried narration. Clips/reels keep the 35-word default;
+   *  longer narrated pieces (the daily info-ad: 4 scenes ≈ 70 words, CTA
+   *  included) pass a higher cap so the ending is never truncated away. */
+  narrationMaxWords?: number;
 }
 
 /**
@@ -236,7 +241,7 @@ export async function applyVideoAudio(video: Buffer, opts: ApplyAudioOptions = {
 
     let reason: string | undefined;
     // 1) Narration text: carried script first, AI-written from the shot second.
-    let text = capNarrationText(opts.narrationText || '');
+    let text = capNarrationText(opts.narrationText || '', opts.narrationMaxWords ?? MAX_NARRATION_WORDS);
     if (!text && opts.sourceText?.trim()) {
       text = await generateNarrationText(opts.sourceText, opts.userId).catch((e: any) => {
         console.warn('[video-audio] narration writing failed:', e?.message || e);

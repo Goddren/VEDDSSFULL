@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -31,6 +31,7 @@ interface Post {
   id: number; day_number: number; platform: string; format: string | null; hook: string | null;
   body: string; hashtags: string[] | null; visual_idea: string | null; link: string | null;
   status: string; clicks: number; video_url: string | null; video_shot: string | null; video_aspect: string | null;
+  video_job_id: number | null; video_job_status?: string | null; video_job_error?: string | null;
 }
 interface QueueResponse {
   date: string; posts: Post[];
@@ -50,7 +51,13 @@ export function BrandedVideo({ url, aspect }: { url: string; aspect?: string | n
 function PostVideo({ post, queueKey }: { post: Post; queueKey: string }) {
   const { toast } = useToast();
   const [size, setSize] = useState(post.video_aspect || DEFAULT_SIZE[post.platform] || "9:16");
-  const [jobId, setJobId] = useState<number | null>(null);
+  // The render runs server-side to completion whether or not this page is
+  // open; the post row carries the job id, so coming back to the page
+  // re-attaches to the same job as a viewer instead of losing it.
+  const [jobId, setJobId] = useState<number | null>(post.video_job_id ?? null);
+  useEffect(() => {
+    if (jobId == null && post.video_job_id) setJobId(post.video_job_id);
+  }, [post.video_job_id, jobId]);
   const job = useExplainerJob(jobId, () => queryClient.invalidateQueries({ queryKey: [queueKey] }));
   const make = useMutation({
     mutationFn: async () => (await apiRequest("POST", `/api/ambassador/agent/queue/${post.id}/video`, { aspect: size })).json(),
@@ -58,9 +65,20 @@ function PostVideo({ post, queueKey }: { post: Post; queueKey: string }) {
     onError: (e: any) => toast({ title: "Video didn't start", description: String(e?.message || "").replace(/^\d+:\s*/, ""), variant: "destructive" }),
   });
   const working = make.isPending || (!!job && (job.status === "running" || job.status === "queued"));
+  // A failure recorded on the post itself (e.g. the job died before this
+  // page ever polled it) is shown even before the job fetch lands.
+  const recordedFailure = !job && !post.video_url && post.video_job_status === "failed"
+    ? (post.video_job_error || "The video could not be made. Please try again.") : null;
   return (
     <div className="rounded-lg border border-dashed p-3 space-y-2">
       {working || job?.status === "failed" ? <JobProgress job={job ?? ({ status: "running", step: "Starting", progress: 2 } as any)} /> : null}
+      {recordedFailure ? <p className="text-sm text-red-400">{recordedFailure}</p> : null}
+      {job?.status === "done" && job.audio && job.audio.narration === "none" && job.audio.reason ? (
+        <p className="text-xs text-amber-400/90">🔊 {job.audio.reason}</p>
+      ) : null}
+      {job?.libraryError ? (
+        <p className="text-xs text-amber-400/90">⚠️ This video finished but wasn't added to your Saved library: {job.libraryError}</p>
+      ) : null}
       {post.video_url && !working ? (
         <>
           <BrandedVideo url={post.video_url} aspect={post.video_aspect} />

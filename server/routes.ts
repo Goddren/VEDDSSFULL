@@ -31336,7 +31336,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const ex = await import('./services/explainer-video');
     const job = await ex.getJob(Number(req.params.id), (req.user as any).id);
     if (!job) return res.status(404).json({ error: "Not found" });
-    res.json({ id: job.id, status: job.status, step: job.step, progress: job.progress, url: job.result_url, error: job.error, script: job.script, aspect: job.aspect });
+    res.json({ id: job.id, status: job.status, step: job.step, progress: job.progress, url: job.result_url, error: job.error, script: job.script, aspect: job.aspect, audio: job.meta?.audio ?? null, libraryError: job.meta?.libraryError ?? null });
   });
 
   // ── My Presenter ──────────────────────────────────────────────────────
@@ -31533,6 +31533,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     res.json({
       id: job.id, kind: job.kind, status: job.status, step: job.step, progress: job.progress,
       url: job.result_url, error: job.error, result: job.meta?.result ?? null,
+      libraryError: job.meta?.libraryError ?? null,
     });
   });
 

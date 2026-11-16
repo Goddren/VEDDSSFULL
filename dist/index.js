@@ -73409,6 +73409,251 @@ var init_content_asset_store = __esm({
   }
 });
 
+// server/services/video-audio.ts
+import fs13 from "fs";
+import os2 from "os";
+import path13 from "path";
+import { fileURLToPath } from "url";
+function videoAudioEnabled() {
+  return process.env.VIDEO_AUDIO !== "off";
+}
+function audioDir() {
+  return AUDIO_DIR_CANDIDATES.find((d) => fs13.existsSync(d)) ?? null;
+}
+function listMusicBeds() {
+  const dir = audioDir();
+  if (!dir) return [];
+  return fs13.readdirSync(dir).filter((f) => /\.(mp3|ogg|wav|m4a)$/i.test(f)).sort();
+}
+function resolveMusicBed() {
+  const dir = audioDir();
+  if (!dir) return null;
+  const beds = listMusicBeds();
+  if (!beds.length) return null;
+  const wanted = (process.env.VIDEO_MUSIC_BED || "").trim();
+  const name = wanted && beds.includes(wanted) ? wanted : beds.includes(DEFAULT_BED) ? DEFAULT_BED : beds[0];
+  return { name, file: path13.join(dir, name) };
+}
+function capNarrationText(raw, maxWords = MAX_NARRATION_WORDS) {
+  const cap = Math.max(1, Math.floor(maxWords) || MAX_NARRATION_WORDS);
+  const clean = String(raw || "").replace(/https?:\/\/\S+/g, "").replace(/[*_~`#>]/g, "").replace(/\s+/g, " ").trim().slice(0, Math.max(600, cap * 12));
+  if (!clean) return "";
+  const sentences = clean.match(/[^.!?]+[.!?]+/g) || [clean];
+  const out = [];
+  let words = 0;
+  for (const s of sentences) {
+    const w = s.trim().split(/\s+/).filter(Boolean).length;
+    if (words + w > cap) break;
+    out.push(s.trim());
+    words += w;
+  }
+  if (out.length) return out.join(" ");
+  return clean.split(/\s+/).slice(0, cap).join(" ");
+}
+async function generateNarrationText(sourceText, userId) {
+  const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+  const ai = await getUniversalAIClientForUser2(userId || 0);
+  const completion = await ai.chat.completions.create({
+    model: ai.defaultModel || "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: "You write narrator voiceovers for very short social videos for VEDD Trading AI, a faith-driven financial education platform. Brand voice: confident, empowering, street-urban authentic, no fluff. Answer with the voiceover text ONLY \u2014 no labels, no quotes, no hashtags."
+      },
+      {
+        role: "user",
+        content: `Write a voiceover of 1-2 sentences, at most ${MAX_NARRATION_WORDS} words, to be read aloud over a 6-second vertical video. It must fit this scene/topic: """${sourceText.slice(0, 800)}"""
+
+Rules: spoken language, present tense, one clear idea, ends on the payoff. No profit promises, no win-rate or income claims, no "guaranteed" language.`
+      }
+    ],
+    max_tokens: 120
+  });
+  return capNarrationText(String(completion.choices?.[0]?.message?.content || ""));
+}
+async function tryOpenRouterSpeech(key, model, voice, text3) {
+  try {
+    const res2 = await fetch("https://openrouter.ai/api/v1/audio/speech", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+      // response_format pinned to mp3 — the endpoint defaults to pcm.
+      body: JSON.stringify({ model, input: text3, voice, response_format: "mp3" }),
+      signal: AbortSignal.timeout(TTS_TIMEOUT_MS)
+    });
+    if (!res2.ok) {
+      const errText = await res2.text().catch(() => "");
+      console.warn(`[video-audio] TTS ${model} ${res2.status}:`, errText.slice(0, 200), "\u2014 falling back");
+      return null;
+    }
+    const ct = res2.headers.get("content-type") || "";
+    const buffer = Buffer.from(await res2.arrayBuffer());
+    if (!ct.includes("audio") || buffer.length < 100) {
+      console.warn(`[video-audio] TTS ${model} returned no usable audio (${ct || "unknown content type"}, ${buffer.length} bytes)`);
+      return null;
+    }
+    return { buffer, model };
+  } catch (e) {
+    console.warn(`[video-audio] TTS ${model} error:`, e?.message || e, "\u2014 falling back");
+    return null;
+  }
+}
+async function synthesizeNarration(text3) {
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) {
+    console.warn("[video-audio] OPENROUTER_API_KEY not set \u2014 narration skipped");
+    return null;
+  }
+  const primary = {
+    model: (process.env.VIDEO_TTS_MODEL || "").trim() || DEFAULT_TTS_MODEL,
+    voice: (process.env.VIDEO_TTS_VOICE || "").trim() || DEFAULT_TTS_VOICE
+  };
+  const attempts = [primary];
+  if (primary.model !== FALLBACK_TTS_MODEL) {
+    attempts.push({ model: FALLBACK_TTS_MODEL, voice: FALLBACK_TTS_VOICE });
+  } else if (!process.env.VIDEO_TTS_VOICE) {
+    primary.voice = FALLBACK_TTS_VOICE;
+  }
+  for (const a of attempts) {
+    const hit = await tryOpenRouterSpeech(key, a.model, a.voice, text3);
+    if (hit) return hit;
+  }
+  return null;
+}
+async function applyVideoAudio(video, opts = {}) {
+  const dir = fs13.mkdtempSync(path13.join(os2.tmpdir(), "vedd-audio-"));
+  const src = path13.join(dir, "in.mp4");
+  const dst = path13.join(dir, "out.mp4");
+  try {
+    fs13.writeFileSync(src, video);
+    const info2 = await probe(src).catch(() => null);
+    const dur = info2?.duration || 0;
+    if (!(dur > 0)) {
+      console.warn("[video-audio] could not read clip duration \u2014 skipping audio stage");
+      return null;
+    }
+    const D = Math.round(dur * 100) / 100;
+    let reason;
+    let text3 = capNarrationText(opts.narrationText || "", opts.narrationMaxWords ?? MAX_NARRATION_WORDS);
+    if (!text3 && opts.sourceText?.trim()) {
+      text3 = await generateNarrationText(opts.sourceText, opts.userId).catch((e) => {
+        console.warn("[video-audio] narration writing failed:", e?.message || e);
+        return "";
+      });
+      if (!text3) reason = "narration text unavailable";
+    }
+    let speech = null;
+    let narrFile = null;
+    if (text3) {
+      speech = await synthesizeNarration(text3);
+      if (speech) {
+        narrFile = path13.join(dir, "narr.mp3");
+        fs13.writeFileSync(narrFile, speech.buffer);
+      } else {
+        reason = reason || "narration synthesis failed";
+      }
+    }
+    const bed = resolveMusicBed();
+    if (!bed) reason = reason || "no music bed available";
+    if (!speech && !bed) {
+      console.warn("[video-audio] no audio components available \u2014 shipping silent clip");
+      return null;
+    }
+    const args = ["-y", "-i", src];
+    let narrIdx = -1;
+    let bedIdx = -1;
+    if (narrFile) {
+      narrIdx = 1;
+      args.push("-i", narrFile);
+    }
+    if (bed) {
+      bedIdx = narrFile ? 2 : 1;
+      args.push("-stream_loop", "-1", "-i", bed.file);
+    }
+    const fadeOutStart = Math.max(0, D - 0.8).toFixed(2);
+    const parts = [];
+    const mixLabels = [];
+    if (info2?.hasAudio) {
+      parts.push(`[0:a]aresample=44100,apad,atrim=0:${D}[orig]`);
+      mixLabels.push("[orig]");
+    }
+    if (narrFile) {
+      if (bed) {
+        parts.push(`[${narrIdx}:a]aresample=44100,asplit=2[narrMix][narrSc]`);
+        parts.push(`[narrMix]apad,atrim=0:${D}[narr]`);
+      } else {
+        parts.push(`[${narrIdx}:a]aresample=44100,apad,atrim=0:${D}[narr]`);
+      }
+      mixLabels.push("[narr]");
+    }
+    if (bed) {
+      const bedVol = narrFile ? "0.16" : "0.25";
+      parts.push(`[${bedIdx}:a]aresample=44100,atrim=0:${D},volume=${bedVol},afade=t=in:st=0:d=0.4,afade=t=out:st=${fadeOutStart}:d=0.8[bedRaw]`);
+      if (narrFile) {
+        parts.push(`[bedRaw][narrSc]sidechaincompress=threshold=0.03:ratio=6:attack=40:release=350[bed]`);
+      } else {
+        parts.push(`[bedRaw]anull[bed]`);
+      }
+      mixLabels.push("[bed]");
+    }
+    if (mixLabels.length === 1) {
+      parts.push(`${mixLabels[0]}alimiter=limit=0.9,aresample=44100[aout]`);
+    } else {
+      parts.push(`${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=first:normalize=0,alimiter=limit=0.9,aresample=44100[aout]`);
+    }
+    args.push(
+      "-filter_complex",
+      parts.join(";"),
+      "-map",
+      "0:v",
+      "-map",
+      "[aout]",
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-movflags",
+      "+faststart",
+      dst
+    );
+    await runFfmpeg(args, 12e4);
+    const buffer = fs13.readFileSync(dst);
+    const audio = {
+      narration: speech ? `openrouter:${speech.model}` : "none",
+      musicBed: bed ? bed.name : "none"
+    };
+    if (!text3 && !reason) reason = "no narration text provided";
+    if (reason && (!speech || !bed)) audio.reason = reason;
+    console.log(`[video-audio] mixed: narration=${audio.narration} bed=${audio.musicBed} (${buffer.length} bytes)`);
+    return { buffer, audio };
+  } catch (e) {
+    console.warn("[video-audio] audio stage failed, shipping silent clip:", e?.message || e);
+    return null;
+  } finally {
+    fs13.rmSync(dir, { recursive: true, force: true });
+  }
+}
+var MAX_NARRATION_WORDS, TTS_TIMEOUT_MS, DEFAULT_TTS_VOICE, DEFAULT_TTS_MODEL, FALLBACK_TTS_MODEL, FALLBACK_TTS_VOICE, DEFAULT_BED, AUDIO_DIR_CANDIDATES;
+var init_video_audio = __esm({
+  "server/services/video-audio.ts"() {
+    "use strict";
+    init_ffmpeg();
+    MAX_NARRATION_WORDS = 35;
+    TTS_TIMEOUT_MS = 3e4;
+    DEFAULT_TTS_VOICE = "nJvj5shg2xu1GKGxqfkE";
+    DEFAULT_TTS_MODEL = "elevenlabs/eleven-turbo-v2.5";
+    FALLBACK_TTS_MODEL = "openai/gpt-4o-mini-tts-2025-12-15";
+    FALLBACK_TTS_VOICE = "onyx";
+    DEFAULT_BED = "bed-groove.mp3";
+    AUDIO_DIR_CANDIDATES = [
+      path13.resolve(process.cwd(), "server/assets/audio"),
+      path13.resolve(path13.dirname(fileURLToPath(import.meta.url)), "../server/assets/audio"),
+      path13.resolve(path13.dirname(fileURLToPath(import.meta.url)), "../../server/assets/audio")
+    ];
+  }
+});
+
 // server/services/chart-overlay.ts
 function chartFilter(spec, W, H2, seconds = 8) {
   const px = Math.round(W * 0.06), pw = W - px * 2;
@@ -73496,8 +73741,8 @@ var init_chart_overlay = __esm({
 });
 
 // server/services/app-screens.ts
-import fs13 from "fs";
-import path13 from "path";
+import fs14 from "fs";
+import path14 from "path";
 function screenCatalogForPrompt() {
   return APP_SCREENS.map((s) => `${s.id} \u2014 ${s.shows}`).join("\n");
 }
@@ -73508,12 +73753,12 @@ function screenImagePath(id) {
   let found = null;
   if (screen) {
     const candidates = [
-      path13.resolve(process.cwd(), "dist/public/app-screens", screen.file),
-      path13.resolve(process.cwd(), "client/public/app-screens", screen.file),
-      path13.resolve(__dirname, "../public/app-screens", screen.file),
-      path13.resolve(__dirname, "../../client/public/app-screens", screen.file)
+      path14.resolve(process.cwd(), "dist/public/app-screens", screen.file),
+      path14.resolve(process.cwd(), "client/public/app-screens", screen.file),
+      path14.resolve(__dirname, "../public/app-screens", screen.file),
+      path14.resolve(__dirname, "../../client/public/app-screens", screen.file)
     ];
-    found = candidates.find((c) => fs13.existsSync(c)) ?? null;
+    found = candidates.find((c) => fs14.existsSync(c)) ?? null;
     if (!found) console.warn(`[app-screens] ${screen.file} not found in any known location \u2014 scene will render without the screen overlay`);
   }
   fileCache.set(id, found);
@@ -73542,6 +73787,160 @@ var init_app_screens = __esm({
     ];
     APP_SCREEN_IDS = APP_SCREENS.map((s) => s.id);
     fileCache = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/video-shot.ts
+var video_shot_exports = {};
+__export(video_shot_exports, {
+  fallbackShot: () => fallbackShot,
+  planVideoShot: () => planVideoShot
+});
+function fallbackShot(input) {
+  const lines = input.split(/\n+/).map((l) => l.replace(/^\s*(HOOK|BEAT\s*\d*|CTA|CAPTION|ON-SCREEN TEXT|SCENE\s*\d*|SHOW|VO|VOICEOVER)\s*(\([^)]*\))?\s*[:\-—]\s*/i, "").trim()).filter((l) => l && !/^#|https?:\/\//i.test(l));
+  return (lines.join(" ") || input).slice(0, MAX_SHOT_CHARS);
+}
+async function planVideoShot(input, userId) {
+  const text3 = String(input || "").trim();
+  if (!text3) throw new Error("prompt is required");
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const ai = await getUniversalAIClientForUser2(userId || 0);
+    const completion = await ai.chat.completions.create({
+      model: ai.defaultModel || "gpt-4o",
+      messages: [
+        { role: "system", content: "You turn content ideas into a single shot description for a text-to-video model. Respond with JSON only." },
+        { role: "user", content: `Turn the input below into ONE continuous 5-second vertical (9:16) video shot that a text-to-video model can film.
+
+Rules:
+- Keep the user's subject, people, place, objects and action. Do not swap in a different idea.
+- If the input is a script, ad or list of scenes, pick the single most visual moment that carries its message.
+- If the input is only a topic (e.g. "ORB strategy"), invent one concrete scene that shows it (a person, a place, what they are doing, what is on the screen in front of them).
+- Describe only what the camera sees: subject, setting, action, camera angle/movement, lighting. 40-70 words, present tense.
+- No on-screen text, captions, logos, brand names or readable words; describe screens as "a candlestick chart" not "a chart that says...".
+- Do not add a style (film grain, colour grade): that is added later.
+
+Also write "hook": the 3-8 word caption to overlay on the video, in the input's language.
+
+Input:
+"""${text3.slice(0, 4e3)}"""
+
+JSON: {"shot":"...","hook":"..."}` }
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 600
+    });
+    const raw = (completion.choices?.[0]?.message?.content || "{}").replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
+    const out = JSON.parse(raw || "{}");
+    const shot = String(out.shot || "").trim();
+    if (shot.length >= 20) return { shot: shot.slice(0, MAX_SHOT_CHARS), hook: String(out.hook || "").trim().slice(0, 80), planned: true };
+  } catch (e) {
+    console.warn("[video-shot] planning failed, using fallback:", e?.message || e);
+  }
+  return { shot: fallbackShot(text3), hook: "", planned: false };
+}
+var MAX_SHOT_CHARS;
+var init_video_shot = __esm({
+  "server/services/video-shot.ts"() {
+    "use strict";
+    MAX_SHOT_CHARS = 600;
+  }
+});
+
+// server/services/fal-video.ts
+function falConfigured() {
+  return !!(process.env.FAL_AI_API || process.env.FAL_KEY);
+}
+function falKey() {
+  return process.env.FAL_AI_API || process.env.FAL_KEY || null;
+}
+async function generateFalVideo(styledPrompt, opts) {
+  const key = falKey();
+  if (!key) {
+    console.error("[fal-video] FAL_AI_API / FAL_KEY not set \u2014 cannot generate video");
+    return null;
+  }
+  const { quality, image } = opts;
+  const model = image ? quality === "high" ? HIGH_I2V_MODEL : FAST_I2V_MODEL : quality === "high" ? HIGH_MODEL : FAST_MODEL;
+  const input = {
+    prompt: styledPrompt,
+    num_frames: opts.numFrames,
+    frames_per_second: opts.fps,
+    // Wan family only offers 480p/580p/720p on fal; 720p is the quality bump,
+    // matching the Replicate side (fast 480p / high 720p).
+    resolution: quality === "high" ? "720p" : "480p",
+    // i2v derives aspect ratio from the start image; only set it for t2v.
+    ...image ? { image_url: image } : { aspect_ratio: opts.aspect }
+  };
+  try {
+    console.log(`[fal-video] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
+    const submit = await fetch(`https://queue.fal.run/${model}`, {
+      method: "POST",
+      headers: { Authorization: `Key ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(3e4)
+    });
+    if (!submit.ok) {
+      const body = await submit.text().catch(() => "");
+      console.error("[fal-video] fal submit error:", submit.status, body.slice(0, 300));
+      return null;
+    }
+    const queued = await submit.json();
+    const statusUrl = queued?.status_url;
+    const responseUrl = queued?.response_url;
+    if (!statusUrl || !responseUrl) {
+      console.error("[fal-video] fal submit returned no queue URLs");
+      return null;
+    }
+    let status = String(queued?.status || "IN_QUEUE");
+    for (let i = 0; i < MAX_POLLS && status !== "COMPLETED"; i++) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      const poll = await fetch(statusUrl, {
+        headers: { Authorization: `Key ${key}` },
+        signal: AbortSignal.timeout(15e3)
+      });
+      if (!poll.ok) break;
+      const pj = await poll.json();
+      status = String(pj?.status || "");
+      if (status === "ERROR") {
+        console.error("[fal-video] fal generation errored:", JSON.stringify(pj).slice(0, 300));
+        return null;
+      }
+    }
+    if (status !== "COMPLETED") {
+      console.error("[fal-video] fal video did not complete in time:", status);
+      return null;
+    }
+    const result = await fetch(responseUrl, {
+      headers: { Authorization: `Key ${key}` },
+      signal: AbortSignal.timeout(3e4)
+    });
+    if (!result.ok) {
+      console.error("[fal-video] fal result fetch error:", result.status);
+      return null;
+    }
+    const data = await result.json();
+    const url = data?.video?.url || (Array.isArray(data?.output) ? data.output[0] : void 0);
+    if (!url) {
+      console.error("[fal-video] fal result had no video URL");
+      return null;
+    }
+    return { url, provider: `fal:${model}`, quality };
+  } catch (e) {
+    console.error("[fal-video] fal error:", e.message);
+    return null;
+  }
+}
+var FAST_MODEL, HIGH_MODEL, FAST_I2V_MODEL, HIGH_I2V_MODEL, POLL_INTERVAL_MS, MAX_POLLS;
+var init_fal_video = __esm({
+  "server/services/fal-video.ts"() {
+    "use strict";
+    FAST_MODEL = process.env.FAL_VIDEO_MODEL || "fal-ai/wan/v2.2-a14b/text-to-video";
+    HIGH_MODEL = process.env.FAL_VIDEO_HIGH_MODEL || FAST_MODEL;
+    FAST_I2V_MODEL = process.env.FAL_VIDEO_I2V_MODEL || "fal-ai/wan/v2.2-a14b/image-to-video";
+    HIGH_I2V_MODEL = process.env.FAL_VIDEO_HIGH_I2V_MODEL || FAST_I2V_MODEL;
+    POLL_INTERVAL_MS = 5e3;
+    MAX_POLLS = 60;
   }
 });
 
@@ -73674,7 +74073,7 @@ async function runOpenRouterVideoJob(args) {
     let status = String(queued?.status || "pending");
     let lastError = "";
     for (let i = 0; i < args.maxPolls && status !== "completed" && !TERMINAL_FAILURES.includes(status); i++) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS2));
       const poll = await fetch(pollUrl, {
         headers: orHeaders(key),
         signal: AbortSignal.timeout(15e3)
@@ -73719,7 +74118,7 @@ async function generateOpenRouterVideo(styledPrompt, opts) {
     console.error("[openrouter-video] OPENROUTER_API_KEY not set \u2014 cannot generate video");
     return null;
   }
-  const model = opts.quality === "high" ? HIGH_MODEL : FAST_MODEL;
+  const model = opts.quality === "high" ? HIGH_MODEL2 : FAST_MODEL2;
   return runOpenRouterVideoJob({
     key,
     model,
@@ -73730,7 +74129,7 @@ async function generateOpenRouterVideo(styledPrompt, opts) {
     image: opts.image,
     withAudio: opts.withAudio ?? false,
     negativePrompt: opts.negativePrompt,
-    maxPolls: opts.maxPolls ?? MAX_POLLS,
+    maxPolls: opts.maxPolls ?? MAX_POLLS2,
     quality: opts.quality,
     logTag: `clip quality=${opts.quality}`
   });
@@ -73739,11 +74138,11 @@ async function generateExplainerSceneViaOpenRouter(args) {
   const key = orKey();
   if (!key) throw new Error("OPENROUTER_API_KEY not set");
   const envModel = (process.env.EXPLAINER_VIDEO_MODEL || "").trim();
-  let model = FAST_MODEL;
+  let model = FAST_MODEL2;
   if (envModel && envModel !== model) {
     if ((await fetchCatalog()).has(envModel)) model = envModel;
   }
-  const maxPolls = Math.max(1, Math.floor((args.maxWaitMs ?? 8 * 60 * 1e3) / POLL_INTERVAL_MS));
+  const maxPolls = Math.max(1, Math.floor((args.maxWaitMs ?? 8 * 60 * 1e3) / POLL_INTERVAL_MS2));
   const video = await runOpenRouterVideoJob({
     key,
     model,
@@ -73761,37 +74160,426 @@ async function generateExplainerSceneViaOpenRouter(args) {
   if (!video) return null;
   return { url: video.url, predictionId: `openrouter:${model}` };
 }
-var FAST_MODEL, HIGH_MODEL, API_BASE2, POLL_INTERVAL_MS, MAX_POLLS, catalogPromise, RES_RANK;
+var FAST_MODEL2, HIGH_MODEL2, API_BASE2, POLL_INTERVAL_MS2, MAX_POLLS2, catalogPromise, RES_RANK;
 var init_openrouter_video = __esm({
   "server/services/openrouter-video.ts"() {
     "use strict";
     init_content_asset_store();
-    FAST_MODEL = process.env.OPENROUTER_VIDEO_MODEL || "google/veo-3.1-fast";
-    HIGH_MODEL = process.env.OPENROUTER_VIDEO_HIGH_MODEL || FAST_MODEL;
+    FAST_MODEL2 = process.env.OPENROUTER_VIDEO_MODEL || "google/veo-3.1-fast";
+    HIGH_MODEL2 = process.env.OPENROUTER_VIDEO_HIGH_MODEL || FAST_MODEL2;
     API_BASE2 = "https://openrouter.ai/api/v1";
-    POLL_INTERVAL_MS = 5e3;
-    MAX_POLLS = 60;
+    POLL_INTERVAL_MS2 = 5e3;
+    MAX_POLLS2 = 60;
     catalogPromise = null;
     RES_RANK = ["360p", "480p", "720p", "1080p", "2K", "4K"];
+  }
+});
+
+// server/services/video-generation.ts
+function buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, aspect = "9:16") {
+  if (model.includes("kling")) {
+    return {
+      prompt: styledPrompt,
+      negative_prompt: "blurry, low quality, distorted, deformed, extra limbs, watermark, text, on-screen text, subtitles",
+      ...image ? { start_image: image } : { aspect_ratio: aspect },
+      duration: durationSeconds <= 5 ? 5 : 10,
+      // Kling only offers 5s or 10s
+      cfg_scale: 0.5
+    };
+  }
+  if (model.includes("wan")) {
+    return {
+      prompt: styledPrompt,
+      resolution: quality === "high" ? "720p" : "480p",
+      // 720p is the real quality bump the model already supports
+      num_frames: numFrames,
+      frames_per_second: DEFAULT_FPS,
+      // Wan i2v derives aspect ratio from the start image; only set it for t2v.
+      ...image ? { image } : { aspect_ratio: aspect }
+    };
+  }
+  return { prompt: styledPrompt, ...image ? { image } : { aspect_ratio: aspect } };
+}
+async function generateContentVideo(prompt, opts) {
+  const quality = opts?.quality === "high" ? "high" : "fast";
+  const image = opts?.image && opts.image.trim() ? opts.image.trim() : void 0;
+  const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
+  const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
+  const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX}`;
+  const aspect = opts?.aspect === "16:9" ? "16:9" : "9:16";
+  const shared = { quality, image, durationSeconds, numFrames, aspect };
+  const pref = (process.env.VIDEO_PROVIDER || "").toLowerCase();
+  const attempts = [
+    { name: "openrouter", configured: openrouterConfigured, run: () => generateOpenRouterVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS }) },
+    { name: "replicate", configured: () => !!process.env.REPLICATE_API_TOKEN, run: () => generateViaReplicate(styledPrompt, shared) },
+    { name: "fal", configured: falConfigured, run: () => generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS }) }
+  ];
+  const primaryIdx = attempts.findIndex((a) => a.name === pref);
+  if (primaryIdx > 0) attempts.unshift(attempts.splice(primaryIdx, 1)[0]);
+  let anyConfigured = false;
+  for (let i = 0; i < attempts.length; i++) {
+    const attempt = attempts[i];
+    if (!attempt.configured()) {
+      console.log(`[video-generation] ${attempt.name} not configured \u2014 skipping`);
+      continue;
+    }
+    anyConfigured = true;
+    const video = await attempt.run();
+    if (video) return video;
+    if (i < attempts.length - 1) console.log(`[video-generation] ${attempt.name} failed \u2014 falling back to the next provider`);
+  }
+  if (!anyConfigured) console.error("[video-generation] NO video provider is configured (OPENROUTER_API_KEY / REPLICATE_API_TOKEN / FAL_AI_API all unset)");
+  return null;
+}
+async function generateViaReplicate(styledPrompt, opts) {
+  const apiKey = process.env.REPLICATE_API_TOKEN;
+  if (!apiKey) {
+    console.error("[video-generation] REPLICATE_API_TOKEN not set \u2014 cannot generate video");
+    return null;
+  }
+  const { quality, image, durationSeconds, numFrames, aspect } = opts;
+  const model = image ? quality === "high" ? HIGH_I2V_MODEL2 : FAST_I2V_MODEL2 : quality === "high" ? HIGH_MODEL3 : FAST_MODEL3;
+  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, aspect);
+  try {
+    console.log(`[video-generation] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
+    const create = () => fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Prefer: "wait"
+      },
+      body: JSON.stringify({ input }),
+      // Replicate's own `Prefer: wait` window can run right up to ~60s
+      // before it gives up and returns 202 "starting" instead of a
+      // finished result — a 60000ms client-side abort loses that race and
+      // throws "aborted due to timeout" instead of falling through to the
+      // poll loop below. Give it headroom.
+      signal: AbortSignal.timeout(75e3)
+    });
+    let res2 = await create();
+    for (let attempt = 0; res2.status === 429 && attempt < 8; attempt++) {
+      const body = await res2.json().catch(() => ({}));
+      await new Promise((r) => setTimeout(r, (Number(body?.retry_after) || 10) * 1e3 + 1e3));
+      res2 = await create();
+    }
+    if (!res2.ok) {
+      const body = await res2.text().catch(() => "");
+      console.error("[video-generation] Replicate error:", res2.status, body.slice(0, 300));
+      return null;
+    }
+    let data = await res2.json();
+    const getUrl = data?.urls?.get;
+    for (let i = 0; i < MAX_POLLS3 && getUrl && (data.status === "starting" || data.status === "processing"); i++) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS3));
+      const poll = await fetch(getUrl, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(15e3)
+      });
+      if (!poll.ok) break;
+      data = await poll.json();
+    }
+    if (data.status !== "succeeded") {
+      console.error("[video-generation] Replicate video did not complete in time:", data.status, data.error ?? "");
+      return null;
+    }
+    const output = data?.output;
+    const url = Array.isArray(output) ? output[0] : output;
+    if (!url) return null;
+    return { url, provider: `replicate:${model}`, quality };
+  } catch (e) {
+    console.error("[video-generation] Replicate error:", e.message);
+    return null;
+  }
+}
+var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX, FAST_MODEL3, HIGH_MODEL3, FAST_I2V_MODEL2, HIGH_I2V_MODEL2, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS3, MAX_POLLS3;
+var init_video_generation = __esm({
+  "server/services/video-generation.ts"() {
+    "use strict";
+    init_fal_video();
+    init_openrouter_video();
+    VEDD_STYLE_LOCK = ". Shot as a grainy 35mm cinematic film still: heavy analog film grain, desaturated moody color grade with one warm gold light source, shallow depth of field, photorealistic. Slow, subtle ambient motion only \u2014 no fast or shaky camera movement.";
+    NO_TEXT_SUFFIX = " No on-screen text, captions, subtitles, signage, logos or readable words anywhere in the frame \u2014 pure visual scene only.";
+    HUMAN_STYLE_SUFFIX = " If people appear: young Black people, natural skin tones, contemporary streetwear, authentic inner-city/urban setting.";
+    FAST_MODEL3 = "wan-video/wan-2.2-t2v-fast";
+    HIGH_MODEL3 = process.env.VIDEO_HIGH_MODEL || "wan-video/wan-2.2-t2v-fast";
+    FAST_I2V_MODEL2 = process.env.VIDEO_FAST_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
+    HIGH_I2V_MODEL2 = process.env.VIDEO_HIGH_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
+    DEFAULT_FPS = 16;
+    MIN_NUM_FRAMES = 81;
+    MAX_DURATION_SECONDS = 6;
+    POLL_INTERVAL_MS3 = 5e3;
+    MAX_POLLS3 = 60;
+  }
+});
+
+// server/services/content-video.ts
+async function renderContentVideo(prompt, o = {}) {
+  const aspect = o.aspect && o.aspect in SOCIAL_SIZES ? o.aspect : "9:16";
+  let shot = (o.shot || "").trim();
+  let hook = "";
+  if (!shot) {
+    if (o.exact) shot = prompt.trim();
+    else ({ shot, hook } = await planVideoShot(prompt, o.userId));
+  }
+  if (o.backgroundScene) shot = `${shot} Setting: ${o.backgroundScene}.`;
+  const video = await generateContentVideo(shot, {
+    duration: o.duration,
+    quality: o.quality,
+    image: o.image,
+    aspect: aspect === "16:9" ? "16:9" : "9:16"
+  });
+  if (!video) return null;
+  const audioOn = videoAudioEnabled();
+  let audio;
+  const audioField = () => {
+    if (!audioOn) return {};
+    return { audio: audio ?? { narration: "none", musicBed: "none", reason: "audio mix unavailable" } };
+  };
+  let buf = null;
+  if (o.brand !== false || audioOn) {
+    try {
+      const res2 = await fetch(video.url, { signal: AbortSignal.timeout(6e4) });
+      if (res2.ok) buf = Buffer.from(await res2.arrayBuffer());
+    } catch (e) {
+      console.warn("[content-video] clip download failed:", e?.message || e);
+    }
+  }
+  let branded = false;
+  if (buf && o.brand !== false) {
+    try {
+      const brandedBuf = await brandVideo(buf, aspect);
+      if (brandedBuf) {
+        buf = brandedBuf;
+        branded = true;
+      }
+    } catch (e) {
+      console.warn("[content-video] branding step failed:", e?.message || e);
+    }
+  }
+  if (buf && audioOn) {
+    const mixed = await applyVideoAudio(buf, {
+      narrationText: o.narrationText,
+      sourceText: shot,
+      userId: o.userId
+    }).catch(() => null);
+    if (mixed) {
+      buf = mixed.buffer;
+      audio = mixed.audio;
+    } else audio = { narration: "none", musicBed: "none", reason: "audio mix failed" };
+  }
+  if (buf) {
+    const saved2 = await persistBuffer(buf, "video/mp4");
+    if (saved2) return { url: saved2.url, persisted: true, branded, shot, hook, aspect, provider: video.provider, ...audioField() };
+  }
+  const saved = await persistRemoteAsset(video.url);
+  return { url: saved?.url ?? video.url, persisted: !!saved, branded: false, shot, hook, aspect, provider: video.provider, ...audioField() };
+}
+var SOCIAL_SIZES;
+var init_content_video = __esm({
+  "server/services/content-video.ts"() {
+    "use strict";
+    init_video_shot();
+    init_video_generation();
+    init_video_branding();
+    init_video_audio();
+    init_content_asset_store();
+    SOCIAL_SIZES = {
+      "9:16": "Reels / TikTok / Shorts / Stories",
+      "1:1": "Square feed post",
+      "4:5": "Instagram / Facebook feed (portrait)",
+      "16:9": "YouTube / landscape"
+    };
+  }
+});
+
+// server/services/content-clip-jobs.ts
+var content_clip_jobs_exports = {};
+__export(content_clip_jobs_exports, {
+  resumeContentJob: () => resumeContentJob,
+  startClipJob: () => startClipJob,
+  startReelJob: () => startReelJob
+});
+function friendlyError(e) {
+  const m = String(e?.message || e);
+  if (/REPLICATE_API_TOKEN|FAL/.test(m) && /not configured|missing|no .* key/i.test(m)) return "Video service is not configured.";
+  if (/402/.test(m)) return "The video service is out of credit. Ask VEDD to top it up.";
+  if (/429/.test(m)) return "The video service is busy right now. Please try again in a few minutes.";
+  if (/timed out/i.test(m)) return "The video took too long to make. Please try again.";
+  return m.slice(0, 300) || "The video could not be made right now. Please try again in a few minutes.";
+}
+async function insertJob(userId, kind, aspect, payload2, firstStep) {
+  await ensureJobTable();
+  const { rows } = await pool.query(
+    `INSERT INTO content_video_jobs (user_id, kind, input, aspect, status, step) VALUES ($1,$2,$3,$4,'running',$5) RETURNING id`,
+    [userId, kind, JSON.stringify(payload2).slice(0, 8e3), aspect, firstStep]
+  );
+  return rows[0].id;
+}
+async function failJob(id, e) {
+  console.error(`[content-jobs] job ${id} failed:`, e?.message || e);
+  await updateContentJob(id, {
+    status: "failed",
+    error: friendlyError(e),
+    meta: { error_detail: String(e?.message || e).slice(0, 1e3) }
+  }).catch(() => {
+  });
+}
+async function saveGeneration(userId, rec) {
+  try {
+    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+    await storage2.createContentStudioGeneration({ userId, ...rec });
+  } catch (e) {
+    console.error("[content-jobs] failed to save generation record:", e?.message || e);
+  }
+}
+async function runClipJob(id, userId, payload2) {
+  try {
+    await updateContentJob(id, { step: "Rendering the clip", progress: 25 });
+    const video = await renderContentVideo(payload2.prompt || payload2.shot || "", {
+      userId,
+      shot: payload2.shot,
+      exact: payload2.exact,
+      aspect: payload2.aspect,
+      brand: payload2.brand,
+      duration: payload2.duration,
+      quality: payload2.quality,
+      image: payload2.image,
+      backgroundScene: payload2.backgroundScene
+    });
+    if (!video) throw new Error("The video couldn't be made right now. Please try again in a minute.");
+    if (video.persisted) {
+      await saveGeneration(userId, {
+        contentType: "video",
+        prompt: payload2.prompt || payload2.shot,
+        title: video.hook || null,
+        assetUrl: video.url,
+        metadata: { provider: video.provider, shot: video.shot, aspect: video.aspect, branded: video.branded, ...video.audio ? { audio: video.audio } : {} }
+      });
+    } else {
+      console.error(`[content-jobs] clip job ${id} finished unpersisted \u2014 it will not be in the Saved library`);
+      await updateContentJob(id, { meta: { libraryError: "The clip finished but could not be stored permanently, so it was not added to your Saved library." } });
+    }
+    await updateContentJob(id, {
+      status: "done",
+      step: "Ready",
+      progress: 100,
+      result_url: video.url,
+      meta: { result: video }
+    });
+  } catch (e) {
+    await failJob(id, e);
+  } finally {
+    trackJobEnd(id);
+  }
+}
+async function startClipJob(userId, payload2) {
+  const id = await insertJob(userId, "clip", payload2.aspect || "9:16", payload2, "Planning the shot");
+  trackJobStart(id);
+  void runClipJob(id, userId, payload2);
+  return id;
+}
+async function runReelJob(id, userId, payload2, existingScript) {
+  try {
+    const { generateReelScript: generateReelScript2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const script = existingScript ?? await generateReelScript2(payload2.topic, userId, payload2.format, payload2.syncStyleNote);
+    await updateContentJob(id, { step: "Rendering the clip", progress: 40, script });
+    const narrationText = [script.hook, ...script.script || []].join(" ").trim();
+    const video = await renderContentVideo(`Topic: ${payload2.topic}
+Scene idea: ${script.videoPrompt}`, {
+      userId,
+      aspect: payload2.aspect,
+      duration: payload2.duration,
+      quality: payload2.quality,
+      image: payload2.image,
+      backgroundScene: payload2.backgroundScene,
+      narrationText: narrationText || void 0
+    });
+    if (!video) throw new Error("The video couldn't be made right now. Please try again in a minute.");
+    if (video.persisted) {
+      await saveGeneration(userId, {
+        contentType: "reel",
+        prompt: payload2.topic,
+        title: script.hook ?? null,
+        caption: script.caption ?? null,
+        assetUrl: video.url,
+        metadata: { provider: video.provider, script, shot: video.shot, aspect: video.aspect, branded: video.branded, ...video.audio ? { audio: video.audio } : {} }
+      });
+    } else {
+      console.error(`[content-jobs] reel job ${id} finished unpersisted \u2014 it will not be in the Saved library`);
+      await updateContentJob(id, { meta: { libraryError: "The reel finished but could not be stored permanently, so it was not added to your Saved library." } });
+    }
+    const result = { ...script, url: video.url, persisted: video.persisted, branded: video.branded, shot: video.shot, aspect: video.aspect, ...video.audio ? { audio: video.audio } : {} };
+    await updateContentJob(id, {
+      status: "done",
+      step: "Ready",
+      progress: 100,
+      result_url: video.url,
+      meta: { result }
+    });
+  } catch (e) {
+    await failJob(id, e);
+  } finally {
+    trackJobEnd(id);
+  }
+}
+async function startReelJob(userId, payload2) {
+  const id = await insertJob(userId, "reel", payload2.aspect || "9:16", payload2, "Writing the script");
+  trackJobStart(id);
+  void runReelJob(id, userId, payload2);
+  return id;
+}
+async function resumeContentJob(job) {
+  let payload2;
+  try {
+    payload2 = JSON.parse(job.input || "{}");
+  } catch {
+    await failJob(job.id, new Error("The stored job details were unreadable \u2014 please try again."));
+    return;
+  }
+  trackJobStart(job.id);
+  if (job.kind === "clip") await runClipJob(job.id, job.user_id, payload2);
+  else if (job.kind === "reel") await runReelJob(job.id, job.user_id, payload2, job.script ?? void 0);
+  else trackJobEnd(job.id);
+}
+var init_content_clip_jobs = __esm({
+  "server/services/content-clip-jobs.ts"() {
+    "use strict";
+    init_db();
+    init_explainer_video();
+    init_content_video();
   }
 });
 
 // server/services/explainer-video.ts
 var explainer_video_exports = {};
 __export(explainer_video_exports, {
+  AD_NARRATION_MAX_WORDS: () => AD_NARRATION_MAX_WORDS,
+  AD_SCENE_ROLES: () => AD_SCENE_ROLES,
+  MAX_RESUME_ATTEMPTS: () => MAX_RESUME_ATTEMPTS,
+  RESUME_STALE_MINUTES: () => RESUME_STALE_MINUTES,
+  adNarrationText: () => adNarrationText,
   assemble: () => assemble,
   assembleFiles: () => assembleFiles,
+  buildAdScriptPrompt: () => buildAdScriptPrompt,
   ensureJobTable: () => ensureJobTable,
+  ensureJobWatchdog: () => ensureJobWatchdog,
   getJob: () => getJob,
+  isJobInFlight: () => isJobInFlight,
   jobsToday: () => jobsToday,
   rendersToday: () => rendersToday,
+  resumeStaleJobs: () => resumeStaleJobs,
+  sceneAudioPlan: () => sceneAudioPlan,
   startExplainerJob: () => startExplainerJob,
+  trackJobEnd: () => trackJobEnd,
+  trackJobStart: () => trackJobStart,
   updateContentJob: () => updateContentJob,
+  writeAdScript: () => writeAdScript,
   writeScript: () => writeScript
 });
-import fs14 from "fs";
-import os2 from "os";
-import path14 from "path";
+import fs15 from "fs";
+import os3 from "os";
+import path15 from "path";
 function ensureJobTable() {
   return tableReady5 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_video_jobs (
       id SERIAL PRIMARY KEY,
@@ -73814,19 +74602,92 @@ function ensureJobTable() {
   });
 }
 async function update(id, patch) {
-  const keys = Object.keys(patch);
-  const sets = keys.map((k2, i) => `${k2}=$${i + 2}`).join(", ");
-  await pool.query(
-    `UPDATE content_video_jobs SET ${sets}, updated_at=now() WHERE id=$1`,
-    [id, ...keys.map((k2) => k2 === "script" || k2 === "meta" ? JSON.stringify(patch[k2]) : patch[k2])]
+  const { meta, ...rest } = patch;
+  const keys = Object.keys(rest);
+  const params = [id];
+  const sets = keys.map((k2) => {
+    params.push(k2 === "script" ? JSON.stringify(rest[k2]) : rest[k2]);
+    return `${k2}=$${params.length}`;
+  });
+  if (meta !== void 0) {
+    params.push(JSON.stringify(meta));
+    sets.push(`meta = COALESCE(meta, '{}'::jsonb) || $${params.length}::jsonb`);
+  }
+  if (!sets.length) return;
+  await pool.query(`UPDATE content_video_jobs SET ${sets.join(", ")}, updated_at=now() WHERE id=$1`, params);
+}
+function trackJobStart(id) {
+  inFlightJobs.add(id);
+  ensureJobWatchdog();
+}
+function trackJobEnd(id) {
+  inFlightJobs.delete(id);
+}
+function isJobInFlight(id) {
+  return inFlightJobs.has(id);
+}
+function ensureJobWatchdog() {
+  if (watchdogStarted) return;
+  watchdogStarted = true;
+  const scan = () => {
+    resumeStaleJobs().catch((e) => console.error("[video-jobs] watchdog scan failed:", e?.message || e));
+  };
+  setTimeout(scan, 3e4).unref?.();
+  setInterval(scan, 6e4).unref?.();
+}
+async function resumeStaleJobs() {
+  await ensureJobTable();
+  const { rows } = await pool.query(
+    `SELECT * FROM content_video_jobs WHERE status IN ('queued','running') AND updated_at < now() - ($1 || ' minutes')::interval`,
+    [String(RESUME_STALE_MINUTES)]
   );
+  let resumed = 0;
+  for (const job of rows) {
+    if (inFlightJobs.has(job.id)) continue;
+    const meta = job.meta || {};
+    const attempts = Number(meta.resumeCount || 0);
+    if (attempts >= MAX_RESUME_ATTEMPTS) {
+      await update(job.id, { status: "failed", step: "Failed", error: INTERRUPTED_ERROR }).catch(() => {
+      });
+      continue;
+    }
+    await update(job.id, { step: "Restarting after an interruption", meta: { resumeCount: attempts + 1 } }).catch(() => {
+    });
+    resumed++;
+    if (job.kind === "explainer") {
+      launchExplainerJob(job.id, job.user_id, job.input, job.aspect, {
+        postId: meta.postId ?? void 0,
+        dailyAd: !!meta.dailyAd,
+        presenterImage: meta.presenterImage || void 0,
+        backgroundScene: meta.backgroundScene || void 0
+      }, { script: job.script ?? void 0, sceneUrls: Array.isArray(meta.sceneUrls) ? meta.sceneUrls : void 0 });
+    } else if (job.kind === "clip" || job.kind === "reel") {
+      const cj = await Promise.resolve().then(() => (init_content_clip_jobs(), content_clip_jobs_exports));
+      await cj.resumeContentJob(job).catch(async (e) => {
+        console.error(`[video-jobs] resume of ${job.kind} job ${job.id} failed:`, e?.message || e);
+        await update(job.id, { status: "failed", error: "The video was interrupted and could not be restarted \u2014 please try again." }).catch(() => {
+        });
+      });
+    }
+  }
+  return resumed;
 }
 async function getJob(id, userId) {
   await ensureJobTable();
-  await pool.query(`UPDATE content_video_jobs SET status='failed', error='Interrupted by a server restart \u2014 please try again.'
-                     WHERE id=$1 AND status IN ('queued','running') AND updated_at < now() - interval '15 minutes'`, [id]);
   const { rows } = await pool.query(`SELECT * FROM content_video_jobs WHERE id=$1 AND user_id=$2`, [id, userId]);
-  return rows[0] ?? null;
+  const job = rows[0] ?? null;
+  if (!job) return null;
+  if ((job.status === "queued" || job.status === "running") && !inFlightJobs.has(id)) {
+    ensureJobWatchdog();
+    const staleMs = Date.now() - new Date(job.updated_at).getTime();
+    if (staleMs > 15 * 60 * 1e3 && Number(job.meta?.resumeCount || 0) >= MAX_RESUME_ATTEMPTS) {
+      await update(id, { status: "failed", step: "Failed", error: INTERRUPTED_ERROR }).catch(() => {
+      });
+      job.status = "failed";
+      job.error = INTERRUPTED_ERROR;
+    }
+  }
+  return job;
 }
 async function rendersToday(userId) {
   return jobsToday(userId, "explainer");
@@ -73842,21 +74703,35 @@ async function jobsToday(userId, kind) {
 async function updateContentJob(id, patch) {
   await update(id, patch);
 }
+function launchExplainerJob(id, userId, input, aspect, opts, resume = {}) {
+  trackJobStart(id);
+  runJob(id, userId, input, aspect, opts, resume).catch(async (e) => {
+    console.error(`[explainer] job ${id} failed:`, e?.message || e);
+    await update(id, { status: "failed", error: friendlyError2(e) }).catch(() => {
+    });
+    await update(id, { meta: { error_detail: String(e?.message || e).slice(0, 1e3) } }).catch(() => {
+    });
+  }).finally(() => trackJobEnd(id));
+}
 async function startExplainerJob(userId, input, aspect, opts = {}) {
   await ensureJobTable();
+  const meta = {
+    postId: opts.postId ?? null,
+    dailyAd: !!opts.dailyAd,
+    presenterImage: opts.presenterImage ?? null,
+    backgroundScene: opts.backgroundScene ?? null,
+    resumeCount: 0,
+    sceneUrls: []
+  };
   const { rows } = await pool.query(
-    `INSERT INTO content_video_jobs (user_id, input, aspect, status, step) VALUES ($1,$2,$3,'running','Writing the script') RETURNING id`,
-    [userId, input.slice(0, 8e3), aspect]
+    `INSERT INTO content_video_jobs (user_id, input, aspect, status, step, meta) VALUES ($1,$2,$3,'running','Writing the script',$4) RETURNING id`,
+    [userId, input.slice(0, 8e3), aspect, JSON.stringify(meta)]
   );
   const id = rows[0].id;
-  runJob(id, userId, input, aspect, opts).catch(async (e) => {
-    console.error(`[explainer] job ${id} failed:`, e?.message || e);
-    await update(id, { status: "failed", error: friendlyError(e), meta: { error_detail: String(e?.message || e).slice(0, 1e3) } }).catch(() => {
-    });
-  });
+  launchExplainerJob(id, userId, input, aspect, opts);
   return id;
 }
-function friendlyError(e) {
+function friendlyError2(e) {
   const m = String(e?.message || e);
   if (/REPLICATE_API_TOKEN|OPENROUTER_API_KEY/.test(m) && /not set/.test(m)) return "Video service is not configured.";
   if (/Replicate 402/.test(m)) return "The video service is out of credit. Ask VEDD to top it up.";
@@ -73864,18 +74739,22 @@ function friendlyError(e) {
   if (/timed out/i.test(m)) return "The video took too long to make. Please try again.";
   return "The video could not be made right now. Please try again in a few minutes.";
 }
-async function runJob(id, userId, input, aspect, opts) {
-  const script = await writeScript(input, userId, opts.sceneCount ?? 4, opts.backgroundScene);
+async function runJob(id, userId, input, aspect, opts, resume = {}) {
+  const dailyAd = !!opts.dailyAd;
+  const script = resume.script ?? (dailyAd ? await writeAdScript(input, userId, opts.backgroundScene) : await writeScript(input, userId, opts.sceneCount ?? 4, opts.backgroundScene));
   await update(id, { script, step: `Filming ${script.scenes.length} scenes with voiceover`, progress: 10 });
-  const urls = new Array(script.scenes.length);
+  const urls = script.scenes.map((_, i) => resume.sceneUrls?.[i] ?? null);
   let done = 0;
   const predictions = [];
   const sceneProviders = [];
   const queue = script.scenes.map((s, i) => async () => {
-    const r = await renderScene(s, script, aspect, opts.presenterImage);
-    urls[i] = r.url;
-    predictions.push(r.predictionId);
-    sceneProviders.push(r.predictionId.split(":")[0]);
+    if (!urls[i]) {
+      const r = await renderScene(s, script, aspect, opts.presenterImage);
+      urls[i] = r.url;
+      predictions.push(r.predictionId);
+      sceneProviders.push(r.predictionId.split(":")[0]);
+      await update(id, { meta: { sceneUrls: urls } });
+    }
     done++;
     await update(id, { progress: 10 + Math.round(done / script.scenes.length * 70), step: `Filmed ${done} of ${script.scenes.length} scenes` });
   });
@@ -73883,30 +74762,75 @@ async function runJob(id, userId, input, aspect, opts) {
     while (queue.length) await queue.shift()();
   });
   await Promise.all(workers);
+  const sceneUrls = urls.map((u) => {
+    if (!u) throw new Error("a scene finished without a video URL");
+    return u;
+  });
   const providersUsed = Array.from(new Set(sceneProviders.filter(Boolean)));
   const modelLabel = providersUsed.length ? providersUsed.join("+") : MODEL();
   await update(id, { step: "Adding VEDD branding and joining scenes", progress: 85, meta: { predictions, model: modelLabel, presenter: opts.presenterImage ? "custom" : "ai", background: opts.backgroundScene ? "preset" : "ai" } });
-  const video = await assemble(
-    urls,
-    aspect,
-    script.scenes.map((s) => s.screen ? null : s.chart ?? null),
-    script.scenes.map((s) => s.screen ? screenImagePath(s.screen) : null)
-  );
+  const chartArgs = script.scenes.map((s) => s.screen ? null : s.chart ?? null);
+  const screenArgs = script.scenes.map((s) => s.screen ? screenImagePath(s.screen) : null);
+  let video;
+  let audioMeta;
+  if (dailyAd && videoAudioEnabled()) {
+    await update(id, { step: "Adding the voiceover and music", progress: 90 });
+    const muted = await assemble(sceneUrls, aspect, chartArgs, screenArgs, { muteScenes: true });
+    const mixed = await applyVideoAudio(muted, {
+      narrationText: adNarrationText(script),
+      userId,
+      narrationMaxWords: AD_NARRATION_MAX_WORDS
+    }).catch(() => null);
+    if (mixed && mixed.audio.narration !== "none") {
+      video = mixed.buffer;
+      audioMeta = mixed.audio;
+    } else {
+      video = await assemble(sceneUrls, aspect, chartArgs, screenArgs);
+      audioMeta = {
+        narration: "none",
+        musicBed: mixed?.audio.musicBed ?? "none",
+        reason: "Yusuf's voiceover could not be added \u2014 this video uses the presenter's built-in voice instead."
+      };
+    }
+  } else {
+    video = await assemble(sceneUrls, aspect, chartArgs, screenArgs);
+  }
   const saved = await persistBuffer(video, "video/mp4");
   if (!saved) throw new Error("could not save the finished video");
-  await update(id, { status: "done", step: "Ready", progress: 100, result_url: saved.url });
-  try {
-    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
-    await storage2.createContentStudioGeneration({
-      userId,
-      contentType: "video",
-      prompt: input.slice(0, 2e3),
-      title: script.title,
-      caption: script.caption,
-      assetUrl: saved.url,
-      metadata: { kind: "explainer", aspect, model: modelLabel, script, predictions, presenter: opts.presenterImage ? "custom" : "ai" }
-    });
-  } catch {
+  await update(id, {
+    status: "done",
+    step: "Ready",
+    progress: 100,
+    result_url: saved.url,
+    ...audioMeta ? { meta: { audio: audioMeta } } : {}
+  });
+  let libraryError = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+      await storage2.createContentStudioGeneration({
+        userId,
+        contentType: "video",
+        prompt: input.slice(0, 2e3),
+        title: script.title,
+        caption: script.caption,
+        assetUrl: saved.url,
+        metadata: { kind: "explainer", ...dailyAd ? { format: "daily-ad" } : {}, aspect, model: modelLabel, script, predictions, presenter: opts.presenterImage ? "custom" : "ai", ...audioMeta ? { audio: audioMeta } : {} }
+      });
+      libraryError = null;
+      break;
+    } catch (e) {
+      libraryError = String(e?.message || e).slice(0, 300);
+      console.error(`[explainer] job ${id} library save failed (attempt ${attempt + 1}/2):`, libraryError);
+    }
+  }
+  if (libraryError) await update(id, { meta: { libraryError } }).catch(() => {
+  });
+  if (opts.postId) {
+    await pool.query(
+      `UPDATE ambassador_post_queue SET video_url=$2, video_shot=NULL, video_aspect=$3 WHERE id=$1`,
+      [opts.postId, saved.url, aspect]
+    ).catch((e) => console.error(`[explainer] job ${id} post link update failed:`, e?.message || e));
   }
   if (opts.onDone) await opts.onDone(saved.url, script).catch((e) => console.error("[explainer] onDone failed:", e?.message));
 }
@@ -73954,6 +74878,63 @@ JSON: {"title":"...","caption":"one-line social caption with a question","presen
   const presenter = String(out.presenter || "").trim().slice(0, 300) || DEFAULT_PRESENTER;
   const setting = (settingOverride || "").trim().slice(0, 300) || String(out.setting || "").trim().slice(0, 300) || DEFAULT_SETTING;
   return { title: String(out.title || "VEDD lesson").slice(0, 120), caption: String(out.caption || "").slice(0, 300), presenter, setting, scenes };
+}
+function adNarrationText(script) {
+  return script.scenes.map((s) => s.narration).join(" ").replace(/\s+/g, " ").trim();
+}
+function buildAdScriptPrompt(input) {
+  return `Write a 4-scene vertical INFO-AD about the subject of the day below. This is an ad, not a lesson: its one goal is to catch a new viewer's interest and bring them to VEDD.
+
+"""${input.slice(0, 4e3)}"""
+
+Exactly 4 scenes, in this order:
+- Scene 1 \u2014 HOOK: a pattern-interrupt opening that names the viewer's pain or the surprising question inside today's subject. Spoken straight to camera, high energy. No teaching yet.
+- Scene 2 \u2014 SUBJECT: today's subject made interesting in plain steps, with ONE concrete example (real chart terms: candles, support, stop loss, etc.).
+- Scene 3 \u2014 VEDD: what VEDD AI does about this exact problem \u2014 it watches the charts, explains setups in plain language, and helps plan trades with risk controls. When this scene talks about the app itself, set "screen" (below).
+- Scene 4 \u2014 CTA: a clear invitation to try VEDD AI free at veddbuild dot com. Join/try language only \u2014 never earnings language.
+
+Cast ONE presenter and ONE setting for the whole video:
+- "presenter": a young Black person (man or woman), described precisely so every scene shows the same person: age, hair, outfit (streetwear: hoodie, puffer, fitted cap, sneakers, chains). 15-30 words.
+- "setting": an urban street location in a US city (rooftop, corner store front, brownstone stoop, basketball court, subway platform, graffiti wall at night, barbershop). 15-30 words.
+
+Each scene is one continuous 8-second shot:
+- "narration": what the presenter SAYS to camera, 12-18 words (must fit in 7 seconds), plain spoken English with natural street energy, no slang that hides the meaning, no hashtags or emojis. Read in order, the four narrations form one smooth ad script.
+- "visual": what the camera sees, 20-40 words: the presenter's action and the camera move. Do NOT re-describe the presenter or setting (they are added automatically).
+- "chart": when the narration explains a candlestick pattern or level, set it to exactly one of: ${PATTERN_KEYS.join(", ")}. The real pattern is drawn on screen in the lower part of the frame, so in that scene the presenter stands in the upper half and points or gestures down toward it. Otherwise null.
+- "screen": when the narration talks about the VEDD app itself \u2014 a page, a feature, the plans \u2014 set it to exactly one of these REAL pages (the actual screenshot is composited into the lower half of the frame, the presenter in the upper half gesturing down toward it):
+${screenCatalogForPrompt()}
+Never invent or describe a fake app screen, page or button in "visual": when the app needs to be shown, it is shown with a screen id or not at all. A scene gets a chart OR a screen, never both. Scene 3 should use a screen when it fits the subject.
+
+Hard rules: No income or profit promises. No win-rate or return claims. No "guaranteed" language. No fake results or testimonials. The CTA invites the viewer to LEARN and try the tool free \u2014 nothing more.
+
+"title": a short hook-style title for the video. "caption": one-line social caption that ends by inviting the viewer to try VEDD AI free at veddbuild.com.
+
+JSON: {"title":"...","caption":"...","presenter":"...","setting":"...","scenes":[{"narration":"...","visual":"...","chart":null,"screen":null}]}`;
+}
+async function writeAdScript(input, userId, settingOverride) {
+  const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+  const ai = await getUniversalAIClientForUser2(userId || 0);
+  const completion = await ai.chat.completions.create({
+    model: ai.defaultModel || "gpt-4o",
+    messages: [
+      { role: "system", content: "You write short, interest-catching info-ads for VEDD AI, a trading-education platform. JSON only." },
+      { role: "user", content: buildAdScriptPrompt(input) }
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: 1500
+  });
+  const raw = (completion.choices?.[0]?.message?.content || "{}").replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
+  const out = JSON.parse(raw || "{}");
+  const scenes = (Array.isArray(out.scenes) ? out.scenes : []).map((s) => ({
+    narration: String(s?.narration || "").trim(),
+    visual: String(s?.visual || "").trim(),
+    chart: PATTERN_KEYS.includes(String(s?.chart)) ? String(s.chart) : null,
+    screen: APP_SCREEN_IDS.includes(String(s?.screen)) ? String(s.screen) : null
+  })).map((s) => s.screen ? { ...s, chart: null } : s).filter((s) => s.narration && s.visual).slice(0, 4);
+  if (scenes.length < 3) throw new Error("ad script generation returned too few scenes");
+  const presenter = String(out.presenter || "").trim().slice(0, 300) || DEFAULT_PRESENTER;
+  const setting = (settingOverride || "").trim().slice(0, 300) || String(out.setting || "").trim().slice(0, 300) || DEFAULT_SETTING;
+  return { title: String(out.title || "VEDD \u2014 today").slice(0, 120), caption: String(out.caption || "").slice(0, 300), presenter, setting, scenes };
 }
 async function renderScene(scene, script, aspect, presenterImage) {
   const framing = scene.chart || scene.screen ? "Medium shot with the presenter in the upper half of the frame, pointing down toward the lower half, which is a plain darker area of the scene." : "Medium close-up, presenter talking straight to camera.";
@@ -74023,28 +75004,31 @@ async function renderSceneViaReplicate(scene, script, aspect, presenterImage, pr
   if (!url) throw new Error("scene returned no video");
   return { url, predictionId: data.id };
 }
-async function assemble(clipUrls, aspect, charts = [], screens = []) {
-  const dir = fs14.mkdtempSync(path14.join(os2.tmpdir(), "vedd-explainer-"));
+function sceneAudioPlan(hasAudio, muteScenes) {
+  return hasAudio.map((h) => muteScenes ? false : h);
+}
+async function assemble(clipUrls, aspect, charts = [], screens = [], opts = {}) {
+  const dir = fs15.mkdtempSync(path15.join(os3.tmpdir(), "vedd-explainer-"));
   try {
     const files = [];
     for (let i = 0; i < clipUrls.length; i++) {
       const r = await fetch(clipUrls[i], { signal: AbortSignal.timeout(6e4) });
       if (!r.ok) throw new Error(`could not download scene ${i + 1}`);
-      const f = path14.join(dir, `s${i}.mp4`);
-      fs14.writeFileSync(f, Buffer.from(await r.arrayBuffer()));
+      const f = path15.join(dir, `s${i}.mp4`);
+      fs15.writeFileSync(f, Buffer.from(await r.arrayBuffer()));
       files.push(f);
     }
-    return await assembleFiles(files, aspect, dir, charts, screens);
+    return await assembleFiles(files, aspect, dir, charts, screens, opts);
   } finally {
-    fs14.rmSync(dir, { recursive: true, force: true });
+    fs15.rmSync(dir, { recursive: true, force: true });
   }
 }
-async function assembleFiles(files, aspect, dir, charts = [], screens = []) {
+async function assembleFiles(files, aspect, dir, charts = [], screens = [], opts = {}) {
   const [W, H2] = FRAME[aspect];
   const logo = findLogo();
   {
     const info2 = await Promise.all(files.map((f2) => probe(f2)));
-    const audio = info2.map((x) => x.hasAudio);
+    const audio = sceneAudioPlan(info2.map((x) => x.hasAudio), !!opts.muteScenes);
     const args = ["-y"];
     files.forEach((f2) => args.push("-i", f2));
     const n = files.length;
@@ -74102,7 +75086,7 @@ async function assembleFiles(files, aspect, dir, charts = [], screens = []) {
       f.push(`[${logoIdx}:v]scale=${wm}:-2,format=rgba,colorchannelmixer=aa=0.85[wm]`);
       f.push(`[cv][wm]overlay=W-w-${m}:H-h-${m}[outv]`);
     }
-    const out = path14.join(dir, "out.mp4");
+    const out = path15.join(dir, "out.mp4");
     args.push(
       "-filter_complex",
       f.join(";"),
@@ -74127,10 +75111,10 @@ async function assembleFiles(files, aspect, dir, charts = [], screens = []) {
       out
     );
     await runFfmpeg(args, 24e4);
-    return fs14.readFileSync(out);
+    return fs15.readFileSync(out);
   }
 }
-var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, DEFAULT_PRESENTER, DEFAULT_SETTING, tableReady5, SCENE_NEGATIVE_PROMPT;
+var FRAME, MODEL, CLIP_SECONDS, END_CARD_SECONDS2, POLL_MS, MAX_WAIT_MS, DEFAULT_PRESENTER, DEFAULT_SETTING, tableReady5, inFlightJobs, RESUME_STALE_MINUTES, MAX_RESUME_ATTEMPTS, INTERRUPTED_ERROR, watchdogStarted, AD_SCENE_ROLES, AD_NARRATION_MAX_WORDS, SCENE_NEGATIVE_PROMPT;
 var init_explainer_video = __esm({
   "server/services/explainer-video.ts"() {
     "use strict";
@@ -74138,6 +75122,7 @@ var init_explainer_video = __esm({
     init_ffmpeg();
     init_video_branding();
     init_content_asset_store();
+    init_video_audio();
     init_chart_overlay();
     init_app_screens();
     FRAME = { "9:16": [720, 1280], "4:5": [864, 1080], "1:1": [720, 720], "16:9": [1280, 720] };
@@ -74149,6 +75134,13 @@ var init_explainer_video = __esm({
     DEFAULT_PRESENTER = "a young Black man in his mid-20s with short twists, wearing a black hoodie, a thin gold chain and a fitted cap";
     DEFAULT_SETTING = "a city rooftop at golden hour with brick buildings, fire escapes and the skyline behind him";
     tableReady5 = null;
+    inFlightJobs = /* @__PURE__ */ new Set();
+    RESUME_STALE_MINUTES = 3;
+    MAX_RESUME_ATTEMPTS = 2;
+    INTERRUPTED_ERROR = "The video was interrupted by a server restart and could not be finished \u2014 please try again.";
+    watchdogStarted = false;
+    AD_SCENE_ROLES = ["hook", "subject", "vedd", "cta"];
+    AD_NARRATION_MAX_WORDS = 90;
     SCENE_NEGATIVE_PROMPT = "subtitles, captions, on-screen text, watermark, logo, distorted hands, extra fingers, office, corporate suit, business attire, different person";
   }
 });
@@ -74192,6 +75184,7 @@ function ensurePostQueueTables() {
         UNIQUE (user_id, queue_date, platform)
       )`);
       await pool.query(`ALTER TABLE ambassador_post_queue ADD COLUMN IF NOT EXISTS video_url TEXT, ADD COLUMN IF NOT EXISTS video_shot TEXT, ADD COLUMN IF NOT EXISTS video_aspect TEXT`);
+      await pool.query(`ALTER TABLE ambassador_post_queue ADD COLUMN IF NOT EXISTS video_job_id INTEGER`);
     })().catch((e) => {
       _ready = null;
       throw e;
@@ -74231,6 +75224,21 @@ async function getQueue(userId, date2) {
     `SELECT * FROM ambassador_post_queue WHERE user_id=$1 AND queue_date=$2 ORDER BY array_position($3::text[], platform)`,
     [userId, date2, PLATFORMS2]
   );
+  const jobIds = rows.filter((r) => r.video_job_id && !r.video_url).map((r) => r.video_job_id);
+  if (jobIds.length) {
+    const jobs = await pool.query(
+      `SELECT id, status, error, result_url FROM content_video_jobs WHERE id = ANY($1)`,
+      [jobIds]
+    ).then((r) => r.rows).catch(() => []);
+    const byId = new Map(jobs.map((j) => [j.id, j]));
+    for (const r of rows) {
+      const j = r.video_job_id ? byId.get(r.video_job_id) : null;
+      if (!j) continue;
+      r.video_job_status = j.status;
+      r.video_job_error = j.error ?? null;
+      if (j.status === "done" && j.result_url && !r.video_url) r.video_url = j.result_url;
+    }
+  }
   return rows;
 }
 async function buildDailyQueue(userId, opts) {
@@ -74355,11 +75363,8 @@ async function makePostVideo(userId, postId, aspect) {
   ].filter(Boolean).join("\n");
   const { startExplainerJob: startExplainerJob2 } = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
   const size = aspect || VIDEO_ASPECT[post2.platform] || "9:16";
-  const jobId = await startExplainerJob2(userId, idea, size, {
-    onDone: async (url) => {
-      await pool.query(`UPDATE ambassador_post_queue SET video_url=$2, video_shot=NULL, video_aspect=$3 WHERE id=$1`, [postId, url, size]);
-    }
-  });
+  const jobId = await startExplainerJob2(userId, idea, size, { postId, dailyAd: true });
+  await pool.query(`UPDATE ambassador_post_queue SET video_job_id=$2 WHERE id=$1`, [postId, jobId]);
   return { jobId };
 }
 async function getDayBlog(dayNumber) {
@@ -74512,7 +75517,7 @@ var init_blog_og_image = __esm({
 var image_generation_exports = {};
 __export(image_generation_exports, {
   BRAND_STYLE_SUFFIX: () => BRAND_STYLE_SUFFIX,
-  HUMAN_STYLE_SUFFIX: () => HUMAN_STYLE_SUFFIX,
+  HUMAN_STYLE_SUFFIX: () => HUMAN_STYLE_SUFFIX2,
   generateContentImage: () => generateContentImage
 });
 import { OpenAI as OpenAI6 } from "openai";
@@ -74599,14 +75604,14 @@ async function generateFluxImage(prompt, retriesLeft = 2) {
 }
 async function generateContentImage(prompt, template) {
   const styleSuffix = template ? TEMPLATE_BACKGROUND_SUFFIX[template] : BRAND_STYLE_SUFFIX;
-  const brandedPrompt = `${prompt}${styleSuffix}${HUMAN_STYLE_SUFFIX}`;
+  const brandedPrompt = `${prompt}${styleSuffix}${HUMAN_STYLE_SUFFIX2}`;
   const dalleUrl = await generateDalleImage(brandedPrompt);
   if (dalleUrl) return { url: dalleUrl, provider: "dall-e-3" };
   const fluxUrl = await generateFluxImage(brandedPrompt);
   if (fluxUrl) return { url: fluxUrl, provider: "replicate-flux-schnell" };
   return null;
 }
-var BRAND_STYLE_SUFFIX, TEMPLATE_BACKGROUND_SUFFIX, HUMAN_STYLE_SUFFIX;
+var BRAND_STYLE_SUFFIX, TEMPLATE_BACKGROUND_SUFFIX, HUMAN_STYLE_SUFFIX2;
 var init_image_generation = __esm({
   "server/services/image-generation.ts"() {
     "use strict";
@@ -74617,7 +75622,7 @@ var init_image_generation = __esm({
       "scripture": ", background only: dark carbon-fiber woven texture with a subtle repeating dot pattern, near-black, calm and reflective mood, no text, no logos, no words, no letters anywhere in the frame",
       "blog-cover": ", a photographic scene with a soft dark gradient overlay suitable for a news/article cover, cinematic depth of field, no text, no logos, no words, no letters anywhere in the frame"
     };
-    HUMAN_STYLE_SUFFIX = ". If depicting people: they are Black, Brown, or Indigenous people of color with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city settings \u2014 no generic stock-photo corporate look.";
+    HUMAN_STYLE_SUFFIX2 = ". If depicting people: they are Black, Brown, or Indigenous people of color with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city settings \u2014 no generic stock-photo corporate look.";
   }
 });
 
@@ -74912,744 +75917,6 @@ var init_sync_ads = __esm({
       }
     ];
     SYNC_BANK_REFRESHED = "November 2026";
-  }
-});
-
-// server/services/video-shot.ts
-var video_shot_exports = {};
-__export(video_shot_exports, {
-  fallbackShot: () => fallbackShot,
-  planVideoShot: () => planVideoShot
-});
-function fallbackShot(input) {
-  const lines = input.split(/\n+/).map((l) => l.replace(/^\s*(HOOK|BEAT\s*\d*|CTA|CAPTION|ON-SCREEN TEXT|SCENE\s*\d*|SHOW|VO|VOICEOVER)\s*(\([^)]*\))?\s*[:\-—]\s*/i, "").trim()).filter((l) => l && !/^#|https?:\/\//i.test(l));
-  return (lines.join(" ") || input).slice(0, MAX_SHOT_CHARS);
-}
-async function planVideoShot(input, userId) {
-  const text3 = String(input || "").trim();
-  if (!text3) throw new Error("prompt is required");
-  try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const ai = await getUniversalAIClientForUser2(userId || 0);
-    const completion = await ai.chat.completions.create({
-      model: ai.defaultModel || "gpt-4o",
-      messages: [
-        { role: "system", content: "You turn content ideas into a single shot description for a text-to-video model. Respond with JSON only." },
-        { role: "user", content: `Turn the input below into ONE continuous 5-second vertical (9:16) video shot that a text-to-video model can film.
-
-Rules:
-- Keep the user's subject, people, place, objects and action. Do not swap in a different idea.
-- If the input is a script, ad or list of scenes, pick the single most visual moment that carries its message.
-- If the input is only a topic (e.g. "ORB strategy"), invent one concrete scene that shows it (a person, a place, what they are doing, what is on the screen in front of them).
-- Describe only what the camera sees: subject, setting, action, camera angle/movement, lighting. 40-70 words, present tense.
-- No on-screen text, captions, logos, brand names or readable words; describe screens as "a candlestick chart" not "a chart that says...".
-- Do not add a style (film grain, colour grade): that is added later.
-
-Also write "hook": the 3-8 word caption to overlay on the video, in the input's language.
-
-Input:
-"""${text3.slice(0, 4e3)}"""
-
-JSON: {"shot":"...","hook":"..."}` }
-      ],
-      response_format: { type: "json_object" },
-      max_tokens: 600
-    });
-    const raw = (completion.choices?.[0]?.message?.content || "{}").replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
-    const out = JSON.parse(raw || "{}");
-    const shot = String(out.shot || "").trim();
-    if (shot.length >= 20) return { shot: shot.slice(0, MAX_SHOT_CHARS), hook: String(out.hook || "").trim().slice(0, 80), planned: true };
-  } catch (e) {
-    console.warn("[video-shot] planning failed, using fallback:", e?.message || e);
-  }
-  return { shot: fallbackShot(text3), hook: "", planned: false };
-}
-var MAX_SHOT_CHARS;
-var init_video_shot = __esm({
-  "server/services/video-shot.ts"() {
-    "use strict";
-    MAX_SHOT_CHARS = 600;
-  }
-});
-
-// server/services/fal-video.ts
-function falConfigured() {
-  return !!(process.env.FAL_AI_API || process.env.FAL_KEY);
-}
-function falKey() {
-  return process.env.FAL_AI_API || process.env.FAL_KEY || null;
-}
-async function generateFalVideo(styledPrompt, opts) {
-  const key = falKey();
-  if (!key) {
-    console.error("[fal-video] FAL_AI_API / FAL_KEY not set \u2014 cannot generate video");
-    return null;
-  }
-  const { quality, image } = opts;
-  const model = image ? quality === "high" ? HIGH_I2V_MODEL : FAST_I2V_MODEL : quality === "high" ? HIGH_MODEL2 : FAST_MODEL2;
-  const input = {
-    prompt: styledPrompt,
-    num_frames: opts.numFrames,
-    frames_per_second: opts.fps,
-    // Wan family only offers 480p/580p/720p on fal; 720p is the quality bump,
-    // matching the Replicate side (fast 480p / high 720p).
-    resolution: quality === "high" ? "720p" : "480p",
-    // i2v derives aspect ratio from the start image; only set it for t2v.
-    ...image ? { image_url: image } : { aspect_ratio: opts.aspect }
-  };
-  try {
-    console.log(`[fal-video] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
-    const submit = await fetch(`https://queue.fal.run/${model}`, {
-      method: "POST",
-      headers: { Authorization: `Key ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-      signal: AbortSignal.timeout(3e4)
-    });
-    if (!submit.ok) {
-      const body = await submit.text().catch(() => "");
-      console.error("[fal-video] fal submit error:", submit.status, body.slice(0, 300));
-      return null;
-    }
-    const queued = await submit.json();
-    const statusUrl = queued?.status_url;
-    const responseUrl = queued?.response_url;
-    if (!statusUrl || !responseUrl) {
-      console.error("[fal-video] fal submit returned no queue URLs");
-      return null;
-    }
-    let status = String(queued?.status || "IN_QUEUE");
-    for (let i = 0; i < MAX_POLLS2 && status !== "COMPLETED"; i++) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS2));
-      const poll = await fetch(statusUrl, {
-        headers: { Authorization: `Key ${key}` },
-        signal: AbortSignal.timeout(15e3)
-      });
-      if (!poll.ok) break;
-      const pj = await poll.json();
-      status = String(pj?.status || "");
-      if (status === "ERROR") {
-        console.error("[fal-video] fal generation errored:", JSON.stringify(pj).slice(0, 300));
-        return null;
-      }
-    }
-    if (status !== "COMPLETED") {
-      console.error("[fal-video] fal video did not complete in time:", status);
-      return null;
-    }
-    const result = await fetch(responseUrl, {
-      headers: { Authorization: `Key ${key}` },
-      signal: AbortSignal.timeout(3e4)
-    });
-    if (!result.ok) {
-      console.error("[fal-video] fal result fetch error:", result.status);
-      return null;
-    }
-    const data = await result.json();
-    const url = data?.video?.url || (Array.isArray(data?.output) ? data.output[0] : void 0);
-    if (!url) {
-      console.error("[fal-video] fal result had no video URL");
-      return null;
-    }
-    return { url, provider: `fal:${model}`, quality };
-  } catch (e) {
-    console.error("[fal-video] fal error:", e.message);
-    return null;
-  }
-}
-var FAST_MODEL2, HIGH_MODEL2, FAST_I2V_MODEL, HIGH_I2V_MODEL, POLL_INTERVAL_MS2, MAX_POLLS2;
-var init_fal_video = __esm({
-  "server/services/fal-video.ts"() {
-    "use strict";
-    FAST_MODEL2 = process.env.FAL_VIDEO_MODEL || "fal-ai/wan/v2.2-a14b/text-to-video";
-    HIGH_MODEL2 = process.env.FAL_VIDEO_HIGH_MODEL || FAST_MODEL2;
-    FAST_I2V_MODEL = process.env.FAL_VIDEO_I2V_MODEL || "fal-ai/wan/v2.2-a14b/image-to-video";
-    HIGH_I2V_MODEL = process.env.FAL_VIDEO_HIGH_I2V_MODEL || FAST_I2V_MODEL;
-    POLL_INTERVAL_MS2 = 5e3;
-    MAX_POLLS2 = 60;
-  }
-});
-
-// server/services/video-generation.ts
-function buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, aspect = "9:16") {
-  if (model.includes("kling")) {
-    return {
-      prompt: styledPrompt,
-      negative_prompt: "blurry, low quality, distorted, deformed, extra limbs, watermark, text, on-screen text, subtitles",
-      ...image ? { start_image: image } : { aspect_ratio: aspect },
-      duration: durationSeconds <= 5 ? 5 : 10,
-      // Kling only offers 5s or 10s
-      cfg_scale: 0.5
-    };
-  }
-  if (model.includes("wan")) {
-    return {
-      prompt: styledPrompt,
-      resolution: quality === "high" ? "720p" : "480p",
-      // 720p is the real quality bump the model already supports
-      num_frames: numFrames,
-      frames_per_second: DEFAULT_FPS,
-      // Wan i2v derives aspect ratio from the start image; only set it for t2v.
-      ...image ? { image } : { aspect_ratio: aspect }
-    };
-  }
-  return { prompt: styledPrompt, ...image ? { image } : { aspect_ratio: aspect } };
-}
-async function generateContentVideo(prompt, opts) {
-  const quality = opts?.quality === "high" ? "high" : "fast";
-  const image = opts?.image && opts.image.trim() ? opts.image.trim() : void 0;
-  const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
-  const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
-  const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX2}`;
-  const aspect = opts?.aspect === "16:9" ? "16:9" : "9:16";
-  const shared = { quality, image, durationSeconds, numFrames, aspect };
-  const pref = (process.env.VIDEO_PROVIDER || "").toLowerCase();
-  const attempts = [
-    { name: "openrouter", configured: openrouterConfigured, run: () => generateOpenRouterVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS }) },
-    { name: "replicate", configured: () => !!process.env.REPLICATE_API_TOKEN, run: () => generateViaReplicate(styledPrompt, shared) },
-    { name: "fal", configured: falConfigured, run: () => generateFalVideo(styledPrompt, { ...shared, fps: DEFAULT_FPS }) }
-  ];
-  const primaryIdx = attempts.findIndex((a) => a.name === pref);
-  if (primaryIdx > 0) attempts.unshift(attempts.splice(primaryIdx, 1)[0]);
-  let anyConfigured = false;
-  for (let i = 0; i < attempts.length; i++) {
-    const attempt = attempts[i];
-    if (!attempt.configured()) {
-      console.log(`[video-generation] ${attempt.name} not configured \u2014 skipping`);
-      continue;
-    }
-    anyConfigured = true;
-    const video = await attempt.run();
-    if (video) return video;
-    if (i < attempts.length - 1) console.log(`[video-generation] ${attempt.name} failed \u2014 falling back to the next provider`);
-  }
-  if (!anyConfigured) console.error("[video-generation] NO video provider is configured (OPENROUTER_API_KEY / REPLICATE_API_TOKEN / FAL_AI_API all unset)");
-  return null;
-}
-async function generateViaReplicate(styledPrompt, opts) {
-  const apiKey = process.env.REPLICATE_API_TOKEN;
-  if (!apiKey) {
-    console.error("[video-generation] REPLICATE_API_TOKEN not set \u2014 cannot generate video");
-    return null;
-  }
-  const { quality, image, durationSeconds, numFrames, aspect } = opts;
-  const model = image ? quality === "high" ? HIGH_I2V_MODEL2 : FAST_I2V_MODEL2 : quality === "high" ? HIGH_MODEL3 : FAST_MODEL3;
-  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image, aspect);
-  try {
-    console.log(`[video-generation] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
-    const create = () => fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        Prefer: "wait"
-      },
-      body: JSON.stringify({ input }),
-      // Replicate's own `Prefer: wait` window can run right up to ~60s
-      // before it gives up and returns 202 "starting" instead of a
-      // finished result — a 60000ms client-side abort loses that race and
-      // throws "aborted due to timeout" instead of falling through to the
-      // poll loop below. Give it headroom.
-      signal: AbortSignal.timeout(75e3)
-    });
-    let res2 = await create();
-    for (let attempt = 0; res2.status === 429 && attempt < 8; attempt++) {
-      const body = await res2.json().catch(() => ({}));
-      await new Promise((r) => setTimeout(r, (Number(body?.retry_after) || 10) * 1e3 + 1e3));
-      res2 = await create();
-    }
-    if (!res2.ok) {
-      const body = await res2.text().catch(() => "");
-      console.error("[video-generation] Replicate error:", res2.status, body.slice(0, 300));
-      return null;
-    }
-    let data = await res2.json();
-    const getUrl = data?.urls?.get;
-    for (let i = 0; i < MAX_POLLS3 && getUrl && (data.status === "starting" || data.status === "processing"); i++) {
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS3));
-      const poll = await fetch(getUrl, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(15e3)
-      });
-      if (!poll.ok) break;
-      data = await poll.json();
-    }
-    if (data.status !== "succeeded") {
-      console.error("[video-generation] Replicate video did not complete in time:", data.status, data.error ?? "");
-      return null;
-    }
-    const output = data?.output;
-    const url = Array.isArray(output) ? output[0] : output;
-    if (!url) return null;
-    return { url, provider: `replicate:${model}`, quality };
-  } catch (e) {
-    console.error("[video-generation] Replicate error:", e.message);
-    return null;
-  }
-}
-var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX2, FAST_MODEL3, HIGH_MODEL3, FAST_I2V_MODEL2, HIGH_I2V_MODEL2, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS3, MAX_POLLS3;
-var init_video_generation = __esm({
-  "server/services/video-generation.ts"() {
-    "use strict";
-    init_fal_video();
-    init_openrouter_video();
-    VEDD_STYLE_LOCK = ". Shot as a grainy 35mm cinematic film still: heavy analog film grain, desaturated moody color grade with one warm gold light source, shallow depth of field, photorealistic. Slow, subtle ambient motion only \u2014 no fast or shaky camera movement.";
-    NO_TEXT_SUFFIX = " No on-screen text, captions, subtitles, signage, logos or readable words anywhere in the frame \u2014 pure visual scene only.";
-    HUMAN_STYLE_SUFFIX2 = " If people appear: young Black people, natural skin tones, contemporary streetwear, authentic inner-city/urban setting.";
-    FAST_MODEL3 = "wan-video/wan-2.2-t2v-fast";
-    HIGH_MODEL3 = process.env.VIDEO_HIGH_MODEL || "wan-video/wan-2.2-t2v-fast";
-    FAST_I2V_MODEL2 = process.env.VIDEO_FAST_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
-    HIGH_I2V_MODEL2 = process.env.VIDEO_HIGH_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
-    DEFAULT_FPS = 16;
-    MIN_NUM_FRAMES = 81;
-    MAX_DURATION_SECONDS = 6;
-    POLL_INTERVAL_MS3 = 5e3;
-    MAX_POLLS3 = 60;
-  }
-});
-
-// server/services/video-audio.ts
-import fs15 from "fs";
-import os3 from "os";
-import path15 from "path";
-import { fileURLToPath } from "url";
-function videoAudioEnabled() {
-  return process.env.VIDEO_AUDIO !== "off";
-}
-function audioDir() {
-  return AUDIO_DIR_CANDIDATES.find((d) => fs15.existsSync(d)) ?? null;
-}
-function listMusicBeds() {
-  const dir = audioDir();
-  if (!dir) return [];
-  return fs15.readdirSync(dir).filter((f) => /\.(mp3|ogg|wav|m4a)$/i.test(f)).sort();
-}
-function resolveMusicBed() {
-  const dir = audioDir();
-  if (!dir) return null;
-  const beds = listMusicBeds();
-  if (!beds.length) return null;
-  const wanted = (process.env.VIDEO_MUSIC_BED || "").trim();
-  const name = wanted && beds.includes(wanted) ? wanted : beds.includes(DEFAULT_BED) ? DEFAULT_BED : beds[0];
-  return { name, file: path15.join(dir, name) };
-}
-function capNarrationText(raw) {
-  const clean = String(raw || "").replace(/https?:\/\/\S+/g, "").replace(/[*_~`#>]/g, "").replace(/\s+/g, " ").trim().slice(0, 600);
-  if (!clean) return "";
-  const sentences = clean.match(/[^.!?]+[.!?]+/g) || [clean];
-  const out = [];
-  let words = 0;
-  for (const s of sentences) {
-    const w = s.trim().split(/\s+/).filter(Boolean).length;
-    if (words + w > MAX_NARRATION_WORDS) break;
-    out.push(s.trim());
-    words += w;
-  }
-  if (out.length) return out.join(" ");
-  return clean.split(/\s+/).slice(0, MAX_NARRATION_WORDS).join(" ");
-}
-async function generateNarrationText(sourceText, userId) {
-  const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-  const ai = await getUniversalAIClientForUser2(userId || 0);
-  const completion = await ai.chat.completions.create({
-    model: ai.defaultModel || "gpt-4o-mini",
-    messages: [
-      {
-        role: "system",
-        content: "You write narrator voiceovers for very short social videos for VEDD Trading AI, a faith-driven financial education platform. Brand voice: confident, empowering, street-urban authentic, no fluff. Answer with the voiceover text ONLY \u2014 no labels, no quotes, no hashtags."
-      },
-      {
-        role: "user",
-        content: `Write a voiceover of 1-2 sentences, at most ${MAX_NARRATION_WORDS} words, to be read aloud over a 6-second vertical video. It must fit this scene/topic: """${sourceText.slice(0, 800)}"""
-
-Rules: spoken language, present tense, one clear idea, ends on the payoff. No profit promises, no win-rate or income claims, no "guaranteed" language.`
-      }
-    ],
-    max_tokens: 120
-  });
-  return capNarrationText(String(completion.choices?.[0]?.message?.content || ""));
-}
-async function tryOpenRouterSpeech(key, model, voice, text3) {
-  try {
-    const res2 = await fetch("https://openrouter.ai/api/v1/audio/speech", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-      // response_format pinned to mp3 — the endpoint defaults to pcm.
-      body: JSON.stringify({ model, input: text3, voice, response_format: "mp3" }),
-      signal: AbortSignal.timeout(TTS_TIMEOUT_MS)
-    });
-    if (!res2.ok) {
-      const errText = await res2.text().catch(() => "");
-      console.warn(`[video-audio] TTS ${model} ${res2.status}:`, errText.slice(0, 200), "\u2014 falling back");
-      return null;
-    }
-    const ct = res2.headers.get("content-type") || "";
-    const buffer = Buffer.from(await res2.arrayBuffer());
-    if (!ct.includes("audio") || buffer.length < 100) {
-      console.warn(`[video-audio] TTS ${model} returned no usable audio (${ct || "unknown content type"}, ${buffer.length} bytes)`);
-      return null;
-    }
-    return { buffer, model };
-  } catch (e) {
-    console.warn(`[video-audio] TTS ${model} error:`, e?.message || e, "\u2014 falling back");
-    return null;
-  }
-}
-async function synthesizeNarration(text3) {
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) {
-    console.warn("[video-audio] OPENROUTER_API_KEY not set \u2014 narration skipped");
-    return null;
-  }
-  const primary = {
-    model: (process.env.VIDEO_TTS_MODEL || "").trim() || DEFAULT_TTS_MODEL,
-    voice: (process.env.VIDEO_TTS_VOICE || "").trim() || DEFAULT_TTS_VOICE
-  };
-  const attempts = [primary];
-  if (primary.model !== FALLBACK_TTS_MODEL) {
-    attempts.push({ model: FALLBACK_TTS_MODEL, voice: FALLBACK_TTS_VOICE });
-  } else if (!process.env.VIDEO_TTS_VOICE) {
-    primary.voice = FALLBACK_TTS_VOICE;
-  }
-  for (const a of attempts) {
-    const hit = await tryOpenRouterSpeech(key, a.model, a.voice, text3);
-    if (hit) return hit;
-  }
-  return null;
-}
-async function applyVideoAudio(video, opts = {}) {
-  const dir = fs15.mkdtempSync(path15.join(os3.tmpdir(), "vedd-audio-"));
-  const src = path15.join(dir, "in.mp4");
-  const dst = path15.join(dir, "out.mp4");
-  try {
-    fs15.writeFileSync(src, video);
-    const info2 = await probe(src).catch(() => null);
-    const dur = info2?.duration || 0;
-    if (!(dur > 0)) {
-      console.warn("[video-audio] could not read clip duration \u2014 skipping audio stage");
-      return null;
-    }
-    const D = Math.round(dur * 100) / 100;
-    let reason;
-    let text3 = capNarrationText(opts.narrationText || "");
-    if (!text3 && opts.sourceText?.trim()) {
-      text3 = await generateNarrationText(opts.sourceText, opts.userId).catch((e) => {
-        console.warn("[video-audio] narration writing failed:", e?.message || e);
-        return "";
-      });
-      if (!text3) reason = "narration text unavailable";
-    }
-    let speech = null;
-    let narrFile = null;
-    if (text3) {
-      speech = await synthesizeNarration(text3);
-      if (speech) {
-        narrFile = path15.join(dir, "narr.mp3");
-        fs15.writeFileSync(narrFile, speech.buffer);
-      } else {
-        reason = reason || "narration synthesis failed";
-      }
-    }
-    const bed = resolveMusicBed();
-    if (!bed) reason = reason || "no music bed available";
-    if (!speech && !bed) {
-      console.warn("[video-audio] no audio components available \u2014 shipping silent clip");
-      return null;
-    }
-    const args = ["-y", "-i", src];
-    let narrIdx = -1;
-    let bedIdx = -1;
-    if (narrFile) {
-      narrIdx = 1;
-      args.push("-i", narrFile);
-    }
-    if (bed) {
-      bedIdx = narrFile ? 2 : 1;
-      args.push("-stream_loop", "-1", "-i", bed.file);
-    }
-    const fadeOutStart = Math.max(0, D - 0.8).toFixed(2);
-    const parts = [];
-    const mixLabels = [];
-    if (info2?.hasAudio) {
-      parts.push(`[0:a]aresample=44100,apad,atrim=0:${D}[orig]`);
-      mixLabels.push("[orig]");
-    }
-    if (narrFile) {
-      if (bed) {
-        parts.push(`[${narrIdx}:a]aresample=44100,asplit=2[narrMix][narrSc]`);
-        parts.push(`[narrMix]apad,atrim=0:${D}[narr]`);
-      } else {
-        parts.push(`[${narrIdx}:a]aresample=44100,apad,atrim=0:${D}[narr]`);
-      }
-      mixLabels.push("[narr]");
-    }
-    if (bed) {
-      const bedVol = narrFile ? "0.16" : "0.25";
-      parts.push(`[${bedIdx}:a]aresample=44100,atrim=0:${D},volume=${bedVol},afade=t=in:st=0:d=0.4,afade=t=out:st=${fadeOutStart}:d=0.8[bedRaw]`);
-      if (narrFile) {
-        parts.push(`[bedRaw][narrSc]sidechaincompress=threshold=0.03:ratio=6:attack=40:release=350[bed]`);
-      } else {
-        parts.push(`[bedRaw]anull[bed]`);
-      }
-      mixLabels.push("[bed]");
-    }
-    if (mixLabels.length === 1) {
-      parts.push(`${mixLabels[0]}alimiter=limit=0.9,aresample=44100[aout]`);
-    } else {
-      parts.push(`${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=first:normalize=0,alimiter=limit=0.9,aresample=44100[aout]`);
-    }
-    args.push(
-      "-filter_complex",
-      parts.join(";"),
-      "-map",
-      "0:v",
-      "-map",
-      "[aout]",
-      "-c:v",
-      "copy",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "128k",
-      "-movflags",
-      "+faststart",
-      dst
-    );
-    await runFfmpeg(args, 12e4);
-    const buffer = fs15.readFileSync(dst);
-    const audio = {
-      narration: speech ? `openrouter:${speech.model}` : "none",
-      musicBed: bed ? bed.name : "none"
-    };
-    if (!text3 && !reason) reason = "no narration text provided";
-    if (reason && (!speech || !bed)) audio.reason = reason;
-    console.log(`[video-audio] mixed: narration=${audio.narration} bed=${audio.musicBed} (${buffer.length} bytes)`);
-    return { buffer, audio };
-  } catch (e) {
-    console.warn("[video-audio] audio stage failed, shipping silent clip:", e?.message || e);
-    return null;
-  } finally {
-    fs15.rmSync(dir, { recursive: true, force: true });
-  }
-}
-var MAX_NARRATION_WORDS, TTS_TIMEOUT_MS, DEFAULT_TTS_VOICE, DEFAULT_TTS_MODEL, FALLBACK_TTS_MODEL, FALLBACK_TTS_VOICE, DEFAULT_BED, AUDIO_DIR_CANDIDATES;
-var init_video_audio = __esm({
-  "server/services/video-audio.ts"() {
-    "use strict";
-    init_ffmpeg();
-    MAX_NARRATION_WORDS = 35;
-    TTS_TIMEOUT_MS = 3e4;
-    DEFAULT_TTS_VOICE = "nJvj5shg2xu1GKGxqfkE";
-    DEFAULT_TTS_MODEL = "elevenlabs/eleven-turbo-v2.5";
-    FALLBACK_TTS_MODEL = "openai/gpt-4o-mini-tts-2025-12-15";
-    FALLBACK_TTS_VOICE = "onyx";
-    DEFAULT_BED = "bed-groove.mp3";
-    AUDIO_DIR_CANDIDATES = [
-      path15.resolve(process.cwd(), "server/assets/audio"),
-      path15.resolve(path15.dirname(fileURLToPath(import.meta.url)), "../server/assets/audio"),
-      path15.resolve(path15.dirname(fileURLToPath(import.meta.url)), "../../server/assets/audio")
-    ];
-  }
-});
-
-// server/services/content-video.ts
-async function renderContentVideo(prompt, o = {}) {
-  const aspect = o.aspect && o.aspect in SOCIAL_SIZES ? o.aspect : "9:16";
-  let shot = (o.shot || "").trim();
-  let hook = "";
-  if (!shot) {
-    if (o.exact) shot = prompt.trim();
-    else ({ shot, hook } = await planVideoShot(prompt, o.userId));
-  }
-  if (o.backgroundScene) shot = `${shot} Setting: ${o.backgroundScene}.`;
-  const video = await generateContentVideo(shot, {
-    duration: o.duration,
-    quality: o.quality,
-    image: o.image,
-    aspect: aspect === "16:9" ? "16:9" : "9:16"
-  });
-  if (!video) return null;
-  const audioOn = videoAudioEnabled();
-  let audio;
-  const audioField = () => {
-    if (!audioOn) return {};
-    return { audio: audio ?? { narration: "none", musicBed: "none", reason: "audio mix unavailable" } };
-  };
-  let buf = null;
-  if (o.brand !== false || audioOn) {
-    try {
-      const res2 = await fetch(video.url, { signal: AbortSignal.timeout(6e4) });
-      if (res2.ok) buf = Buffer.from(await res2.arrayBuffer());
-    } catch (e) {
-      console.warn("[content-video] clip download failed:", e?.message || e);
-    }
-  }
-  let branded = false;
-  if (buf && o.brand !== false) {
-    try {
-      const brandedBuf = await brandVideo(buf, aspect);
-      if (brandedBuf) {
-        buf = brandedBuf;
-        branded = true;
-      }
-    } catch (e) {
-      console.warn("[content-video] branding step failed:", e?.message || e);
-    }
-  }
-  if (buf && audioOn) {
-    const mixed = await applyVideoAudio(buf, {
-      narrationText: o.narrationText,
-      sourceText: shot,
-      userId: o.userId
-    }).catch(() => null);
-    if (mixed) {
-      buf = mixed.buffer;
-      audio = mixed.audio;
-    } else audio = { narration: "none", musicBed: "none", reason: "audio mix failed" };
-  }
-  if (buf) {
-    const saved2 = await persistBuffer(buf, "video/mp4");
-    if (saved2) return { url: saved2.url, persisted: true, branded, shot, hook, aspect, provider: video.provider, ...audioField() };
-  }
-  const saved = await persistRemoteAsset(video.url);
-  return { url: saved?.url ?? video.url, persisted: !!saved, branded: false, shot, hook, aspect, provider: video.provider, ...audioField() };
-}
-var SOCIAL_SIZES;
-var init_content_video = __esm({
-  "server/services/content-video.ts"() {
-    "use strict";
-    init_video_shot();
-    init_video_generation();
-    init_video_branding();
-    init_video_audio();
-    init_content_asset_store();
-    SOCIAL_SIZES = {
-      "9:16": "Reels / TikTok / Shorts / Stories",
-      "1:1": "Square feed post",
-      "4:5": "Instagram / Facebook feed (portrait)",
-      "16:9": "YouTube / landscape"
-    };
-  }
-});
-
-// server/services/content-clip-jobs.ts
-var content_clip_jobs_exports = {};
-__export(content_clip_jobs_exports, {
-  startClipJob: () => startClipJob,
-  startReelJob: () => startReelJob
-});
-function friendlyError2(e) {
-  const m = String(e?.message || e);
-  if (/REPLICATE_API_TOKEN|FAL/.test(m) && /not configured|missing|no .* key/i.test(m)) return "Video service is not configured.";
-  if (/402/.test(m)) return "The video service is out of credit. Ask VEDD to top it up.";
-  if (/429/.test(m)) return "The video service is busy right now. Please try again in a few minutes.";
-  if (/timed out/i.test(m)) return "The video took too long to make. Please try again.";
-  return m.slice(0, 300) || "The video could not be made right now. Please try again in a few minutes.";
-}
-async function insertJob(userId, kind, aspect, payload2, firstStep) {
-  await ensureJobTable();
-  const { rows } = await pool.query(
-    `INSERT INTO content_video_jobs (user_id, kind, input, aspect, status, step) VALUES ($1,$2,$3,$4,'running',$5) RETURNING id`,
-    [userId, kind, JSON.stringify(payload2).slice(0, 8e3), aspect, firstStep]
-  );
-  return rows[0].id;
-}
-async function failJob(id, e) {
-  console.error(`[content-jobs] job ${id} failed:`, e?.message || e);
-  await updateContentJob(id, {
-    status: "failed",
-    error: friendlyError2(e),
-    meta: { error_detail: String(e?.message || e).slice(0, 1e3) }
-  }).catch(() => {
-  });
-}
-async function saveGeneration(userId, rec) {
-  try {
-    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
-    await storage2.createContentStudioGeneration({ userId, ...rec });
-  } catch (e) {
-    console.error("[content-jobs] failed to save generation record:", e?.message || e);
-  }
-}
-async function startClipJob(userId, payload2) {
-  const id = await insertJob(userId, "clip", payload2.aspect || "9:16", payload2, "Planning the shot");
-  (async () => {
-    await updateContentJob(id, { step: "Rendering the clip", progress: 25 });
-    const video = await renderContentVideo(payload2.prompt || payload2.shot || "", {
-      userId,
-      shot: payload2.shot,
-      exact: payload2.exact,
-      aspect: payload2.aspect,
-      brand: payload2.brand,
-      duration: payload2.duration,
-      quality: payload2.quality,
-      image: payload2.image,
-      backgroundScene: payload2.backgroundScene
-    });
-    if (!video) throw new Error("The video couldn't be made right now. Please try again in a minute.");
-    if (video.persisted) {
-      await saveGeneration(userId, {
-        contentType: "video",
-        prompt: payload2.prompt || payload2.shot,
-        title: video.hook || null,
-        assetUrl: video.url,
-        metadata: { provider: video.provider, shot: video.shot, aspect: video.aspect, branded: video.branded, ...video.audio ? { audio: video.audio } : {} }
-      });
-    }
-    await updateContentJob(id, {
-      status: "done",
-      step: "Ready",
-      progress: 100,
-      result_url: video.url,
-      meta: { result: video }
-    });
-  })().catch((e) => failJob(id, e));
-  return id;
-}
-async function startReelJob(userId, payload2) {
-  const id = await insertJob(userId, "reel", payload2.aspect || "9:16", payload2, "Writing the script");
-  (async () => {
-    const { generateReelScript: generateReelScript2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const script = await generateReelScript2(payload2.topic, userId, payload2.format, payload2.syncStyleNote);
-    await updateContentJob(id, { step: "Rendering the clip", progress: 40, script });
-    const narrationText = [script.hook, ...script.script || []].join(" ").trim();
-    const video = await renderContentVideo(`Topic: ${payload2.topic}
-Scene idea: ${script.videoPrompt}`, {
-      userId,
-      aspect: payload2.aspect,
-      duration: payload2.duration,
-      quality: payload2.quality,
-      image: payload2.image,
-      backgroundScene: payload2.backgroundScene,
-      narrationText: narrationText || void 0
-    });
-    if (!video) throw new Error("The video couldn't be made right now. Please try again in a minute.");
-    if (video.persisted) {
-      await saveGeneration(userId, {
-        contentType: "reel",
-        prompt: payload2.topic,
-        title: script.hook ?? null,
-        caption: script.caption ?? null,
-        assetUrl: video.url,
-        metadata: { provider: video.provider, script, shot: video.shot, aspect: video.aspect, branded: video.branded, ...video.audio ? { audio: video.audio } : {} }
-      });
-    }
-    const result = { ...script, url: video.url, persisted: video.persisted, branded: video.branded, shot: video.shot, aspect: video.aspect, ...video.audio ? { audio: video.audio } : {} };
-    await updateContentJob(id, {
-      status: "done",
-      step: "Ready",
-      progress: 100,
-      result_url: video.url,
-      meta: { result }
-    });
-  })().catch((e) => failJob(id, e));
-  return id;
-}
-var init_content_clip_jobs = __esm({
-  "server/services/content-clip-jobs.ts"() {
-    "use strict";
-    init_db();
-    init_explainer_video();
-    init_content_video();
   }
 });
 
@@ -81756,9 +82023,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "47007e05-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-16T01:25:45.712Z";
+var BUILD_COMMIT = "284ea55d-dirty";
+var BUILD_BRANCH = "feat/daily-video-narration";
+var BUILT_AT = "2026-11-16T03:04:12.531Z";
 
 // server/stripe.ts
 init_db();
@@ -111308,7 +111575,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     const ex = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
     const job = await ex.getJob(Number(req.params.id), req.user.id);
     if (!job) return res2.status(404).json({ error: "Not found" });
-    res2.json({ id: job.id, status: job.status, step: job.step, progress: job.progress, url: job.result_url, error: job.error, script: job.script, aspect: job.aspect });
+    res2.json({ id: job.id, status: job.status, step: job.step, progress: job.progress, url: job.result_url, error: job.error, script: job.script, aspect: job.aspect, audio: job.meta?.audio ?? null, libraryError: job.meta?.libraryError ?? null });
   });
   app2.get("/api/content-studio/presenters", async (req, res2) => {
     const u = req.user;
@@ -111503,7 +111770,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       progress: job.progress,
       url: job.result_url,
       error: job.error,
-      result: job.meta?.result ?? null
+      result: job.meta?.result ?? null,
+      libraryError: job.meta?.libraryError ?? null
     });
   });
   app2.post("/api/content-studio/generate-carousel", async (req, res2) => {
@@ -117176,6 +117444,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startKalshiWeatherShadow2();
     const { startKalshiSportsShadow: startKalshiSportsShadow2 } = await Promise.resolve().then(() => (init_kalshi_sports_shadow(), kalshi_sports_shadow_exports));
     startKalshiSportsShadow2();
+    const { ensureJobWatchdog: ensureJobWatchdog2 } = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
+    ensureJobWatchdog2();
     try {
       const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { rows } = await pool2.query(`SELECT user_id FROM sol_engine_settings WHERE auto_trade_enabled = true`);
