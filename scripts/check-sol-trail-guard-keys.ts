@@ -22,7 +22,7 @@
  *   C. Source pins — candidate sources, promote refusal, kill switch.
  */
 import { readFileSync } from 'node:fs';
-import { candidatesFrom, matchGuard, type TrailGuard } from '../server/services/trail-guards';
+import { candidatesFrom, matchGuard, promoteAllTrailGuards, type TrailGuard } from '../server/services/trail-guards';
 import type { TrailGroup } from '../server/services/trail-study';
 
 let failures = 0;
@@ -94,5 +94,37 @@ check('C8 learning baselines group Sol by strategy unconditionally', tl.includes
 check('C9 engine call sites unchanged (both consults still pass strategy + symbol in)',
   (solEngine.match(/solTrailGuardFor\(userId, pos\.strategyId, pos\.symbol\)/g) || []).length === 2);
 
-console.log(failures ? `\n${failures} FAILURE(S)` : '\nALL CHECKS PASSED');
-process.exit(failures ? 1 : 0);
+// ── D. Bulk promotion (one tap for every current candidate) ─────────────
+// The batch loops the single-promote path over the SAME candidate list
+// the panel shows — which by construction (C1/C3) contains no Sol symbol
+// selection — and promoteTrailGuard would refuse one anyway (C5). The
+// kill switch is checked before any store access, so D1 is exact even
+// with no database reachable.
+const routes = src('../server/routes.ts');
+const panel = src('../client/src/components/engine-safeguards-panel.tsx');
+const bulkBody = tg.slice(tg.indexOf('export async function promoteAllTrailGuards'), tg.indexOf('export async function retireTrailGuard'));
+check('D2 bulk takes the CURRENT candidate list', bulkBody.includes('getTrailGuardCandidates(userId)'));
+check('D3 bulk promotes through the SAME single-promote path (no forked write)',
+  bulkBody.includes('promoteTrailGuard(userId') && !bulkBody.includes('storeGuards'));
+check('D4 bulk passes each candidate’s OWN selection through (no constructed selections)',
+  bulkBody.includes('engine: c.engine, dimension: c.dimension, key: c.key, action: c.action') && !bulkBody.includes("'symbol'"));
+check('D5 summary counts are the array lengths (no invented numbers)',
+  bulkBody.includes('promotedCount: promoted.length') && bulkBody.includes('skippedCount: skipped.length'));
+check('D6 kill switch is checked before the candidate list is built',
+  bulkBody.indexOf('trailGuardsOn()') > -1 && bulkBody.indexOf('trailGuardsOn()') < bulkBody.indexOf('getTrailGuardCandidates'));
+check('D7 the bulk route exists and delegates to the service',
+  routes.includes('app.post("/api/engine/trail-guards/promote-all"') && routes.includes('promoteAllTrailGuards'));
+check('D8 panel wires the bulk button + verbatim result rendering',
+  panel.includes('"/api/engine/trail-guards/promote-all"') && panel.includes('Make all') && panel.includes('bulkResult.skipped.map'));
+
+(async () => {
+  process.env.TRAIL_GUARDS = 'off';
+  const blocked = await promoteAllTrailGuards(1);
+  check('D1 kill switch blocks the batch (403, nothing promoted or skipped)',
+    blocked.ok === false && blocked.status === 403 && blocked.promotedCount === 0 && blocked.skippedCount === 0
+    && blocked.promoted.length === 0 && blocked.skipped.length === 0);
+  delete process.env.TRAIL_GUARDS;
+
+  console.log(failures ? `\n${failures} FAILURE(S)` : '\nALL CHECKS PASSED');
+  process.exit(failures ? 1 : 0);
+})();

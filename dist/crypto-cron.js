@@ -37280,6 +37280,7 @@ __export(crypto_shadow_promotions_exports, {
   getCryptoPromotions: () => getCryptoPromotions,
   hasActiveCryptoPromotion: () => hasActiveCryptoPromotion,
   matchCryptoPromotion: () => matchCryptoPromotion,
+  promoteAllCryptoBuckets: () => promoteAllCryptoBuckets,
   promoteCryptoBucket: () => promoteCryptoBucket,
   retireCryptoPromotion: () => retireCryptoPromotion
 });
@@ -37331,6 +37332,21 @@ async function promoteCryptoBucket(userId, sel) {
   };
   await storePromotions(userId, [...promotions, promotion]);
   return { ok: true, promotion };
+}
+async function promoteAllCryptoBuckets(userId) {
+  const empty = { promoted: [], skipped: [], promotedCount: 0, skippedCount: 0 };
+  if (!cryptoShadowPromotionsOn()) {
+    return { ok: false, status: 403, error: "Crypto shadow promotions are switched off (CRYPTO_SHADOW_PROMOTIONS=off) \u2014 bulk promotion is unavailable.", ...empty };
+  }
+  const { candidates } = await getCryptoPromotionPanel(userId);
+  const promoted = [];
+  const skipped = [];
+  for (const c of candidates) {
+    const out = await promoteCryptoBucket(userId, { strategy: c.strategy, dim: c.dim, bucket: c.bucket });
+    if (out.ok && out.promotion) promoted.push(out.promotion);
+    else skipped.push({ strategy: c.strategy, dim: c.dim, bucket: c.bucket, reason: out.error ?? "That bucket could not be promoted." });
+  }
+  return { ok: true, promoted, skipped, promotedCount: promoted.length, skippedCount: skipped.length };
 }
 async function retireCryptoPromotion(userId, id) {
   const promotions = await getCryptoPromotions(userId);

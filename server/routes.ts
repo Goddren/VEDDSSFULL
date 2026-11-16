@@ -17594,6 +17594,15 @@ Rules:
       res.json(out);
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
+  app.post("/api/engine/trail-guards/promote-all", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { promoteAllTrailGuards } = await import('./services/trail-guards');
+      const out = await promoteAllTrailGuards((req.user as User).id);
+      if (!out.ok) return res.status(out.status ?? 403).json({ error: out.error });
+      res.json(out);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
   app.post("/api/engine/trail-guards/retire", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {
@@ -17649,6 +17658,15 @@ Rules:
       if (!strategy || !dim || !bucket) return res.status(400).json({ error: "strategy, dim and bucket are required" });
       const out = await promoteCryptoBucket((req.user as User).id, { strategy: String(strategy), dim: String(dim), bucket: String(bucket) });
       if (!out.ok) return res.status(out.status ?? 422).json({ error: out.error });
+      res.json(out);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  app.post("/api/engine/crypto-shadow-promotions/promote-all", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { promoteAllCryptoBuckets } = await import('./services/crypto-shadow-promotions');
+      const out = await promoteAllCryptoBuckets((req.user as User).id);
+      if (!out.ok) return res.status(out.status ?? 403).json({ error: out.error });
       res.json(out);
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });

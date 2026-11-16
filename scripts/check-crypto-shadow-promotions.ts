@@ -24,7 +24,7 @@ import { readFileSync } from 'node:fs';
 import { aggregate, type BucketStat } from '../server/services/crypto-shadow';
 import {
   matchCryptoPromotion, cryptoShadowPromotionsOn,
-  checkCryptoPromotion, hasActiveCryptoPromotion,
+  checkCryptoPromotion, hasActiveCryptoPromotion, promoteAllCryptoBuckets,
   type CryptoShadowPromotion,
 } from '../server/services/crypto-shadow-promotions';
 
@@ -128,6 +128,35 @@ check('E11 the three routes exist and only they write',
 check('E12 shadow lane behavior unchanged (its own gate intact)',
   shadowLane.includes('cryptoShadowLessonsOn()') && shadowLane.includes('matchingAvoidBucket(stats, strat, bucketsOf(ctx), { includeAll: true })'));
 check('E13 panel + page wiring', panel.includes('"/api/engine/crypto-shadow-promotions"') && page.includes('<CryptoShadowPromotionsPanel />'));
+
+// ── F. Bulk promotion (one tap for every current candidate) ──────────────
+// The batch is a loop over the single-promote path: same fresh-stats
+// re-verification per bucket, recovered/already-guarded buckets skipped
+// with the single path's own reasons, summary counts from the arrays.
+// The kill switch is checked before any store access, so F1 is exact
+// even with no database reachable.
+{
+  process.env.CRYPTO_SHADOW_PROMOTIONS = 'off';
+  const blocked = await promoteAllCryptoBuckets(1);
+  check('F1 kill switch blocks the batch (403, nothing promoted or skipped)',
+    blocked.ok === false && blocked.status === 403 && blocked.promotedCount === 0 && blocked.skippedCount === 0
+    && blocked.promoted.length === 0 && blocked.skipped.length === 0);
+  delete process.env.CRYPTO_SHADOW_PROMOTIONS;
+}
+const bulkBody = mod.slice(mod.indexOf('export async function promoteAllCryptoBuckets'), mod.indexOf('export async function retireCryptoPromotion'));
+check('F2 bulk takes the CURRENT candidate list from the panel builder', bulkBody.includes('getCryptoPromotionPanel(userId)'));
+check('F3 bulk promotes through the SAME single-promote path (no forked write)',
+  bulkBody.includes('promoteCryptoBucket(userId') && !bulkBody.includes('storePromotions'));
+check('F4 summary counts are the array lengths (no invented numbers)',
+  bulkBody.includes('promotedCount: promoted.length') && bulkBody.includes('skippedCount: skipped.length'));
+check('F5 skips carry the single path’s own refusal reason',
+  bulkBody.includes('reason: out.error ??'));
+check('F6 kill switch is checked before the candidate list is built',
+  bulkBody.indexOf('cryptoShadowPromotionsOn()') > -1 && bulkBody.indexOf('cryptoShadowPromotionsOn()') < bulkBody.indexOf('getCryptoPromotionPanel'));
+check('F7 the bulk route exists and delegates to the service',
+  routes.includes('app.post("/api/engine/crypto-shadow-promotions/promote-all"') && routes.includes('promoteAllCryptoBuckets'));
+check('F8 panel wires the bulk button + verbatim result rendering',
+  panel.includes('"/api/engine/crypto-shadow-promotions/promote-all"') && panel.includes('Make all') && panel.includes('bulkResult.skipped.map'));
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nALL CHECKS PASSED');
 process.exit(failures ? 1 : 0);
