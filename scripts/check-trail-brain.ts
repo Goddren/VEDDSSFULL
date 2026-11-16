@@ -200,6 +200,10 @@ check('G12 routes + panel + boot wiring present',
 check('G13 sw bumped for the client change', sw.includes("CACHE_VERSION = 'vedd-v283'"));
 check('G14 stamp-column ensures are non-rejecting + memoized (2026-11-13 pattern)',
   /stamp-column ensure failed for \$\{table\} \(non-fatal, will retry\)/.test(core) && /_colsEnsured\.delete\(table\)/.test(core));
+check('G15 FX brain respects the engine master trailing switch',
+  /if \(!state\.config\.trailingStopEnabled\) return;/.test(fx.slice(fx.indexOf('applyTrailBrainFx'))));
+check('G16 DeFi brain block honors CRYPTO_TRAIL=off like the spot trail it extends',
+  /process\.env\.CRYPTO_TRAIL !== 'off' && Number\(trade\.stopLoss\) > 0/.test(scanner));
 
 // ── F. Fail-open runtime pins (no reachable database) ────────────────────
 (async () => {

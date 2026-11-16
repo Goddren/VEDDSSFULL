@@ -3568,6 +3568,10 @@ async function applyTrailBrainFx(
   const state = engineStates[userId];
   if (!state || openPositions.length === 0) return;
   if (!trailBrainOn('fx')) return;
+  // The engine's own master trailing switch governs too: trailing off
+  // means no trailing, the brain's included. (trailMethod 'none' is a
+  // method choice, not an off switch — the brain still runs there.)
+  if (!state.config.trailingStopEnabled) return;
   if (!state.positionTrailState) state.positionTrailState = {};
 
   let tlConnections: any[] = [];

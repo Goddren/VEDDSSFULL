@@ -695,7 +695,8 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
         // is clamped at the trade's ORIGINAL stop inside
         // trailBrainDecide, the stop write below is guarded to raises
         // only, and the hard TP/SL checks above have already run.
-        if (Number(trade.stopLoss) > 0 && trade.entryPrice > 0) {
+        // CRYPTO_TRAIL=off (the spot trail's own switch) stands it down.
+        if (process.env.CRYPTO_TRAIL !== 'off' && Number(trade.stopLoss) > 0 && trade.entryPrice > 0) {
           try {
             const tb = await trailBrainConsult(userId, 'crypto', trade.strategy || 'all', trade.symbol || 'all');
             if (tb) {
