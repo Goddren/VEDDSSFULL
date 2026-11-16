@@ -503,6 +503,129 @@ export function buildShareCaption(
   return `${body.slice(0, Math.max(40, limit - 1)).replace(/\s+\S*$/, '')}…`;
 }
 
+// ─── yt-dlp ingestion (pure helpers) ────────────────────────────────────────
+// YouTube downloads run through yt-dlp (server/services/ytdlp.ts) — the
+// industry-standard tool that tracks YouTube's changes. These helpers are
+// the pure parts: which player clients to try, the exact CLI arguments,
+// how to read a failure, and what to tell the user. The runner throws
+// errors tagged with a YtdlpErrorCode so a known cause NEVER degrades to
+// the generic "hit a problem" message (the @distube/ytdl-core failure
+// mode this replaced: its error text matched no friendly pattern).
+
+export type YtdlpErrorCode =
+  | 'bot-blocked' | 'unavailable' | 'private' | 'age-restricted'
+  | 'geo-blocked' | 'network' | 'binary-missing' | 'unknown';
+
+/** Player clients in fallback order. `tv` (TVHTML5) is first: it is the
+ *  client that currently answers from datacenter IPs without a sign-in
+ *  (verified 2026-11-15 — the web player returns LOGIN_REQUIRED /
+ *  "Sign in to confirm you're not a bot" with no formats at all, while
+ *  tv returned downloadable formats for the same videos). */
+export const YTDLP_DEFAULT_CLIENTS = ['tv', 'ios', 'android', 'web_safari'] as const;
+
+const YT_CLIENT_OK = /^[a-z0-9_]+$/i;
+/** Env override (CLIPPER_YTDLP_CLIENTS, comma list) → sanitized chain. */
+export function ytdlpClientChain(envValue?: string): string[] {
+  const parts = String(envValue || '').split(',').map((s) => s.trim()).filter((s) => YT_CLIENT_OK.test(s));
+  return parts.length ? parts.slice(0, 8) : [...YTDLP_DEFAULT_CLIENTS];
+}
+
+export function buildYtdlpInfoArgs(url: string, clients: string[], noCheckCerts = false): string[] {
+  return [
+    '--no-warnings', '--no-playlist', '--socket-timeout', '30', '--retries', '3',
+    '--extractor-args', `youtube:player_client=${clients.join(',')}`,
+    ...(noCheckCerts ? ['--no-check-certificates'] : []),
+    '--dump-single-json', url,
+  ];
+}
+
+export function buildYtdlpDownloadArgs(
+  url: string,
+  opts: { outputTemplate: string; maxBytes: number; clients: string[]; ffmpegLocation?: string; noCheckCerts?: boolean },
+): string[] {
+  return [
+    '--no-warnings', '--no-playlist', '--no-progress',
+    '--socket-timeout', '30', '--retries', '5', '--fragment-retries', '10',
+    '--extractor-args', `youtube:player_client=${opts.clients.join(',')}`,
+    '--max-filesize', String(opts.maxBytes),
+    // Best muxed-or-mergeable mp4 at ≤720p (the old ytdl-core pick),
+    // loosening step by step rather than failing on a strict filter.
+    '-f', 'bv*[height<=720][ext=mp4]+ba[ext=m4a]/bv*[height<=720]+ba/b[height<=720]/b',
+    '--merge-output-format', 'mp4',
+    ...(opts.ffmpegLocation ? ['--ffmpeg-location', opts.ffmpegLocation] : []),
+    ...(opts.noCheckCerts ? ['--no-check-certificates'] : []),
+    '-o', opts.outputTemplate, url,
+  ];
+}
+
+/** Read a yt-dlp failure (stderr/stdout text) into a stable code. Order
+ *  matters: "Sign in to confirm your age" must land on age-restricted,
+ *  not bot-blocked. */
+export function classifyYtdlpError(text: string): YtdlpErrorCode {
+  const m = String(text || '');
+  if (/confirm your age|age-restricted|age restricted|inappropriate for some users/i.test(m)) return 'age-restricted';
+  if (/sign in to confirm|login_required|not a bot/i.test(m)) return 'bot-blocked';
+  if (/private video|video is private/i.test(m)) return 'private';
+  if (/available in your country|geo.?restrict/i.test(m)) return 'geo-blocked';
+  if (/video is unavailable|video unavailable|no longer available|has been removed|video.*not found/i.test(m)) return 'unavailable';
+  if (/timed out|timeout|connection|network|ssl|certificate|eof occurred|HTTP Error 5\d\d|urlopen error/i.test(m)) return 'network';
+  return 'unknown';
+}
+
+/** The exact user-facing sentence for each code — every one names the
+ *  cause and points at the upload path, which always works. */
+export function ytdlpErrorMessage(code: YtdlpErrorCode): string {
+  switch (code) {
+    case 'bot-blocked':
+      return 'YouTube blocked this download from our server — it asked for a sign-in to confirm we are not a bot, which a server can\'t do. Upload the video file instead; uploads always work.';
+    case 'unavailable':
+      return 'That YouTube video is unavailable (removed, or the link is wrong), so there was nothing to download. Check the link — or upload the video file instead.';
+    case 'private':
+      return 'That YouTube video is private, so it can\'t be downloaded. Make it public or unlisted — or upload the video file instead.';
+    case 'age-restricted':
+      return 'That video is age-restricted on YouTube and can\'t be downloaded without an account sign-in. Upload the video file instead; uploads always work.';
+    case 'geo-blocked':
+      return 'YouTube blocks that video in our server\'s region, so it can\'t be downloaded. Upload the video file instead; uploads always work.';
+    case 'network':
+      return 'The YouTube download kept failing on the network (timeouts or connection errors). Try again in a bit — or upload the video file instead.';
+    case 'binary-missing':
+      return 'YouTube downloads aren\'t available on this server right now (the downloader tool is missing). Upload the video file instead; uploads always work.';
+    default:
+      return 'The YouTube download failed for a reason we couldn\'t identify. Try again — or upload the video file instead; uploads always work.';
+  }
+}
+
+// ─── Upload fallback (pure validation) ──────────────────────────────────────
+// Uploads ride the durable asset store (content-asset-store.ts), whose
+// cap is 25MB — so uploads are capped there too. Bigger sources belong
+// on the link path (600MB cap). Duration is probed after upload with the
+// same 60-minute cap as links.
+
+export const CLIPPER_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+export const CLIPPER_UPLOAD_MIMES = [
+  'video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska', 'video/x-msvideo',
+];
+const CLIPPER_UPLOAD_EXTS = ['mp4', 'mov', 'webm', 'mkv', 'm4v', 'avi'];
+
+export function validateClipperUpload(
+  input: { size?: number; mime?: string; name?: string },
+): { ok: true } | { ok: false; error: string } {
+  const size = Number(input?.size || 0);
+  if (!size) return { ok: false, error: 'No file was received — pick a video file and try again.' };
+  if (size > CLIPPER_UPLOAD_MAX_BYTES) {
+    return {
+      ok: false,
+      error: `That file is ${(size / (1024 * 1024)).toFixed(1)}MB — uploads are capped at 25MB. For a bigger video, paste a direct file link instead.`,
+    };
+  }
+  const mime = String(input?.mime || '').toLowerCase();
+  const ext = String(input?.name || '').split('.').pop()?.toLowerCase() || '';
+  if (!CLIPPER_UPLOAD_MIMES.includes(mime) && !CLIPPER_UPLOAD_EXTS.includes(ext)) {
+    return { ok: false, error: 'That file is not a video we can read — upload an MP4, MOV, WebM or MKV.' };
+  }
+  return { ok: true };
+}
+
 // ─── Job steps ──────────────────────────────────────────────────────────────
 
 export const CLIPPER_STEPS = [

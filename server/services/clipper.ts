@@ -11,10 +11,15 @@
  * OpenAI client), and the bundled ffmpeg (ffmpeg-static, has libass).
  * Pure logic lives in clipper-core.ts.
  *
- * Honest limits (also in the PR): YouTube ingestion is best-effort —
- * YouTube actively blocks server-side downloads, and a blocked download
- * fails the job with a plain message pointing at direct file links.
- * Direct .mp4/.webm/.mov/.m4v/.mkv links are the verified path.
+ * YouTube ingestion runs through yt-dlp (services/ytdlp.ts, pinned
+ * binary) with a multi-client fallback — the @distube/ytdl-core path it
+ * replaced could never work server-side: YouTube's web player answers
+ * datacenter IPs with LOGIN_REQUIRED and no formats. yt-dlp can still
+ * be blocked on some videos/IPs; when it is, the job fails with the
+ * specific reason (bot block, private, age-restricted, …) and points at
+ * the upload path, which always works. Uploads ride the asset store
+ * (25MB cap) and are probed with the same 60-minute cap as links.
+ * Direct .mp4/.webm/.mov/.m4v/.mkv links remain a verified path.
  */
 import fs from 'fs';
 import os from 'os';
@@ -25,12 +30,13 @@ import { pool } from '../db';
 import { storage } from '../storage';
 import { ensureJobTable, updateContentJob } from './explainer-video';
 import { runFfmpeg, probe } from './ffmpeg';
-import { persistBuffer } from './content-asset-store';
+import { persistBuffer, getPersistedAsset } from './content-asset-store';
+import { downloadYouTubeVideo } from './ytdlp';
 import { getPlatformOpenAIClient, getUniversalAIClientForUser, extractFirstJsonObject } from '../openai';
 import {
   classifySourceUrl, finalizeMoments, buildCaptionCues,
   buildAssDocument, buildReframeFilter, frameForAspect, parseSilenceDetect,
-  clipperStepProgress, CLIPPER_STEPS,
+  clipperStepProgress, CLIPPER_STEPS, ytdlpErrorMessage, type YtdlpErrorCode,
   type ClipperSettings, type FinalMoment, type MomentSeed, type Transcript,
   type WordTiming, type TranscriptSegment,
 } from './clipper-core';
@@ -39,7 +45,14 @@ const MAX_MINUTES = Math.max(5, Number(process.env.CLIPPER_MAX_MINUTES || 60) ||
 const MAX_SOURCE_BYTES = Math.max(50, Number(process.env.CLIPPER_MAX_SOURCE_MB || 600) || 600) * 1024 * 1024;
 const CHUNK_SEC = 900; // 15-min transcription chunks stay under Whisper's 25MB cap at 32kbps
 
-export interface ClipperJobPayload { url: string; settings: ClipperSettings }
+export interface ClipperJobPayload {
+  /** Link path: a YouTube or direct-file URL. */
+  url?: string;
+  /** Upload path: a video the user uploaded, persisted in the asset store. */
+  uploadAssetId?: number;
+  fileName?: string;
+  settings: ClipperSettings;
+}
 
 // ─── job plumbing ───────────────────────────────────────────────────────────
 
@@ -54,11 +67,15 @@ async function insertJob(userId: number, payload: ClipperJobPayload): Promise<nu
 }
 
 function friendlyError(e: any): string {
+  // yt-dlp failures arrive pre-classified into stable codes — a known
+  // cause ALWAYS maps to its specific message, never the generic one.
+  const ytCode = (e as any)?.ytdlpCode as YtdlpErrorCode | undefined;
+  if (ytCode) return ytdlpErrorMessage(ytCode);
   const m = String(e?.message || e || '');
   if (/too long|exceeds the/i.test(m)) return `That video is longer than the ${MAX_MINUTES}-minute limit for clipping. Try a shorter video.`;
   if (/no audio/i.test(m)) return 'That video has no audio track, so there is nothing to transcribe or caption.';
   if (/too large/i.test(m)) return 'That video file is too large for the clipper to process.';
-  if (/youtube|sign in|bot|login_required|403/i.test(m)) return 'YouTube blocked the download from our server. This happens a lot with YouTube — try a direct video file link (.mp4/.webm) instead.';
+  if (/youtube|sign in|bot|login_required|403/i.test(m)) return 'YouTube blocked the download from our server. Upload the video file instead; uploads always work.';
   if (/transcri/i.test(m)) return 'Transcription was unavailable just now, so no clips could be made. Please try again in a bit.';
   if (/no speech/i.test(m)) return 'We could not hear any speech in that video, so there are no moments to clip.';
   if (/unsupported/i.test(m)) return m.replace(/^unsupported:\s*/i, '');
@@ -110,40 +127,20 @@ async function downloadDirect(url: string, dest: string): Promise<void> {
 }
 
 /**
- * YouTube via @distube/ytdl-core (external package, lazy-loaded so a
- * broken/blocked YouTube path can never affect boot or anything else).
- * UNVERIFIED against production traffic: YouTube blocks most datacenter
- * downloads; failures surface as the friendly YouTube message.
+ * Upload path: pull the user's uploaded video back out of the durable
+ * asset store into the job's workdir. The route validated type + the
+ * store's 25MB cap at upload time; duration is probed by the caller with
+ * the same 60-minute cap as link sources.
  */
-async function downloadYouTube(url: string, dest: string): Promise<{ title?: string; lengthSec?: number }> {
-  const ytdl: any = (await import('@distube/ytdl-core')).default;
-  const info = await ytdl.getInfo(url);
-  const lengthSec = Number(info?.videoDetails?.lengthSeconds || 0) || undefined;
-  if (lengthSec && lengthSec > MAX_MINUTES * 60) throw new Error(`Video too long: exceeds the ${MAX_MINUTES} minute limit`);
-  let format: any;
-  try {
-    format = ytdl.chooseFormat(info.formats, {
-      filter: (f: any) => f.hasAudio && f.hasVideo && f.container === 'mp4' && (!f.height || f.height <= 720),
-      quality: 'highest',
-    });
-  } catch { /* fall through to the looser pick */ }
-  if (!format) format = ytdl.chooseFormat(info.formats, { filter: 'audioandvideo', quality: 'highest' });
-  const stream = ytdl.downloadFromInfo(info, { format });
-  let bytes = 0;
-  const counter = new Transform({
-    transform(chunk: Buffer, _enc, cb) {
-      bytes += chunk.length;
-      if (bytes > MAX_SOURCE_BYTES) cb(new Error('too large'));
-      else cb(null, chunk);
-    },
-  });
-  try {
-    await pipeline(stream, counter, fs.createWriteStream(dest));
-  } catch (e: any) {
-    if (e?.message === 'too large') throw new Error('Video file too large to process');
-    throw e;
-  }
-  return { title: info?.videoDetails?.title, lengthSec };
+async function materializeUpload(assetId: number, workDir: string): Promise<string> {
+  const asset = await getPersistedAsset(assetId);
+  if (!asset) throw new Error('That uploaded file could not be found — please upload it again.');
+  const ext = asset.mimeType.includes('webm') ? 'webm'
+    : asset.mimeType.includes('quicktime') ? 'mov'
+      : asset.mimeType.includes('matroska') ? 'mkv' : 'mp4';
+  const dest = path.join(workDir, `source.${ext}`);
+  await fs.promises.writeFile(dest, asset.data);
+  return dest;
 }
 
 // ─── transcription ──────────────────────────────────────────────────────────
@@ -360,19 +357,25 @@ export async function startClipperJob(userId: number, payload: ClipperJobPayload
 
 async function runClipperJob(jobId: number, userId: number, payload: ClipperJobPayload): Promise<void> {
   const { settings } = payload;
-  const cls = classifySourceUrl(payload.url);
+  const isUpload = !!payload.uploadAssetId;
+  const cls = isUpload ? { kind: 'upload' as const } : classifySourceUrl(payload.url || '');
   if (cls.kind === 'unsupported') throw new Error(`unsupported: ${cls.reason}`);
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vedd-clipper-'));
   try {
-    // 1 — download
+    // 1 — get the source video (download or uploaded file)
     await setStep(jobId, 0);
-    const srcFile = path.join(workDir, 'source.mp4');
+    let srcFile: string;
     let sourceTitle: string | undefined;
-    if (cls.kind === 'youtube') {
-      const info = await downloadYouTube(payload.url, srcFile);
-      sourceTitle = info.title;
+    if (isUpload) {
+      srcFile = await materializeUpload(payload.uploadAssetId!, workDir);
+      sourceTitle = payload.fileName;
+    } else if (cls.kind === 'youtube') {
+      const dl = await downloadYouTubeVideo(payload.url!, workDir, { maxMinutes: MAX_MINUTES, maxBytes: MAX_SOURCE_BYTES });
+      srcFile = dl.file;
+      sourceTitle = dl.title;
     } else {
-      await downloadDirect(payload.url, srcFile);
+      srcFile = path.join(workDir, 'source.mp4');
+      await downloadDirect(payload.url!, srcFile);
     }
     const meta = await probe(srcFile);
     if (!meta.hasAudio) throw new Error('no audio track');
@@ -405,14 +408,14 @@ async function runClipperJob(jobId: number, userId: number, payload: ClipperJobP
         if (!saved) throw new Error('rendered clip exceeded the storage size cap');
         const assetUrl = saved.url;
         const gen = await storage.createContentStudioGeneration({
-          userId, contentType: 'video', prompt: payload.url.slice(0, 500),
+          userId, contentType: 'video', prompt: (payload.url || payload.fileName || 'uploaded video').slice(0, 500),
           title: moment.hook, caption: moment.caption, assetUrl,
           metadata: {
             kind: 'viral-clip', jobId, rank: moment.rank,
             viralityScore: moment.viralityScore, subscores: moment.subscores,
             reason: moment.reason, category: moment.category,
             durationSec: moment.durationSec, startSec: moment.startSec, endSec: moment.endSec,
-            sourceUrl: payload.url, captionStyle: settings.captionStyle,
+            sourceUrl: payload.url || '', captionStyle: settings.captionStyle,
             aspect: settings.aspect, platform: settings.platform,
             belowThreshold: moment.belowThreshold || undefined,
           } as any,
@@ -437,7 +440,7 @@ async function runClipperJob(jobId: number, userId: number, payload: ClipperJobP
       meta: {
         result: {
           clips,
-          source: { url: payload.url, kind: cls.kind, title: sourceTitle, durationSec: Math.round(meta.duration) },
+          source: { url: payload.url || '', kind: cls.kind, title: sourceTitle, durationSec: Math.round(meta.duration) },
           transcriptSource: transcript.source,
         },
       },

@@ -8,6 +8,7 @@
     "npm": ">=10.0.0"
   },
   "scripts": {
+    "postinstall": "node scripts/fetch-ytdlp.mjs",
     "dev": "node --env-file=.env --import tsx/esm server/index.ts",
     "build": "node scripts/gen-build-info.mjs && vite build && esbuild server/index.ts server/crypto-cron.ts server/crypto-worker.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node --dns-result-order=ipv4first dist/index.js",
@@ -20,7 +21,6 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
-    "@distube/ytdl-core": "^4.16.12",
     "@google/generative-ai": "^0.24.1",
     "@hookform/resolvers": "^3.9.1",
     "@jridgewell/trace-mapping": "^0.3.25",

@@ -31553,6 +31553,66 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ── AI Clipper upload path: when a link can't be downloaded (YouTube
+  // bot-blocks some videos/IPs), the user uploads the video file instead.
+  // The file rides the durable asset store, so the upload cap is the
+  // store's 25MB; the job probes duration with the same 60-minute cap
+  // as link sources. Same ambassador/admin + daily-limit gates.
+  const clipperUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 25 * 1024 * 1024 },
+  });
+  app.post('/api/content-studio/clipper/upload', (req, res) => {
+    clipperUpload.single('file')(req, res, async (multerErr: any) => {
+      try {
+        const u = (req as any).user;
+        if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+          return res.status(403).json({ message: 'Content Studio is available to ambassadors and admins.' });
+        }
+        if (multerErr) {
+          const tooBig = multerErr?.code === 'LIMIT_FILE_SIZE';
+          return res.status(tooBig ? 413 : 400).json({
+            message: tooBig
+              ? 'That file is over the 25MB upload limit. For a bigger video, paste a direct file link instead.'
+              : 'That upload did not come through — please try again.',
+          });
+        }
+        const file = (req as any).file as { buffer: Buffer; size: number; mimetype: string; originalname: string } | undefined;
+        const { validateClipperSettings, validateClipperUpload } = await import('./services/clipper-core');
+        const uv = validateClipperUpload({ size: file?.size, mime: file?.mimetype, name: file?.originalname });
+        if (!uv.ok) return res.status(400).json({ message: uv.error });
+        let settingsRaw: any = {};
+        try { settingsRaw = JSON.parse(String(req.body?.settings || '{}')); } catch {
+          return res.status(400).json({ message: 'Clip settings were not readable — please try again.' });
+        }
+        const v = validateClipperSettings(settingsRaw);
+        if (!v.ok) return res.status(400).json({ message: v.error });
+        if (!u.isAdmin) {
+          const { jobsToday } = await import('./services/explainer-video');
+          const limit = Number(process.env.CLIPPER_DAILY_LIMIT || 3) || 3;
+          if ((await jobsToday(u.id, 'viral-clip')) >= limit) {
+            return res.status(429).json({ message: `Daily clipper limit reached (${limit} source videos/day). Try again tomorrow.` });
+          }
+        }
+        const { persistBuffer } = await import('./services/content-asset-store');
+        const saved = await persistBuffer(file!.buffer, file!.mimetype || 'video/mp4');
+        if (!saved) {
+          return res.status(413).json({ message: 'That file is too large to store (25MB max). For a bigger video, paste a direct file link instead.' });
+        }
+        const { startClipperJob } = await import('./services/clipper');
+        const jobId = await startClipperJob(u.id, {
+          uploadAssetId: saved.id,
+          fileName: String(file!.originalname || 'uploaded video').slice(0, 200),
+          settings: v.settings,
+        });
+        res.json({ jobId, kind: 'viral-clip' });
+      } catch (e: any) {
+        console.error('[content-studio] clipper upload error:', e?.message || e);
+        res.status(500).json({ message: 'Failed to start the clipper' });
+      }
+    });
+  });
+
   // Share state for clip results: per-network share targets (direct vs
   // one-tap fallback, computed truthfully from configured credentials).
   app.get('/api/content-studio/share-targets', async (req, res) => {

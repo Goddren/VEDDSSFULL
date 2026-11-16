@@ -11160,13 +11160,13 @@ async function discoverNewPoolTokens(chainKey, minLiquidityUsd = 25e3, maxAgeHou
   newPoolsCache = { key, at: Date.now(), tokens };
   return tokens;
 }
-async function gt(path22) {
+async function gt(path23) {
   const run = async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
       const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       lastCallAt = Date.now();
-      const res2 = await fetch(`${GT}${path22}`, {
+      const res2 = await fetch(`${GT}${path23}`, {
         headers: cgHeaders(),
         signal: AbortSignal.timeout(2e4)
       });
@@ -11174,13 +11174,13 @@ async function gt(path22) {
       if (res2.status === 429) {
         const retryAfter = Number(res2.headers.get("retry-after")) || 0;
         const backoff = retryAfter > 0 ? retryAfter * 1e3 : 3e3 * (attempt + 1);
-        console.warn(`[defi-market-data] rate limited on ${path22}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
+        console.warn(`[defi-market-data] rate limited on ${path23}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
         await new Promise((r) => setTimeout(r, backoff));
         continue;
       }
-      throw new Error(`GeckoTerminal ${res2.status} on ${path22}`);
+      throw new Error(`GeckoTerminal ${res2.status} on ${path23}`);
     }
-    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path22}`);
+    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path23}`);
   };
   const next = callChain.then(run, run);
   callChain = next.catch(() => void 0);
@@ -19935,9 +19935,9 @@ var init_dxtrade = __esm({
       async ensureLoggedIn() {
         if (!this.token) await this.login();
       }
-      async authed(path22, init = {}) {
+      async authed(path23, init = {}) {
         if (!this.token) await this.login();
-        const doFetch = () => fetch(`${this.base}${path22}`, {
+        const doFetch = () => fetch(`${this.base}${path23}`, {
           ...init,
           headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": `DXAPI ${this.token}`, ...init.headers || {} },
           signal: AbortSignal.timeout(2e4)
@@ -20178,8 +20178,8 @@ var init_dxtrade = __esm({
       async getInstruments(query = "") {
         const attempts = query ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`] : ["/instruments/query"];
         let last2 = "";
-        for (const path22 of attempts) {
-          const res2 = await this.authed(path22);
+        for (const path23 of attempts) {
+          const res2 = await this.authed(path23);
           const text3 = await res2.text();
           if (res2.ok) {
             try {
@@ -20275,10 +20275,10 @@ var init_dxtrade = __esm({
           `/accounts/${enc}/reports/trades?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso2)}`,
           `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso2)}`
         ];
-        for (const path22 of candidates) {
+        for (const path23 of candidates) {
           let res2;
           try {
-            res2 = await this.authed(path22);
+            res2 = await this.authed(path23);
           } catch {
             continue;
           }
@@ -20292,7 +20292,7 @@ var init_dxtrade = __esm({
           const list = data?.history ?? data?.trades ?? data?.orders ?? data?.positions ?? data?.items ?? (Array.isArray(data) ? data : []);
           if (!Array.isArray(list) || list.length === 0) {
             if (Array.isArray(list)) {
-              console.log(`[dxtrade] history via ${path22.split("?")[0]} \u2014 0 rows in window`);
+              console.log(`[dxtrade] history via ${path23.split("?")[0]} \u2014 0 rows in window`);
               return [];
             }
             continue;
@@ -20312,7 +20312,7 @@ var init_dxtrade = __esm({
             profit: o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit,
             closeTime: o.closeTime ?? o.closedAt ?? o.closeTimestamp ?? o.timestamp ?? o.updateTime ?? null
           }));
-          console.log(`[dxtrade] history via ${path22.split("?")[0]} \u2014 ${closed.length} closed rows`);
+          console.log(`[dxtrade] history via ${path23.split("?")[0]} \u2014 ${closed.length} closed rows`);
           return closed;
         }
         console.log(`[dxtrade] no working history endpoint found for ${accountCode} (tried ${candidates.length}) \u2014 close-sync will keep opens PENDING`);
@@ -47046,9 +47046,9 @@ var init_tastytrade = __esm({
         }
         await this.login();
       }
-      async request(path22, init = {}, attempt = 0) {
+      async request(path23, init = {}, attempt = 0) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path22}`, {
+        const response = await fetch(`${this.baseUrl}${path23}`, {
           ...init,
           headers: {
             "Authorization": this.sessionToken || "",
@@ -47059,7 +47059,7 @@ var init_tastytrade = __esm({
         });
         if (!response.ok && RETRYABLE_STATUSES3.has(response.status) && attempt < RETRY_DELAYS3.length) {
           await new Promise((r) => setTimeout(r, RETRY_DELAYS3[attempt]));
-          return this.request(path22, init, attempt + 1);
+          return this.request(path23, init, attempt + 1);
         }
         return response;
       }
@@ -51116,20 +51116,20 @@ var init_tradovate = __esm({
         }
         return data;
       }
-      async get(path22) {
+      async get(path23) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path22}`, {
+        const response = await fetch(`${this.baseUrl}${path23}`, {
           headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
         });
         if (!response.ok) {
           const text3 = await response.text();
-          throw new Error(`Tradovate GET ${path22} failed (${response.status}): ${text3}`);
+          throw new Error(`Tradovate GET ${path23} failed (${response.status}): ${text3}`);
         }
         return response.json();
       }
-      async post(path22, body) {
+      async post(path23, body) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path22}`, {
+        const response = await fetch(`${this.baseUrl}${path23}`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${this.accessToken}`,
@@ -51140,7 +51140,7 @@ var init_tradovate = __esm({
         });
         if (!response.ok) {
           const text3 = await response.text();
-          throw new Error(`Tradovate POST ${path22} failed (${response.status}): ${text3}`);
+          throw new Error(`Tradovate POST ${path23} failed (${response.status}): ${text3}`);
         }
         return response.json();
       }
@@ -53851,8 +53851,8 @@ function teamsMatchMarket(homeTeam, awayTeam, question) {
   return (q.includes(h) || q.includes(hFull)) && (q.includes(a) || q.includes(aFull));
 }
 async function fetchScoreboard(sport) {
-  const path22 = SPORT_PATHS[sport];
-  const data = await safeGet(`${ESPN_BASE}/${path22}/scoreboard`);
+  const path23 = SPORT_PATHS[sport];
+  const data = await safeGet(`${ESPN_BASE}/${path23}/scoreboard`);
   return data?.events ?? [];
 }
 function injuryAdjustment(injuries, sport) {
@@ -60238,12 +60238,12 @@ __export(kalshi_perps_exports, {
 function perpHost() {
   return process.env.KALSHI_PERP_HOST === "demo" ? DEMO_HOST : PROD_HOST;
 }
-async function getJson(path22) {
+async function getJson(path23) {
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), 15e3);
   try {
-    const res2 = await fetch(`${perpHost()}${path22}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
-    if (!res2.ok) throw new Error(`kalshi-perps GET ${path22} -> ${res2.status}`);
+    const res2 = await fetch(`${perpHost()}${path23}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
+    if (!res2.ok) throw new Error(`kalshi-perps GET ${path23} -> ${res2.status}`);
     return await res2.json();
   } finally {
     clearTimeout(to);
@@ -60913,8 +60913,8 @@ __export(coinbase_exports, {
 });
 import crypto12 from "crypto";
 import jwt from "jsonwebtoken";
-function buildJwt(keyName, privateKeyPem, method, path22) {
-  const uri = `${method} ${API_HOST}${path22}`;
+function buildJwt(keyName, privateKeyPem, method, path23) {
+  const uri = `${method} ${API_HOST}${path23}`;
   const now = Math.floor(Date.now() / 1e3);
   const payload2 = { sub: keyName, iss: "cdp", nbf: now, exp: now + 120, uri };
   return jwt.sign(payload2, privateKeyPem, {
@@ -60935,9 +60935,9 @@ var init_coinbase = __esm({
         this.keyName = keyName;
         this.privateKey = privateKeyPem.includes("\\n") ? privateKeyPem.replace(/\\n/g, "\n") : privateKeyPem;
       }
-      async get(path22) {
-        const token = buildJwt(this.keyName, this.privateKey, "GET", path22);
-        const res2 = await fetch(`https://${API_HOST}${path22}`, {
+      async get(path23) {
+        const token = buildJwt(this.keyName, this.privateKey, "GET", path23);
+        const res2 = await fetch(`https://${API_HOST}${path23}`, {
           method: "GET",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           signal: AbortSignal.timeout(12e3)
@@ -60948,9 +60948,9 @@ var init_coinbase = __esm({
         }
         return res2.json();
       }
-      async post(path22, body) {
-        const token = buildJwt(this.keyName, this.privateKey, "POST", path22);
-        const res2 = await fetch(`https://${API_HOST}${path22}`, {
+      async post(path23, body) {
+        const token = buildJwt(this.keyName, this.privateKey, "POST", path23);
+        const res2 = await fetch(`https://${API_HOST}${path23}`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -60992,8 +60992,8 @@ var init_coinbase = __esm({
         const accounts = [];
         let cursor = "";
         for (let i = 0; i < 10; i++) {
-          const path22 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
-          const data = await this.get(path22);
+          const path23 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+          const data = await this.get(path23);
           for (const a of data?.accounts ?? []) accounts.push(a);
           if (data?.has_next && data?.cursor) cursor = data.cursor;
           else break;
@@ -61062,22 +61062,22 @@ var init_kraken = __esm({
         this.apiKey = apiKey;
         this.secret = secret;
       }
-      sign(path22, nonce, postData) {
+      sign(path23, nonce, postData) {
         const sha256 = crypto13.createHash("sha256").update(nonce + postData).digest();
-        const message = Buffer.concat([Buffer.from(path22, "utf8"), sha256]);
+        const message = Buffer.concat([Buffer.from(path23, "utf8"), sha256]);
         const key = Buffer.from(this.secret, "base64");
         return crypto13.createHmac("sha512", key).update(message).digest("base64");
       }
       async privatePost(endpoint, params = {}) {
-        const path22 = `/0/private/${endpoint}`;
+        const path23 = `/0/private/${endpoint}`;
         const nonce = String(Date.now() * 1e3);
         const body = new URLSearchParams({ nonce, ...params });
         const postData = body.toString();
-        const res2 = await fetch(`${API_HOST2}${path22}`, {
+        const res2 = await fetch(`${API_HOST2}${path23}`, {
           method: "POST",
           headers: {
             "API-Key": this.apiKey,
-            "API-Sign": this.sign(path22, nonce, postData),
+            "API-Sign": this.sign(path23, nonce, postData),
             "Content-Type": "application/x-www-form-urlencoded",
             "User-Agent": "VEDD/1.0"
           },
@@ -61351,8 +61351,8 @@ function baseUrl(testnet) {
 function tradedAddress(c) {
   return (c.vaultAddress || c.accountAddress).toLowerCase();
 }
-async function post(testnet, path22, body) {
-  const r = await fetch(baseUrl(testnet) + path22, {
+async function post(testnet, path23, body) {
+  const r = await fetch(baseUrl(testnet) + path23, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -61363,9 +61363,9 @@ async function post(testnet, path22, body) {
   try {
     j = JSON.parse(text3);
   } catch {
-    throw new Error(`Hyperliquid ${path22} HTTP ${r.status}: ${text3.slice(0, 200)}`);
+    throw new Error(`Hyperliquid ${path23} HTTP ${r.status}: ${text3.slice(0, 200)}`);
   }
-  if (!r.ok) throw new Error(`Hyperliquid ${path22} HTTP ${r.status}: ${text3.slice(0, 200)}`);
+  if (!r.ok) throw new Error(`Hyperliquid ${path23} HTTP ${r.status}: ${text3.slice(0, 200)}`);
   return j;
 }
 async function getMeta(testnet) {
@@ -70218,8 +70218,8 @@ async function runRuinConeSimulation(userId, params = {}) {
   let hitTargetCount = 0;
   const targetEquity = startingEquity + profitTarget;
   for (let s = 0; s < numSimulations; s++) {
-    const path22 = new Float64Array(numTrades + 1);
-    path22[0] = startingEquity;
+    const path23 = new Float64Array(numTrades + 1);
+    path23[0] = startingEquity;
     let equity = startingEquity;
     let peak = startingEquity;
     let firstFailIndex = -1;
@@ -70232,7 +70232,7 @@ async function runRuinConeSimulation(userId, params = {}) {
     for (let t = 1; t <= numTrades; t++) {
       const pnl = pnls[Math.random() * sourceTradeCount | 0];
       equity += pnl;
-      path22[t] = equity;
+      path23[t] = equity;
       if (equity > peak) peak = equity;
       if (!everRuin && peak - equity >= maxDrawdownLimit) {
         everRuin = true;
@@ -70251,7 +70251,7 @@ async function runRuinConeSimulation(userId, params = {}) {
         tradeInDay = 0;
       }
     }
-    paths[s] = path22;
+    paths[s] = path23;
     finalEquities[s] = equity;
     if (everRuin) ruinCount++;
     if (everDailyBreach) dailyBreachCount++;
@@ -75659,16 +75659,22 @@ __export(clipper_core_exports, {
   CAPTION_LIMITS: () => CAPTION_LIMITS,
   CAPTION_STYLES: () => CAPTION_STYLES,
   CLIPPER_STEPS: () => CLIPPER_STEPS,
+  CLIPPER_UPLOAD_MAX_BYTES: () => CLIPPER_UPLOAD_MAX_BYTES,
+  CLIPPER_UPLOAD_MIMES: () => CLIPPER_UPLOAD_MIMES,
   DEFAULT_CLIPPER_SETTINGS: () => DEFAULT_CLIPPER_SETTINGS,
   LENGTH_PRESETS: () => LENGTH_PRESETS,
   PLATFORM_ASPECT: () => PLATFORM_ASPECT,
+  YTDLP_DEFAULT_CLIENTS: () => YTDLP_DEFAULT_CLIENTS,
   assTime: () => assTime,
   buildAssDocument: () => buildAssDocument,
   buildCaptionCues: () => buildCaptionCues,
   buildReframeFilter: () => buildReframeFilter,
   buildShareCaption: () => buildShareCaption,
   buildShareTargets: () => buildShareTargets,
+  buildYtdlpDownloadArgs: () => buildYtdlpDownloadArgs,
+  buildYtdlpInfoArgs: () => buildYtdlpInfoArgs,
   classifySourceUrl: () => classifySourceUrl,
+  classifyYtdlpError: () => classifyYtdlpError,
   clipperStepProgress: () => clipperStepProgress,
   escapeAss: () => escapeAss,
   finalizeMoments: () => finalizeMoments,
@@ -75680,8 +75686,11 @@ __export(clipper_core_exports, {
   snapToWordEnd: () => snapToWordEnd,
   snapToWordStart: () => snapToWordStart,
   validateClipperSettings: () => validateClipperSettings,
+  validateClipperUpload: () => validateClipperUpload,
   viralityScore: () => viralityScore,
-  wrapTitleLines: () => wrapTitleLines
+  wrapTitleLines: () => wrapTitleLines,
+  ytdlpClientChain: () => ytdlpClientChain,
+  ytdlpErrorMessage: () => ytdlpErrorMessage
 });
 function validateClipperSettings(raw) {
   const r = raw && typeof raw === "object" ? raw : {};
@@ -76039,11 +76048,104 @@ function buildShareCaption(network, clip) {
   if (body.length <= limit) return body;
   return `${body.slice(0, Math.max(40, limit - 1)).replace(/\s+\S*$/, "")}\u2026`;
 }
+function ytdlpClientChain(envValue) {
+  const parts = String(envValue || "").split(",").map((s) => s.trim()).filter((s) => YT_CLIENT_OK.test(s));
+  return parts.length ? parts.slice(0, 8) : [...YTDLP_DEFAULT_CLIENTS];
+}
+function buildYtdlpInfoArgs(url, clients, noCheckCerts2 = false) {
+  return [
+    "--no-warnings",
+    "--no-playlist",
+    "--socket-timeout",
+    "30",
+    "--retries",
+    "3",
+    "--extractor-args",
+    `youtube:player_client=${clients.join(",")}`,
+    ...noCheckCerts2 ? ["--no-check-certificates"] : [],
+    "--dump-single-json",
+    url
+  ];
+}
+function buildYtdlpDownloadArgs(url, opts) {
+  return [
+    "--no-warnings",
+    "--no-playlist",
+    "--no-progress",
+    "--socket-timeout",
+    "30",
+    "--retries",
+    "5",
+    "--fragment-retries",
+    "10",
+    "--extractor-args",
+    `youtube:player_client=${opts.clients.join(",")}`,
+    "--max-filesize",
+    String(opts.maxBytes),
+    // Best muxed-or-mergeable mp4 at ≤720p (the old ytdl-core pick),
+    // loosening step by step rather than failing on a strict filter.
+    "-f",
+    "bv*[height<=720][ext=mp4]+ba[ext=m4a]/bv*[height<=720]+ba/b[height<=720]/b",
+    "--merge-output-format",
+    "mp4",
+    ...opts.ffmpegLocation ? ["--ffmpeg-location", opts.ffmpegLocation] : [],
+    ...opts.noCheckCerts ? ["--no-check-certificates"] : [],
+    "-o",
+    opts.outputTemplate,
+    url
+  ];
+}
+function classifyYtdlpError(text3) {
+  const m = String(text3 || "");
+  if (/confirm your age|age-restricted|age restricted|inappropriate for some users/i.test(m)) return "age-restricted";
+  if (/sign in to confirm|login_required|not a bot/i.test(m)) return "bot-blocked";
+  if (/private video|video is private/i.test(m)) return "private";
+  if (/available in your country|geo.?restrict/i.test(m)) return "geo-blocked";
+  if (/video is unavailable|video unavailable|no longer available|has been removed|video.*not found/i.test(m)) return "unavailable";
+  if (/timed out|timeout|connection|network|ssl|certificate|eof occurred|HTTP Error 5\d\d|urlopen error/i.test(m)) return "network";
+  return "unknown";
+}
+function ytdlpErrorMessage(code) {
+  switch (code) {
+    case "bot-blocked":
+      return "YouTube blocked this download from our server \u2014 it asked for a sign-in to confirm we are not a bot, which a server can't do. Upload the video file instead; uploads always work.";
+    case "unavailable":
+      return "That YouTube video is unavailable (removed, or the link is wrong), so there was nothing to download. Check the link \u2014 or upload the video file instead.";
+    case "private":
+      return "That YouTube video is private, so it can't be downloaded. Make it public or unlisted \u2014 or upload the video file instead.";
+    case "age-restricted":
+      return "That video is age-restricted on YouTube and can't be downloaded without an account sign-in. Upload the video file instead; uploads always work.";
+    case "geo-blocked":
+      return "YouTube blocks that video in our server's region, so it can't be downloaded. Upload the video file instead; uploads always work.";
+    case "network":
+      return "The YouTube download kept failing on the network (timeouts or connection errors). Try again in a bit \u2014 or upload the video file instead.";
+    case "binary-missing":
+      return "YouTube downloads aren't available on this server right now (the downloader tool is missing). Upload the video file instead; uploads always work.";
+    default:
+      return "The YouTube download failed for a reason we couldn't identify. Try again \u2014 or upload the video file instead; uploads always work.";
+  }
+}
+function validateClipperUpload(input) {
+  const size = Number(input?.size || 0);
+  if (!size) return { ok: false, error: "No file was received \u2014 pick a video file and try again." };
+  if (size > CLIPPER_UPLOAD_MAX_BYTES) {
+    return {
+      ok: false,
+      error: `That file is ${(size / (1024 * 1024)).toFixed(1)}MB \u2014 uploads are capped at 25MB. For a bigger video, paste a direct file link instead.`
+    };
+  }
+  const mime = String(input?.mime || "").toLowerCase();
+  const ext = String(input?.name || "").split(".").pop()?.toLowerCase() || "";
+  if (!CLIPPER_UPLOAD_MIMES.includes(mime) && !CLIPPER_UPLOAD_EXTS.includes(ext)) {
+    return { ok: false, error: "That file is not a video we can read \u2014 upload an MP4, MOV, WebM or MKV." };
+  }
+  return { ok: true };
+}
 function clipperStepProgress(stepIndex) {
   const bands = [5, 25, 50, 68, 92];
   return bands[Math.max(0, Math.min(bands.length - 1, stepIndex))];
 }
-var LENGTH_PRESETS, CAPTION_STYLES, PLATFORM_ASPECT, DEFAULT_CLIPPER_SETTINGS, YT_ID, clampScore, round23, has, CAPTION_LIMITS, CLIPPER_STEPS;
+var LENGTH_PRESETS, CAPTION_STYLES, PLATFORM_ASPECT, DEFAULT_CLIPPER_SETTINGS, YT_ID, clampScore, round23, has, CAPTION_LIMITS, YTDLP_DEFAULT_CLIENTS, YT_CLIENT_OK, CLIPPER_UPLOAD_MAX_BYTES, CLIPPER_UPLOAD_MIMES, CLIPPER_UPLOAD_EXTS, CLIPPER_STEPS;
 var init_clipper_core = __esm({
   "server/services/clipper-core.ts"() {
     "use strict";
@@ -76129,6 +76231,17 @@ var init_clipper_core = __esm({
       instagram: 2200,
       facebook: 2200
     };
+    YTDLP_DEFAULT_CLIENTS = ["tv", "ios", "android", "web_safari"];
+    YT_CLIENT_OK = /^[a-z0-9_]+$/i;
+    CLIPPER_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+    CLIPPER_UPLOAD_MIMES = [
+      "video/mp4",
+      "video/quicktime",
+      "video/webm",
+      "video/x-matroska",
+      "video/x-msvideo"
+    ];
+    CLIPPER_UPLOAD_EXTS = ["mp4", "mov", "webm", "mkv", "m4v", "avi"];
     CLIPPER_STEPS = [
       "Downloading the video",
       "Transcribing",
@@ -76139,14 +76252,120 @@ var init_clipper_core = __esm({
   }
 });
 
+// server/services/ytdlp.ts
+import { spawn as spawn3 } from "child_process";
+import fs16 from "fs";
+import path16 from "path";
+function resolveYtdlpBin() {
+  if (process.env.CLIPPER_YTDLP_PATH) return process.env.CLIPPER_YTDLP_PATH;
+  const bundled = path16.join(
+    process.cwd(),
+    "server",
+    "assets",
+    "bin",
+    process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp"
+  );
+  if (fs16.existsSync(bundled)) return bundled;
+  return "yt-dlp";
+}
+function noCheckCerts() {
+  return process.env.CLIPPER_YTDLP_NO_CHECK_CERTS === "1";
+}
+function runYtdlp(args, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const bin = resolveYtdlpBin();
+    const p2 = spawn3(bin, args, { env: process.env });
+    let stdout = "", stderr = "";
+    const cap = (s) => s.length > 4e5 ? s.slice(-2e5) : s;
+    const t = setTimeout(() => {
+      p2.kill("SIGKILL");
+      reject(new YtdlpError("network", `yt-dlp timed out after ${Math.round(timeoutMs / 1e3)}s`));
+    }, timeoutMs);
+    p2.stdout.on("data", (d) => {
+      stdout = cap(stdout + d.toString());
+    });
+    p2.stderr.on("data", (d) => {
+      stderr = cap(stderr + d.toString());
+    });
+    p2.on("error", (e) => {
+      clearTimeout(t);
+      if (e?.code === "ENOENT") {
+        reject(new YtdlpError("binary-missing", `yt-dlp binary not found (looked for ${bin})`));
+      } else reject(e);
+    });
+    p2.on("close", (code) => {
+      clearTimeout(t);
+      if (code === 0) resolve({ stdout, stderr });
+      else {
+        const detail = (stderr || stdout).trim().slice(-1500);
+        reject(new YtdlpError(classifyYtdlpError(detail), detail || `yt-dlp exited ${code}`));
+      }
+    });
+  });
+}
+async function fetchYouTubeInfo(url) {
+  const clients = ytdlpClientChain(process.env.CLIPPER_YTDLP_CLIENTS);
+  const { stdout } = await runYtdlp(buildYtdlpInfoArgs(url, clients, noCheckCerts()), 24e4);
+  let parsed = null;
+  try {
+    parsed = JSON.parse(stdout.trim());
+  } catch {
+  }
+  if (!parsed) throw new YtdlpError("unknown", "yt-dlp returned no video info");
+  return {
+    title: typeof parsed.title === "string" ? parsed.title : void 0,
+    lengthSec: Number(parsed.duration || 0) || void 0
+  };
+}
+async function downloadYouTubeVideo(url, destDir, opts) {
+  const info2 = await fetchYouTubeInfo(url);
+  if (info2.lengthSec && info2.lengthSec > opts.maxMinutes * 60) {
+    throw new Error(`Video too long: exceeds the ${opts.maxMinutes} minute limit`);
+  }
+  const clients = ytdlpClientChain(process.env.CLIPPER_YTDLP_CLIENTS);
+  const outputTemplate = path16.join(destDir, "source.%(ext)s");
+  await runYtdlp(
+    buildYtdlpDownloadArgs(url, {
+      outputTemplate,
+      maxBytes: opts.maxBytes,
+      clients,
+      ffmpegLocation: ffmpegBin(),
+      noCheckCerts: noCheckCerts()
+    }),
+    9e5
+  );
+  const produced = fs16.readdirSync(destDir).filter((f) => /^source\.(mp4|webm|mov|m4v|mkv)$/i.test(f)).sort((a, b) => (a.endsWith(".mp4") ? 0 : 1) - (b.endsWith(".mp4") ? 0 : 1));
+  if (!produced.length) throw new YtdlpError("unknown", "yt-dlp finished but produced no video file");
+  const file = path16.join(destDir, produced[0]);
+  const size = fs16.statSync(file).size;
+  if (size > opts.maxBytes) throw new Error("Video file too large to process");
+  return { file, title: info2.title, lengthSec: info2.lengthSec };
+}
+var YtdlpError;
+var init_ytdlp = __esm({
+  "server/services/ytdlp.ts"() {
+    "use strict";
+    init_clipper_core();
+    init_ffmpeg();
+    YtdlpError = class extends Error {
+      ytdlpCode;
+      constructor(code, detail) {
+        super(detail);
+        this.name = "YtdlpError";
+        this.ytdlpCode = code;
+      }
+    };
+  }
+});
+
 // server/services/clipper.ts
 var clipper_exports = {};
 __export(clipper_exports, {
   startClipperJob: () => startClipperJob
 });
-import fs16 from "fs";
+import fs17 from "fs";
 import os4 from "os";
-import path16 from "path";
+import path17 from "path";
 import { Readable, Transform } from "stream";
 import { pipeline } from "stream/promises";
 async function insertJob2(userId, payload2) {
@@ -76159,11 +76378,13 @@ async function insertJob2(userId, payload2) {
   return r.rows[0].id;
 }
 function friendlyError3(e) {
+  const ytCode = e?.ytdlpCode;
+  if (ytCode) return ytdlpErrorMessage(ytCode);
   const m = String(e?.message || e || "");
   if (/too long|exceeds the/i.test(m)) return `That video is longer than the ${MAX_MINUTES}-minute limit for clipping. Try a shorter video.`;
   if (/no audio/i.test(m)) return "That video has no audio track, so there is nothing to transcribe or caption.";
   if (/too large/i.test(m)) return "That video file is too large for the clipper to process.";
-  if (/youtube|sign in|bot|login_required|403/i.test(m)) return "YouTube blocked the download from our server. This happens a lot with YouTube \u2014 try a direct video file link (.mp4/.webm) instead.";
+  if (/youtube|sign in|bot|login_required|403/i.test(m)) return "YouTube blocked the download from our server. Upload the video file instead; uploads always work.";
   if (/transcri/i.test(m)) return "Transcription was unavailable just now, so no clips could be made. Please try again in a bit.";
   if (/no speech/i.test(m)) return "We could not hear any speech in that video, so there are no moments to clip.";
   if (/unsupported/i.test(m)) return m.replace(/^unsupported:\s*/i, "");
@@ -76204,42 +76425,19 @@ async function downloadDirect(url, dest) {
     }
   });
   try {
-    await pipeline(body, counter, fs16.createWriteStream(dest));
+    await pipeline(body, counter, fs17.createWriteStream(dest));
   } catch (e) {
     if (e?.message === "too large") throw new Error("Video file too large to process");
     throw e;
   }
 }
-async function downloadYouTube(url, dest) {
-  const ytdl = (await import("@distube/ytdl-core")).default;
-  const info2 = await ytdl.getInfo(url);
-  const lengthSec = Number(info2?.videoDetails?.lengthSeconds || 0) || void 0;
-  if (lengthSec && lengthSec > MAX_MINUTES * 60) throw new Error(`Video too long: exceeds the ${MAX_MINUTES} minute limit`);
-  let format;
-  try {
-    format = ytdl.chooseFormat(info2.formats, {
-      filter: (f) => f.hasAudio && f.hasVideo && f.container === "mp4" && (!f.height || f.height <= 720),
-      quality: "highest"
-    });
-  } catch {
-  }
-  if (!format) format = ytdl.chooseFormat(info2.formats, { filter: "audioandvideo", quality: "highest" });
-  const stream = ytdl.downloadFromInfo(info2, { format });
-  let bytes = 0;
-  const counter = new Transform({
-    transform(chunk, _enc, cb) {
-      bytes += chunk.length;
-      if (bytes > MAX_SOURCE_BYTES) cb(new Error("too large"));
-      else cb(null, chunk);
-    }
-  });
-  try {
-    await pipeline(stream, counter, fs16.createWriteStream(dest));
-  } catch (e) {
-    if (e?.message === "too large") throw new Error("Video file too large to process");
-    throw e;
-  }
-  return { title: info2?.videoDetails?.title, lengthSec };
+async function materializeUpload(assetId, workDir) {
+  const asset = await getPersistedAsset(assetId);
+  if (!asset) throw new Error("That uploaded file could not be found \u2014 please upload it again.");
+  const ext = asset.mimeType.includes("webm") ? "webm" : asset.mimeType.includes("quicktime") ? "mov" : asset.mimeType.includes("matroska") ? "mkv" : "mp4";
+  const dest = path17.join(workDir, `source.${ext}`);
+  await fs17.promises.writeFile(dest, asset.data);
+  return dest;
 }
 function synthesizeWords(segments) {
   const words = [];
@@ -76269,7 +76467,7 @@ function parseTranscriptResponse(resp, offset, chunkDur) {
 }
 async function transcribeChunkWhisper(file, offset, chunkDur) {
   const { toFile } = await import("openai/uploads");
-  const buffer = await fs16.promises.readFile(file);
+  const buffer = await fs17.promises.readFile(file);
   const client2 = getPlatformOpenAIClient();
   const upload2 = await toFile(buffer, "chunk.mp3", { type: "audio/mpeg" });
   const resp = await client2.audio.transcriptions.create(
@@ -76286,7 +76484,7 @@ async function transcribeChunkWhisper(file, offset, chunkDur) {
 async function transcribeChunkOpenRouter(file, offset, chunkDur) {
   const key = process.env.OPENROUTER_API_KEY || "";
   if (!key) throw new Error("transcription fallback not configured");
-  const buffer = await fs16.promises.readFile(file);
+  const buffer = await fs17.promises.readFile(file);
   const res2 = await fetch("https://openrouter.ai/api/v1/audio/transcriptions", {
     method: "POST",
     signal: AbortSignal.timeout(24e4),
@@ -76302,19 +76500,19 @@ async function transcribeChunkOpenRouter(file, offset, chunkDur) {
   return parseTranscriptResponse(resp, offset, chunkDur);
 }
 async function transcribe(workDir, srcFile, durationSec) {
-  const audioFile = path16.join(workDir, "audio.mp3");
+  const audioFile = path17.join(workDir, "audio.mp3");
   await runFfmpeg(["-i", srcFile, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "32k", "-y", audioFile], 3e5);
   const silences = await runFfmpeg(["-i", audioFile, "-af", "silencedetect=noise=-35dB:d=0.4", "-f", "null", "-"], 3e5).then((stderr) => parseSilenceDetect(stderr)).catch(() => []);
-  const chunkPattern = path16.join(workDir, "chunk-%03d.mp3");
+  const chunkPattern = path17.join(workDir, "chunk-%03d.mp3");
   await runFfmpeg(["-i", audioFile, "-f", "segment", "-segment_time", String(CHUNK_SEC), "-reset_timestamps", "1", "-c", "copy", "-y", chunkPattern], 12e4);
-  const chunkFiles = fs16.readdirSync(workDir).filter((f) => /^chunk-\d+\.mp3$/.test(f)).sort();
+  const chunkFiles = fs17.readdirSync(workDir).filter((f) => /^chunk-\d+\.mp3$/.test(f)).sort();
   if (!chunkFiles.length) throw new Error("transcription produced no audio");
   const words = [];
   const segments = [];
   const texts = [];
   let source = "whisper";
   for (let i = 0; i < chunkFiles.length; i++) {
-    const file = path16.join(workDir, chunkFiles[i]);
+    const file = path17.join(workDir, chunkFiles[i]);
     const offset = i * CHUNK_SEC;
     const chunkDur = Math.max(1, Math.min(CHUNK_SEC, durationSec - offset));
     let part;
@@ -76412,11 +76610,11 @@ async function renderClip(workDir, srcFile, moment, words, settings, srcW, srcH)
   const localWords = words.filter((w) => w.end > moment.startSec && w.start < moment.endSec).map((w) => ({ word: w.word, start: Math.max(0, w.start - moment.startSec), end: Math.min(moment.durationSec, w.end - moment.startSec) })).filter((w) => w.end > w.start);
   const cues = buildCaptionCues(localWords, settings.captionStyle);
   const ass = buildAssDocument(cues, settings.captionStyle, { width: frame.w, height: frame.h, hookTitle: moment.hook });
-  const assPath = path16.join(workDir, `caps-${moment.rank}.ass`);
-  await fs16.promises.writeFile(assPath, ass, "utf8");
-  const fontsDir = path16.join(process.cwd(), "server", "assets", "fonts");
+  const assPath = path17.join(workDir, `caps-${moment.rank}.ass`);
+  await fs17.promises.writeFile(assPath, ass, "utf8");
+  const fontsDir = path17.join(process.cwd(), "server", "assets", "fonts");
   const reframe = buildReframeFilter(srcW, srcH, settings.aspect);
-  const out = path16.join(workDir, `clip-${moment.rank}.mp4`);
+  const out = path17.join(workDir, `clip-${moment.rank}.mp4`);
   const render = async (crf) => {
     await runFfmpeg([
       "-ss",
@@ -76442,7 +76640,7 @@ async function renderClip(workDir, srcFile, moment, words, settings, srcW, srcH)
       "-y",
       out
     ], 3e5);
-    return fs16.promises.readFile(out);
+    return fs17.promises.readFile(out);
   };
   let buffer = await render(23);
   if (buffer.length > 24 * 1024 * 1024) buffer = await render(29);
@@ -76455,17 +76653,23 @@ async function startClipperJob(userId, payload2) {
 }
 async function runClipperJob(jobId, userId, payload2) {
   const { settings } = payload2;
-  const cls = classifySourceUrl(payload2.url);
+  const isUpload = !!payload2.uploadAssetId;
+  const cls = isUpload ? { kind: "upload" } : classifySourceUrl(payload2.url || "");
   if (cls.kind === "unsupported") throw new Error(`unsupported: ${cls.reason}`);
-  const workDir = fs16.mkdtempSync(path16.join(os4.tmpdir(), "vedd-clipper-"));
+  const workDir = fs17.mkdtempSync(path17.join(os4.tmpdir(), "vedd-clipper-"));
   try {
     await setStep(jobId, 0);
-    const srcFile = path16.join(workDir, "source.mp4");
+    let srcFile;
     let sourceTitle;
-    if (cls.kind === "youtube") {
-      const info2 = await downloadYouTube(payload2.url, srcFile);
-      sourceTitle = info2.title;
+    if (isUpload) {
+      srcFile = await materializeUpload(payload2.uploadAssetId, workDir);
+      sourceTitle = payload2.fileName;
+    } else if (cls.kind === "youtube") {
+      const dl = await downloadYouTubeVideo(payload2.url, workDir, { maxMinutes: MAX_MINUTES, maxBytes: MAX_SOURCE_BYTES });
+      srcFile = dl.file;
+      sourceTitle = dl.title;
     } else {
+      srcFile = path17.join(workDir, "source.mp4");
       await downloadDirect(payload2.url, srcFile);
     }
     const meta = await probe(srcFile);
@@ -76500,7 +76704,7 @@ async function runClipperJob(jobId, userId, payload2) {
         const gen = await storage.createContentStudioGeneration({
           userId,
           contentType: "video",
-          prompt: payload2.url.slice(0, 500),
+          prompt: (payload2.url || payload2.fileName || "uploaded video").slice(0, 500),
           title: moment.hook,
           caption: moment.caption,
           assetUrl,
@@ -76515,7 +76719,7 @@ async function runClipperJob(jobId, userId, payload2) {
             durationSec: moment.durationSec,
             startSec: moment.startSec,
             endSec: moment.endSec,
-            sourceUrl: payload2.url,
+            sourceUrl: payload2.url || "",
             captionStyle: settings.captionStyle,
             aspect: settings.aspect,
             platform: settings.platform,
@@ -76552,13 +76756,13 @@ async function runClipperJob(jobId, userId, payload2) {
       meta: {
         result: {
           clips,
-          source: { url: payload2.url, kind: cls.kind, title: sourceTitle, durationSec: Math.round(meta.duration) },
+          source: { url: payload2.url || "", kind: cls.kind, title: sourceTitle, durationSec: Math.round(meta.duration) },
           transcriptSource: transcript.source
         }
       }
     });
   } finally {
-    fs16.rmSync(workDir, { recursive: true, force: true });
+    fs17.rmSync(workDir, { recursive: true, force: true });
   }
 }
 var MAX_MINUTES, MAX_SOURCE_BYTES, CHUNK_SEC;
@@ -76570,6 +76774,7 @@ var init_clipper = __esm({
     init_explainer_video();
     init_ffmpeg();
     init_content_asset_store();
+    init_ytdlp();
     init_openai();
     init_clipper_core();
     MAX_MINUTES = Math.max(5, Number(process.env.CLIPPER_MAX_MINUTES || 60) || 60);
@@ -76584,8 +76789,8 @@ __export(slide_flattener_exports, {
   flattenSlideImage: () => flattenSlideImage
 });
 import sharp from "sharp";
-import * as path17 from "path";
-import * as fs17 from "fs";
+import * as path18 from "path";
+import * as fs18 from "fs";
 function escapeXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -76650,7 +76855,7 @@ async function flattenSlideImage(opts) {
   const composites = [
     { input: Buffer.from(overlaySvg), top: 0, left: 0 }
   ];
-  if (opts.includeLogo && fs17.existsSync(LOGO_PATH)) {
+  if (opts.includeLogo && fs18.existsSync(LOGO_PATH)) {
     const logoWidth = Math.round(CANVAS_SIZE * 0.22);
     const logoBuffer = await sharp(LOGO_PATH).resize(logoWidth, null, { fit: "inside" }).ensureAlpha().png().toBuffer();
     const logoMeta = await sharp(logoBuffer).metadata();
@@ -76668,7 +76873,7 @@ var init_slide_flattener = __esm({
   "server/services/slide-flattener.ts"() {
     "use strict";
     CANVAS_SIZE = 1080;
-    LOGO_PATH = path17.join(process.cwd(), "attached_assets", "IMG_3645.png");
+    LOGO_PATH = path18.join(process.cwd(), "attached_assets", "IMG_3645.png");
   }
 });
 
@@ -82153,8 +82358,8 @@ import { eq as eq18, and as and11, sql as sql13, desc as desc11 } from "drizzle-
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
-import * as fs18 from "fs";
-import * as path18 from "path";
+import * as fs19 from "fs";
+import * as path19 from "path";
 
 // server/trading-coach.ts
 init_openai();
@@ -82681,9 +82886,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "284ea55d-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-16T02:50:19.426Z";
+var BUILD_COMMIT = "eafa1416-dirty";
+var BUILD_BRANCH = "feat/clipper-youtube-fix";
+var BUILT_AT = "2026-11-16T03:38:38.236Z";
 
 // server/stripe.ts
 init_db();
@@ -86703,9 +86908,9 @@ var mediaUpload = multer({
     cb(null, true);
   }
 });
-var uploadsDir2 = path18.join(process.cwd(), "uploads");
-if (!fs18.existsSync(uploadsDir2)) {
-  fs18.mkdirSync(uploadsDir2, { recursive: true });
+var uploadsDir2 = path19.join(process.cwd(), "uploads");
+if (!fs19.existsSync(uploadsDir2)) {
+  fs19.mkdirSync(uploadsDir2, { recursive: true });
 }
 function getCurrentTradingSession() {
   const hour = (/* @__PURE__ */ new Date()).getUTCHours();
@@ -87156,11 +87361,11 @@ async function registerRoutes(app2, existingServer) {
         return res2.status(400).json({ message: "No file uploaded" });
       }
       const fileName = `${uuidv42()}.${req.file.mimetype.split("/")[1]}`;
-      const filePath = path18.join(uploadsDir2, fileName);
+      const filePath = path19.join(uploadsDir2, fileName);
       console.log("Generated filename:", fileName);
       console.log("Full file path:", filePath);
       try {
-        await fs18.promises.writeFile(filePath, req.file.buffer);
+        await fs19.promises.writeFile(filePath, req.file.buffer);
         console.log("File saved successfully to disk");
       } catch (writeError) {
         console.error("Error writing file to disk:", writeError);
@@ -87186,14 +87391,14 @@ async function registerRoutes(app2, existingServer) {
       if (!allowedTypes.includes(req.file.mimetype)) {
         return res2.status(400).json({ message: "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed." });
       }
-      const avatarsDir = path18.join(process.cwd(), "uploads", "avatars");
-      if (!fs18.existsSync(avatarsDir)) {
-        fs18.mkdirSync(avatarsDir, { recursive: true });
+      const avatarsDir = path19.join(process.cwd(), "uploads", "avatars");
+      if (!fs19.existsSync(avatarsDir)) {
+        fs19.mkdirSync(avatarsDir, { recursive: true });
       }
       const ext = req.file.mimetype.split("/")[1];
       const fileName = `avatar-${req.user.id}-${Date.now()}.${ext}`;
-      const filePath = path18.join(avatarsDir, fileName);
-      await fs18.promises.writeFile(filePath, req.file.buffer);
+      const filePath = path19.join(avatarsDir, fileName);
+      await fs19.promises.writeFile(filePath, req.file.buffer);
       const avatarUrl = `/uploads/avatars/${fileName}`;
       res2.json({ avatarUrl });
     } catch (error) {
@@ -87288,11 +87493,11 @@ async function registerRoutes(app2, existingServer) {
       }
       const extension = filename?.split(".").pop() || "png";
       const generatedFilename = `${uuidv42()}.${extension}`;
-      const filePath = path18.join(uploadsDir2, generatedFilename);
+      const filePath = path19.join(uploadsDir2, generatedFilename);
       const imageUrl = `/uploads/${generatedFilename}`;
       try {
         const imageBuffer = Buffer.from(cleanBase64, "base64");
-        await fs18.promises.writeFile(filePath, imageBuffer);
+        await fs19.promises.writeFile(filePath, imageBuffer);
         console.log("Saved image to", filePath);
       } catch (writeError) {
         console.error("Error saving image to disk:", writeError);
@@ -87425,9 +87630,9 @@ async function registerRoutes(app2, existingServer) {
           const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : void 0;
           const analysis = await analyzeChartImage(frame.base64, detectedSymbol, req.user?.id);
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
-          const framePath = path18.join(uploadsDir2, frameFileName);
+          const framePath = path19.join(uploadsDir2, frameFileName);
           const frameBuffer = Buffer.from(frame.base64, "base64");
-          await fs18.promises.writeFile(framePath, frameBuffer);
+          await fs19.promises.writeFile(framePath, frameBuffer);
           const imageUrl = `/uploads/${frameFileName}`;
           await storage.createChartAnalysis({
             userId,
@@ -87827,12 +88032,12 @@ Respond ONLY in valid JSON format with these exact keys:
       if (!imageUrl) {
         return res2.status(400).json({ message: "No image URL provided" });
       }
-      const filePath = path18.join(process.cwd(), imageUrl.replace(/^\//, ""));
+      const filePath = path19.join(process.cwd(), imageUrl.replace(/^\//, ""));
       console.log("Attempting to analyze image at path:", filePath);
-      if (!fs18.existsSync(filePath)) {
-        const alternativePath = path18.join(uploadsDir2, path18.basename(imageUrl));
+      if (!fs19.existsSync(filePath)) {
+        const alternativePath = path19.join(uploadsDir2, path19.basename(imageUrl));
         console.log("Image not found, trying alternative path:", alternativePath);
-        if (!fs18.existsSync(alternativePath)) {
+        if (!fs19.existsSync(alternativePath)) {
           return res2.status(404).json({ message: "Image file not found" });
         }
         console.log("Found image at alternative path");
@@ -87841,7 +88046,7 @@ Respond ONLY in valid JSON format with these exact keys:
           error: "Direct file analysis is deprecated"
         });
       }
-      const imageBuffer = await fs18.promises.readFile(filePath);
+      const imageBuffer = await fs19.promises.readFile(filePath);
       const base64Image = imageBuffer.toString("base64");
       const knownSymbol = req.body.symbol || void 0;
       const analysis = await analyzeChartImage(base64Image, knownSymbol, req.user?.id);
@@ -88016,11 +88221,11 @@ Respond ONLY in valid JSON format with these exact keys:
         const originalImageUrl = analysis.imageUrl;
         console.log("Original image URL:", originalImageUrl);
         const imagePath = originalImageUrl.startsWith("/") ? originalImageUrl.substring(1) : originalImageUrl;
-        const basename2 = path18.basename(imagePath);
+        const basename2 = path19.basename(imagePath);
         console.log("Image basename:", basename2);
-        const originalImagePath = path18.join(process.cwd(), "uploads", basename2);
+        const originalImagePath = path19.join(process.cwd(), "uploads", basename2);
         console.log("Full image path:", originalImagePath);
-        if (!fs18.existsSync(originalImagePath)) {
+        if (!fs19.existsSync(originalImagePath)) {
           console.error("Original image not found at path:", originalImagePath);
           throw new Error(`Original image not found: ${originalImagePath}`);
         }
@@ -88117,13 +88322,13 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/shared-image/:filename", (req, res2) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path18.basename(filename);
-      const sharedPath = path18.join(process.cwd(), "uploads", "shared", sanitizedFilename);
-      if (fs18.existsSync(sharedPath)) {
+      const sanitizedFilename = path19.basename(filename);
+      const sharedPath = path19.join(process.cwd(), "uploads", "shared", sanitizedFilename);
+      if (fs19.existsSync(sharedPath)) {
         return res2.sendFile(sharedPath);
       }
-      const regularPath = path18.join(process.cwd(), "uploads", sanitizedFilename);
-      if (fs18.existsSync(regularPath)) {
+      const regularPath = path19.join(process.cwd(), "uploads", sanitizedFilename);
+      if (fs19.existsSync(regularPath)) {
         return res2.sendFile(regularPath);
       }
       return res2.status(404).json({ message: "Image not found" });
@@ -88135,9 +88340,9 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/annotated-image/:filename", (req, res2) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path18.basename(filename);
-      const annotatedPath = path18.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
-      if (fs18.existsSync(annotatedPath)) {
+      const sanitizedFilename = path19.basename(filename);
+      const annotatedPath = path19.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
+      if (fs19.existsSync(annotatedPath)) {
         return res2.sendFile(annotatedPath);
       }
       return res2.status(404).json({ message: "Annotated image not found" });
@@ -91697,12 +91902,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       });
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
       const shareCardFileName = `share-card-${shareId}.png`;
-      const shareCardPath = path18.join(process.cwd(), "uploads", "share-cards");
-      if (!fs18.existsSync(shareCardPath)) {
-        fs18.mkdirSync(shareCardPath, { recursive: true });
+      const shareCardPath = path19.join(process.cwd(), "uploads", "share-cards");
+      if (!fs19.existsSync(shareCardPath)) {
+        fs19.mkdirSync(shareCardPath, { recursive: true });
       }
-      const fullPath = path18.join(shareCardPath, shareCardFileName);
-      fs18.writeFileSync(fullPath, shareCardBuffer);
+      const fullPath = path19.join(shareCardPath, shareCardFileName);
+      fs19.writeFileSync(fullPath, shareCardBuffer);
       const shareCardUrl = `/uploads/share-cards/${shareCardFileName}`;
       const shareUrl = `share-${shareId}`;
       const devotion = getDailyScripture2();
@@ -98780,8 +98985,8 @@ Return this EXACT JSON (no markdown, no commentary):
     if (!strat?.plan) return res2.status(404).json({ error: "No active VEDD SS AI plan" });
     try {
       const { createCanvas, loadImage } = await import("canvas");
-      const path22 = await import("path");
-      const fs20 = await import("fs");
+      const path23 = await import("path");
+      const fs21 = await import("fs");
       const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const engineState = getLiveEngineState3(userId);
       const engineRunning = engineState?.status === "running";
@@ -98867,8 +99072,8 @@ Return this EXACT JSON (no markdown, no commentary):
       ctx.closePath();
       ctx.fill();
       try {
-        const logoPath = path22.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
-        if (fs20.default.existsSync(logoPath)) {
+        const logoPath = path23.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
+        if (fs21.default.existsSync(logoPath)) {
           const logo = await loadImage(logoPath);
           const lh = 64, lw = logo.width / logo.height * lh;
           ctx.drawImage(logo, 44, 26, lw, lh);
@@ -99129,10 +99334,10 @@ Return this EXACT JSON (no markdown, no commentary):
       }
       const buffer = canvas.toBuffer("image/png");
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
-      const outDir = path22.default.join(process.cwd(), "uploads", "share-cards");
-      if (!fs20.default.existsSync(outDir)) fs20.default.mkdirSync(outDir, { recursive: true });
-      const filePath = path22.default.join(outDir, fileName);
-      fs20.default.writeFileSync(filePath, buffer);
+      const outDir = path23.default.join(process.cwd(), "uploads", "share-cards");
+      if (!fs21.default.existsSync(outDir)) fs21.default.mkdirSync(outDir, { recursive: true });
+      const filePath = path23.default.join(outDir, fileName);
+      fs21.default.writeFileSync(filePath, buffer);
       res2.json({
         success: true,
         imageUrl: `/uploads/share-cards/${fileName}`,
@@ -101820,9 +102025,9 @@ Format each recommendation as a clear, concise action item.`;
     }
     global.veddAIBrain[userId] = brain;
     try {
-      const brainDir = path18.join(process.cwd(), "data", "brains");
-      if (!fs18.existsSync(brainDir)) fs18.mkdirSync(brainDir, { recursive: true });
-      fs18.writeFileSync(path18.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+      const brainDir = path19.join(process.cwd(), "data", "brains");
+      if (!fs19.existsSync(brainDir)) fs19.mkdirSync(brainDir, { recursive: true });
+      fs19.writeFileSync(path19.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
     } catch (_brainSaveErr) {
     }
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
@@ -101831,9 +102036,9 @@ Format each recommendation as a clear, concise action item.`;
   global.runBrainLearning = runBrainLearning;
   global.loadPersistedBrain = (userId) => {
     try {
-      const p2 = path18.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-      if (!fs18.existsSync(p2)) return null;
-      const brain = JSON.parse(fs18.readFileSync(p2, "utf-8"));
+      const p2 = path19.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+      if (!fs19.existsSync(p2)) return null;
+      const brain = JSON.parse(fs19.readFileSync(p2, "utf-8"));
       global.veddAIBrain = global.veddAIBrain || {};
       global.veddAIBrain[userId] = brain;
       return brain;
@@ -102051,9 +102256,9 @@ Format each recommendation as a clear, concise action item.`;
     let brain = g.veddAIBrain[userId];
     if (!brain) {
       try {
-        const p2 = path18.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs18.existsSync(p2)) {
-          brain = JSON.parse(fs18.readFileSync(p2, "utf-8"));
+        const p2 = path19.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs19.existsSync(p2)) {
+          brain = JSON.parse(fs19.readFileSync(p2, "utf-8"));
           g.veddAIBrain[userId] = brain;
         }
       } catch (_) {
@@ -103196,9 +103401,9 @@ Respond with ONLY valid JSON:
         global.veddAIBrain[userId].lastWeeklyScan = scan;
         global.veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
         try {
-          const brainDir = path18.join(process.cwd(), "data", "brains");
-          if (!fs18.existsSync(brainDir)) fs18.mkdirSync(brainDir, { recursive: true });
-          fs18.writeFileSync(path18.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
+          const brainDir = path19.join(process.cwd(), "data", "brains");
+          if (!fs19.existsSync(brainDir)) fs19.mkdirSync(brainDir, { recursive: true });
+          fs19.writeFileSync(path19.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
         } catch (_) {
         }
       }
@@ -104199,20 +104404,20 @@ Respond with ONLY valid JSON:
       });
     }
   });
-  const _polyWalletsFile = path18.join(process.cwd(), "data", "polymarket_wallets.json");
+  const _polyWalletsFile = path19.join(process.cwd(), "data", "polymarket_wallets.json");
   const _loadPolyWallets = () => {
     try {
-      if (fs18.existsSync(_polyWalletsFile)) return JSON.parse(fs18.readFileSync(_polyWalletsFile, "utf-8"));
+      if (fs19.existsSync(_polyWalletsFile)) return JSON.parse(fs19.readFileSync(_polyWalletsFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyWallets = (map) => {
     try {
-      const dir = path18.join(process.cwd(), "data");
-      if (!fs18.existsSync(dir)) fs18.mkdirSync(dir, { recursive: true });
+      const dir = path19.join(process.cwd(), "data");
+      if (!fs19.existsSync(dir)) fs19.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
-      fs18.writeFileSync(_polyWalletsFile, content);
+      fs19.writeFileSync(_polyWalletsFile, content);
       backupDurableFile("polymarket_wallets.json", content);
     } catch {
     }
@@ -105677,20 +105882,20 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const closed = await closeAllKalshiTrades2(userId);
     res2.json({ success: true, closed, state: getKalshiEngineState2(userId) });
   });
-  const _polyKeysFile = path18.join(process.cwd(), "data", "polymarket_keys.json");
+  const _polyKeysFile = path19.join(process.cwd(), "data", "polymarket_keys.json");
   const _loadPolyKeys = () => {
     try {
-      if (fs18.existsSync(_polyKeysFile)) return JSON.parse(fs18.readFileSync(_polyKeysFile, "utf-8"));
+      if (fs19.existsSync(_polyKeysFile)) return JSON.parse(fs19.readFileSync(_polyKeysFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyKeys = (map) => {
     try {
-      const dir = path18.join(process.cwd(), "data");
-      if (!fs18.existsSync(dir)) fs18.mkdirSync(dir, { recursive: true });
+      const dir = path19.join(process.cwd(), "data");
+      if (!fs19.existsSync(dir)) fs19.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
-      fs18.writeFileSync(_polyKeysFile, content);
+      fs19.writeFileSync(_polyKeysFile, content);
       backupDurableFile("polymarket_keys.json", content);
     } catch {
     }
@@ -106945,11 +107150,11 @@ Format your response as JSON with exactly these keys:
       let mediaUrl = null;
       let mediaType = null;
       if (req.file && req.file.buffer) {
-        const fs20 = await import("fs/promises");
-        const path22 = await import("path");
-        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path22.extname(req.file.originalname)}`;
-        const uploadPath = path22.join(process.cwd(), "uploads", filename);
-        await fs20.writeFile(uploadPath, req.file.buffer);
+        const fs21 = await import("fs/promises");
+        const path23 = await import("path");
+        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path23.extname(req.file.originalname)}`;
+        const uploadPath = path23.join(process.cwd(), "uploads", filename);
+        await fs21.writeFile(uploadPath, req.file.buffer);
         mediaUrl = `/uploads/${filename}`;
         mediaType = req.file.mimetype.startsWith("video/") ? "video" : "image";
       }
@@ -107762,8 +107967,8 @@ Generate a JSON object with:
       }
       const id = parseInt(streamId);
       const filename = `stream-recording-${streamType}-${id}-${Date.now()}.webm`;
-      const filePath = path18.join(uploadsDir2, filename);
-      fs18.writeFileSync(filePath, file.buffer);
+      const filePath = path19.join(uploadsDir2, filename);
+      fs19.writeFileSync(filePath, file.buffer);
       const recordingUrl = `/uploads/${filename}`;
       if (streamType === "schedule") {
         const schedule = await storage.getSchedule(id);
@@ -112441,6 +112646,60 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       res2.status(500).json({ message: "Failed to start the clipper" });
     }
   });
+  const clipperUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 25 * 1024 * 1024 }
+  });
+  app2.post("/api/content-studio/clipper/upload", (req, res2) => {
+    clipperUpload.single("file")(req, res2, async (multerErr) => {
+      try {
+        const u = req.user;
+        if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+          return res2.status(403).json({ message: "Content Studio is available to ambassadors and admins." });
+        }
+        if (multerErr) {
+          const tooBig = multerErr?.code === "LIMIT_FILE_SIZE";
+          return res2.status(tooBig ? 413 : 400).json({
+            message: tooBig ? "That file is over the 25MB upload limit. For a bigger video, paste a direct file link instead." : "That upload did not come through \u2014 please try again."
+          });
+        }
+        const file = req.file;
+        const { validateClipperSettings: validateClipperSettings2, validateClipperUpload: validateClipperUpload2 } = await Promise.resolve().then(() => (init_clipper_core(), clipper_core_exports));
+        const uv = validateClipperUpload2({ size: file?.size, mime: file?.mimetype, name: file?.originalname });
+        if (!uv.ok) return res2.status(400).json({ message: uv.error });
+        let settingsRaw = {};
+        try {
+          settingsRaw = JSON.parse(String(req.body?.settings || "{}"));
+        } catch {
+          return res2.status(400).json({ message: "Clip settings were not readable \u2014 please try again." });
+        }
+        const v = validateClipperSettings2(settingsRaw);
+        if (!v.ok) return res2.status(400).json({ message: v.error });
+        if (!u.isAdmin) {
+          const { jobsToday: jobsToday2 } = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
+          const limit = Number(process.env.CLIPPER_DAILY_LIMIT || 3) || 3;
+          if (await jobsToday2(u.id, "viral-clip") >= limit) {
+            return res2.status(429).json({ message: `Daily clipper limit reached (${limit} source videos/day). Try again tomorrow.` });
+          }
+        }
+        const { persistBuffer: persistBuffer2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
+        const saved = await persistBuffer2(file.buffer, file.mimetype || "video/mp4");
+        if (!saved) {
+          return res2.status(413).json({ message: "That file is too large to store (25MB max). For a bigger video, paste a direct file link instead." });
+        }
+        const { startClipperJob: startClipperJob2 } = await Promise.resolve().then(() => (init_clipper(), clipper_exports));
+        const jobId = await startClipperJob2(u.id, {
+          uploadAssetId: saved.id,
+          fileName: String(file.originalname || "uploaded video").slice(0, 200),
+          settings: v.settings
+        });
+        res2.json({ jobId, kind: "viral-clip" });
+      } catch (e) {
+        console.error("[content-studio] clipper upload error:", e?.message || e);
+        res2.status(500).json({ message: "Failed to start the clipper" });
+      }
+    });
+  });
   app2.get("/api/content-studio/share-targets", async (req, res2) => {
     try {
       if (!req.isAuthenticated()) return res2.status(401).json({ message: "Sign in required" });
@@ -113471,10 +113730,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res2.status(403).json({ error: "Admin access required" });
     }
     try {
-      const dataFile = path18.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path19.join(process.cwd(), "data", "curricula.json");
       let curricula = [];
       try {
-        curricula = JSON.parse(fs18.readFileSync(dataFile, "utf-8"));
+        curricula = JSON.parse(fs19.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const entry = {
@@ -113484,8 +113743,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         ...req.body
       };
       curricula.push(entry);
-      fs18.mkdirSync(path18.join(process.cwd(), "data"), { recursive: true });
-      fs18.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
+      fs19.mkdirSync(path19.join(process.cwd(), "data"), { recursive: true });
+      fs19.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
       res2.json({ success: true, id: entry.id, message: "Curriculum saved to Academy" });
     } catch (err) {
       res2.status(500).json({ error: err.message });
@@ -113494,10 +113753,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/workforce/modules", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path18.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path19.join(process.cwd(), "data", "curricula.json");
       let saved = [];
       try {
-        saved = JSON.parse(fs18.readFileSync(dataFile, "utf-8"));
+        saved = JSON.parse(fs19.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       res2.json({ modules: saved, total: saved.length + 12 });
@@ -113586,10 +113845,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   });
   app2.get("/api/verify/:certId", async (req, res2) => {
     try {
-      const dataFile = path18.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path19.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs18.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs19.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = certs.find((c) => c.certId === req.params.certId);
@@ -115639,14 +115898,14 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
 
 // server/vite.ts
 import express from "express";
-import fs19 from "fs";
-import path20 from "path";
+import fs20 from "fs";
+import path21 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path19 from "path";
+import path20 from "path";
 var isReplit = process.env.REPL_ID !== void 0;
 var replitPlugins = isReplit ? [
   (await import("@replit/vite-plugin-shadcn-theme-json")).default(),
@@ -115665,14 +115924,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path19.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path19.resolve(import.meta.dirname, "shared"),
-      "@assets": path19.resolve(import.meta.dirname, "attached_assets")
+      "@": path20.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path20.resolve(import.meta.dirname, "shared"),
+      "@assets": path20.resolve(import.meta.dirname, "attached_assets")
     }
   },
-  root: path19.resolve(import.meta.dirname, "client"),
+  root: path20.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path19.resolve(import.meta.dirname, "dist/public"),
+    outDir: path20.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 4e3,
     rollupOptions: {
@@ -115795,13 +116054,13 @@ async function setupVite(app2, server) {
       return res2.status(404).json({ error: "Not found", path: url });
     }
     try {
-      const clientTemplate = path20.resolve(
+      const clientTemplate = path21.resolve(
         import.meta.dirname,
         "..",
         "client",
         "index.html"
       );
-      let template = await fs19.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs20.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
@@ -115821,9 +116080,9 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path20.resolve(import.meta.dirname, "..", "dist", "public");
-  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs19.existsSync(distPath)}`);
-  if (!fs19.existsSync(distPath)) {
+  const distPath = path21.resolve(import.meta.dirname, "..", "dist", "public");
+  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs20.existsSync(distPath)}`);
+  if (!fs20.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
@@ -115844,7 +116103,7 @@ function serveStatic(app2) {
       }
     }
   }));
-  const indexPath = path20.resolve(distPath, "index.html");
+  const indexPath = path21.resolve(distPath, "index.html");
   const versionScript = `<script>
 (function(){
   try{
@@ -115880,7 +116139,7 @@ function serveStatic(app2) {
         "Expires": "0",
         "Content-Type": "text/html; charset=utf-8"
       });
-      let html = await fs19.promises.readFile(indexPath, "utf-8");
+      let html = await fs20.promises.readFile(indexPath, "utf-8");
       html = await injectBlogSeoMeta(html, req.originalUrl);
       html = html.replace("<head>", "<head>" + versionScript);
       res2.send(html);
@@ -115891,7 +116150,7 @@ function serveStatic(app2) {
 }
 
 // server/index.ts
-import path21 from "path";
+import path22 from "path";
 
 // server/auth.ts
 init_storage();
@@ -116829,19 +117088,19 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   log(`serving on port ${PORT}`);
 });
 setupAuth(app);
-app.use("/uploads", express2.static(path21.join(process.cwd(), "uploads")));
-app.use("/ea-templates", express2.static(path21.join(process.cwd(), "public/ea-templates")));
-app.use("/downloads", express2.static(path21.join(process.cwd(), "public/downloads"), {
+app.use("/uploads", express2.static(path22.join(process.cwd(), "uploads")));
+app.use("/ea-templates", express2.static(path22.join(process.cwd(), "public/ea-templates")));
+app.use("/downloads", express2.static(path22.join(process.cwd(), "public/downloads"), {
   setHeaders: (res2, filePath) => {
     if (filePath.endsWith(".mq5")) {
       res2.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res2.setHeader("Content-Disposition", 'attachment; filename="' + path21.basename(filePath) + '"');
+      res2.setHeader("Content-Disposition", 'attachment; filename="' + path22.basename(filePath) + '"');
     }
   }
 }));
 app.use((req, res2, next) => {
   const start = Date.now();
-  const path22 = req.path;
+  const path23 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res2.json;
   res2.json = function(bodyJson, ...args) {
@@ -116850,8 +117109,8 @@ app.use((req, res2, next) => {
   };
   res2.on("finish", () => {
     const duration = Date.now() - start;
-    if (path22.startsWith("/api")) {
-      let logLine = `${req.method} ${path22} ${res2.statusCode} in ${duration}ms`;
+    if (path23.startsWith("/api")) {
+      let logLine = `${req.method} ${path23} ${res2.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
