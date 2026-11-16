@@ -241,6 +241,15 @@ async function _recordFxBrainOutcome(
     // never take out the rest of this row. See _classifyHoldRegime above.
     const holdRegime = await _classifyHoldRegime(conn, symbol, openedAt, closedAt);
 
+    // Trail Brain attribution: if the brain's learned trail governed
+    // this position (registered by applyTrailBrainFx in the trail loop,
+    // keyed by symbol+direction — the ticket namespaces differ between
+    // the two writers), stamp the parameter version + group onto the
+    // close so the brain's learning layer can score its own record.
+    const { takeTrailBrainFxAttribution, ensureTrailBrainColumns } = await import('./trail-brain');
+    await ensureTrailBrainColumns('fx_brain_outcomes');
+    const tbAttr = takeTrailBrainFxAttribution(userId, symbol, direction);
+
     await pool.query(
       `INSERT INTO fx_brain_outcomes
         (user_id, symbol, direction, timeframe, hour_utc, session, day_of_week,
@@ -248,8 +257,9 @@ async function _recordFxBrainOutcome(
          smc_verdict, ict_macro_valid, htf_aligned, ea_confidence, ai_confidence,
          entry_price, exit_price, stop_loss, take_profit, planned_rr, realised_rr,
          result, profit_loss, holding_minutes, connection_id, account_id, ticket, closed_at,
-         mae_pnl, mfe_pnl, minutes_to_mae, minutes_to_mfe, hold_regime)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
+         mae_pnl, mfe_pnl, minutes_to_mae, minutes_to_mfe, hold_regime,
+         trail_brain_version, trail_brain_group)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37)
        ON CONFLICT (user_id, ticket) WHERE ticket IS NOT NULL DO NOTHING`,
       [userId, symbol, direction, f.timeframe ?? null, hour, session, closedAt.getUTCDay(),
        f.adx_value ?? null, f.rsi_value ?? null, f.macd_direction ?? null,
@@ -261,7 +271,7 @@ async function _recordFxBrainOutcome(
        Number.isFinite(mfePnl) ? mfePnl : null,
        (existing as any).maeAt && openedAt ? Math.max(0, Math.round((new Date((existing as any).maeAt).getTime() - openedAt.getTime()) / 60000)) : null,
        (existing as any).mfeAt && openedAt ? Math.max(0, Math.round((new Date((existing as any).mfeAt).getTime() - openedAt.getTime()) / 60000)) : null,
-       holdRegime]
+       holdRegime, tbAttr?.version ?? null, tbAttr?.groupKey ?? null]
     );
     console.log(`[FxBrain] recorded ${symbol} ${direction} ${result} ${profit >= 0 ? '+' : ''}${profit.toFixed(2)}` +
       (f.adx_value != null ? ` (adx ${Number(f.adx_value).toFixed(1)}, grade ${f.confluence_grade ?? 'n/a'})` : ' (setup unknown)'));
