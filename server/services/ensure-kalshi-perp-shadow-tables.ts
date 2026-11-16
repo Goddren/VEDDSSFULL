@@ -41,6 +41,20 @@ export function ensureKalshiPerpShadowTables(): Promise<void> {
       .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_vah double precision`))
       .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_val double precision`))
       .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_position text`))
+      // Exact-cost build (2026-11-16, kalshi-perp-costs.ts): funding
+      // provenance + the in-window estimate carried on each trade.
+      // funding_model: 'legacy' for every row opened before this build or
+      // under the legacy cost model (the column default — history is
+      // never rewritten), 'exact_v1' while an exact-era trade is open,
+      // then 'actual' (all booked funding reconciled to Kalshi's prints)
+      // or 'estimate' (the historical read failed across a print and the
+      // close booked the in-progress estimate — visible, never silent).
+      // funding_estimate_usd is the CURRENT window's estimated funding
+      // P&L for an open exact-era trade, refreshed by the resolver; it is
+      // display-only and zeroed at close — realized funding lives in
+      // funding_accrued_usd alone.
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_model text NOT NULL DEFAULT 'legacy'`))
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_estimate_usd double precision NOT NULL DEFAULT 0`))
       .then(() => undefined)
       .catch((e) => { _ensured = null; throw e; });
   }
