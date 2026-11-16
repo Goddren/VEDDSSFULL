@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ShieldCheck, GraduationCap, Receipt, Route, Ban, Activity, Power } from "lucide-react";
+import { ShieldCheck, GraduationCap, Receipt, Route, Ban, Activity, Power, Brain } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { InfoExplainer } from "@/components/info-explainer";
 import { ShadowLiveToggleRow, type ShadowBarItem } from "@/components/shadow-live-toggle";
@@ -654,6 +654,118 @@ export function TrailStudyPanel({ className = "" }: { className?: string }) {
       )}
       <div className="text-[9px] text-gray-600 mt-1">{data.sol.note}</div>
       <TrailGuardsSection />
+      <TrailBrainSection />
+    </div>
+  );
+}
+
+type TrailBrainGroupT = {
+  key: string; engine: "crypto" | "fx" | "sol" | "kalshi"; strategy: string; condition: string; unit: "R" | "pct";
+  params: { activation: number; trailDist: number; giveBackCap: number; lockSteps: Array<{ atPeak: number; lock: number }> };
+  paramsSummary: string; version: number; status: "active" | "dormant";
+  evidence: { brainTrades: number; brainAvgFinal: number | null; brainAvgGiveback: number | null; baseTrades: number; baseAvgFinal: number | null; baseAvgGiveback: number | null; updatedAt: string } | null;
+  lastAdjustment: { at: string; action: string; reason: string } | null;
+};
+type TrailBrainEngineT = { engine: "crypto" | "fx" | "sol" | "kalshi"; envOn: boolean; userOn: boolean; on: boolean };
+type TrailBrainDecisionT = { at: string; engine: string; groupKey: string; version: number; text: string };
+
+// Trail Brain (Nov 16, 2026): the shared learning layer over every
+// engine's exits. Parameters per group (engine × strategy × pair) are
+// learned from the closes the brain itself governed, re-scored every
+// 30 minutes, and applied on the next tick. This section is the
+// owner's window + off switches: what each group has learned, the
+// evidence behind it, and the brain's recent decisions in plain words.
+// It never promises profit — it shows settings and measured give-back.
+function TrailBrainSection() {
+  const qc = useQueryClient();
+  const { data } = useQuery<{ engines: TrailBrainEngineT[]; groups: TrailBrainGroupT[]; decisions: TrailBrainDecisionT[] }>({
+    queryKey: ["/api/engine/trail-brain"],
+    refetchInterval: 60000,
+  });
+  const engineToggle = useMutation({
+    mutationFn: (v: { engine: string; on: boolean }) => apiRequest("POST", "/api/engine/trail-brain/engine", v),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/engine/trail-brain"] }); },
+  });
+  const resetGroup = useMutation({
+    mutationFn: (groupKey: string) => apiRequest("POST", "/api/engine/trail-brain/reset", { groupKey }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/engine/trail-brain"] }); },
+  });
+  if (!data) return null;
+  const engName = (e: string) => (e === "crypto" ? "Crypto" : e === "fx" ? "FX" : e === "sol" ? "Sol" : "Kalshi perps");
+  const unit = (u: "R" | "pct") => (u === "R" ? "R" : "%");
+  const fmtN = (v: number | null | undefined, u: "R" | "pct") => (v == null ? "—" : `${v > 0 ? "+" : ""}${v}${unit(u)}`);
+  return (
+    <div className="mt-2.5 border-t border-white/10 pt-2">
+      <div className="flex items-start gap-2 mb-1">
+        <div className="rounded bg-violet-500/15 text-violet-300 p-1 shrink-0"><Brain className="w-3.5 h-3.5" /></div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-semibold text-gray-200">Trail Brain — one learning brain for every engine's exits</div>
+          <div className="text-[9px] text-gray-500 break-words">Learns each group's best trailing-stop settings from the closes it governed, re-scores every 30 minutes, and applies them on the next trade tick. Exit-only: it never opens a trade, never changes a size, and never moves a stop wider than the trade's original stop. Where a trail guard above governs a group, the guard wins and the brain only watches.</div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 mb-1.5">
+        {data.engines.map((e) => (
+          <button
+            key={e.engine}
+            disabled={!e.envOn || engineToggle.isPending}
+            onClick={() => engineToggle.mutate({ engine: e.engine, on: !e.userOn })}
+            className={`text-[10px] rounded px-2 py-1 border ${e.on ? "bg-violet-500/15 border-violet-500/30 text-violet-200" : "bg-black/20 border-white/10 text-gray-400"} disabled:opacity-50`}
+          >
+            {engName(e.engine)}: {!e.envOn ? "off (server switch)" : e.userOn ? "on" : "off"}
+          </button>
+        ))}
+      </div>
+
+      {data.groups.length ? (
+        <div className="space-y-0.5">
+          {data.groups.map((g) => (
+            <div key={g.key} className="rounded bg-black/20 px-2 py-1.5">
+              <div className="text-[10px] flex items-baseline gap-2">
+                <span className="min-w-0 flex-1 truncate text-gray-200 font-medium">{engName(g.engine)} · {g.strategy}{g.condition !== "all" ? ` · ${g.condition}` : ""}</span>
+                <span className="shrink-0 text-gray-500 tabular-nums">v{g.version}</span>
+                {g.status === "dormant" ? <span className="shrink-0 text-amber-300">stood down</span> : null}
+              </div>
+              <div className="text-[10px] text-gray-300 mt-0.5 break-words">{g.paramsSummary}</div>
+              {g.evidence ? (
+                <div className="text-[10px] flex flex-wrap gap-x-2.5 gap-y-0.5 mt-0.5 tabular-nums">
+                  <span className="text-gray-400">{g.evidence.brainTrades} brain-guided closes</span>
+                  <span className="text-gray-300">close {fmtN(g.evidence.brainAvgFinal, g.unit)}</span>
+                  {g.evidence.brainAvgGiveback != null ? <span className="text-amber-300/90">gave back {g.evidence.brainAvgGiveback}{unit(g.unit)}</span> : null}
+                  {g.evidence.baseAvgGiveback != null ? <span className="text-gray-500">vs {g.evidence.baseAvgGiveback}{unit(g.unit)} without the brain ({g.evidence.baseTrades} closes)</span> : null}
+                </div>
+              ) : (
+                <div className="text-[10px] text-gray-500 mt-0.5">No brain-guided closes yet — learning starts with the first ones.</div>
+              )}
+              {g.lastAdjustment ? <div className="text-[9px] text-sky-300/80 mt-0.5 break-words">Last change: {g.lastAdjustment.reason}</div> : null}
+              {g.status === "dormant" ? (
+                <button
+                  disabled={resetGroup.isPending}
+                  onClick={() => { if (window.confirm("Reset this group? The brain restarts it at the standard settings and learns again from new closes.")) resetGroup.mutate(g.key); }}
+                  className="text-[10px] rounded px-2 py-0.5 mt-1 border border-white/15 text-gray-300 disabled:opacity-50"
+                >
+                  Reset this group
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-[10px] text-gray-500">No groups yet — a group appears the first time the brain evaluates a position for it, and its settings start at the standard trail.</div>
+      )}
+
+      {data.decisions.length ? (
+        <div className="mt-1.5">
+          <div className="text-[10px] text-gray-400 mb-1">Recent decisions</div>
+          <div className="space-y-0.5">
+            {data.decisions.slice(0, 8).map((d, i) => (
+              <div key={i} className="text-[10px] text-gray-400 rounded bg-black/20 px-2 py-1 break-words">
+                <span className="text-gray-500">{new Date(d.at).toLocaleString()} · </span>{d.text}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

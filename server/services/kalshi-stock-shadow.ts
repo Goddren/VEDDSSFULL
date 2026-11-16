@@ -97,6 +97,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
 import { ensureKalshiPerpShadowTables } from './ensure-kalshi-perp-shadow-tables';
+import { trailBrainConsult, trailBrainStopPrice, stampTrailBrainTrade } from './trail-brain';
 import {
   getLiquidStockPerps, getPerpCandles, getPerpTouch, getPerpFundingHistory, getPerpFundingEstimate,
   getPerpCorporateActions, getPerpBars, aggregateBars, type PerpBar, type PerpMarket,
@@ -810,6 +811,12 @@ export async function resolveKalshiStockShadowTrades(userId: number): Promise<nu
     const short = t.direction === 'short';
     const ageH = (Date.now() - openedMs) / 3_600_000;
     let exit: number | null = null, why = '';
+    // Trail Brain: the group's learned parameters (kalshi × strategy ×
+    // underlying, % units) may raise a trailed stop behind the peak.
+    // The trailed stop is clamped at the trade's own stop inside
+    // trailBrainDecide (−sl_pct), so it can only tighten; the hard
+    // stop/target checks keep their order and priority.
+    const tb = await trailBrainConsult(userId, 'kalshi', String(t.strategy || 'all'), String(t.underlying || 'all'));
     if (candles.length) {
       // Walk the candles since entry for the first stop/target touch, priced
       // at the touch (long exits on the bid series, short on the ask).
@@ -822,6 +829,15 @@ export async function resolveKalshiStockShadowTrades(userId: number): Promise<nu
         }
         if (short ? cd.ask.h >= t.stop_loss : cd.bid.l <= t.stop_loss) {
           exit = short ? Math.max(t.stop_loss, cd.ask.o) : Math.min(t.stop_loss, cd.bid.o); why = 'stop'; break;
+        }
+        if (tb) {
+          const ts = trailBrainStopPrice({ direction: String(t.direction), entryPrice: Number(t.entry_price), peakGainPct: Number(t.peak_gain_pct) || 0, currentGainPct: gain, slPct: Number(t.sl_pct), params: tb.params });
+          if (ts) {
+            void stampTrailBrainTrade('kalshi_perp_shadow_trades', t.id, tb);
+            if (short ? cd.ask.h >= ts.stopPrice : cd.bid.l <= ts.stopPrice) {
+              exit = short ? Math.max(ts.stopPrice, cd.ask.o) : Math.min(ts.stopPrice, cd.bid.o); why = 'trail'; break;
+            }
+          }
         }
         if (short ? cd.ask.l <= t.take_profit : cd.bid.h >= t.take_profit) { exit = Number(t.take_profit); why = 'target'; break; }
       }

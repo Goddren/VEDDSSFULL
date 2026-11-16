@@ -7,6 +7,7 @@ import { getOrRefreshSolBrain, solBrainSizeMultiplier, solBrainGate, recordSolBr
 import { weekendBoostActive, boostedMinConfidence, weekendBoostSizeMultiplier } from './weekend-boost';
 import { solLearnedRulesOn, SOL_LR, learnedExitStep, blendGain, cappedSlPct, isFallingEntry, isSolStrategyPaused } from './sol-learned-rules';
 import { solTrailGuardFor, type SolTrailProfile } from './trail-guards';
+import { trailBrainSolConsult, trailBrainDecide } from './trail-brain';
 
 // ── Sol-engine "edge" config (ported from the proven crypto engine) ──────────
 // Brain + gating default ON to match the crypto engine. Confluence gate applies
@@ -171,6 +172,8 @@ export interface SolAutoPosition {
   trailGuardId?: string;
   trailGuardAction?: string;
   trailGuardProfile?: SolTrailProfile;
+  trailBrainVersion?: number;
+  trailBrainGroup?: string;
   trailActivationPct?: number;
   trailDistancePct?: number;
   closeReason?: 'tp' | 'sl' | 'trail' | 'abandoned' | 'max_hold' | 'breakeven';
@@ -1875,6 +1878,23 @@ async function monitorPaperPositions(userId: number, state: SolEngineState) {
           addActivity(state, { type: 'info', message: `💰 Paper partial: ${pos.symbol} half closed at +${step.partialJustTaken.toFixed(1)}% — rest trails ${SOL_LR.trailDistPct}% under the peak` });
         }
       }
+      // Trail Brain: the strategy's learned trail parameters (strategy-
+      // keyed ONLY — the consult takes no symbol) may exit at their
+      // floor where the learned-rules step holds. Guards win: with a
+      // guard in force the brain is not consulted. The floor is
+      // clamped at the position's own stop inside trailBrainDecide.
+      if (!tgGuard) {
+        const tb = await trailBrainSolConsult(userId, pos.strategyId);
+        if (tb) {
+          const peakGain = pos.peakPrice && pos.entryPrice > 0 ? ((pos.peakPrice - pos.entryPrice) / pos.entryPrice) * 100 : gainPct;
+          const d = trailBrainDecide(tb.params, { peak: Math.max(peakGain, gainPct), current: gainPct, stopFloor: -(pos.slPct || 15) });
+          if (d.binding) {
+            pos.trailBrainVersion = tb.version;
+            pos.trailBrainGroup = tb.groupKey;
+            if (d.exitNow) isTrailHit = true;
+          }
+        }
+      }
     }
 
     if (isWin || isLoss || isTrailHit || isMaxHold) {
@@ -2158,6 +2178,21 @@ async function monitorShadowPositions(userId: number, state: SolEngineState) {
         if (step.breakevenJustSet) pos.breakevenActive = true;
         if (step.partialJustTaken != null) pos.partialGainPct = step.partialJustTaken;
       }
+      // Trail Brain (shadow): strategy-keyed learned parameters, same
+      // rule as the paper monitor — guards win, the floor is clamped
+      // at the position's own stop, attribution rides the close write.
+      if (!tgGuard) {
+        const tb = await trailBrainSolConsult(userId, pos.strategyId);
+        if (tb) {
+          const peakGain = pos.peakPrice && pos.entryPrice > 0 ? ((pos.peakPrice - pos.entryPrice) / pos.entryPrice) * 100 : rawGainPct;
+          const d = trailBrainDecide(tb.params, { peak: Math.max(peakGain, rawGainPct), current: rawGainPct, stopFloor: -(pos.slPct || 15) });
+          if (d.binding) {
+            pos.trailBrainVersion = tb.version;
+            pos.trailBrainGroup = tb.groupKey;
+            if (d.exitNow && !lrReason) lrReason = 'trail';
+          }
+        }
+      }
     }
     // Whole-position gain (blends the banked half when a partial was taken).
     const gainPct = blendGain(rawGainPct, pos.partialGainPct);
@@ -2177,6 +2212,7 @@ async function monitorShadowPositions(userId: number, state: SolEngineState) {
         peakGainPct: pos.peakPrice && pos.entryPrice > 0 ? ((pos.peakPrice - pos.entryPrice) / pos.entryPrice) * 100 : null,
         trailGuardId: pos.trailGuardId ?? null, trailGuardAction: pos.trailGuardAction ?? null,
         trailGuardProfile: pos.trailGuardProfile ?? null,
+        trailBrainVersion: pos.trailBrainVersion ?? null, trailBrainGroup: pos.trailBrainGroup ?? null,
       })).catch(() => {});
       state.closedShadowPositions.unshift(pos);
       if (state.closedShadowPositions.length > 50) state.closedShadowPositions = state.closedShadowPositions.slice(0, 50);
@@ -2288,6 +2324,26 @@ async function monitorLivePositions(userId: number, state: SolEngineState) {
       const dist = computeServerTrailDist(gainPct, volStatus);
       const effectiveFloor = Math.max(pos.peakPrice * (1 - dist / 100), pos.entryPrice);
       if (currentPrice <= effectiveFloor) trailHit = true;
+    }
+
+    // Trail Brain (live): the strategy's learned floor, strategy-keyed
+    // only. It can only add an exit the staged trail had not reached —
+    // the floor is clamped at the position's own stop inside
+    // trailBrainDecide, and TP/SL below are untouched.
+    if (!trailHit && pos.peakPrice) {
+      const tb = await trailBrainSolConsult(userId, pos.strategyId);
+      if (tb) {
+        const peakGain = ((pos.peakPrice - pos.entryPrice) / pos.entryPrice) * 100;
+        const d = trailBrainDecide(tb.params, { peak: Math.max(peakGain, gainPct), current: gainPct, stopFloor: -(pos.slPct || 15) });
+        if (d.binding) {
+          pos.trailBrainVersion = tb.version;
+          pos.trailBrainGroup = tb.groupKey;
+          if (d.exitNow) {
+            trailHit = true;
+            addActivity(state, { type: 'info', message: `🧠 Trail Brain exit: ${pos.symbol} at ${gainPct.toFixed(1)}% — peaked +${peakGain.toFixed(1)}%, learned floor ${d.floor.toFixed(1)}% (group v${tb.version})` });
+          }
+        }
+      }
     }
 
     const tpHit = gainPct >= pos.targetPct;

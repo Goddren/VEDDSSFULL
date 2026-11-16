@@ -1,4 +1,5 @@
 import { sessionForHour, sameSession } from '../utils/session';
+import { trailBrainOn, trailBrainConsult, trailBrainDecide, noteTrailBrainFxGoverned, logTrailBrainDecision } from './trail-brain';
 import { lookupPairKnowledge } from '../utils/pair-key';
 import { marketDataService } from '../market-data/service';
 import { logGuard, recordBlockedTrade } from './guard-events';
@@ -2331,6 +2332,7 @@ async function scanMarkets(userId: number): Promise<void> {
     await manageBtcTrail(userId, currentOpenPositions, marketAnalysis).catch((e: any) => console.error('[BTC trail] scan pass failed (non-fatal):', e?.message));
     await manageProfitLock(userId, currentOpenPositions, marketAnalysis).catch((e: any) => console.error('[Profit lock] scan pass failed (non-fatal):', e?.message));
     await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
+    await applyTrailBrainFx(userId, currentOpenPositions, marketAnalysis).catch((e: any) => console.error('[trail-brain] FX scan pass failed (non-fatal):', e?.message));
 
     // NOTE: Composite Autonomous (Markov × Polymarket) trading has been moved to
     // the standalone Polymarket Engine (/polymarket-engine page). It no longer
@@ -3405,6 +3407,30 @@ async function applyServerSideTrails(
     const _px = Number(pos.currentPrice) || 0;
     if (_px > 0 && (isBuy ? newSL >= _px : newSL <= _px)) { logGuard(userId, 'stop_through_price_refused', pos.symbol, `trail ${newSL} vs price ${_px}`); continue; }
 
+    await applyFxTrailStop(userId, pos, newSL, methodLabel, currentSL, tlConnections, dxConnections);
+  }
+}
+
+// The last stop THIS process dispatched per position — applyTrailBrainFx
+// reads it so a brain candidate can never loosen a stop the method
+// trail already tightened earlier in the same tick (the merged position
+// list is fetched once per tick, so pos.sl goes stale between the two).
+const _fxTrailAppliedSl = new Map<string, number>();
+
+/**
+ * Dispatch one tightened stop to whichever platform holds the position
+ * (MT5 broadcast / TradeLocker modify / DXtrade cancel-and-replace).
+ * Extracted from applyServerSideTrails so the Trail Brain's FX adapter
+ * applies its stops through the exact same path — one dispatch
+ * implementation, two candidate sources. Callers own the improvement
+ * and through-price checks; this only sends.
+ */
+async function applyFxTrailStop(
+  userId: number, pos: any, newSL: number, label: string, currentSL: number,
+  tlConnections: any[], dxConnections: any[],
+): Promise<void> {
+  _fxTrailAppliedSl.set(`${userId}:${String(pos.ticket || pos.id || pos.symbol)}`, newSL);
+  {
     // pos.source === 'tl' / 'dx' means this position only exists on that
     // platform (merged in by getMergedOpenPositions) — there's no matching
     // MT5 ticket for the EA to act on, so skip the MT5 broadcast entirely
@@ -3422,7 +3448,7 @@ async function applyServerSideTrails(
       stopLoss: Math.round(newSL * 100000) / 100000,
       takeProfit: pos.tp || null,
       confidence: 100,
-      reason: `${methodLabel}: auto-trail SL → ${Math.round(newSL * 100000) / 100000}`,
+      reason: `${label}: auto-trail SL → ${Math.round(newSL * 100000) / 100000}`,
       holdTime: '',
       strategy: 'position_management',
       confluences: [],
@@ -3434,7 +3460,7 @@ async function applyServerSideTrails(
     addActivity(userId, {
       type: 'position_update',
       symbol: pos.symbol,
-      message: `📐 ${methodLabel}: ${pos.symbol} ${pos.direction} trail → SL ${Math.round(newSL * 100000) / 100000} (was ${currentSL || 'none'})`,
+      message: `📐 ${label}: ${pos.symbol} ${pos.direction} trail → SL ${Math.round(newSL * 100000) / 100000} (was ${currentSL || 'none'})`,
     });
 
     // Each TradeLocker position is its own entry in the merged list (ticket
@@ -3517,6 +3543,97 @@ async function applyServerSideTrails(
   }
 }
 
+// ── Trail Brain (FX adapter) ───────────────────────────────────────────────
+// The shared Trail Brain's FX arm: for each open position, the group's
+// learned parameters (fx × strategy × pair, R units) turn the position's
+// peak R into a candidate stop. Runs AFTER applyServerSideTrails in the
+// same tick and applies through the same applyFxTrailStop dispatch, and
+// only when the candidate tightens the tightest stop this process knows
+// about (pos.sl/brokerSl, or the stop the method trail just dispatched —
+// _fxTrailAppliedSl), so it can never loosen anything. It also runs when
+// the configured trail method is 'none', where the brain is the only
+// trail. Gates, in order: the brain's kill switches + panel toggle
+// (inside trailBrainConsult); the FX stop-hold — inside stopHoldUntilR
+// the brain observes only, the same hold that gates AI stop moves, so
+// the engine's existing guard layer wins; the improvement and
+// through-price checks below. Governed positions are registered for
+// attribution (noteTrailBrainFxGoverned) so the close writer can stamp
+// the parameter version onto fx_brain_outcomes.
+async function applyTrailBrainFx(
+  userId: number,
+  openPositions: any[],
+  marketAnalysis: Record<string, any>,
+): Promise<void> {
+  void marketAnalysis;
+  const state = engineStates[userId];
+  if (!state || openPositions.length === 0) return;
+  if (!trailBrainOn('fx')) return;
+  // The engine's own master trailing switch governs too: trailing off
+  // means no trailing, the brain's included. (trailMethod 'none' is a
+  // method choice, not an off switch — the brain still runs there.)
+  if (!state.config.trailingStopEnabled) return;
+  if (!state.positionTrailState) state.positionTrailState = {};
+
+  let tlConnections: any[] = [];
+  try {
+    const allTL = await storage.getUserTradelockerConnections(userId);
+    tlConnections = allTL.filter((c: any) => c.isActive);
+  } catch { /* no TL — MT5 only */ }
+  const dxConnections = await loadDxConnections(userId);
+
+  for (const pos of openPositions) {
+    try {
+      const openP = Number(pos.openPrice) || 0;
+      const px = Number(pos.currentPrice) || 0;
+      if (!(openP > 0) || !(px > 0)) continue;
+      const isBuy = pos.direction === 'BUY';
+      const origSL = Number(pos.originalSL || pos.sl) || 0;
+      const slOnLossSide = origSL > 0 && (isBuy ? origSL < openP : origSL > openP);
+      if (!slOnLossSide) continue;
+      const rDist = Math.abs(openP - origSL);
+      if (rDist <= 0) continue;
+
+      const key = String(pos.ticket || pos.id || pos.symbol);
+      if (!state.positionTrailState[key]) {
+        state.positionTrailState[key] = {
+          highestHigh: px, lowestLow: px, sar: openP, ep: px,
+          af: state.config.trailSarInitialAF ?? 0.02, bullish: isBuy,
+        };
+      }
+      const ts = state.positionTrailState[key];
+      if (px > ts.highestHigh) ts.highestHigh = px;
+      if (!ts.lowestLow || px < ts.lowestLow) ts.lowestLow = px;
+      const peakPrice = isBuy ? ts.highestHigh : ts.lowestLow;
+      const peakR = (isBuy ? peakPrice - openP : openP - peakPrice) / rDist;
+      const currentR = (isBuy ? px - openP : openP - px) / rDist;
+
+      // Guard-wins gate: the stop-hold is the FX guard layer for stop
+      // moves — inside it, the brain may not tighten (it still learns
+      // from the group's closes).
+      if (currentR < stopHoldUntilR(userId)) continue;
+
+      const tb = await trailBrainConsult(userId, 'fx', String(pos.strategy || 'all'), String(pos.symbol || 'all'));
+      if (!tb) continue;
+      const d = trailBrainDecide(tb.params, { peak: peakR, current: currentR, stopFloor: -1 });
+      if (!d.binding) continue;
+      const brainSL = Math.round((openP + (isBuy ? 1 : -1) * d.floor * rDist) * 100000) / 100000;
+
+      let currentSL = pos.sl || Number(pos.brokerSl) || 0;
+      const known = _fxTrailAppliedSl.get(`${userId}:${key}`);
+      if (known) currentSL = currentSL === 0 ? known : (isBuy ? Math.max(currentSL, known) : Math.min(currentSL, known));
+      const improved = isBuy ? brainSL > currentSL : (currentSL === 0 || brainSL < currentSL);
+      if (!improved) continue;
+      if (isBuy ? brainSL >= px : brainSL <= px) continue;
+
+      noteTrailBrainFxGoverned(userId, String(pos.symbol || ''), String(pos.direction || ''), tb);
+      logTrailBrainDecision(userId, { engine: 'fx', groupKey: tb.groupKey, version: tb.version, text: `${pos.symbol} ${pos.direction}: stop trailed to ${brainSL} — peaked ${peakR.toFixed(2)}R, learned floor ${d.floor.toFixed(2)}R` });
+      await applyFxTrailStop(userId, pos, brainSL, 'Trail Brain', currentSL, tlConnections, dxConnections);
+    } catch (e: any) {
+      console.error(`[trail-brain] FX adapter failed for ${pos?.symbol} (non-fatal):`, e?.message || e);
+    }
+  }
+}
+
 // Fast position monitor — protects open positions (trailing + reversal exit) on a
 // short interval, independent of the full market scan. Reuses the last scan's
 // indicators (trends don't flip in ~25s); position PRICES are refreshed live via
@@ -3544,6 +3661,7 @@ async function monitorPositions(userId: number): Promise<void> {
       await manageBtcTrail(userId, positions, lastAnalysis).catch((e: any) => console.error('[BTC trail] monitor pass failed (non-fatal):', e?.message));
       await manageProfitLock(userId, positions, lastAnalysis).catch((e: any) => console.error('[Profit lock] monitor pass failed (non-fatal):', e?.message));
       await applyServerSideTrails(userId, positions, lastAnalysis);
+      await applyTrailBrainFx(userId, positions, lastAnalysis).catch((e: any) => console.error('[trail-brain] FX monitor pass failed (non-fatal):', e?.message));
     } else if (state.status === 'stopped' && positionMonitorIntervals[userId]) {
       // Engine stopped and the book is flat → stand the monitor down.
       clearInterval(positionMonitorIntervals[userId]);

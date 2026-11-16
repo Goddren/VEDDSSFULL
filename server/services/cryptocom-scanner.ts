@@ -16,6 +16,7 @@ import { recordRealizedPnl } from './prop-firm-consistency';
 import { weekendBoostActive, boostedMinConfidence, weekendBoostSizeMultiplier } from './weekend-boost';
 import { PROCESS_BOOT_ID } from './process-fingerprint';
 import { cryptoTrailGuardFor, stampCryptoTradeTrailGuard, type CryptoTrailProfile } from './trail-guards';
+import { trailBrainConsult, trailBrainDecide, stampTrailBrainTrade, logTrailBrainDecision } from './trail-brain';
 import { cefiEntryBuy, cefiExitSell, baseCoin, type CefiVenue } from './cefi-executor';
 // NOTE: defi-executor is imported LAZILY (dynamic import at the two call sites
 // below) — it pulls in defi-swap → ethers, a heavy stack. Keeping it out of the
@@ -688,6 +689,51 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
         } catch { /* no candles to check with: fall through to the normal rules */ }
         if (trade.takeProfit && px >= trade.takeProfit) { await closePosition(userId, trade, px, 'take_profit'); continue; }
         if (trade.stopLoss && px <= trade.stopLoss) { await closePosition(userId, trade, px, 'stop_loss'); continue; }
+        // Trail Brain (spot branch — the DeFi hot wallet's exit path):
+        // the group's learned trail parameters raise the persisted stop
+        // or exit the position outright. Only ever tightens: the floor
+        // is clamped at the trade's ORIGINAL stop inside
+        // trailBrainDecide, the stop write below is guarded to raises
+        // only, and the hard TP/SL checks above have already run.
+        // CRYPTO_TRAIL=off (the spot trail's own switch) stands it down.
+        if (process.env.CRYPTO_TRAIL !== 'off' && Number(trade.stopLoss) > 0 && trade.entryPrice > 0) {
+          try {
+            const tb = await trailBrainConsult(userId, 'crypto', trade.strategy || 'all', trade.symbol || 'all');
+            if (tb) {
+              const { getRuntimeStateStrict, insertRuntimeStateIfAbsent } = await import('./runtime-state');
+              const k = String(trade.id);
+              const stored = await getRuntimeStateStrict('crypto_initial_stop', k);
+              const initial = Number(stored?.sl) > 0 ? Number(stored.sl) : Number((await insertRuntimeStateIfAbsent('crypto_initial_stop', k, { sl: trade.stopLoss }))?.sl);
+              const risk = trade.entryPrice - initial;
+              if (risk > 0) {
+                const favR = (px - trade.entryPrice) / risk;
+                // Peak R persisted on the trade row — the same column
+                // the perps path and the trail study read.
+                const peakR = Math.max(Number(trade.peakRMultiple) || 0, favR);
+                if (peakR > (Number(trade.peakRMultiple) || 0)) {
+                  trade.peakRMultiple = peakR;
+                  await storage.updateCryptocomEngineTradeTrailState(trade.id, { peakRMultiple: peakR, trailArmed: !!trade.trailArmed }).catch(() => {});
+                }
+                const d = trailBrainDecide(tb.params, { peak: peakR, current: favR, stopFloor: -1 });
+                if (d.binding) {
+                  void stampTrailBrainTrade('cryptocom_engine_trades', trade.id, tb);
+                  if (d.exitNow) {
+                    logTrailBrainDecision(userId, { engine: 'crypto', groupKey: tb.groupKey, version: tb.version, text: `${trade.symbol}: trail exit at ${favR.toFixed(2)}R — peaked ${peakR.toFixed(2)}R, learned floor ${d.floor.toFixed(2)}R` });
+                    await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: 'exit', strategy: trade.strategy, reasoning: `${trade.symbol}: Trail Brain exit — peaked +${peakR.toFixed(2)}R, now +${favR.toFixed(2)}R, at the learned floor ${d.floor.toFixed(2)}R (group v${tb.version}).`, score: null, price: px, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+                    await closePosition(userId, trade, px, 'trail_brain');
+                    continue;
+                  }
+                  const want = trade.entryPrice + d.floor * risk;
+                  if (want > Number(trade.stopLoss) && want < px) {
+                    const { pool: dbp } = await import('../db');
+                    await dbp.query(`UPDATE cryptocom_engine_trades SET stop_loss=$2 WHERE id=$1 AND status='open' AND (stop_loss IS NULL OR stop_loss < $2)`, [trade.id, want]);
+                    trade.stopLoss = want;
+                  }
+                }
+              }
+            }
+          } catch { /* the brain is an optimisation; TP/SL protection above already ran */ }
+        }
         // Trend profile (spot is long-only): at +CRYPTO_MIN_RR R lock +1R, then
         // trail behind the lowest low of the last 3 H1 candles. Only tightens;
         // every move is logged. The initial stop is persisted so R survives restarts.
@@ -807,13 +853,41 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
       const tCfg = tgProfile ? { ...cfg, trailMethod: tgProfile.method, trailActivationR: tgProfile.activationR, trailFixedR: tgProfile.fixedR, trailStepR: tgProfile.stepR, trailProfitLockPct: tgProfile.profitLockPct, trailSarInitialAF: tgProfile.sarInitialAF, trailSarMaxAF: tgProfile.sarMaxAF, breakevenBufferR: tgProfile.breakevenBufferR } : cfg;
       const armed = trade.trailArmed || peakR >= tCfg.trailActivationR;
 
+      // Trail Brain: when NO guard governs, the group's learned
+      // parameters supply (or tighten) the trail floor — including when
+      // the configured method is 'none', where the brain is the only
+      // trail. Guards win: with a guard in force the brain is skipped
+      // here and only observes (its learning reads the group record).
+      // The brain floor is clamped at −1R (the trade's original stop)
+      // inside trailBrainDecide, so it can only ever tighten.
+      let brainFloor = -Infinity;
+      let brainConsult: Awaited<ReturnType<typeof trailBrainConsult>> = null;
+      if (!tgGuard) {
+        brainConsult = await trailBrainConsult(userId, 'crypto', trade.strategy || 'all', trade.symbol || 'all');
+        if (brainConsult) {
+          const d = trailBrainDecide(brainConsult.params, { peak: peakR, current: currentR, stopFloor: -1 });
+          if (d.binding) {
+            brainFloor = d.floor;
+            void stampTrailBrainTrade('cryptocom_engine_trades', trade.id, brainConsult);
+          }
+        }
+      }
+
       if (currentR <= -1) { // hard stop already breached
         await closePosition(userId, trade, currentPrice, 'stop_loss');
         continue;
       }
-      if (tCfg.trailMethod !== 'none' && armed) {
-        const floor = Math.max(computeTrailFloorR(tCfg, peakR), tCfg.breakevenBufferR);
-        if (currentR <= floor) { await closePosition(userId, trade, currentPrice, 'trailing_stop'); continue; }
+      const cfgFloor = tCfg.trailMethod !== 'none' && armed
+        ? Math.max(computeTrailFloorR(tCfg, peakR), tCfg.breakevenBufferR)
+        : -Infinity;
+      const floor = Math.max(cfgFloor, brainFloor);
+      if (floor > -Infinity && currentR <= floor) {
+        const brainBound = brainFloor > cfgFloor;
+        if (brainBound && brainConsult) {
+          logTrailBrainDecision(userId, { engine: 'crypto', groupKey: brainConsult.groupKey, version: brainConsult.version, text: `${trade.symbol}: trail exit at ${currentR.toFixed(2)}R — peaked ${peakR.toFixed(2)}R, learned floor ${brainFloor.toFixed(2)}R` });
+        }
+        await closePosition(userId, trade, currentPrice, brainBound ? 'trail_brain' : 'trailing_stop');
+        continue;
       }
       if (peakR !== trade.peakRMultiple || armed !== trade.trailArmed) {
         await storage.updateCryptocomEngineTradeTrailState(trade.id, { peakRMultiple: peakR, trailArmed: armed });

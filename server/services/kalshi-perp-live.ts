@@ -62,6 +62,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
 import { ensureKalshiPerpLiveTables } from './ensure-kalshi-perp-live-tables';
+import { trailBrainConsult, trailBrainStopPrice, stampTrailBrainTrade } from './trail-brain';
 import { ensureKalshiPerpShadowTables } from './ensure-kalshi-perp-shadow-tables';
 import { getRuntimeStateStrict, saveRuntimeState } from './runtime-state';
 import {
@@ -605,6 +606,23 @@ async function reconcileLivePositions(userId: number, state: PerpLiveState): Pro
 // ── exit monitoring (mirrors the shadow resolver) ──────────────────────────
 const _exitWatermark = new Map<number, number>();
 
+// The live table predates peak tracking (the shadow table has
+// peak_gain_pct; this one never needed it until the Trail Brain).
+// Lazy additive column, idempotent + memoized + never rejecting — the
+// trail-guard stamp-column pattern.
+let _livePeakEnsured: Promise<void> | null = null;
+function ensureLivePeakColumn(): Promise<void> {
+  if (!_livePeakEnsured) {
+    _livePeakEnsured = pool.query(`ALTER TABLE kalshi_perp_live_trades ADD COLUMN IF NOT EXISTS peak_gain_pct double precision`)
+      .then(() => undefined)
+      .catch((e: any) => {
+        _livePeakEnsured = null;
+        console.error('[kalshi-perp-live] peak-column ensure failed (non-fatal, will retry):', e?.message || e);
+      });
+  }
+  return _livePeakEnsured;
+}
+
 async function monitorLiveExits(userId: number, actions: Array<{ ticker: string; status: string; effectiveMs: number | null }>): Promise<void> {
   const { rows } = await pool.query(
     `SELECT * FROM kalshi_perp_live_trades WHERE user_id=$1 AND status IN ('open','closing') ORDER BY id ASC`, [userId]);
@@ -621,7 +639,40 @@ async function monitorLiveExits(userId: number, actions: Array<{ ticker: string;
         const candles = await getPerpCandles(String(t.ticker), 1, mins).catch(() => [] as PerpBar[]);
         const fresh = candles.filter((c) => c.t + 60_000 > since);
         if (fresh.length) {
-          why = scanExitTrigger(fresh, String(t.direction), Number(t.stop_loss), Number(t.take_profit));
+          // Trail Brain: the same adapter the shadow resolver runs —
+          // walk the fresh candles progressively, track the peak
+          // (persisted on the trade row), and let the group's learned
+          // floor tighten the effective stop. The trailed stop is
+          // clamped at the trade's own stop_loss inside
+          // trailBrainDecide, so it can only tighten; entry gates are
+          // untouched (exits were never gated). Without a consult the
+          // original scanExitTrigger runs byte-for-byte as before.
+          const tb = await trailBrainConsult(userId, 'kalshi', String(t.strategy || 'all'), String(t.underlying || 'all'));
+          if (tb) {
+            const short = t.direction === 'short';
+            let peak = Number(t.peak_gain_pct) || 0;
+            let effStop = Number(t.stop_loss);
+            let trailBound = false;
+            for (const cd of fresh) {
+              const gain = short ? ((Number(t.entry_price) - cd.ask.l) / Number(t.entry_price)) * 100 : ((cd.bid.h - Number(t.entry_price)) / Number(t.entry_price)) * 100;
+              if (gain > peak) peak = gain;
+              const ts = trailBrainStopPrice({ direction: String(t.direction), entryPrice: Number(t.entry_price), peakGainPct: peak, currentGainPct: gain, slPct: Number(t.sl_pct), params: tb.params });
+              if (ts) {
+                effStop = short ? Math.min(effStop, ts.stopPrice) : Math.max(effStop, ts.stopPrice);
+                trailBound = true;
+              }
+              if (short ? cd.ask.h >= effStop : cd.bid.l <= effStop) { why = trailBound && effStop !== Number(t.stop_loss) ? 'trail' : 'stop'; break; }
+              if (short ? cd.ask.l <= Number(t.take_profit) : cd.bid.h >= Number(t.take_profit)) { why = 'target'; break; }
+            }
+            if (peak !== (Number(t.peak_gain_pct) || 0)) {
+              await ensureLivePeakColumn();
+              await pool.query(`UPDATE kalshi_perp_live_trades SET peak_gain_pct=$2 WHERE id=$1`, [t.id, peak]).catch(() => {});
+              t.peak_gain_pct = peak;
+            }
+            if (trailBound) void stampTrailBrainTrade('kalshi_perp_live_trades', t.id, tb);
+          } else {
+            why = scanExitTrigger(fresh, String(t.direction), Number(t.stop_loss), Number(t.take_profit));
+          }
           _exitWatermark.set(Number(t.id), fresh[fresh.length - 1].t + 60_000);
         }
         if (!why && (Date.now() - openedMs) / 3_600_000 >= Number(t.max_hours)) why = 'time limit';
