@@ -29,11 +29,17 @@
  *      surfacing (server + panel), entry cross-check, lazy column.
  *   G. PR #94 exact-cost semantics untouched (funding_model stamp and
  *      the costs module's deadband/cap still in place).
+ *   I. Data repair (Chris-approved follow-up, 2026-11-16): the boot-time
+ *      stamp that marks pre-fix poisoned closes exclude_from_stats so
+ *      the promotion-bar / live-gate readers (which filter ONLY on that
+ *      flag) stop consuming them. The pure predicate mirror is exercised
+ *      over synthetic rows; the SQL wiring is pinned by source checks.
  */
 import { readFileSync } from 'node:fs';
 import {
   isValidShadowReturnPct, isValidShadowNotional, maxValidNotionalUsd,
-  shadowCloseInvalidReason, accountReplay, aggregateKalshiStats,
+  shadowCloseInvalidReason, shadowRowNeedsStatsRepair, STATS_REPAIR_REASON,
+  accountReplay, aggregateKalshiStats,
 } from '../server/services/kalshi-stock-shadow';
 
 let failures = 0;
@@ -242,6 +248,99 @@ const rows = [...sanePcts.map((p) => ({ notional: 250, pct: p })), { notional: 2
   check('G1 funding_model close stamp intact', lane.includes('funding_model=CASE WHEN $9::text IS NOT NULL THEN $9 ELSE funding_model END'));
   check('G2 costs module deadband + cap intact', costs.includes('FUNDING_DEADBAND') && costs.includes('FUNDING_CAP'));
   check('G3 exact-era accrual path intact', lane.includes('accrueFundingFromPrints({'));
+}
+
+// ── I. data repair: stamp the pre-fix poisoned rows ──────────────────────
+// The pure predicate mirrors the repair UPDATE's WHERE clause. The same
+// synthetic poison shapes the read filter rejects (sections A/H) must be
+// flagged; every sane shape must be spared.
+{
+  const P = shadowRowNeedsStatsRepair;
+  check('I1 return-side poison (production magnitude) is flagged', P({
+    status: 'closed', excludeFromStats: false, returnPct: POISON_PCT, entryPrice: 100, notionalUsd: 250,
+  }));
+  check('I2 production shape flagged on entry/notional alone (return −99.5 inside the bound)', P({
+    status: 'closed', excludeFromStats: false, returnPct: -99.5, entryPrice: 924_181_878_092_900, notionalUsd: 924_181_878_092_900,
+  }));
+  check('I3 notional-only poison is flagged (sane entry, sane return)', P({
+    status: 'closed', excludeFromStats: false, returnPct: -4, entryPrice: 100, notionalUsd: 924_181_878_092_900,
+  }));
+  check('I4 entry-ceiling-only breach is flagged (notional consistent with the entry)', P({
+    status: 'closed', excludeFromStats: false, returnPct: -50, entryPrice: 2_000_000, notionalUsd: 2_000_000,
+  }));
+  check('I5 a legit −99% close is spared', !P({
+    status: 'closed', excludeFromStats: false, returnPct: -99, entryPrice: 100, notionalUsd: 250,
+  }));
+  check('I6 a −100% close is spared (bound is inclusive, same as the read filter)', !P({
+    status: 'closed', excludeFromStats: false, returnPct: -100, entryPrice: 100, notionalUsd: 250,
+  }));
+  check('I7 high-price-but-consistent BTC-class row is spared', !P({
+    status: 'closed', excludeFromStats: false, returnPct: -4.34, entryPrice: 97_000, notionalUsd: 97_000,
+  }));
+  check('I8 ordinary row is spared', !P({
+    status: 'closed', excludeFromStats: false, returnPct: 7.88, entryPrice: 412.5, notionalUsd: 412.5,
+  }));
+  check('I9 an OPEN row is never touched, however corrupt its fields', !P({
+    status: 'open', excludeFromStats: false, returnPct: POISON_PCT, entryPrice: 924_181_878_092_900, notionalUsd: 924_181_878_092_900,
+  }));
+  check('I10 an already-excluded row is never re-stamped', !P({
+    status: 'closed', excludeFromStats: true, returnPct: POISON_PCT, entryPrice: 100, notionalUsd: 250,
+  }));
+  check('I11 NULL return + sane geometry is spared; NULL return + off-scale entry is flagged',
+    !P({ status: 'closed', excludeFromStats: false, returnPct: null, entryPrice: 412.5, notionalUsd: 412.5 })
+    && P({ status: 'closed', excludeFromStats: false, returnPct: null, entryPrice: 2_000_000, notionalUsd: 2_000_000 }));
+
+  // Idempotency, simulated exactly as the SQL behaves: a pass stamps the
+  // flagged rows (exclude_from_stats=true, reason COALESCE'd); a second
+  // pass over the stamped table must flag nothing.
+  type SimRow = { status: string; excludeFromStats: boolean; returnPct: number | null; entryPrice: number; notionalUsd: number; reason: string | null };
+  const table: SimRow[] = [
+    { status: 'closed', excludeFromStats: false, returnPct: POISON_PCT, entryPrice: 100, notionalUsd: 250, reason: null },
+    { status: 'closed', excludeFromStats: false, returnPct: -99.5, entryPrice: 924_181_878_092_900, notionalUsd: 924_181_878_092_900, reason: null },
+    { status: 'closed', excludeFromStats: false, returnPct: -4, entryPrice: 100, notionalUsd: 924_181_878_092_900, reason: null },
+    { status: 'closed', excludeFromStats: false, returnPct: -50, entryPrice: 2_000_000, notionalUsd: 2_000_000, reason: null },
+    { status: 'closed', excludeFromStats: false, returnPct: -100.24, entryPrice: 100, notionalUsd: 250, reason: 'net_return' },
+    { status: 'closed', excludeFromStats: false, returnPct: null, entryPrice: 2_000_000, notionalUsd: 2_000_000, reason: null },
+    { status: 'closed', excludeFromStats: false, returnPct: -99, entryPrice: 100, notionalUsd: 250, reason: null },
+    { status: 'closed', excludeFromStats: false, returnPct: -4.34, entryPrice: 97_000, notionalUsd: 97_000, reason: null },
+    { status: 'open', excludeFromStats: false, returnPct: POISON_PCT, entryPrice: 924_181_878_092_900, notionalUsd: 924_181_878_092_900, reason: null },
+    { status: 'closed', excludeFromStats: true, returnPct: POISON_PCT, entryPrice: 100, notionalUsd: 250, reason: 'entry_price' },
+  ];
+  const snapshot = table.map((r) => ({ ...r }));
+  const runPass = (rows: SimRow[]): number => {
+    let stamped = 0;
+    for (const r of rows) {
+      if (P(r)) { r.excludeFromStats = true; r.reason = r.reason ?? STATS_REPAIR_REASON; stamped++; }
+    }
+    return stamped;
+  };
+  const firstPass = runPass(table);
+  check('I12 first pass stamps exactly the 6 poisoned, not-yet-excluded closes', firstPass === 6, `stamped=${firstPass}`);
+  check('I13 stamping rewrites NO values (returns/entries/notionals byte-identical)',
+    table.every((r, i) => r.returnPct === snapshot[i].returnPct && r.entryPrice === snapshot[i].entryPrice && r.notionalUsd === snapshot[i].notionalUsd));
+  check('I14 a pre-existing reason is never overwritten; a bare row gets the repair reason',
+    table[4].reason === 'net_return' && table[0].reason === STATS_REPAIR_REASON);
+  check('I15 second pass stamps 0 (idempotent — the predicate is self-exhausting)', runPass(table) === 0);
+
+  const lane = readFileSync(new URL('../server/services/kalshi-stock-shadow.ts', import.meta.url), 'utf8');
+  const index = readFileSync(new URL('../server/index.ts', import.meta.url), 'utf8');
+  const m = lane.match(/export function repairKalshiPerpShadowStats[\s\S]*?\n\}/);
+  const region = m ? m[0] : '';
+  check('I16 repair is one stamp-only UPDATE (exclude + COALESCE reason, RETURNING id, warn log, no DELETE)',
+    region.includes('UPDATE kalshi_perp_shadow_trades')
+    && region.includes('SET exclude_from_stats = true')
+    && region.includes('COALESCE(stats_invalid_reason, $4)')
+    && region.includes('RETURNING id')
+    && region.includes('stats auto-repair: stamped')
+    && !region.includes('DELETE'));
+  check('I17 kill switch KALSHI_PERP_STATS_REPAIR=off, house style',
+    lane.includes("process.env.KALSHI_PERP_STATS_REPAIR !== 'off'") && region.includes('statsRepairEnabled()'));
+  check('I18 repair SQL is parameterized by the SAME helpers as the read filter',
+    region.includes('[maxValidReturnPct(), maxValidEntryUsd(), 2 * NOTIONAL(), STATS_REPAIR_REASON]'));
+  check('I19 repair ensures the shadow tables before it updates',
+    region.indexOf('ensureKalshiPerpShadowTables') >= 0 && region.indexOf('ensureKalshiPerpShadowTables') < region.indexOf('UPDATE kalshi_perp_shadow_trades'));
+  check('I20 startup hook runs the repair beside the shadow-tables ensure',
+    index.includes('m.repairKalshiPerpShadowStats()') && index.includes('kalshi perp shadow stats repair (non-fatal)'));
 }
 
 console.log(`\n${total - failures}/${total} checks passed`);
