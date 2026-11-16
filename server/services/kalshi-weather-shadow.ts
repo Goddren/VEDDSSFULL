@@ -43,6 +43,7 @@ import {
   recordKalshiPriceSnapshots, countKalshiPriceSnapshots, pruneKalshiPriceSnapshots,
   type KalshiPriceSnapshotInput,
 } from './kalshi-price-snapshots';
+import { accountReplay, accountSimEnabled, type KalshiAccountSimResult } from './kalshi-stock-shadow';
 
 export const LANE = 'kalshi_weather_shadow';
 export const STRATEGY = 'weather_ensemble';
@@ -404,6 +405,10 @@ export interface KalshiWeatherShadowReport {
     avgReturnPct: number | null; avgR: number | null; estNetPnlUsd: number;
     snapshots: number; lastOpenedAt: string | null; lastClosedAt: string | null;
   };
+  // $100-account illustration over the window's closes, replayed with the
+  // stock-perp lane's shared accountReplay. Absent when
+  // KALSHI_ACCOUNT_SIM=off (the client then hides the block).
+  accountSim?: KalshiAccountSimResult;
   byCity: Array<{ city_code: string; city_name: string; trades: number; wins: number; win_rate: number | null; avg_return_pct: number | null; est_net_pnl_usd: number }>;
   openPositions: any[];
   recentCloses: any[];
@@ -416,7 +421,8 @@ export async function getKalshiWeatherShadowReport(userId: number, days = 30): P
   await ensureKalshiWeatherShadowTables();
   const validWhere = `user_id=$1 AND status='closed' AND exclude_from_stats IS NOT TRUE
     AND return_pct IS NOT NULL AND closed_at >= now() - ($2::int * interval '1 day')`;
-  const [summaryRes, byCityRes, openRes, recentRes, statsRows, snapshots] = await Promise.all([
+  const simOn = accountSimEnabled();
+  const [summaryRes, byCityRes, openRes, recentRes, statsRows, snapshots, closesRes] = await Promise.all([
     pool.query(
       `SELECT (SELECT count(*)::int FROM kalshi_weather_shadow_trades WHERE user_id=$1 AND status='open') AS open_count,
          count(*)::int AS closed_count,
@@ -454,12 +460,30 @@ export async function getKalshiWeatherShadowReport(userId: number, days = 30): P
        WHERE c.user_id=$1 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL AND t.exclude_from_stats IS NOT TRUE
          AND c.closed_at >= now() - interval '60 days'`, [userId]),
     countKalshiPriceSnapshots(LANE, userId),
+    // Every valid close in the window, oldest first, for the $100-account
+    // replay (the recent-closes list above is capped at 10 — never reuse
+    // it). Same validWhere, so excluded rows stay excluded. Only read
+    // when the account view is on (KALSHI_ACCOUNT_SIM).
+    simOn
+      ? pool.query(
+        `SELECT return_pct::float AS return_pct
+         FROM kalshi_weather_shadow_trades
+         WHERE ${validWhere}
+         ORDER BY closed_at ASC, id ASC`, [userId, windowDays])
+      : Promise.resolve(null),
   ]);
   const s = summaryRes.rows[0] || {};
+  // $100-account replay over the window's closes in close order — the
+  // stock-perp lane's shared helper and semantics: each close moves the
+  // WHOLE running balance by that trade's net return_pct.
+  const accountSim = simOn
+    ? accountReplay((((closesRes as any)?.rows || []) as any[]).map((r: any) => Number(r.return_pct)))
+    : undefined;
   return {
     enabled: weatherEnsembleShadowEnabled(),
     strategy: STRATEGY,
     minEdgeCents: MIN_EDGE_CENTS(),
+    ...(accountSim ? { accountSim } : {}),
     summary: {
       openCount: Number(s.open_count ?? 0), closedCount: Number(s.closed_count ?? 0),
       wins: Number(s.wins ?? 0), winRate: s.win_rate == null ? null : Number(s.win_rate),

@@ -68296,7 +68296,8 @@ async function getKalshiWeatherShadowReport(userId, days = 30) {
   await ensureKalshiWeatherShadowTables();
   const validWhere = `user_id=$1 AND status='closed' AND exclude_from_stats IS NOT TRUE
     AND return_pct IS NOT NULL AND closed_at >= now() - ($2::int * interval '1 day')`;
-  const [summaryRes, byCityRes, openRes, recentRes, statsRows, snapshots] = await Promise.all([
+  const simOn = accountSimEnabled();
+  const [summaryRes, byCityRes, openRes, recentRes, statsRows, snapshots, closesRes] = await Promise.all([
     pool.query(
       `SELECT (SELECT count(*)::int FROM kalshi_weather_shadow_trades WHERE user_id=$1 AND status='open') AS open_count,
          count(*)::int AS closed_count,
@@ -68342,13 +68343,26 @@ async function getKalshiWeatherShadowReport(userId, days = 30) {
          AND c.closed_at >= now() - interval '60 days'`,
       [userId]
     ),
-    countKalshiPriceSnapshots(LANE, userId)
+    countKalshiPriceSnapshots(LANE, userId),
+    // Every valid close in the window, oldest first, for the $100-account
+    // replay (the recent-closes list above is capped at 10 — never reuse
+    // it). Same validWhere, so excluded rows stay excluded. Only read
+    // when the account view is on (KALSHI_ACCOUNT_SIM).
+    simOn ? pool.query(
+      `SELECT return_pct::float AS return_pct
+         FROM kalshi_weather_shadow_trades
+         WHERE ${validWhere}
+         ORDER BY closed_at ASC, id ASC`,
+      [userId, windowDays]
+    ) : Promise.resolve(null)
   ]);
   const s = summaryRes.rows[0] || {};
+  const accountSim = simOn ? accountReplay((closesRes?.rows || []).map((r) => Number(r.return_pct))) : void 0;
   return {
     enabled: weatherEnsembleShadowEnabled(),
     strategy: STRATEGY,
     minEdgeCents: MIN_EDGE_CENTS(),
+    ...accountSim ? { accountSim } : {},
     summary: {
       openCount: Number(s.open_count ?? 0),
       closedCount: Number(s.closed_count ?? 0),
@@ -68419,6 +68433,7 @@ var init_kalshi_weather_shadow = __esm({
     init_kalshi_weather();
     init_kalshi();
     init_kalshi_price_snapshots();
+    init_kalshi_stock_shadow();
     LANE = "kalshi_weather_shadow";
     STRATEGY = "weather_ensemble";
     weatherEnsembleShadowEnabled = () => process.env.KALSHI_WEATHER_ENSEMBLE !== "off";
@@ -68986,7 +69001,8 @@ async function getKalshiSportsShadowReport(userId, days = 30) {
   await ensureKalshiSportsShadowTables();
   const validWhere = `user_id=$1 AND status='closed' AND exclude_from_stats IS NOT TRUE
     AND return_pct IS NOT NULL AND closed_at >= now() - ($2::int * interval '1 day')`;
-  const [summaryRes, byLeagueRes, openRes, recentRes, statsRows, snapshots, obsRes] = await Promise.all([
+  const simOn = accountSimEnabled();
+  const [summaryRes, byLeagueRes, openRes, recentRes, statsRows, snapshots, obsRes, closesRes] = await Promise.all([
     pool.query(
       `SELECT (SELECT count(*)::int FROM kalshi_sports_shadow_trades WHERE user_id=$1 AND status='open') AS open_count,
          count(*)::int AS closed_count,
@@ -69032,9 +69048,21 @@ async function getKalshiSportsShadowReport(userId, days = 30) {
       [userId]
     ),
     countKalshiPriceSnapshots(LANE2, userId),
-    pool.query(`SELECT count(*)::int AS n FROM kalshi_sports_shadow_observations WHERE user_id=$1`, [userId]).catch(() => ({ rows: [{ n: 0 }] }))
+    pool.query(`SELECT count(*)::int AS n FROM kalshi_sports_shadow_observations WHERE user_id=$1`, [userId]).catch(() => ({ rows: [{ n: 0 }] })),
+    // Every valid close in the window, oldest first, for the $100-account
+    // replay (the recent-closes list above is capped at 10 — never reuse
+    // it). Same validWhere, so excluded rows stay excluded. Only read
+    // when the account view is on (KALSHI_ACCOUNT_SIM).
+    simOn ? pool.query(
+      `SELECT return_pct::float AS return_pct
+         FROM kalshi_sports_shadow_trades
+         WHERE ${validWhere}
+         ORDER BY closed_at ASC, id ASC`,
+      [userId, windowDays]
+    ) : Promise.resolve(null)
   ]);
   const s = summaryRes.rows[0] || {};
+  const accountSim = simOn ? accountReplay((closesRes?.rows || []).map((r) => Number(r.return_pct))) : void 0;
   return {
     enabled: sportsOddsShadowEnabled(),
     strategy: STRATEGY2,
@@ -69044,6 +69072,7 @@ async function getKalshiSportsShadowReport(userId, days = 30) {
       oddsApiKeyConfigured: !!process.env.ODDS_API_KEY,
       activeSource: configuredOddsSource()
     },
+    ...accountSim ? { accountSim } : {},
     summary: {
       openCount: Number(s.open_count ?? 0),
       closedCount: Number(s.closed_count ?? 0),
@@ -69117,6 +69146,7 @@ var init_kalshi_sports_shadow = __esm({
     init_ensure_kalshi_sports_shadow_tables();
     init_kalshi();
     init_kalshi_price_snapshots();
+    init_kalshi_stock_shadow();
     LANE2 = "kalshi_sports_shadow";
     STRATEGY2 = "sports_odds_benchmark";
     sportsOddsShadowEnabled = () => process.env.KALSHI_SPORTS_ODDS !== "off";
@@ -81726,9 +81756,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "38975cb7-dirty";
+var BUILD_COMMIT = "47007e05-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-15T22:28:32.176Z";
+var BUILT_AT = "2026-11-16T01:25:45.712Z";
 
 // server/stripe.ts
 init_db();
