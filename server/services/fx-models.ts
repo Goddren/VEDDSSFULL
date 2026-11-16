@@ -98,6 +98,7 @@
 
 import { pool } from '../db';
 import { getPipSize } from '../utils/pipUtils';
+import { canonicalIndexSymbol } from '../utils/symbolAliases';
 import { marketDataService } from '../market-data/service';
 import { getCachedMatrix, getMarkovSnapshot } from './markov-chain';
 import { fxModelsLessonGateOn, logShadowLessonBlock, promotionBarLoser } from './shadow-lesson-gate';
@@ -369,7 +370,11 @@ export const liftsActive = (): boolean => modelsEnrichOn() && modelsLiftsOn();
  */
 export function isExcludedPair(model: string, symbol: string, engine: ModelEngine = 'fx'): boolean {
   if (engine !== 'fx' || !symbol) return false;
-  const sym = String(symbol).toUpperCase();
+  // Canonicalised (SP500/SPX500 → US500, WS30 → US30…): the exclusion
+  // lists are written in canonical names, so a pair configured under a
+  // broker alias must hit the same entry — otherwise the S&P (and any
+  // aliased index) silently escaped the mechanics US30/NAS100 live under.
+  const sym = canonicalIndexSymbol(String(symbol).toUpperCase());
   if (model === 'M1') return M1_PAIRS_EXCLUDED.includes(sym);
   if (model === 'M2') return M2_PAIRS_EXCLUDED.includes(sym);
   return false;
@@ -833,7 +838,12 @@ function num(x: any): number | null { const n = Number(x); return Number.isFinit
 //     close back inside) — the stop goes beyond the sweep wick
 //   • first target the range middle; R:R to the middle at least 1.0
 //   • no fades against a trending H4, no M1 on pairs that rarely range
-const M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || 'GBPJPY,XAUUSD,BTCUSD,US30,NAS100').split(',').map((x) => x.trim().toUpperCase()).filter(Boolean);
+// US500 (the S&P 500, incl. its SP500/SPX500 aliases) sits alongside
+// US30/NAS100: same mechanics — membership is provenance-only while the
+// lifts are on (the default), and the same M1 veto if lifts are turned
+// off. Before this it was absent entirely, so the S&P was the one index
+// the exclusion mechanics never touched under any setting.
+const M1_PAIRS_EXCLUDED = (process.env.FX_M1_EXCLUDED_PAIRS || 'GBPJPY,XAUUSD,BTCUSD,US30,NAS100,US500').split(',').map((x) => canonicalIndexSymbol(x.trim().toUpperCase())).filter(Boolean);
 const rangeCache = new Map<string, { at: number; data: any }>();
 
 /**
@@ -915,7 +925,7 @@ export async function rangeFeatures(symbol: string, engine: ModelEngine = 'fx'):
 //   • no entries with M15 ADX ≥ 30 — the trend is already stretched (−48R)
 //   • target at least 3R from the live price (<2R −51R, ≥3R +34R)
 //   • not on pairs that bleed under this model (USDJPY −30R)
-const M2_PAIRS_EXCLUDED = (process.env.FX_M2_EXCLUDED_PAIRS || 'USDJPY').split(',').map((x) => x.trim().toUpperCase()).filter(Boolean);
+const M2_PAIRS_EXCLUDED = (process.env.FX_M2_EXCLUDED_PAIRS || 'USDJPY').split(',').map((x) => canonicalIndexSymbol(x.trim().toUpperCase())).filter(Boolean);
 const M2_SESSIONS = (process.env.FX_M2_SESSIONS || 'London,London/NY overlap').split(',').map((x) => x.trim()).filter(Boolean);
 const M2_MAX_ADX = Number(process.env.FX_M2_MAX_ADX) || 30;
 const M2_MIN_RR = Number(process.env.FX_M2_MIN_RR) || 3;
@@ -930,7 +940,7 @@ export function m2Reject(symbol: string, dir: string, entry: number, sl: number,
   // sessions record shadow trades instead of vetoes. All other Model 2
   // rules (premium/discount, ADX, 3R target) still apply everywhere.
   // FX_MODELS_LIFTS=off (or FX_MODELS_ENRICH=off) restores both vetoes.
-  if (M2_PAIRS_EXCLUDED.includes(symbol) && !liftsActive()) return `${symbol} excluded from trend model`;
+  if (isExcludedPair('M2', symbol, engine) && !liftsActive()) return `${symbol} excluded from trend model`;
   if (!M2_SESSIONS.includes(session) && !liftsActive()) return `${session} session (Model 2 trades ${M2_SESSIONS.join(' / ')} only)`;
   const pd = ctx?.h1?.pd;
   if (dir === 'BUY' && pd === 'PREMIUM') return 'BUY at H1 premium';
@@ -949,7 +959,7 @@ export function m1Reject(symbol: string, dir: string, entry: number, sl: number,
   // Lifts (Nov 12, 2026): the pair check is lifted for the enriched
   // models; every other Model 1 rule below still applies to those pairs.
   // FX_MODELS_LIFTS=off (or FX_MODELS_ENRICH=off) restores this veto.
-  if (engine === 'fx' && M1_PAIRS_EXCLUDED.includes(symbol) && !liftsActive()) return `${symbol} excluded from range model`;
+  if (isExcludedPair('M1', symbol, engine) && !liftsActive()) return `${symbol} excluded from range model`;
   if (!r) return 'range data unavailable';
   if (!r.qualifies) return `no qualified range (touches ${r.touchesHigh}/${r.touchesLow}, BB width pct ${r.bbWidthPercentile})`;
   const atTop = r.positionInRangePct >= 75, atBottom = r.positionInRangePct <= 25;
@@ -988,7 +998,7 @@ export function m1Candidate(symbol: string, ctx: any, engine: ModelEngine = 'fx'
   if (!r?.qualifies) return null;
   // Formerly excluded pairs get server-checked candidates too under the
   // lifts — otherwise the release would never produce an M1 record.
-  if (engine === 'fx' && M1_PAIRS_EXCLUDED.includes(symbol) && !liftsActive()) return null;
+  if (isExcludedPair('M1', symbol, engine) && !liftsActive()) return null;
   const atTop = r.positionInRangePct >= 75, atBottom = r.positionInRangePct <= 25;
   if (!atTop && !atBottom) return null;
   const direction = atTop ? 'SELL' : 'BUY';
