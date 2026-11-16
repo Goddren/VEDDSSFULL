@@ -604,8 +604,23 @@ async function processLiveEntries(
   const realizedToday = Number(pnlRows[0]?.realized) || 0;
   const { rows: openRows } = await pool.query(
     `SELECT * FROM kalshi_perp_live_trades WHERE user_id=$1 AND status IN ('open','closing','pending_entry')`, [userId]);
-  if (anchor > 0 && realizedToday <= -(DAILY_LOSS_PCT() / 100) * anchor) {
-    return block(`daily-loss halt: realized ${realizedToday.toFixed(2)} today vs −${DAILY_LOSS_PCT()}% of the day's opening equity $${anchor.toFixed(2)}`);
+  // Floating P&L on the lane's open positions, marked the way the panel
+  // marks them (long at the bid, short at the ask — the exit side). The
+  // halt reads realized + floating, as documented in the header; a trade
+  // whose touch is unreadable contributes 0 rather than a guessed number.
+  let floatingToday = 0;
+  for (const t of openRows as any[]) {
+    if ((t.status !== 'open' && t.status !== 'closing') || t.entry_price == null) continue;
+    const entry = Number(t.entry_price);
+    const contracts = Number(t.contracts);
+    if (!(entry > 0) || !(contracts > 0)) continue;
+    const touch = await getPerpTouch(String(t.ticker)).catch(() => null);
+    if (!touch) continue;
+    const mark = t.direction === 'short' ? touch.ask : touch.bid;
+    floatingToday += (t.direction === 'short' ? entry - mark : mark - entry) * contracts;
+  }
+  if (anchor > 0 && realizedToday + floatingToday <= -(DAILY_LOSS_PCT() / 100) * anchor) {
+    return block(`daily-loss halt: realized ${realizedToday.toFixed(2)} + floating ${floatingToday.toFixed(2)} today vs −${DAILY_LOSS_PCT()}% of the day's opening equity $${anchor.toFixed(2)}`);
   }
   // Gate 6 — armed strategies (fresh read; unreadable = none armed).
   const armed = await getArmedPerpStrategies(userId);
@@ -725,10 +740,12 @@ export async function runKalshiPerpLiveCycle(userId: number): Promise<void> {
   });
   if (state.consecutiveApiErrors > errorsBefore) apiFailed = true;
 
-  // Error-storm accounting: a cycle with authenticated-API failures counts;
-  // a clean cycle resets. ≥3 in a row → entries auto-pause 30 minutes.
+  // Error-storm accounting: a cycle with authenticated-API failures counts
+  // ONCE (gates 4/5 already incremented the counter when they failed, and
+  // the comparison above flagged the cycle) — a clean cycle resets. ≥3 in
+  // a row → entries auto-pause 30 minutes.
   if (apiFailed) {
-    state.consecutiveApiErrors++;
+    if (state.consecutiveApiErrors === errorsBefore) state.consecutiveApiErrors++;
     if (state.consecutiveApiErrors >= ERROR_STORM_LIMIT && state.pausedUntilMs <= Date.now()) {
       state.pausedUntilMs = Date.now() + ERROR_PAUSE_MS;
       state.pauseReason = `Kalshi API error storm (${state.consecutiveApiErrors} consecutive failed cycles)`;
