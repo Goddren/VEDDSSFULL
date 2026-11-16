@@ -1,6 +1,7 @@
 import AmbassadorAgentPage from '@/pages/ambassador-agent';
 import { ExplainerCarousel } from '@/components/content-studio/explainer-carousel';
 import { ExplainerMaker, useContentJob } from '@/components/content-studio/explainer-maker';
+import ClipperMaker from '@/components/content-studio/clipper-maker';
 import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
@@ -1213,9 +1214,9 @@ export default function ContentStudioPage() {
   const referralCode: string | null = referralData?.code ?? null;
 
   const search = useSearch();
-  const [view, setView] = useState<'today' | 'studio' | 'reels' | 'ai-video' | 'ai-reel' | 'slide-carousel' | 'saved'>(() => {
+  const [view, setView] = useState<'today' | 'studio' | 'reels' | 'ai-video' | 'ai-reel' | 'slide-carousel' | 'clipper' | 'saved'>(() => {
     const v = new URLSearchParams(search).get('view');
-    return v === 'studio' || v === 'reels' || v === 'ai-video' || v === 'ai-reel' || v === 'slide-carousel' || v === 'saved' ? v : 'today';
+    return v === 'studio' || v === 'reels' || v === 'ai-video' || v === 'ai-reel' || v === 'slide-carousel' || v === 'clipper' || v === 'saved' ? v : 'today';
   });
   // Deep-link support: re-check the query string on every navigation (not
   // just first mount) so tapping a nav tile while already on this page
@@ -1223,7 +1224,7 @@ export default function ContentStudioPage() {
   // query-only navigation.
   useEffect(() => {
     const v = new URLSearchParams(search).get('view');
-    if (v === 'today' || v === 'studio' || v === 'reels' || v === 'ai-video' || v === 'ai-reel' || v === 'slide-carousel' || v === 'saved') setView(v);
+    if (v === 'today' || v === 'studio' || v === 'reels' || v === 'ai-video' || v === 'ai-reel' || v === 'slide-carousel' || v === 'clipper' || v === 'saved') setView(v);
   }, [search]);
   const [videoPrompt, setVideoPrompt] = useState('');
   const [videoDuration, setVideoDuration] = useState(5);
@@ -1588,6 +1589,16 @@ export default function ContentStudioPage() {
           >
             📑 Slide Carousel
           </button>
+          <button onClick={() => setView('clipper')}
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all"
+            style={{
+              background: view === 'clipper' ? 'rgba(244,114,182,.12)' : 'rgba(255,255,255,.04)',
+              border: `1px solid ${view === 'clipper' ? 'rgba(244,114,182,.4)' : 'rgba(255,255,255,.08)'}`,
+              color: view === 'clipper' ? '#f472b6' : '#9ca3af',
+            }}
+          >
+            ✂️ AI Clipper
+          </button>
           <button onClick={() => setView('saved')}
             className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all"
             style={{
@@ -1602,6 +1613,13 @@ export default function ContentStudioPage() {
 
         {/* ── Saved Content Library ── */}
         {view === 'saved' && <SavedContentLibrary />}
+
+        {/* ── AI Clipper: paste a link → captioned viral clips ── */}
+        {view === 'clipper' && (
+          <div className="max-w-3xl mx-auto">
+            <ClipperMaker />
+          </div>
+        )}
 
         {/* Today: the day's 44-day lesson as posts + videos + article (ambassador-agent.tsx) */}
         {view === 'today' && (
