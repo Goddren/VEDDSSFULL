@@ -653,7 +653,12 @@ async function monitorLiveExits(userId: number, actions: Array<{ ticker: string;
         }
       } else if (res.kind === 'rejected') {
         console.error(`[kalshi-perp-live] exit order rejected for trade ${t.id} (${why}): ${res.code} ${res.message} — will retry next cycle`);
-      } else {
+      } else if (res.kind === 'unfilled') {
+        // IOC exit simply didn't fill (price moved through the limit).
+        // The position stays 'closing'; the order row is terminal, so the
+        // next cycle retries with a fresh intent — no double-fire risk.
+        console.error(`[kalshi-perp-live] exit order for trade ${t.id} (${why}) did not fill (IOC) — will retry next cycle`);
+      } else if (res.kind === 'blocked') {
         console.error(`[kalshi-perp-live] exit order for trade ${t.id} (${why}) blocked: ${res.why}`);
       }
     } catch (e: any) {
@@ -794,7 +799,7 @@ async function processLiveEntries(
       await pool.query(`UPDATE kalshi_perp_live_trades SET status='rejected', closed_at=now(), exit_reason=$2 WHERE id=$1`,
         [liveId, `entry rejected: ${res.code} ${res.message}`.slice(0, 300)]);
       block(`${strategy}/${s.ticker} entry rejected by Kalshi: ${res.code} ${res.message}`);
-    } else {
+    } else if (res.kind === 'blocked') {
       // Blocked = the order may exist on Kalshi. Count the in-flight row
       // against this cycle's caps/uniqueness so no second candidate for
       // the same strategy+underlying can fire behind it.
@@ -898,7 +903,10 @@ export async function getKalshiPerpLiveReport(userId: number): Promise<KalshiPer
   }
   const armed = await getArmedPerpStrategies(userId).catch(() => new Set<string>());
   const closesByStrategy = await loadShadowClosesByStrategy(userId).catch(() => new Map<string, PerpPromotionCloses[]>());
-  const strategies = Array.from(new Set([...armed, ...closesByStrategy.keys()])).sort().map((strategy) => ({
+  const strategyNames = new Set<string>();
+  armed.forEach((s) => strategyNames.add(s));
+  closesByStrategy.forEach((_v, k) => strategyNames.add(k));
+  const strategies = Array.from(strategyNames).sort().map((strategy) => ({
     strategy,
     armed: armed.has(strategy),
     bar: evaluatePerpPromotionBar(closesByStrategy.get(strategy) ?? []),
