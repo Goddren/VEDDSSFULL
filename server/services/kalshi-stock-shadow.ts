@@ -134,6 +134,50 @@ const SL_HI = () => num('KALSHI_STOCK_SHADOW_SL_MAX_PCT', 4);
 const ATR_MULT = () => num('KALSHI_STOCK_SHADOW_SL_ATR_MULT', 1.5);
 const RR = () => num('KALSHI_STOCK_SHADOW_RR', 2);
 
+// ── stats validity (2026-11-16 stats blow-up fix) ──────────────────────────
+// A close in this lane resolves through the resolver's own candle walk:
+// stops sit at slPct ∈ [0.8%, 4%], targets at 2R (≤ +8%), fills price at
+// the touch or the candle open. A REAL resolved trade therefore cannot
+// post |return_pct| anywhere near 100 — a long cannot lose more than its
+// notional, and a >100% gain would have crossed the 2R target in the same
+// walk first. Values beyond ±100% (or non-finite) can only come from
+// corrupt price inputs: an off-scale candle/touch print, a near-zero
+// entry quote passing the bid>0 guard, a funding print read in the wrong
+// unit. Before this fix a single such row poisoned every headline stat —
+// the panel's sum(notional × return_pct / 100), the bucket medians, and
+// the $100 replay's whole-balance compounding — while the count-based
+// stats (trades, wins, win rate) stayed sane: production showed a
+// −$9.24e14 "net result" next to a perfectly ordinary 359-trade count.
+// Validity is therefore enforced at write time (closeTrade stamps the
+// row excluded + stats_invalid_reason), at read time (the report and
+// bucket-stat queries carry the same bound), and inside the pure
+// aggregators — and invalid closes are counted and surfaced in the
+// panel payload, never silently dropped.
+export const maxValidReturnPct = () => num('KALSHI_STOCK_SHADOW_MAX_VALID_RETURN_PCT', 100);
+export function isValidShadowReturnPct(v: unknown): boolean {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) && Math.abs(n) <= maxValidReturnPct();
+}
+
+/** Why a computed close is not usable evidence, or null when it is.
+ *  Pure — exercised directly by scripts/check-kalshi-perp-stats-fix.ts. */
+export function shadowCloseInvalidReason(parts: {
+  entryPrice: unknown; exitPrice: unknown;
+  grossPct: number | null; fundingPct: number | null; netPct: number | null;
+}): string | null {
+  const entry = Number(parts.entryPrice);
+  if (!Number.isFinite(entry) || entry <= 0) return 'entry_price';
+  if (parts.exitPrice != null) {
+    const exit = Number(parts.exitPrice);
+    if (!Number.isFinite(exit) || exit <= 0) return 'exit_price';
+  }
+  const bound = maxValidReturnPct();
+  if (parts.grossPct != null && (!Number.isFinite(parts.grossPct) || Math.abs(parts.grossPct) > bound)) return 'gross_return';
+  if (parts.fundingPct != null && (!Number.isFinite(parts.fundingPct) || Math.abs(parts.fundingPct) > bound)) return 'funding';
+  if (parts.netPct != null && (!Number.isFinite(parts.netPct) || Math.abs(parts.netPct) > bound)) return 'net_return';
+  return null;
+}
+
 const CRYPTO_PORTS = ['breakout', 'trend_following', 'structure', 'divergence', 'order_flow', 'volume_profile'] as const;
 const OPTIONS_PORTS = ['orb', 'volume_profile', 'breakout', 'momentum', 'order_flow'] as const;
 
@@ -202,7 +246,7 @@ function quantile(s: number[], q: number) { if (!s.length) return 0; const p = (
 export function aggregateKalshiStats(rows: any[]): KalshiBucketStat[] {
   const g = new Map<string, number[]>();
   for (const r of rows) {
-    const v = Number(r.net_pct); if (!Number.isFinite(v)) continue;
+    const v = Number(r.net_pct); if (!isValidShadowReturnPct(v)) continue;
     for (const [dim, bucket] of Object.entries({ ...kalshiBucketsOf(r), all: 'all' })) {
       const k = `${r.strategy}|${dim}|${bucket}`; (g.get(k) ?? g.set(k, []).get(k)!).push(v);
     }
@@ -359,12 +403,22 @@ export interface KalshiAccountSimResult {
  * positions at once at a fixed ~$250 notional, while this replay applies
  * each result to the full balance sequentially — that is the honest,
  * easy-to-read version of "what would these results have done to $100".
+ *
+ * maxValidPct (optional): closes with |pct| beyond the bound are skipped
+ * as corrupt. The stock-perp lane passes its ±100 bound — whole-balance
+ * compounding is exactly where one poisoned row did the most damage (a
+ * pct ≤ −100 would zero/invert the balance and flip the sign of every
+ * later trade). The weather/sports lanes share this helper WITHOUT the
+ * bound on purpose: their binary-contract closes legitimately exceed
+ * +100% (a 10¢ YES that settles YES is +900%).
  */
 export function accountReplay(
   closes: Array<number | { return_pct: number }>,
   startBalance = 100,
+  maxValidPct?: number,
 ): KalshiAccountSimResult {
   const start = Number.isFinite(startBalance) && startBalance > 0 ? startBalance : 100;
+  const bound = maxValidPct != null && Number.isFinite(maxValidPct) && maxValidPct > 0 ? maxValidPct : null;
   let balance = start;
   let peak = start;
   let maxDrawdownPct = 0;
@@ -374,6 +428,7 @@ export function accountReplay(
   for (const close of closes) {
     const pct = typeof close === 'number' ? close : Number((close as { return_pct: number })?.return_pct);
     if (!Number.isFinite(pct)) continue;
+    if (bound != null && Math.abs(pct) > bound) continue;
     balance += (balance * pct) / 100;
     trades++;
     if (balance > peak) peak = balance;
@@ -537,7 +592,7 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
   // strategy, not a split of one account).
   const windowCloses: Array<{ strategy: string; return_pct: number }> =
     ((closesRes as any)?.rows || []).map((r: any) => ({ strategy: String(r.strategy), return_pct: Number(r.return_pct) }));
-  const accountSim = simOn ? accountReplay(windowCloses) : undefined;
+  const accountSim = simOn ? accountReplay(windowCloses, 100, maxValidReturnPct()) : undefined;
   const perStrategySim = new Map<string, KalshiAccountSimResult>();
   if (simOn) {
     const grouped = new Map<string, Array<{ return_pct: number }>>();
@@ -546,7 +601,7 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
       list.push({ return_pct: c.return_pct });
       grouped.set(c.strategy, list);
     }
-    grouped.forEach((list, strategy) => perStrategySim.set(strategy, accountReplay(list)));
+    grouped.forEach((list, strategy) => perStrategySim.set(strategy, accountReplay(list, 100, maxValidReturnPct())));
   }
 
   // Perp-brain audit summary for the panel: what the brain stopped in this

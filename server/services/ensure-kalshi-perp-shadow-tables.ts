@@ -55,6 +55,13 @@ export function ensureKalshiPerpShadowTables(): Promise<void> {
       // funding_accrued_usd alone.
       .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_model text NOT NULL DEFAULT 'legacy'`))
       .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_estimate_usd double precision NOT NULL DEFAULT 0`))
+      // Stats blow-up fix (2026-11-16): closes whose computed values are
+      // physically impossible for this lane (|return_pct| beyond the
+      // ±100 bound — corrupt price inputs) are stamped excluded with the
+      // reason here ('entry_price' | 'exit_price' | 'gross_return' |
+      // 'funding' | 'net_return'), so the quarantine is auditable row by
+      // row instead of a silent drop. NULL on every valid close.
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS stats_invalid_reason text`))
       .then(() => undefined)
       .catch((e) => { _ensured = null; throw e; });
   }
