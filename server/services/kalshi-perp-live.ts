@@ -457,7 +457,62 @@ async function reconcileLivePositions(userId: number, state: PerpLiveState): Pro
         }
         continue;
       }
-      continue; // pending with a terminal order state is handled by the entry path / panel
+      // Terminal order states: the entry path never revisits this row, so
+      // reconciliation resolves it here. (A crash can strand a pending row
+      // between the order-row update inside the send and the trade-row
+      // update that follows it — without this, a filled entry would leave
+      // a real position unmonitored and misreported as "unknown".)
+      if (ord && (ord.status === 'filled' || ord.status === 'partial' || ord.status === 'reconciled') && Number(ord.fill_count ?? 0) > 0) {
+        if (pos) {
+          // Our order DID open this position — provably ours (the order
+          // row is keyed to this trade). Adopt it.
+          const fillPrice = ord.avg_fill_price != null ? Number(ord.avg_fill_price) : (pos.entryPrice ?? Number(ord.price));
+          const levels = exitLevelsFor(String(t.direction), fillPrice, Number(t.sl_pct));
+          await pool.query(
+            `UPDATE kalshi_perp_live_trades SET status='open', contracts=$2, entry_price=$3, stop_loss=$4, take_profit=$5,
+               notional_usd=$6, entry_order_id=$7, opened_at=COALESCE(opened_at, now()), last_reconciled_at=now(),
+               notes=COALESCE(notes,'') || ' entry adopted from terminal order state;' WHERE id=$1`,
+            [t.id, Math.abs(pos.contracts), fillPrice, levels.stop, levels.target, Math.abs(pos.contracts) * fillPrice, ord.order_id != null ? String(ord.order_id) : null]);
+          claimed.add(String(t.ticker));
+        } else {
+          // Filled, but Kalshi shows no position: it opened and closed
+          // between cycles. Journal the close at the real exit fill when
+          // one is findable; never invent a price.
+          const fillPrice = ord.avg_fill_price != null ? Number(ord.avg_fill_price) : Number(ord.price);
+          await pool.query(
+            `UPDATE kalshi_perp_live_trades SET status='open', contracts=$2, entry_price=$3, opened_at=COALESCE(opened_at, $4), entry_order_id=$5 WHERE id=$1`,
+            [t.id, Number(ord.fill_count), fillPrice, ord.created_at, ord.order_id != null ? String(ord.order_id) : null]);
+          const fills = await getKalshiMarginFills(userId, String(t.ticker)).catch(() => [] as any[]);
+          const ordMs = new Date(ord.created_at).getTime();
+          const exitSide = t.direction === 'short' ? 'bid' : 'ask';
+          const closeFill = fills
+            .filter((f: any) => String(f.side ?? '') === exitSide)
+            .map((f: any) => ({ px: Number(f.price ?? f.fill_price ?? NaN), ts: new Date(f.created_time ?? f.ts ?? f.created_at ?? 0).getTime() }))
+            .filter((f: any) => Number.isFinite(f.px) && f.px > 0 && f.ts >= ordMs)
+            .sort((a: any, b: any) => b.ts - a.ts)[0];
+          await closeLiveTrade(userId, { ...t, contracts: Number(ord.fill_count), entry_price: fillPrice }, closeFill?.px ?? null, 'reconciled_closed', null);
+        }
+        continue;
+      }
+      if (ord && (ord.status === 'canceled' || ord.status === 'not_placed')) {
+        await pool.query(`UPDATE kalshi_perp_live_trades SET status='unfilled', closed_at=now(), exit_reason='entry never landed (terminal order state)', last_reconciled_at=now() WHERE id=$1`, [t.id]);
+        continue;
+      }
+      if (ord && ord.status === 'rejected') {
+        await pool.query(`UPDATE kalshi_perp_live_trades SET status='rejected', closed_at=now(), exit_reason=$2, last_reconciled_at=now() WHERE id=$1`,
+          [t.id, `entry rejected: ${String(ord.error ?? '')}`.slice(0, 300)]);
+        continue;
+      }
+      if (!ord && !pos) {
+        // No order row at all: the process died between inserting this
+        // trade row and persisting the intent. Declare it lost only once
+        // it is old enough that no in-flight send can still be running.
+        const ageMs = Date.now() - new Date(t.created_at).getTime();
+        if (ageMs > 2 * 60_000) {
+          await pool.query(`UPDATE kalshi_perp_live_trades SET status='unfilled', closed_at=now(), exit_reason='entry intent lost before send (recovered in reconciliation)', last_reconciled_at=now() WHERE id=$1`, [t.id]);
+        }
+      }
+      continue;
     }
     // open / closing rows
     if (!pos) {
@@ -528,22 +583,40 @@ async function monitorLiveExits(userId: number, actions: Array<{ ticker: string;
       }
       if (!why) continue;
 
-      const touch = await getPerpTouch(String(t.ticker)).catch(() => null);
-      if (!touch) { console.error(`[kalshi-perp-live] exit ${why} for trade ${t.id} deferred — no live touch for ${t.ticker}`); continue; }
-      const short = t.direction === 'short';
-      const slip = EXIT_SLIPPAGE_PCT() / 100;
-      const side: 'bid' | 'ask' = short ? 'bid' : 'ask';
-      const price = short ? touch.ask * (1 + slip) : touch.bid * (1 - slip);
-      const attempt = await pool.query(
-        `SELECT count(*)::int AS n FROM kalshi_perp_live_orders WHERE live_trade_id=$1 AND kind='exit'`, [t.id]);
-      const clientOrderId = `vedd-perp-x${t.id}-${Number(attempt.rows[0]?.n ?? 0) + 1}`;
       if (t.status !== 'closing') {
         await pool.query(`UPDATE kalshi_perp_live_trades SET status='closing' WHERE id=$1 AND status='open'`, [t.id]).catch(() => {});
       }
-      const res = await sendMarginOrderIntent(userId, {
-        liveTradeId: Number(t.id), kind: 'exit', clientOrderId, ticker: String(t.ticker),
-        side, count: Number(t.contracts), price, reduceOnly: true,
-      });
+      // An earlier exit intent that is still unresolved on Kalshi
+      // ('sending' after a crash, or 'ambiguous') is reconciled FIRST by
+      // re-driving its own client_order_id — minting a second intent for
+      // the same exit could double-fire if the first one actually landed.
+      const { rows: priorExits } = await pool.query(
+        `SELECT * FROM kalshi_perp_live_orders WHERE live_trade_id=$1 AND kind='exit' ORDER BY id DESC LIMIT 1`, [t.id]);
+      const prior = priorExits[0];
+      let price: number;
+      let res: SendResult;
+      if (prior && (prior.status === 'sending' || prior.status === 'ambiguous')) {
+        price = Number(prior.price);
+        res = await sendMarginOrderIntent(userId, {
+          liveTradeId: Number(t.id), kind: 'exit', clientOrderId: String(prior.client_order_id),
+          ticker: String(t.ticker), side: prior.side === 'ask' ? 'ask' : 'bid',
+          count: Number(prior.count), price, reduceOnly: true,
+        });
+      } else {
+        const touch = await getPerpTouch(String(t.ticker)).catch(() => null);
+        if (!touch) { console.error(`[kalshi-perp-live] exit ${why} for trade ${t.id} deferred — no live touch for ${t.ticker}`); continue; }
+        const short = t.direction === 'short';
+        const slip = EXIT_SLIPPAGE_PCT() / 100;
+        const side: 'bid' | 'ask' = short ? 'bid' : 'ask';
+        price = short ? touch.ask * (1 + slip) : touch.bid * (1 - slip);
+        const attempt = await pool.query(
+          `SELECT count(*)::int AS n FROM kalshi_perp_live_orders WHERE live_trade_id=$1 AND kind='exit'`, [t.id]);
+        const clientOrderId = `vedd-perp-x${t.id}-${Number(attempt.rows[0]?.n ?? 0) + 1}`;
+        res = await sendMarginOrderIntent(userId, {
+          liveTradeId: Number(t.id), kind: 'exit', clientOrderId, ticker: String(t.ticker),
+          side, count: Number(t.contracts), price, reduceOnly: true,
+        });
+      }
       if (res.kind === 'filled') {
         const funding = await fundingHistoryUsd(userId, String(t.ticker), openedMs, Date.now());
         await closeLiveTrade(userId, t, res.avgFillPrice ?? price, why, funding);
