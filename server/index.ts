@@ -1659,6 +1659,15 @@ async function withRetry<T>(
     const { startKalshiStockShadow } = await import('./services/kalshi-stock-shadow');
     startKalshiStockShadow();
 
+    // Kalshi stock-perp LIVE lane — mirrors ARMED, promotion-bar-proven
+    // shadow strategies into real perp orders on the owner's Kalshi margin
+    // account. Every entry re-verifies arm + bar + /margin/enabled each
+    // cycle and fails closed; exits + reconciliation run even with the
+    // kill switch off so real positions are never stranded.
+    // Kill switch: KALSHI_PERP_LIVE=off (entries only).
+    const { startKalshiPerpLive } = await import('./services/kalshi-perp-live');
+    startKalshiPerpLive();
+
     // Kalshi WEATHER ensemble SHADOW lane — virtual KXHIGH positions from
     // the GFS+ECMWF ensemble model vs public Kalshi prices, with a price-
     // snapshot recorder. No credentials, no orders; kill switch

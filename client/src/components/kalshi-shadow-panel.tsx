@@ -234,6 +234,200 @@ function strategyTakeaway(stats: KalshiShadowStrategyStat[]): string | null {
   return `Strongest so far: ${strategyLabel(best.strategy)} (${fmtMoney(best.estNetPnlUsd, { signed: true })} net). Weakest: ${strategyLabel(worst.strategy)} (${fmtMoney(worst.estNetPnlUsd, { signed: true })} net).`;
 }
 
+// ── LIVE lane section ─────────────────────────────────────────────────────
+// Reads /api/kalshi-stock-perp-live — the live lane's own records (armed
+// strategies + promotion-bar status, reconciled live positions, unknown
+// positions, today's live P&L, halt/pause state). Nothing here is derived
+// from the shadow numbers above; if the live report is unavailable the
+// section says so instead of guessing.
+interface KalshiPerpLiveBar {
+  met: boolean;
+  trades: number;
+  avgR: number | null;
+  winRate: number | null;
+  losingWeeks: string[];
+  maxDrawdownPct: number;
+  reasons: string[];
+}
+
+interface KalshiPerpLiveReport {
+  enabled: boolean;
+  host: "prod" | "demo";
+  hasCredentials: boolean;
+  marginEnabled: boolean | null;
+  paused: { active: boolean; reason: string | null; until: string | null };
+  lastBlockReason: string | null;
+  lastCycleAt: string | null;
+  dayAnchorEquityUsd: number | null;
+  todayRealizedPnlUsd: number;
+  todayOrders: number;
+  caps: { maxOpen: number; maxPerStrategy: number; maxOrdersPerDay: number; notionalUsd: number; dailyLossPct: number };
+  strategies: Array<{ strategy: string; armed: boolean; bar: KalshiPerpLiveBar }>;
+  openPositions: Array<{
+    id: number; strategy: string; ticker: string; underlying: string; direction: string; status: string;
+    contracts: number; entry_price: number | null; stop_loss: number; take_profit: number;
+    opened_at: string | null; current_mark: number | null; unrealized_usd: number | null;
+  }>;
+  unknownPositions: Array<{ ticker: string; contracts: number; seenAt: string }>;
+  recentCloses: Array<{
+    id: number; strategy: string; ticker: string; underlying: string; direction: string;
+    entry_price: number | null; exit_price: number | null; net_pnl_usd: number | null;
+    return_pct: number | null; exit_reason: string | null; closed_at: string | null;
+  }>;
+}
+
+function KalshiPerpLiveSection() {
+  const { data, isLoading, isError } = useQuery<KalshiPerpLiveReport>({
+    queryKey: [`/api/kalshi-stock-perp-live`],
+    refetchInterval: 60_000,
+  });
+
+  return (
+    <div className="mt-3 rounded-lg border border-red-400/25 bg-red-500/[0.04] px-3 py-2.5" data-testid="kalshi-perp-live-section">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <h3 className="text-[11px] font-bold text-gray-100">Kalshi Stock Perps — Live</h3>
+        {data ? (
+          <span className={`rounded-full px-1.5 py-px text-[8.5px] font-bold tracking-wide ${data.enabled ? "bg-red-500/20 text-red-200" : "bg-white/5 text-gray-400"}`}>
+            {!data.enabled ? "KILL SWITCH OFF — NO NEW ENTRIES" : data.paused.active ? "AUTO-PAUSED" : "LIVE LANE RUNNING"}
+          </span>
+        ) : null}
+        {data?.host === "demo" ? (
+          <span className="rounded-full bg-amber-500/15 px-1.5 py-px text-[8.5px] font-bold tracking-wide text-amber-300">DEMO ACCOUNT</span>
+        ) : null}
+      </div>
+
+      {isLoading ? (
+        <p className="mt-1 text-[10px] leading-snug text-gray-500">Reading the live lane…</p>
+      ) : isError || !data ? (
+        <p className="mt-1 text-[10px] leading-snug text-gray-500">Live lane status is unavailable right now. That says nothing about the account — check again shortly.</p>
+      ) : (
+        <>
+          <p className="mt-1 text-[10px] leading-snug text-gray-400">
+            Real orders on your Kalshi margin account — but only for a strategy you have <b>armed</b>, only after it clears the
+            promotion bar on its shadow record (50+ trades, avg +0.2R or better, 40%+ wins, no losing week, drawdown within 10%),
+            and only while Kalshi reports margin enabled. Every cycle re-checks all three. Caps: {data.caps.maxOpen} open,{" "}
+            {fmtMoney(data.caps.notionalUsd)} per trade, {data.caps.maxOrdersPerDay} orders a day, entries halt at −{data.caps.dailyLossPct}% on the day.
+          </p>
+
+          {!data.hasCredentials ? (
+            <p className="mt-1.5 text-[10px] leading-snug text-amber-200/90">No Kalshi credentials are saved, so the live lane is idle. Exits and monitoring have nothing to run until a position exists.</p>
+          ) : data.marginEnabled === false ? (
+            <p className="mt-1.5 text-[10px] leading-snug text-amber-200/90">Kalshi margin is <b>not enabled</b> for this account, so no live perp orders can be placed. The lane checks again every cycle.</p>
+          ) : data.marginEnabled === null ? (
+            <p className="mt-1.5 text-[10px] leading-snug text-amber-200/90">Kalshi's margin check didn't answer just now — the lane treats that as <b>not enabled</b> and places nothing until it answers yes.</p>
+          ) : null}
+
+          {data.paused.active ? (
+            <p className="mt-1.5 text-[10px] leading-snug text-red-200">
+              Auto-paused{data.paused.until ? ` until ${fmtDateTime(data.paused.until)}` : ""}: {data.paused.reason || "repeated Kalshi API errors"}. Open positions are still monitored and reconciled while paused.
+            </p>
+          ) : null}
+          {!data.paused.active && data.lastBlockReason ? (
+            <p className="mt-1.5 text-[10px] leading-snug text-gray-500">Why nothing opened lately: {data.lastBlockReason}</p>
+          ) : null}
+
+          <div className="mt-1.5 flex flex-wrap gap-x-2.5 gap-y-0.5 text-[10px] tabular-nums text-gray-400">
+            <span>Today's live result <b className={pnlClass(data.todayRealizedPnlUsd)}>{fmtMoney(data.todayRealizedPnlUsd, { signed: true })}</b></span>
+            <span>Live orders today: <b className="text-gray-200">{data.todayOrders}</b></span>
+            <span>Open live positions: <b className="text-gray-200">{data.openPositions.length}</b></span>
+          </div>
+
+          {data.strategies.length ? (
+            <>
+              <SectionTitle detail="Arming is your tap; the bar is the shadow record's, re-checked every cycle">Strategies</SectionTitle>
+              <div className="space-y-1">
+                {data.strategies.map((s) => (
+                  <div key={s.strategy} className="rounded-lg bg-black/20 px-2 py-1.5">
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[10px]">
+                      <span className="min-w-0 flex-1 break-words font-semibold text-gray-200">
+                        {strategyLabel(s.strategy)} <span className="font-normal text-gray-600">{s.strategy}</span>
+                      </span>
+                      <span className={`shrink-0 rounded-full px-1.5 py-px text-[8.5px] font-bold tracking-wide ${s.armed ? "bg-red-500/20 text-red-200" : "bg-white/5 text-gray-400"}`}>
+                        {s.armed ? "ARMED" : "NOT ARMED"}
+                      </span>
+                      <span className={`shrink-0 rounded-full px-1.5 py-px text-[8.5px] font-bold tracking-wide ${s.bar.met ? "bg-emerald-500/15 text-emerald-300" : "bg-white/5 text-gray-400"}`}>
+                        {s.bar.met ? "BAR MET" : "BAR NOT MET"}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-[10px] tabular-nums text-gray-400">
+                      {s.bar.trades} shadow trades · avg {fmtR(s.bar.avgR)} · win rate {fmtWinRate(s.bar.winRate)} · worst dip {s.bar.maxDrawdownPct > 0 ? `−${s.bar.maxDrawdownPct.toFixed(1)}%` : "0%"}
+                      {!s.bar.met && s.bar.reasons.length ? <span className="text-gray-500"> — missing: {s.bar.reasons.join("; ")}</span> : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : null}
+
+          {data.unknownPositions.length ? (
+            <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-500/[0.07] px-2 py-1.5">
+              <p className="text-[10px] font-semibold leading-snug text-amber-200">On Kalshi, but not opened by this lane — left completely alone:</p>
+              {data.unknownPositions.map((p) => (
+                <p key={p.ticker} className="mt-0.5 text-[10px] tabular-nums text-amber-100/80">
+                  {p.ticker} · {p.contracts > 0 ? "long" : "short"} {fmtContracts(Math.abs(p.contracts))} contracts
+                </p>
+              ))}
+            </div>
+          ) : null}
+
+          <SectionTitle detail="Reconciled against Kalshi every minute — what Kalshi shows is what's true">Live positions</SectionTitle>
+          {data.openPositions.length ? (
+            <div className="space-y-1">
+              {data.openPositions.map((p) => (
+                <div key={p.id} className="rounded-lg bg-black/20 px-2 py-1.5">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px]">
+                    <span className="font-bold text-gray-100">{p.underlying}</span>
+                    <span className="min-w-0 break-all text-gray-500">{p.ticker}</span>
+                    <DirectionBadge direction={p.direction} />
+                    <span className="min-w-0 break-words text-gray-400">{strategyLabel(p.strategy)}</span>
+                    {p.status !== "open" ? <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-px text-[8.5px] font-bold tracking-wide text-amber-300">{p.status.replace(/_/g, " ").toUpperCase()}</span> : null}
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap gap-x-2.5 gap-y-0.5 text-[10px] tabular-nums text-gray-400">
+                    <span>{fmtContracts(p.contracts)} contracts</span>
+                    <span>Entry {fmtPrice(p.entry_price)}</span>
+                    <span>Stop {fmtPrice(p.stop_loss)}</span>
+                    <span>Target {fmtPrice(p.take_profit)}</span>
+                    {p.current_mark != null ? <span>Now {fmtPrice(p.current_mark)}</span> : null}
+                    {p.unrealized_usd != null ? <span className={pnlClass(p.unrealized_usd)}>Unrealized {fmtMoney(p.unrealized_usd, { signed: true })}</span> : null}
+                    <span>Opened {fmtDateTime(p.opened_at)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[10px] text-gray-500">No live perp positions open. A position appears here only after an armed, bar-proven strategy's shadow trade is mirrored into a real order.</p>
+          )}
+
+          {data.recentCloses.length ? (
+            <>
+              <SectionTitle detail="Real fills, real results — funding included when Kalshi reports it">Recent live closes</SectionTitle>
+              <div className="space-y-1">
+                {data.recentCloses.map((c) => (
+                  <div key={c.id} className="rounded-lg bg-black/20 px-2 py-1.5">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px]">
+                      <span className="font-bold text-gray-100">{c.underlying}</span>
+                      <span className="min-w-0 break-all text-gray-500">{c.ticker}</span>
+                      <DirectionBadge direction={c.direction} />
+                      <span className="min-w-0 break-words text-gray-400">{strategyLabel(c.strategy)}</span>
+                      <span className="ml-auto shrink-0 text-gray-600">{fmtDateTime(c.closed_at)}</span>
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap gap-x-2.5 gap-y-0.5 text-[10px] tabular-nums text-gray-400">
+                      <span>{fmtPrice(c.entry_price)} → {fmtPrice(c.exit_price)}</span>
+                      {c.net_pnl_usd != null ? <span className={pnlClass(c.net_pnl_usd)}>Net {fmtMoney(c.net_pnl_usd, { signed: true })}</span> : <span>Result unrecorded</span>}
+                      {c.return_pct != null ? <span className={pnlClass(c.return_pct)}>{fmtPctPoints(c.return_pct)}</span> : null}
+                      <span>Closed: {exitReasonLabel(c.exit_reason)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
 function DirectionBadge({ direction }: { direction: string }) {
   const isLong = direction.toLowerCase() !== "short";
   return (
@@ -533,8 +727,10 @@ export function KalshiShadowPanel({ className = "" }: { className?: string }) {
         </>
       ) : null}
 
+      <KalshiPerpLiveSection />
+
       <p className="mt-3 break-words text-[9px] leading-relaxed text-gray-600">
-        Practice results only — no orders are placed and no real money moves. Net results already include modeled trading costs and the daily funding charge. Trades that spanned a stock split or similar corporate action are left out of every stat and list, because prices from before and after a split can't be compared honestly.
+        The shadow results above are practice only — no orders are placed and no real money moves; net results already include modeled trading costs and the daily funding charge. The Live section is separate: it reports the live lane's own real orders and positions. Trades that spanned a stock split or similar corporate action are left out of every stat and list, because prices from before and after a split can't be compared honestly.
       </p>
     </section>
   );

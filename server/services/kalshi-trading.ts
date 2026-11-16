@@ -355,3 +355,335 @@ export async function cancelKalshiOrder(userId: number, orderId: string): Promis
     return true;
   } catch { return false; }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Margin (perpetual futures) AUTHENTICATED client — 2026-11-15.
+//
+// The perps exchange is a separate host (external-api.kalshi.com prod /
+// external-api.demo.kalshi.co demo — perpHost() in kalshi-perps.ts is the
+// single host switch for BOTH public data and these authenticated calls),
+// but it uses the SAME auth as event contracts: the RSA signer above signs
+// `timestamp + METHOD + /trade-api/v2 + path`, and margin paths live under
+// that same prefix, so getAuthHeaders() covers /margin/* unchanged. This
+// section deliberately reuses the per-user credential store — there is NO
+// second credential path for perps. (Kalshi's own SDKs suggest separate
+// perps keys; if the stored key is not margin-authorized, /margin/enabled
+// answers false and the live lane fails closed — see kalshi-perp-live.ts.)
+//
+// Order shape (POST /margin/orders, from Kalshi's perps OpenAPI + docs,
+// verified 2026-11-15): required ticker, client_order_id (REQUIRED — the
+// server's idempotency key; a duplicate returns 409 order_already_exists),
+// side 'bid'|'ask', count + price as fixed-point STRINGS, time_in_force,
+// self_trade_prevention_type. price is always required — a "market" order
+// is a marketable limit (price at/through the touch) with
+// immediate_or_cancel. reduce_only orders must be IOC or FOK.
+// ─────────────────────────────────────────────────────────────────────────────
+import { perpHost } from './kalshi-perps';
+
+const fpNum = (v: any): number | null => {
+  if (v == null || v === '') return null;
+  const n = typeof v === 'string' ? parseFloat(v) : Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+async function kalshiMarginGet<T>(userId: number, endpoint: string): Promise<T> {
+  const headers = await getAuthHeaders(userId, 'GET', endpoint);
+  const res = await fetch(`${perpHost()}${endpoint}`, { headers, signal: AbortSignal.timeout(10000) });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Kalshi margin GET ${endpoint} failed (${res.status}): ${body.slice(0, 200)}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+// ── /margin/enabled ─────────────────────────────────────────────────────────
+/** Parse the /margin/enabled payload. ONLY an explicit true counts — any
+ *  other shape (missing field, string, nested junk) reads as NOT enabled. */
+export function parseMarginEnabled(data: any): boolean {
+  if (data === true) return true;
+  if (!data || typeof data !== 'object') return false;
+  return data.enabled === true || data.margin_enabled === true || data.is_enabled === true;
+}
+
+/** Is margin trading enabled for this account? THROWS on transport/HTTP
+ *  error — callers must fail closed (an unreadable answer is not a yes). */
+export async function getKalshiMarginEnabled(userId: number): Promise<boolean> {
+  const data = await kalshiMarginGet<any>(userId, '/margin/enabled');
+  return parseMarginEnabled(data);
+}
+
+// ── /margin/balance ─────────────────────────────────────────────────────────
+export interface KalshiMarginBalance {
+  cashUsd: number | null;
+  positionValueUsd: number | null;
+  /** cash + position value, or the account's own reported equity figure. */
+  equityUsd: number | null;
+  maintenanceMarginUsd: number | null;
+}
+
+function pickFp(obj: any, keys: string[]): number | null {
+  if (!obj || typeof obj !== 'object') return null;
+  for (const k of keys) { const v = fpNum(obj[k]); if (v != null) return v; }
+  return null;
+}
+
+/** Normalize the /margin/balance payload (flat, wrapped, or per-subaccount
+ *  shapes all occur across Kalshi API generations). Unparseable → nulls;
+ *  callers treat a null equity as "cannot size" and fail closed. */
+export function normalizeMarginBalance(data: any): KalshiMarginBalance {
+  let src: any = data?.balance ?? data ?? null;
+  if (Array.isArray(data?.subaccounts)) {
+    src = data.subaccounts.find((s: any) => Number(s?.subaccount ?? 0) === 0) ?? data.subaccounts[0] ?? src;
+  } else if (data && typeof data === 'object' && data['0'] && typeof data['0'] === 'object') {
+    src = data['0'];
+  }
+  const cashUsd = pickFp(src, ['cash_balance', 'cash', 'available_cash', 'available_balance', 'balance']);
+  const positionValueUsd = pickFp(src, ['position_value', 'positions_value', 'market_value', 'position_notional_value']);
+  const reportedEquity = pickFp(src, ['portfolio_value', 'equity', 'total_equity', 'account_value', 'net_liquidation_value']);
+  const equityUsd = reportedEquity ?? (cashUsd != null && positionValueUsd != null ? cashUsd + positionValueUsd : cashUsd);
+  const maintenanceMarginUsd = pickFp(src, ['maintenance_margin', 'maintenance_margin_requirement', 'maintenance_requirement']);
+  return { cashUsd, positionValueUsd, equityUsd, maintenanceMarginUsd };
+}
+
+export async function getKalshiMarginBalance(userId: number): Promise<KalshiMarginBalance> {
+  const data = await kalshiMarginGet<any>(userId, '/margin/balance');
+  return normalizeMarginBalance(data);
+}
+
+// ── /margin/positions ───────────────────────────────────────────────────────
+export interface KalshiMarginPosition {
+  ticker: string;
+  /** Signed contracts: + long, − short (Kalshi's own position sign, or
+   *  derived from an explicit side field when the count is unsigned). */
+  contracts: number;
+  entryPrice: number | null;
+  unrealizedPnlUsd: number | null;
+  subaccount: number | null;
+}
+
+export function normalizeMarginPosition(raw: any): KalshiMarginPosition | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const ticker = String(raw.ticker ?? raw.market_ticker ?? '');
+  if (!ticker) return null;
+  let contracts = fpNum(raw.position_fp ?? raw.position ?? raw.contracts ?? raw.quantity ?? raw.count);
+  if (contracts == null) return null;
+  const sideRaw = String(raw.side ?? raw.direction ?? '').toLowerCase();
+  if (contracts > 0 && (sideRaw === 'ask' || sideRaw === 'short' || sideRaw === 'sell')) contracts = -contracts;
+  if (contracts === 0) return null;
+  return {
+    ticker,
+    contracts,
+    entryPrice: fpNum(raw.average_entry_price ?? raw.entry_price ?? raw.avg_entry_price ?? raw.average_price),
+    unrealizedPnlUsd: fpNum(raw.unrealized_pnl ?? raw.unrealized_pnl_usd ?? raw.unrealized_profit_loss),
+    subaccount: raw.subaccount != null && Number.isFinite(Number(raw.subaccount)) ? Number(raw.subaccount) : null,
+  };
+}
+
+export function normalizeMarginPositions(data: any): KalshiMarginPosition[] {
+  const list: any[] = Array.isArray(data) ? data : (data?.positions ?? data?.market_positions ?? []);
+  return list.map(normalizeMarginPosition).filter((p: KalshiMarginPosition | null): p is KalshiMarginPosition => !!p);
+}
+
+/** The account's open margin positions (primary subaccount rows when the
+ *  payload identifies subaccounts). THROWS on transport/HTTP error. */
+export async function getKalshiMarginPositions(userId: number): Promise<KalshiMarginPosition[]> {
+  const data = await kalshiMarginGet<any>(userId, '/margin/positions');
+  const all = normalizeMarginPositions(data);
+  const primary = all.filter((p) => p.subaccount == null || p.subaccount === 0);
+  return primary.length || !all.length ? primary : all;
+}
+
+// ── /margin/orders ──────────────────────────────────────────────────────────
+export interface KalshiMarginOrder {
+  orderId: string;
+  clientOrderId: string | null;
+  ticker: string;
+  side: string;
+  status: string;
+  fillCount: number;
+  remainingCount: number;
+  avgFillPrice: number | null;
+}
+
+export function normalizeMarginOrder(raw: any): KalshiMarginOrder | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const orderId = String(raw.order_id ?? raw.id ?? '');
+  if (!orderId) return null;
+  return {
+    orderId,
+    clientOrderId: raw.client_order_id != null ? String(raw.client_order_id) : null,
+    ticker: String(raw.ticker ?? ''),
+    side: String(raw.side ?? ''),
+    status: String(raw.status ?? ''),
+    fillCount: fpNum(raw.fill_count) ?? 0,
+    remainingCount: fpNum(raw.remaining_count) ?? 0,
+    avgFillPrice: fpNum(raw.average_fill_price ?? raw.avg_fill_price),
+  };
+}
+
+export async function getKalshiMarginOrders(userId: number, limit = 100): Promise<KalshiMarginOrder[]> {
+  const data = await kalshiMarginGet<any>(userId, `/margin/orders?limit=${Math.max(1, Math.min(200, Math.floor(limit)))}`);
+  const list: any[] = Array.isArray(data) ? data : (data?.orders ?? []);
+  return list.map(normalizeMarginOrder).filter((o: KalshiMarginOrder | null): o is KalshiMarginOrder => !!o);
+}
+
+/** Reconciliation lookup: find a previously-placed order by the
+ *  client_order_id we sent. Returns null when no such order exists in the
+ *  recent order list — the caller treats "not found" as evidence (not
+ *  proof) the original POST never landed. THROWS on transport error. */
+export async function findKalshiMarginOrderByClientId(userId: number, clientOrderId: string): Promise<KalshiMarginOrder | null> {
+  const orders = await getKalshiMarginOrders(userId, 200);
+  return orders.find((o) => o.clientOrderId === clientOrderId) ?? null;
+}
+
+export async function cancelKalshiMarginOrder(userId: number, orderId: string): Promise<boolean> {
+  try {
+    const headers = await getAuthHeaders(userId, 'DELETE', `/margin/orders/${orderId}`);
+    const res = await fetch(`${perpHost()}/margin/orders/${orderId}`, {
+      method: 'DELETE', headers, signal: AbortSignal.timeout(8000),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+// ── order placement ─────────────────────────────────────────────────────────
+export interface MarginOrderBodyInput {
+  ticker: string;
+  clientOrderId: string;
+  side: 'bid' | 'ask';
+  /** Whole contracts (stock perps trade whole contracts). */
+  count: number;
+  /** Limit price in dollars (perp price units). Marketable by construction:
+   *  entries price at the touch, exits price through it. */
+  price: number;
+  /** Market tick size for price rounding (from the market payload). */
+  tickSize?: number | null;
+  reduceOnly?: boolean;
+}
+
+/** Fixed-point dollar string for a price, rounded to the market tick. */
+export function formatMarginPrice(price: number, tickSize?: number | null): string {
+  const tick = tickSize != null && tickSize > 0 ? tickSize : 0.0001;
+  const decimals = Math.min(6, Math.max(0, Math.round(-Math.log10(tick))));
+  const rounded = Math.round(price / tick) * tick;
+  return rounded.toFixed(decimals);
+}
+
+/** Build the POST /margin/orders body. Pure — the check scripts pin it. */
+export function buildMarginOrderBody(input: MarginOrderBodyInput): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    ticker: input.ticker,
+    client_order_id: input.clientOrderId,
+    side: input.side,
+    count: String(Math.max(1, Math.floor(input.count))),
+    price: formatMarginPrice(input.price, input.tickSize),
+    time_in_force: 'immediate_or_cancel',
+    self_trade_prevention_type: 'taker_at_cross',
+  };
+  if (input.reduceOnly) body.reduce_only = true;
+  return body;
+}
+
+export type MarginOrderOutcome =
+  | { outcome: 'responded'; orderId: string; fillCount: number; remainingCount: number; avgFillPrice: number | null }
+  | { outcome: 'rejected'; status: number; code: string; message: string }
+  | { outcome: 'ambiguous'; status: number | null; error: string };
+
+/** Classify an HTTP result for an order POST. 2xx with an order_id is a
+ *  response; a 4xx with a parseable error body is a business rejection (the
+ *  order was refused — Kalshi's codes name the cause, incl.
+ *  order_already_exists); EVERYTHING else (timeout, 5xx, unparseable) is
+ *  ambiguous — the order may or may not exist, and the caller MUST
+ *  reconcile by client_order_id before any retry. */
+export function classifyMarginOrderHttp(status: number | null, data: any): 'responded' | 'rejected' | 'ambiguous' {
+  if (status != null && status >= 200 && status < 300 && data && typeof data === 'object' && (data.order_id || data.order?.order_id)) return 'responded';
+  if (status != null && status >= 400 && status < 500 && data && typeof data === 'object') return 'rejected';
+  return 'ambiguous';
+}
+
+/**
+ * Place a margin order. NEVER throws for transport/HTTP outcomes — the
+ * discriminated outcome is the safety contract (see classifyMarginOrderHttp).
+ * Throws only when no credentials exist (a programming/config error the
+ * caller must surface, not an order outcome).
+ */
+export async function placeKalshiMarginOrder(userId: number, input: MarginOrderBodyInput): Promise<MarginOrderOutcome> {
+  const body = buildMarginOrderBody(input);
+  const headers = await getAuthHeaders(userId, 'POST', '/margin/orders');
+  let status: number | null = null;
+  let data: any = null;
+  let transportError = '';
+  try {
+    const res = await fetch(`${perpHost()}/margin/orders`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(12000),
+    });
+    status = res.status;
+    const text = await res.text().catch(() => '');
+    try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+  } catch (e: any) {
+    transportError = e?.message ?? String(e);
+  }
+  const cls = classifyMarginOrderHttp(status, data);
+  if (cls === 'responded') {
+    const o = data.order ?? data;
+    return {
+      outcome: 'responded',
+      orderId: String(o.order_id ?? ''),
+      fillCount: fpNum(o.fill_count) ?? 0,
+      remainingCount: fpNum(o.remaining_count) ?? 0,
+      avgFillPrice: fpNum(o.average_fill_price ?? o.avg_fill_price),
+    };
+  }
+  if (cls === 'rejected') {
+    const err = data.error ?? data;
+    return {
+      outcome: 'rejected',
+      status: status ?? 0,
+      code: String(err?.code ?? ''),
+      message: String(err?.message ?? err?.details ?? `HTTP ${status}`).slice(0, 300),
+    };
+  }
+  return { outcome: 'ambiguous', status, error: transportError || `unparseable or error response (HTTP ${status})` };
+}
+
+/** Recent fills for a ticker (close journaling: find the real exit price).
+ *  Fail-soft by design — returns [] on any error; callers journal the close
+ *  with an unknown price rather than inventing one. */
+export async function getKalshiMarginFills(userId: number, ticker: string, limit = 50): Promise<any[]> {
+  try {
+    const data = await kalshiMarginGet<any>(userId, `/margin/fills?ticker=${encodeURIComponent(ticker)}&limit=${Math.max(1, Math.min(100, Math.floor(limit)))}`);
+    return Array.isArray(data) ? data : (data?.fills ?? []);
+  } catch { return []; }
+}
+
+/**
+ * The account's own funding payments for a ticker over a window, summed
+ * and signed from the HOLDER's side (positive = received, per Kalshi's
+ * funding_amount convention), from GET /margin/funding_history (ticker +
+ * inclusive UTC date range required). Returns null when the read fails or
+ * a non-empty payload has no parseable amounts — callers journal the close
+ * without funding rather than guessing a number. An empty history is a
+ * real $0 (no funding events crossed), not an unknown.
+ */
+export async function getKalshiMarginFundingHistoryUsd(userId: number, ticker: string, fromMs: number, toMs: number): Promise<number | null> {
+  try {
+    const qs = new URLSearchParams({
+      ticker,
+      start_date: new Date(fromMs).toISOString(),
+      end_date: new Date(toMs).toISOString(),
+    });
+    const data = await kalshiMarginGet<any>(userId, `/margin/funding_history?${qs.toString()}`);
+    const list: any[] = Array.isArray(data) ? data : (data?.funding_history ?? data?.history ?? []);
+    let sum = 0;
+    let parsed = 0;
+    for (const e of list) {
+      const v = fpNum(e?.funding_amount ?? e?.amount ?? e?.payment_amount);
+      if (v != null) { sum += v; parsed++; }
+    }
+    if (list.length && !parsed) return null;
+    return sum;
+  } catch { return null; }
+}

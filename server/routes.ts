@@ -17683,6 +17683,18 @@ Rules:
       res.json(await getKalshiStockShadowReport((req.user as User).id, days));
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
+  // Kalshi stock-perp LIVE lane: read-only panel report — lane state
+  // (kill switch, pause/halt, margin-enabled), per-strategy arm + promotion
+  // -bar status, live positions reconciled against Kalshi, unknown
+  // positions surfaced, and recent live closes. Reads the lane's own
+  // records; places nothing.
+  app.get("/api/kalshi-stock-perp-live", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getKalshiPerpLiveReport } = await import('./services/kalshi-perp-live');
+      res.json(await getKalshiPerpLiveReport((req.user as User).id));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
   // Kalshi WEATHER ensemble SHADOW lane: read-only panel report — virtual
   // KXHIGH positions from the GFS+ECMWF ensemble model, graded at Kalshi
   // settlement, plus the lane's price-snapshot count. ?days=30 (1–365).
