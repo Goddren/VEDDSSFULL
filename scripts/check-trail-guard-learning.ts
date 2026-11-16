@@ -120,6 +120,11 @@ check('D13 panel endpoint attaches evaluations',
   /out\.evaluations = await learning\.getTrailGuardEvaluations/.test(routes));
 check('D14 sweep enumerates only users holding guards, watchdog idiom',
   /loadRuntimeState\('trail_guards'\)/.test(learning) && /setInterval/.test(learning));
+check('D15 bulk-promoted guards are indistinguishable to the learning loop (no origin marker on the record)',
+  !/interface TrailGuard \{[\s\S]{0,1600}?(promotedVia|bulk)/.test(guards)
+  && /getTrailGuards\(userId\)\)\.filter\(g => g\.active\)/.test(learning));
+check('D16 bulk promotion writes only through the single-promote path the loop reads back',
+  /promoteAllTrailGuards[\s\S]{0,2400}?promoteTrailGuard\(userId/.test(guards) && !/promoteAll/.test(learning));
 
 // ── E. Column-existence lifecycle (2026-11-13 trail_guard_id failure) ────
 const storage = src('../server/storage.ts');

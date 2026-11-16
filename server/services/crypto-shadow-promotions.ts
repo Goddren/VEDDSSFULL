@@ -10,9 +10,14 @@
 //     shadow gate uses (aggregate() in crypto-shadow.ts: n ≥ 15 resolved
 //     closes, median net < −1%, rolling 60 days). No second bar is invented
 //     here; if the lane's thresholds move, the candidates move with them.
-//   • promotion is the owner's TAP ONLY, one bucket at a time, and the
+//   • promotion is the owner's TAP ONLY — one bucket at a time, or every
+//     current candidate at once via the bulk tap (promoteAllCryptoBuckets,
+//     2026-11-15: one-by-one was "too many to tap through"). Either way the
 //     evidence is re-verified server-side at promote time (fresh stats —
-//     the client cannot talk its way past the bar).
+//     the client cannot talk its way past the bar): the bulk path runs
+//     each candidate through the SAME promoteCryptoBucket below, so a
+//     bucket that recovered since the panel loaded is skipped, never
+//     promoted, and the batch reports exactly what happened per bucket.
 //   • a promoted bucket blocks matching LIVE DeFi hot-wallet entries
 //     (cryptocom-scanner's DeFi branch consults before it sizes or swaps).
 //     Every block is audited in the shared shadow_lesson_blocks table
@@ -117,6 +122,41 @@ export async function promoteCryptoBucket(userId: number, sel: { strategy: strin
   };
   await storePromotions(userId, [...promotions, promotion]);
   return { ok: true, promotion };
+}
+
+export interface CryptoBulkSkip { strategy: string; dim: string; bucket: string; reason: string }
+export interface CryptoBulkResult {
+  ok: boolean; status?: number; error?: string;
+  promoted: CryptoShadowPromotion[]; skipped: CryptoBulkSkip[];
+  promotedCount: number; skippedCount: number;
+}
+
+/**
+ * The bulk tap: promote EVERY current candidate in one action. This is a
+ * loop over the single-promote path, not a second implementation — each
+ * candidate goes through promoteCryptoBucket, which re-verifies the
+ * bucket against FRESH stats and refuses (422) a bucket that no longer
+ * qualifies and (409) one already guarded; both land in `skipped` with
+ * the single path's own reason. The batch is the owner's one explicit
+ * tap, so there is no per-bucket confirmation — and no per-bucket
+ * shortcut either. Kill switch off → the batch is unavailable (with the
+ * switch off the consult ignores promotions entirely, so bulk-creating
+ * inert guards would only mislead).
+ */
+export async function promoteAllCryptoBuckets(userId: number): Promise<CryptoBulkResult> {
+  const empty = { promoted: [] as CryptoShadowPromotion[], skipped: [] as CryptoBulkSkip[], promotedCount: 0, skippedCount: 0 };
+  if (!cryptoShadowPromotionsOn()) {
+    return { ok: false, status: 403, error: 'Crypto shadow promotions are switched off (CRYPTO_SHADOW_PROMOTIONS=off) — bulk promotion is unavailable.', ...empty };
+  }
+  const { candidates } = await getCryptoPromotionPanel(userId);
+  const promoted: CryptoShadowPromotion[] = [];
+  const skipped: CryptoBulkSkip[] = [];
+  for (const c of candidates) {
+    const out = await promoteCryptoBucket(userId, { strategy: c.strategy, dim: c.dim, bucket: c.bucket });
+    if (out.ok && out.promotion) promoted.push(out.promotion);
+    else skipped.push({ strategy: c.strategy, dim: c.dim, bucket: c.bucket, reason: out.error ?? 'That bucket could not be promoted.' });
+  }
+  return { ok: true, promoted, skipped, promotedCount: promoted.length, skippedCount: skipped.length };
 }
 
 export async function retireCryptoPromotion(userId: number, id: string): Promise<{ ok: boolean; status?: number; error?: string }> {

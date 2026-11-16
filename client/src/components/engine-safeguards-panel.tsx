@@ -281,6 +281,7 @@ export function PromotedRulesPanel({ className = "" }: { className?: string }) {
 // the server re-checks the evidence at tap time; retire any time.
 type CryptoCandidateT = { strategy: string; dim: string; bucket: string; n: number; medianNet: number; winRate: number; verdict: string; alreadyGuarded: boolean };
 type CryptoPromotionT = { id: string; strategy: string; dim: string; bucket: string; n: number; medianNet: number; winRate: number; promotedAt: string; active: boolean };
+type CryptoBulkResultT = { promoted: CryptoPromotionT[]; skipped: Array<{ strategy: string; dim: string; bucket: string; reason: string }>; promotedCount: number; skippedCount: number };
 export function CryptoShadowPromotionsPanel({ className = "" }: { className?: string }) {
   const qc = useQueryClient();
   const { data } = useQuery<{ candidates: CryptoCandidateT[]; promotions: CryptoPromotionT[] }>({
@@ -291,6 +292,18 @@ export function CryptoShadowPromotionsPanel({ className = "" }: { className?: st
   const promote = useMutation({
     mutationFn: async (c: CryptoCandidateT) => apiRequest("POST", "/api/engine/crypto-shadow-promotions", { strategy: c.strategy, dim: c.dim, bucket: c.bucket }),
     onSuccess: invalidate,
+  });
+  // Bulk tap (Nov 15, 2026): every current candidate in one action. The
+  // server runs each through the same promote path (fresh re-check per
+  // bucket) and reports promoted/skipped exactly — rendered verbatim
+  // below, never summarized into a fake clean success.
+  const [bulkResult, setBulkResult] = useState<CryptoBulkResultT | null>(null);
+  const promoteAll = useMutation({
+    mutationFn: async (): Promise<CryptoBulkResultT> => {
+      const r = await apiRequest("POST", "/api/engine/crypto-shadow-promotions/promote-all", {});
+      return r.json();
+    },
+    onSuccess: (d) => { setBulkResult(d); invalidate(); },
   });
   const retire = useMutation({
     mutationFn: async (id: string) => apiRequest("POST", "/api/engine/crypto-shadow-promotions/retire", { id }),
@@ -311,7 +324,7 @@ export function CryptoShadowPromotionsPanel({ className = "" }: { className?: st
         subtitle="Setups your crypto shadow trading already proved losing (15+ shadow trades, median result worse than −1%) can become real guards on the live DeFi hot wallet."
         explainer={<InfoExplainer title="Crypto shadow lessons → hot-wallet guards" accent="border-l-amber-300/60">
           <p>Every crypto strategy also trades in <b>shadow mode</b> — virtual trades on the same DeFi tokens, scored net of costs. Grouped by strategy and situation (liquidity, market cap, token age, order flow and more), a group with 15 or more closed shadow trades and a median result worse than −1% is a proven loser — the shadow lane already refuses those trades itself.</p>
-          <p>Promoting one makes it a <b>real guard</b>: the live DeFi hot wallet will skip matching entries before any swap is sized or signed. Promotion is always your tap, one at a time, and the server re-checks the evidence when you tap. Paper trading is never blocked — it keeps gathering evidence. Retire a guard any time and matching entries flow again.</p>
+          <p>Promoting one makes it a <b>real guard</b>: the live DeFi hot wallet will skip matching entries before any swap is sized or signed. Promotion is always your tap — one at a time, or every current candidate at once with the "Make all into guards" button — and the server re-checks the evidence on every single one when you tap (a bucket that recovered is skipped, and the panel tells you). Paper trading is never blocked — it keeps gathering evidence. Retire a guard any time and matching entries flow again.</p>
           <p>Guards cover the DeFi hot wallet only — the shadow evidence comes from DeFi tokens, so it does not gate the perps, Hyperliquid or exchange-spot arms.</p>
         </InfoExplainer>}
       />
@@ -328,6 +341,16 @@ export function CryptoShadowPromotionsPanel({ className = "" }: { className?: st
               >Retire</button>
             </div>
           ))}
+        </div>
+      )}
+      {candidates.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1.5">
+          <button
+            className="shrink-0 text-[10px] px-2.5 py-1 rounded-full bg-amber-500/40 text-amber-50 font-semibold hover:bg-amber-500/60 disabled:opacity-50"
+            disabled={promoteAll.isPending || promote.isPending}
+            onClick={() => { if (window.confirm(`Make ALL ${candidates.length} proven losers into guards?\n\nEvery one is re-checked by the server first — any that no longer qualify are skipped and reported to you here. The live DeFi hot wallet will skip matching entries until you retire each guard. This changes live trading behavior.`)) promoteAll.mutate(); }}
+          >Make all {candidates.length} into guards</button>
+          <span className="text-[9px] text-gray-500">One tap for the whole list — same per-bucket server re-check as one-by-one. DeFi hot wallet only.</span>
         </div>
       )}
       {candidates.length > 0 ? (
@@ -350,8 +373,22 @@ export function CryptoShadowPromotionsPanel({ className = "" }: { className?: st
           No new shadow bucket has cleared the bar right now.{retiredCount > 0 ? ` (${retiredCount} retired guard${retiredCount === 1 ? "" : "s"} on record.)` : ""}
         </div>
       )}
+      {bulkResult && (
+        <div className="text-[10px] mt-1.5 rounded bg-white/[0.04] border border-white/10 px-2 py-1.5 space-y-0.5">
+          <div className="text-gray-100 font-semibold">Bulk result: {bulkResult.promotedCount} guard{bulkResult.promotedCount === 1 ? "" : "s"} made{bulkResult.skippedCount > 0 ? ` · ${bulkResult.skippedCount} skipped` : ""}</div>
+          {bulkResult.promoted.map((p) => (
+            <div key={p.id} className="text-gray-400 break-words">✓ Guard made: {label(p)}</div>
+          ))}
+          {bulkResult.skipped.map((s) => (
+            <div key={`${s.strategy}:${s.dim}:${s.bucket}`} className="text-gray-500 break-words">Skipped: {label(s)} — {s.reason}</div>
+          ))}
+        </div>
+      )}
       {(promote.isError || retire.isError) && (
         <div className="text-[10px] text-red-300 mt-1">That didn't go through — the bucket may no longer qualify. The list refreshes automatically.</div>
+      )}
+      {promoteAll.isError && (
+        <div className="text-[10px] text-red-300 mt-1">Bulk promotion didn't go through — nothing was promoted in that tap. The list refreshes automatically.</div>
       )}
     </div>
   );
@@ -518,6 +555,7 @@ export function TrailStudyPanel({ className = "" }: { className?: string }) {
 type TrailCandidateT = { engine: "crypto" | "sol"; dimension: "strategy" | "symbol"; key: string; action: "tighten" | "lock_profile"; trades: number; reason: string; alreadyGuarded: boolean };
 type TrailGuardT = { id: string; engine: "crypto" | "sol"; dimension: "strategy" | "symbol"; key: string; action: "tighten" | "lock_profile"; trades: number; profileSummary: string; active: boolean; retiredAt?: string; retiredBy?: "user" | "lessons"; retireReason?: string };
 type TrailGuardEvalT = { guardId: string; verdict: "helping" | "hurting" | "unproven"; reason: string; guardedTrades: number; minTrades: number; guardedAvgFinal: number | null; guardedAvgGiveback: number | null; baselineAvgFinal: number | null; baselineAvgGiveback: number | null; evaluatedAt: string };
+type TrailBulkResultT = { promoted: TrailGuardT[]; skipped: Array<{ engine: "crypto" | "sol"; dimension: "strategy" | "symbol"; key: string; action: "tighten" | "lock_profile"; reason: string }>; promotedCount: number; skippedCount: number };
 
 function TrailGuardsSection() {
   const qc = useQueryClient();
@@ -532,6 +570,18 @@ function TrailGuardsSection() {
   const retire = useMutation({
     mutationFn: (id: string) => apiRequest("POST", "/api/engine/trail-guards/retire", { id }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/engine/trail-guards"] }); },
+  });
+  // Bulk tap (Nov 15, 2026): every current candidate in one action. The
+  // server runs each through the same promote path (evidence re-verified
+  // per candidate) and reports promoted/skipped exactly — rendered
+  // verbatim below.
+  const [bulkResult, setBulkResult] = useState<TrailBulkResultT | null>(null);
+  const promoteAll = useMutation({
+    mutationFn: async (): Promise<TrailBulkResultT> => {
+      const r = await apiRequest("POST", "/api/engine/trail-guards/promote-all", {});
+      return r.json();
+    },
+    onSuccess: (d) => { setBulkResult(d); qc.invalidateQueries({ queryKey: ["/api/engine/trail-guards"] }); },
   });
   // Downsized (Nov 11, 2026, user request): the candidate list rendered one
   // card + "Make it a guard" button per proven lesson and could dominate the
@@ -559,6 +609,16 @@ function TrailGuardsSection() {
         )}
       </div>
       <div className="text-[9px] text-gray-500 mb-1">When a trail pattern has proven itself in the study above, you can freeze it in or tighten it as a standing rule here — it only changes how trades exit, never whether they open.</div>
+      {fresh.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
+          <button
+            className="shrink-0 text-[10px] px-2.5 py-1 rounded-full bg-sky-500/25 text-sky-100 font-semibold border border-sky-500/40 hover:bg-sky-500/40 disabled:opacity-50"
+            disabled={promoteAll.isPending || promote.isPending}
+            onClick={() => { if (window.confirm(`Make ALL ${fresh.length} proven trail lessons into guards?\n\nEvery one is re-checked by the server first — any that no longer qualify are skipped and reported to you here. Guards change exit management only — never entries or sizing. You can retire each one anytime.`)) promoteAll.mutate(); }}
+          >Make all {fresh.length} into guards</button>
+          <span className="text-[9px] text-gray-500">One tap for the whole list — same per-lesson server re-check as one-by-one.</span>
+        </div>
+      )}
       {!showCandidates && fresh.length > 0 && (
         <div className="text-[9px] text-gray-500 mb-1">{fresh.length} proven lesson{fresh.length === 1 ? "" : "s"} can become a guard — tap Review to see them.{active.length > 0 ? ` ${active.length} guard${active.length === 1 ? "" : "s"} active below.` : ""}</div>
       )}
@@ -610,6 +670,20 @@ function TrailGuardsSection() {
         </div>
         );
       })}
+      {bulkResult && (
+        <div className="text-[10px] mt-1 mb-1 rounded bg-white/[0.04] border border-white/10 px-2 py-1.5 space-y-0.5">
+          <div className="text-gray-100 font-semibold">Bulk result: {bulkResult.promotedCount} guard{bulkResult.promotedCount === 1 ? "" : "s"} made{bulkResult.skippedCount > 0 ? ` · ${bulkResult.skippedCount} skipped` : ""}</div>
+          {bulkResult.promoted.map((g) => (
+            <div key={g.id} className="text-gray-400 break-words">✓ Guard made: {eng(g.engine)} · {g.dimension} · {g.key} ({g.action === "tighten" ? "tightened" : "profile locked"})</div>
+          ))}
+          {bulkResult.skipped.map((s) => (
+            <div key={`${s.engine}:${s.dimension}:${s.key}:${s.action}`} className="text-gray-500 break-words">Skipped: {eng(s.engine)} · {s.dimension} · {s.key} — {s.reason}</div>
+          ))}
+        </div>
+      )}
+      {promoteAll.isError && (
+        <div className="text-[10px] text-red-300 mt-1">Bulk promotion didn't go through — nothing was promoted in that tap. The list refreshes automatically.</div>
+      )}
       {retiredByLessons.length > 0 && (
         <div className="mt-1">
           <div className="text-[9px] font-semibold text-gray-400">Retired by their own record</div>

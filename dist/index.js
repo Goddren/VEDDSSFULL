@@ -4664,6 +4664,7 @@ __export(trail_guards_exports, {
   getTrailGuardCandidates: () => getTrailGuardCandidates,
   getTrailGuards: () => getTrailGuards,
   matchGuard: () => matchGuard,
+  promoteAllTrailGuards: () => promoteAllTrailGuards,
   promoteTrailGuard: () => promoteTrailGuard,
   retireTrailGuard: () => retireTrailGuard,
   solTrailGuardFor: () => solTrailGuardFor,
@@ -4823,6 +4824,21 @@ async function promoteTrailGuard(userId, sel) {
   };
   await storeGuards(userId, [...guards, guard]);
   return { ok: true, guard };
+}
+async function promoteAllTrailGuards(userId) {
+  const empty = { promoted: [], skipped: [], promotedCount: 0, skippedCount: 0 };
+  if (!trailGuardsOn()) {
+    return { ok: false, status: 403, error: "Trail guards are switched off (TRAIL_GUARDS=off) \u2014 bulk promotion is unavailable.", ...empty };
+  }
+  const { candidates } = await getTrailGuardCandidates(userId);
+  const promoted = [];
+  const skipped = [];
+  for (const c of candidates) {
+    const out = await promoteTrailGuard(userId, { engine: c.engine, dimension: c.dimension, key: c.key, action: c.action });
+    if (out.ok) promoted.push(out.guard);
+    else skipped.push({ engine: c.engine, dimension: c.dimension, key: c.key, action: c.action, reason: out.error });
+  }
+  return { ok: true, promoted, skipped, promotedCount: promoted.length, skippedCount: skipped.length };
 }
 async function retireTrailGuard(userId, id, retiredBy = "user", retireReason) {
   const guards = await getTrailGuards(userId);
@@ -60122,6 +60138,7 @@ __export(crypto_shadow_promotions_exports, {
   getCryptoPromotions: () => getCryptoPromotions,
   hasActiveCryptoPromotion: () => hasActiveCryptoPromotion,
   matchCryptoPromotion: () => matchCryptoPromotion,
+  promoteAllCryptoBuckets: () => promoteAllCryptoBuckets,
   promoteCryptoBucket: () => promoteCryptoBucket,
   retireCryptoPromotion: () => retireCryptoPromotion
 });
@@ -60173,6 +60190,21 @@ async function promoteCryptoBucket(userId, sel) {
   };
   await storePromotions(userId, [...promotions, promotion]);
   return { ok: true, promotion };
+}
+async function promoteAllCryptoBuckets(userId) {
+  const empty = { promoted: [], skipped: [], promotedCount: 0, skippedCount: 0 };
+  if (!cryptoShadowPromotionsOn()) {
+    return { ok: false, status: 403, error: "Crypto shadow promotions are switched off (CRYPTO_SHADOW_PROMOTIONS=off) \u2014 bulk promotion is unavailable.", ...empty };
+  }
+  const { candidates } = await getCryptoPromotionPanel(userId);
+  const promoted = [];
+  const skipped = [];
+  for (const c of candidates) {
+    const out = await promoteCryptoBucket(userId, { strategy: c.strategy, dim: c.dim, bucket: c.bucket });
+    if (out.ok && out.promotion) promoted.push(out.promotion);
+    else skipped.push({ strategy: c.strategy, dim: c.dim, bucket: c.bucket, reason: out.error ?? "That bucket could not be promoted." });
+  }
+  return { ok: true, promoted, skipped, promotedCount: promoted.length, skippedCount: skipped.length };
 }
 async function retireCryptoPromotion(userId, id) {
   const promotions = await getCryptoPromotions(userId);
@@ -83239,9 +83271,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "dfd79b36-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-16T04:37:00.559Z";
+var BUILD_COMMIT = "bc983c34-dirty";
+var BUILD_BRANCH = "feat/crypto-shadow-promote-all";
+var BUILT_AT = "2026-11-16T05:25:49.399Z";
 
 // server/stripe.ts
 init_db();
@@ -101222,6 +101254,17 @@ Rules:
       res2.status(500).json({ error: err.message });
     }
   });
+  app2.post("/api/engine/trail-guards/promote-all", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { promoteAllTrailGuards: promoteAllTrailGuards2 } = await Promise.resolve().then(() => (init_trail_guards(), trail_guards_exports));
+      const out = await promoteAllTrailGuards2(req.user.id);
+      if (!out.ok) return res2.status(out.status ?? 403).json({ error: out.error });
+      res2.json(out);
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
   app2.post("/api/engine/trail-guards/retire", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     try {
@@ -101287,6 +101330,17 @@ Rules:
       if (!strategy || !dim || !bucket) return res2.status(400).json({ error: "strategy, dim and bucket are required" });
       const out = await promoteCryptoBucket2(req.user.id, { strategy: String(strategy), dim: String(dim), bucket: String(bucket) });
       if (!out.ok) return res2.status(out.status ?? 422).json({ error: out.error });
+      res2.json(out);
+    } catch (err) {
+      res2.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/engine/crypto-shadow-promotions/promote-all", async (req, res2) => {
+    if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
+    try {
+      const { promoteAllCryptoBuckets: promoteAllCryptoBuckets2 } = await Promise.resolve().then(() => (init_crypto_shadow_promotions(), crypto_shadow_promotions_exports));
+      const out = await promoteAllCryptoBuckets2(req.user.id);
+      if (!out.ok) return res2.status(out.status ?? 403).json({ error: out.error });
       res2.json(out);
     } catch (err) {
       res2.status(500).json({ error: err.message });

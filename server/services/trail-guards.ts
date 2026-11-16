@@ -249,6 +249,44 @@ export async function promoteTrailGuard(userId: number, sel: { engine: 'crypto' 
   return { ok: true as const, guard };
 }
 
+export interface TrailBulkSkip { engine: 'crypto' | 'sol'; dimension: 'strategy' | 'symbol'; key: string; action: 'tighten' | 'lock_profile'; reason: string }
+export interface TrailBulkResult {
+  ok: boolean; status?: number; error?: string;
+  promoted: TrailGuard[]; skipped: TrailBulkSkip[];
+  promotedCount: number; skippedCount: number;
+}
+
+/**
+ * The bulk tap (2026-11-15: one-by-one was "too many to tap through"):
+ * promote EVERY current candidate in one action. A loop over the
+ * single-promote path, not a second implementation — each candidate
+ * goes through promoteTrailGuard, which re-derives the candidate list
+ * and re-verifies the evidence, refusing (422) a lesson that no longer
+ * qualifies and (409) one already guarded; both land in `skipped` with
+ * the single path's own reason. Sol safety holds by construction twice
+ * over: the candidate list never contains a Sol symbol selection (see
+ * SOL KEYING above), and promoteTrailGuard refuses one outright anyway.
+ * Guards created here are ordinary guard records written by the same
+ * promote path — no marker, no special case — so the self-learning loop
+ * (trail-guard-learning.ts) attributes and judges them exactly like
+ * singly-promoted guards. Kill switch off → the batch is unavailable.
+ */
+export async function promoteAllTrailGuards(userId: number): Promise<TrailBulkResult> {
+  const empty = { promoted: [] as TrailGuard[], skipped: [] as TrailBulkSkip[], promotedCount: 0, skippedCount: 0 };
+  if (!trailGuardsOn()) {
+    return { ok: false, status: 403, error: 'Trail guards are switched off (TRAIL_GUARDS=off) — bulk promotion is unavailable.', ...empty };
+  }
+  const { candidates } = await getTrailGuardCandidates(userId);
+  const promoted: TrailGuard[] = [];
+  const skipped: TrailBulkSkip[] = [];
+  for (const c of candidates) {
+    const out = await promoteTrailGuard(userId, { engine: c.engine, dimension: c.dimension, key: c.key, action: c.action });
+    if (out.ok) promoted.push(out.guard);
+    else skipped.push({ engine: c.engine, dimension: c.dimension, key: c.key, action: c.action, reason: out.error });
+  }
+  return { ok: true, promoted, skipped, promotedCount: promoted.length, skippedCount: skipped.length };
+}
+
 export async function retireTrailGuard(userId: number, id: string, retiredBy: 'user' | 'lessons' = 'user', retireReason?: string) {
   const guards = await getTrailGuards(userId);
   const g = guards.find(x => x.id === id);
