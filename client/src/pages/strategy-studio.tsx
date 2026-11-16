@@ -1484,9 +1484,7 @@ export default function StrategyStudio() {
             <div className="pt-2">
               <h3 className="text-lg font-medium mb-1">FX Engine Strategies</h3>
               <p className="text-sm text-muted-foreground mb-4">
-                The strategies already built into the VEDD FX engine. Ones marked
-                <Badge variant="outline" className="mx-1">backtestable</Badge>
-                carry a mechanical approximation you can replay here; the rest run on the engine's AI analysis live.
+                The strategies already built into the VEDD FX engine. Ones marked 'backtestable' carry a mechanical approximation you can replay here; the rest run on the engine's AI analysis live.
               </p>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {ENGINE_STRATEGIES.map((info) => (
@@ -2147,7 +2145,7 @@ export default function StrategyStudio() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          Trading Strategy Visualization Wizard
+          Strategy Studio
         </motion.h1>
         <motion.p 
           className="text-muted-foreground mt-4 max-w-2xl mx-auto"

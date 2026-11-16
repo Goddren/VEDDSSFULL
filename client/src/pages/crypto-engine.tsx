@@ -1136,7 +1136,7 @@ export default function CryptoEnginePage() {
                           checked={conn.autoExecute}
                           onCheckedChange={(c) => updateCryptocomMutation.mutate({ id: conn.id, data: { autoExecute: c === true } })}
                         />
-                        <Label htmlFor={`cryptocomAuto-${conn.id}`} className="text-xs text-gray-300">Auto-execute</Label>
+                        <Label htmlFor={`cryptocomAuto-${conn.id}`} className="text-xs text-gray-300">Auto-execute — Crypto.com (this connection)</Label>
                       </div>
                       <div className="flex items-center gap-2">
                         <Button size="sm" variant="outline" className="h-7 text-xs flex-1" onClick={() => testCryptocomMutation.mutate(conn.id)} disabled={testCryptocomMutation.isPending}>
@@ -1184,7 +1184,7 @@ export default function CryptoEnginePage() {
                     </Select>
                     <div className="flex items-center gap-2">
                       <Checkbox id="cryptocomAutoNew" checked={cryptocomForm.autoExecute} onCheckedChange={(c) => setCryptocomForm(p => ({ ...p, autoExecute: c === true }))} />
-                      <Label htmlFor="cryptocomAutoNew" className="text-xs text-gray-300">Auto-execute</Label>
+                      <Label htmlFor="cryptocomAutoNew" className="text-xs text-gray-300">Auto-execute — Crypto.com (this connection)</Label>
                     </div>
                     <div className="flex gap-2">
                       <Button
@@ -1214,16 +1214,40 @@ export default function CryptoEnginePage() {
                   <CardHeader>
                     <CardTitle className="text-base flex items-center justify-between">
                       <span>AI Auto-Trading Engine</span>
-                      <Switch
-                        checked={config.isActive}
-                        onCheckedChange={(v) => updateConfigMutation.mutate({ isActive: v, enableAutoExecution: v })}
-                      />
                     </CardTitle>
                     <CardDescription>
-                      {config.isActive ? 'Active' : 'Paused'} — scanning {config.symbols.length} token{config.symbols.length === 1 ? '' : 's'} every {Math.round(config.scanIntervalMs / 1000)}s. Also requires "Auto-execute" on the connection above.
+                      {config.isActive ? 'Active' : 'Paused'} — scanning {config.symbols.length} token{config.symbols.length === 1 ? '' : 's'} every {Math.round(config.scanIntervalMs / 1000)}s. Every auto-execution switch lives in the Auto-execution section below — each one gates a different venue.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-6">
+                    {/* ── Auto-execution — every venue's on/off in ONE place ──
+                        These switches used to be scattered (card header,
+                        per-connection checkboxes, venue-conditional rows) and
+                        read as the same switch. They are not: each gates a
+                        different venue. Same mutations, same defaults — just
+                        grouped and labeled per venue. */}
+                    <div>
+                      <h4 className="text-[11px] font-bold text-red-400 uppercase tracking-wide mb-3">Auto-execution</h4>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between rounded-lg border border-gray-700 bg-gray-800/40 px-3 py-2">
+                          <div><Label className="text-xs text-white">Master — AI Auto-Trading Engine</Label><p className="text-[10px] text-gray-500">Runs the scanner and signal engine. Venue switches below decide where signals may actually place orders.</p></div>
+                          <Switch checked={config.isActive} onCheckedChange={(v) => updateConfigMutation.mutate({ isActive: v, enableAutoExecution: v })} />
+                        </div>
+                        <div className="flex items-center justify-between rounded-lg border border-red-500/25 bg-red-500/[0.05] px-3 py-2">
+                          <div><Label className="text-xs text-white">CeFi spot auto-trade (Coinbase / Kraken / Gemini)</Label><p className="text-[10px] text-gray-500">Auto-places REAL spot orders when a spot venue is selected under Execution Venue. Sizing is set there.</p></div>
+                          <Switch checked={config.cefiAutoTradeEnabled} onCheckedChange={(v) => updateConfigMutation.mutate({ cefiAutoTradeEnabled: v })} />
+                        </div>
+                        <div className="flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/[0.06] px-3 py-2">
+                          <div><Label className="text-xs text-white">DeFi auto-swap (hot wallet)</Label><p className="text-[10px] text-gray-500">Engine signs REAL on-chain 0x swaps with your burner hot wallet when the DeFi venue is selected. Chain + sizing are set under Execution Venue.</p></div>
+                          <Switch checked={config.defiAutoTradeEnabled} onCheckedChange={(v) => updateConfigMutation.mutate({ defiAutoTradeEnabled: v })} />
+                        </div>
+                        <p className="text-[10px] text-gray-500 px-1">
+                          Crypto.com perps: auto-execute is set per connection — {(cryptocomConnections || []).filter((c: any) => c.autoExecute).length} of {(cryptocomConnections || []).length} connection{(cryptocomConnections || []).length === 1 ? '' : 's'} on (checkbox on each connection under Wallets &amp; connections).
+                          {' '}Hyperliquid: its auto-trade switch lives in its own wallet card under Wallets &amp; connections — currently {hlData?.autoTradeEnabled ? <span className="text-emerald-400 font-semibold">ON</span> : <span className="text-amber-400 font-semibold">OFF</span>}.
+                        </p>
+                      </div>
+                    </div>
+
                     {/* ── Tokens & Strategy ── */}
                     <div>
                       <h4 className="text-[11px] font-bold text-amber-400 uppercase tracking-wide mb-3">Tokens & Strategy</h4>
@@ -1389,10 +1413,7 @@ export default function CryptoEnginePage() {
                         )}
                         {config.executionVenue !== 'cryptocom' && config.executionVenue !== 'defi' && config.executionVenue !== 'hyperliquid' && (
                           <>
-                            <div className="flex items-center justify-between rounded-lg border border-red-500/25 bg-red-500/[0.05] px-3 py-2">
-                              <div><Label className="text-xs text-white">Enable live CeFi auto-trade</Label><p className="text-[10px] text-gray-500">Auto-places REAL spot orders on {config.executionVenue}</p></div>
-                              <Switch checked={config.cefiAutoTradeEnabled} onCheckedChange={(v) => updateConfigMutation.mutate({ cefiAutoTradeEnabled: v })} />
-                            </div>
+                            <p className="text-[10px] text-gray-500 md:col-span-2">CeFi spot auto-trade for {config.executionVenue} is switched on/off in the <span className="text-gray-300 font-semibold">Auto-execution</span> section at the top of this card — currently {config.cefiAutoTradeEnabled ? <span className="text-emerald-400 font-semibold">ON</span> : <span className="text-amber-400 font-semibold">OFF</span>}. Sizing for it:</p>
                             <div className="space-y-1"><Label className="text-[11px] text-gray-400">USD per entry</Label><Input type="number" defaultValue={config.cefiNotionalUsd} onBlur={(e) => updateConfigMutation.mutate({ cefiNotionalUsd: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
                             <div className="grid grid-cols-2 gap-2">
                               <div className="space-y-1"><Label className="text-[11px] text-gray-400">Take profit %</Label><Input type="number" step="0.5" defaultValue={config.cefiTakeProfitPct} onBlur={(e) => updateConfigMutation.mutate({ cefiTakeProfitPct: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
@@ -1404,10 +1425,7 @@ export default function CryptoEnginePage() {
                         {/* DeFi hot-wallet auto-trade controls (Phase B) */}
                         {config.executionVenue === 'defi' && (
                           <>
-                            <div className="flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/[0.06] px-3 py-2">
-                              <div><Label className="text-xs text-white">Enable DeFi auto-swap</Label><p className="text-[10px] text-gray-500">Engine signs REAL on-chain 0x swaps with your burner hot wallet</p></div>
-                              <Switch checked={config.defiAutoTradeEnabled} onCheckedChange={(v) => updateConfigMutation.mutate({ defiAutoTradeEnabled: v })} />
-                            </div>
+                            <p className="text-[10px] text-gray-500 md:col-span-2">DeFi auto-swap is switched on/off in the <span className="text-gray-300 font-semibold">Auto-execution</span> section at the top of this card — currently {config.defiAutoTradeEnabled ? <span className="text-emerald-400 font-semibold">ON</span> : <span className="text-amber-400 font-semibold">OFF</span>}. Chain + sizing for it:</p>
                             <div className="grid grid-cols-2 gap-2">
                               <div className="space-y-1"><Label className="text-[11px] text-gray-400">Chain</Label>
                                 <select value={config.defiChain} onChange={(e) => updateConfigMutation.mutate({ defiChain: e.target.value })} className="w-full bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2">

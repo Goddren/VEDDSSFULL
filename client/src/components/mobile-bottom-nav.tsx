@@ -448,12 +448,12 @@ export function MobileBottomNav() {
                 </span>
                 <div className="flex-1 text-left">
                   <p className="text-base font-black tracking-tight" style={{ color: anyTradeActive ? '#fca5a5' : '#86efac' }}>
-                    {anyTradeActive ? '⚡ TRADING ACTIVE' : '✓ ALL TRADING OFF'}
+                    {anyTradeActive ? '⚡ TRADING ACTIVE' : '✓ FOREX EA + POLYMARKET OFF'}
                   </p>
                   <p className="text-xs mt-1" style={{ color: anyTradeActive ? 'rgba(252,165,165,0.75)' : 'rgba(134,239,172,0.65)' }}>
                     {anyTradeActive
-                      ? `${forexActive ? 'SS AI Engine' : ''}${forexActive && polyActive ? ' + ' : ''}${polyActive ? 'Polymarket' : ''} running — tap to kill all`
-                      : 'No engines running'}
+                      ? `${forexActive ? 'SS AI Engine' : ''}${forexActive && polyActive ? ' + ' : ''}${polyActive ? 'Polymarket' : ''} running — tap to stop them`
+                      : 'This switch covers the SS AI Forex engine + Polymarket only — Kalshi, Sol and Crypto have their own switches'}
                   </p>
                 </div>
                 {anyTradeActive && (
@@ -467,7 +467,7 @@ export function MobileBottomNav() {
               >
                 <div className="flex items-center gap-2 mb-2">
                   <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
-                  <p className="text-sm font-black text-red-300">Stop ALL trading engines?</p>
+                  <p className="text-sm font-black text-red-300">Stop Forex EA + Polymarket?</p>
                 </div>
                 <p className="text-[10px] text-red-300/70 mb-3 leading-relaxed">
                   Forex EA + Polymarket engine both stop. MT5 receives CLOSE_ALL on next poll.
@@ -588,15 +588,16 @@ export function MobileBottomNav() {
                         <span className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: 'rgba(16,185,129,0.22)' }}>
                           <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
                         </span>
-                        <span className="text-xs font-bold text-emerald-300">TradeLocker</span>
+                        <span className="text-xs font-bold text-emerald-300">TradeLocker{conn.brokerName ? ` · ${conn.brokerName}` : ''}</span>
                       </div>
                       <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.2)', color: '#6ee7b7' }}>
-                        {conn.environment?.toUpperCase() ?? 'LIVE'}
+                        {(conn.accountType ?? conn.environment ?? 'live').toUpperCase()}
                       </span>
                     </div>
                     <div className="flex items-end justify-between">
                       <div>
                         <p className="text-[9px] text-gray-500 truncate max-w-[110px]">{conn.email}</p>
+                        {conn.accountId ? <p className="text-[9px] text-gray-400">Acct {conn.accountId}</p> : null}
                         <p className="text-[10px] text-gray-400">{conn.accountName ?? 'Account'}</p>
                       </div>
                       <div className="text-right">
@@ -614,8 +615,9 @@ export function MobileBottomNav() {
             })
           )}
 
-          {/* Kalshi Engine card */}
-          <Link href="/polymarket-engine#kalshi">
+          {/* Kalshi Engine card — links to the Kalshi Command Center (/kalshi),
+              the canonical home for Kalshi stats + engine controls */}
+          <Link href="/kalshi">
             <button
               onClick={close}
               className="w-full text-left px-4 py-3 rounded-2xl mb-2 transition-all active:scale-[0.97]"

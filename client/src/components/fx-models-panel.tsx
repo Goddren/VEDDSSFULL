@@ -203,20 +203,20 @@ function PropSimLine({ sim }: { sim?: PropSimSummary }) {
   if (!sim || sim.tradesTaken === 0) {
     return (
       <p className="text-[11px] text-gray-400 mt-1" title={PROP_SIM_TITLE}>
-        Prop sim ($100k): no trades yet
+        Prop sim — live shadow record ($100k): no trades yet
       </p>
     );
   }
   if (sim.blown) {
     return (
       <p className="text-[11px] mt-1 font-bold" style={{ color: "#f87171" }} title={PROP_SIM_TITLE}>
-        Prop sim ($100k): BLOWN {sim.blownAt ?? ""} · {fmtMoney(sim.endBalance)} · {sim.tradesTaken} trades
+        Prop sim — live shadow record ($100k): BLOWN {sim.blownAt ?? ""} · {fmtMoney(sim.endBalance)} · {sim.tradesTaken} trades
       </p>
     );
   }
   return (
     <p className="text-[11px] text-gray-300 mt-1" title={PROP_SIM_TITLE}>
-      Prop sim ($100k): {fmtMoney(sim.endBalance)} ({sim.totalReturnPct >= 0 ? "+" : ""}{sim.totalReturnPct.toFixed(1)}%) · {sim.tradesTaken} trades · worst day {sim.worstDayPct.toFixed(1)}%
+      Prop sim — live shadow record ($100k): {fmtMoney(sim.endBalance)} ({sim.totalReturnPct >= 0 ? "+" : ""}{sim.totalReturnPct.toFixed(1)}%) · {sim.tradesTaken} trades · worst day {sim.worstDayPct.toFixed(1)}%
     </p>
   );
 }
@@ -256,6 +256,8 @@ export function PropSimCard({ className = "" }: { className?: string }) {
       </div>
       <p className="text-[11px] text-gray-400 mt-1">
         Model 1 and Model 2's shadow record, replayed as if it were a $100k prop-firm account: up to 0.5% risk per trade, 2.5% daily loss cap, blown at −6%.
+        This is the <span className="font-bold text-gray-200">live shadow record</span> — every shadow trade the models actually made, replayed on $100k as it happened.
+        The 14-day replay below is a <span className="font-bold text-gray-200">different measure</span> (the current models re-deciding just the last 14 days), so its $100k figure will not match this one — and shouldn't.
       </p>
 
       {mastery.isError ? (
@@ -386,7 +388,7 @@ function ReplayBlock() {
                   )}
                   {sim && sim.tradesTaken > 0 && (
                     <p className="text-[11px] text-gray-300 mt-0.5">
-                      Prop sim: {sim.blown ? <span className="font-bold" style={{ color: "#f87171" }}>BLOWN</span> : fmtMoney(sim.endBalance)} ({sim.totalReturnPct >= 0 ? "+" : ""}{sim.totalReturnPct.toFixed(1)}%) · {sim.tradesTaken} trades
+                      Replay prop sim (14-day window only): {sim.blown ? <span className="font-bold" style={{ color: "#f87171" }}>BLOWN</span> : fmtMoney(sim.endBalance)} ({sim.totalReturnPct >= 0 ? "+" : ""}{sim.totalReturnPct.toFixed(1)}%) · {sim.tradesTaken} trades
                     </p>
                   )}
                 </div>
@@ -440,7 +442,7 @@ function PropSimModelBlock({ model, sim }: { model: "M1" | "M2"; sim?: PropSimSu
         <>
           <p className="text-2xl font-black" style={{ color: "#f87171" }}>BLOWN{sim.blownAt ? ` · ${sim.blownAt}` : ""}</p>
           <p className="text-[11px] text-gray-300 mt-1">
-            Ended at <span className="font-bold text-gray-100">{fmtMoney(sim.endBalance)}</span> ({sim.totalReturnPct >= 0 ? "+" : ""}{sim.totalReturnPct.toFixed(1)}%) · {sim.tradesTaken} trades · worst day {sim.worstDayPct.toFixed(1)}%
+            Ended at <span className="font-bold text-gray-100">{fmtMoney(sim.endBalance)}</span> ({sim.totalReturnPct >= 0 ? "+" : ""}{sim.totalReturnPct.toFixed(1)}%) · {sim.tradesTaken} trades over {sim.daysActive} days of shadow record · worst day {sim.worstDayPct.toFixed(1)}%
           </p>
         </>
       ) : (
@@ -450,7 +452,7 @@ function PropSimModelBlock({ model, sim }: { model: "M1" | "M2"; sim?: PropSimSu
             <span className="font-bold" style={{ color: sim.totalReturnPct >= 0 ? "#34d399" : "#f87171" }}>
               {sim.totalReturnPct >= 0 ? "+" : ""}{sim.totalReturnPct.toFixed(1)}%
             </span>
-            <span className="text-gray-400"> · {sim.tradesTaken} trades · worst day {sim.worstDayPct.toFixed(1)}%</span>
+            <span className="text-gray-400"> · {sim.tradesTaken} trades over {sim.daysActive} days of shadow record · worst day {sim.worstDayPct.toFixed(1)}%</span>
           </p>
         </>
       )}

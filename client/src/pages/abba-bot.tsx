@@ -219,10 +219,20 @@ const SETUP_TOPICS = [
 ];
 
 export default function AbbaBotPage() {
-  const { data: plan, isFetching, refetch } = useQuery<AbbaPlan>({
+  const { data: plan, isFetching, isLoading: planLoading, isError: planError, error: planErrorObj, refetch } = useQuery<AbbaPlan>({
     queryKey: ["/api/abba/strategist"],
     refetchInterval: 5 * 60 * 1000,
   });
+
+  // The strategist call can hang (slow AI upstream) — the header button used
+  // to sit on "Analyzing…" forever with no error and no empty state. After
+  // 20s of fetching, say so plainly in the Strategy tab.
+  const [slowFetch, setSlowFetch] = useState(false);
+  useEffect(() => {
+    if (!isFetching) { setSlowFetch(false); return; }
+    const t = setTimeout(() => setSlowFetch(true), 20000);
+    return () => clearTimeout(t);
+  }, [isFetching]);
 
   const { data: dailyData, isLoading: dailyLoading } = useQuery<DailyData>({
     queryKey: ["/api/abba/accounts-daily"],
@@ -618,6 +628,26 @@ export default function AbbaBotPage() {
             <AiHealthStrip />
             <TradePerformanceCard />
             <TodayReviewPanel />
+
+            {/* Plan fetch states — loading / slow / error resolve VISIBLY
+                instead of the tab sitting blank behind an "Analyzing…"
+                header button. */}
+            {!plan && planError && (
+              <div className="rounded-2xl p-4 bg-red-950/30 border border-red-800/40">
+                <p className="text-xs font-bold text-red-300 flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5" /> ABBA couldn't finish the analysis</p>
+                <p className="text-[11px] text-red-200/70 mt-1 break-words">{(planErrorObj as any)?.message || "The strategist request failed."}</p>
+                <button onClick={() => refetch()} className="mt-2 text-[11px] font-bold px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-200">Try again</button>
+              </div>
+            )}
+            {!plan && !planError && planLoading && (
+              <div className="rounded-2xl p-4 bg-gray-900/40 border border-gray-800">
+                <p className="text-xs text-gray-400 flex items-center gap-2"><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Analyzing your engines, accounts and goal…</p>
+                {slowFetch && <p className="text-[11px] text-amber-300/90 mt-1.5">Still analyzing — taking longer than usual. You can leave this tab open; the plan appears when it's ready.</p>}
+              </div>
+            )}
+            {plan && slowFetch && (
+              <p className="text-[11px] text-amber-300/90">Refreshing the plan — taking longer than usual; showing the last completed analysis meanwhile.</p>
+            )}
 
             {plan && !plan.ready && (
               <div className="rounded-2xl p-4 bg-gray-900/40 border border-gray-800">

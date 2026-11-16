@@ -4,6 +4,37 @@ import { ShieldCheck, GraduationCap, Receipt, Route, Ban, Activity, Power, Brain
 import { apiRequest } from "@/lib/queryClient";
 import { InfoExplainer } from "@/components/info-explainer";
 import { ShadowLiveToggleRow, type ShadowBarItem } from "@/components/shadow-live-toggle";
+import { countGuardActions, countAiFailures, countStoodDown, isAiHealthKind } from "@/lib/guard-kinds";
+
+// Aggregate CONSECUTIVE identical log entries (same kind + symbol + detail)
+// into one row with a ×N count. The guard log used to repeat the identical
+// "Thin-data brain block skipped" line dozens of times, burying everything
+// else; the newest occurrence's timestamp is the one shown.
+type GuardEventT = { id: number; kind: string; symbol: string | null; detail: string; created_at: string };
+function aggregateEvents<T extends GuardEventT>(events: T[]): Array<T & { aggCount: number }> {
+  const out: Array<T & { aggCount: number }> = [];
+  for (const e of events) {
+    const prev = out[out.length - 1];
+    if (prev && prev.kind === e.kind && prev.symbol === e.symbol && prev.detail === e.detail) {
+      prev.aggCount += 1;
+    } else {
+      out.push({ ...e, aggCount: 1 });
+    }
+  }
+  return out;
+}
+
+// The most common summary string in a list, when at least 2 entries share
+// it — used to print a repeated trail config ONCE per panel instead of on
+// every group row (identical "arms at 15%, trails 6%…" × 11).
+function sharedSummaryOf(values: string[]): { text: string; count: number } | null {
+  const counts = new Map<string, number>();
+  for (const v of values) counts.set(v, (counts.get(v) || 0) + 1);
+  let bestText: string | null = null;
+  let bestCount = 0;
+  counts.forEach((count, text) => { if (count > bestCount) { bestCount = count; bestText = text; } });
+  return bestText !== null && bestCount >= 2 ? { text: bestText, count: bestCount } : null;
+}
 
 // Shared panel chrome (Nov 8, 2026 polish pass): one header treatment for
 // every engine panel — a tinted icon square, title with a subtitle line
@@ -86,7 +117,7 @@ export function SkippedTradesPanel({ className = "" }: { className?: string }) {
     queryKey: [`/api/engine/guard-events?limit=20&kinds=${SKIP_KINDS.join(",")}`],
     refetchInterval: 60000,
   });
-  const events = data?.events || [];
+  const events = aggregateEvents(data?.events || []);
   return (
     <div className={`rounded-2xl p-4 overflow-hidden ${className}`} style={{ background: "rgba(17,24,39,0.5)", border: "1.5px solid rgba(75,85,99,0.5)" }} data-testid="skipped-trades-panel">
       <PanelHeader
@@ -106,6 +137,7 @@ export function SkippedTradesPanel({ className = "" }: { className?: string }) {
           {events.map((e) => (
             <div key={e.id} className="text-[10px] rounded-lg bg-black/20 px-2 py-1.5 break-words">
               <span className="text-amber-300 font-semibold">{LABEL[e.kind] || e.kind}</span>
+              {e.aggCount > 1 ? <span className="ml-1 px-1 rounded bg-amber-500/20 text-amber-200 font-bold tabular-nums">×{e.aggCount}</span> : null}
               {e.symbol ? <span className="text-gray-300"> · {e.symbol}</span> : null}
               <span className="text-gray-400"> — {e.detail}</span>
               {SKIP_HELP[e.kind] && <span className="block text-gray-500 mt-0.5">{SKIP_HELP[e.kind]}</span>}
@@ -130,6 +162,18 @@ export function GuardFireRatesPanel({ className = "" }: { className?: string }) 
     queryKey: ["/api/engine/guard-events?view=counterfactuals&days=30"],
     refetchInterval: 60000,
   });
+  // Same event-store summary the Engine safeguards panel reads (shared
+  // react-query key → one fetch), split by the ONE counting definition in
+  // lib/guard-kinds.ts: guard actions vs AI-call failures vs stood-down
+  // checks are three different series and are never summed together.
+  const { data: sumData } = useQuery<{ summary: Array<{ kind: string; n: number; last: string }> }>({
+    queryKey: ["/api/engine/guard-events?limit=40"],
+    refetchInterval: 60000,
+  });
+  const summaryMap = Object.fromEntries((sumData?.summary || []).map((s) => [s.kind, s.n]));
+  const guardActions = countGuardActions(summaryMap);
+  const aiFails = countAiFailures(summaryMap);
+  const stoodDown = countStoodDown(summaryMap);
   const rates = (data?.rates || []).filter((r) => r.fires > 0 || r.prev_fires > 0);
   const cfByKind = new Map((cf?.guards || []).map((g) => [g.kind, g]));
   const cfOnly = (cf?.guards || []).filter((g) => g.resolved > 0 && !rates.some((r) => r.kind === g.kind));
@@ -160,8 +204,15 @@ export function GuardFireRatesPanel({ className = "" }: { className?: string }) 
           <p>• Blocked trades losing on average → the guard is <b>earning its keep</b>.<br/>• Blocked trades winning on average → that guard may be <b>too tight</b> and worth loosening.<br/>• Near zero → mixed; leave it alone.</p>
         </InfoExplainer>}
       />
+      {(guardActions > 0 || aiFails > 0 || stoodDown > 0) && (
+        <p className="text-[10px] text-gray-400 mb-2 tabular-nums">
+          Last 7 days: <span className="text-gray-200 font-semibold">{guardActions} guard actions</span>
+          {aiFails > 0 ? <> · <span className="text-red-300">{aiFails} AI calls failed</span> <span className="text-gray-500">(AI health — not guard actions)</span></> : null}
+          {stoodDown > 0 ? <> · {stoodDown} checks stood down (thin data)</> : null}
+        </p>
+      )}
       {!rates.length ? (
-        <p className="text-[11px] text-gray-500 py-2">No guard activity in the last two weeks.</p>
+        <p className="text-[11px] text-gray-500 py-2">No guard actions in the last two weeks.{aiFails > 0 ? " AI-call failures are counted separately in the line above." : ""}</p>
       ) : (
         <div className="space-y-1 max-h-64 overflow-y-auto overflow-x-hidden pr-1">
           {rates.map((r) => {
@@ -170,6 +221,7 @@ export function GuardFireRatesPanel({ className = "" }: { className?: string }) 
               <div key={`${r.engine}:${r.kind}`} className="rounded-lg bg-black/20 px-2 py-1.5">
                 <div className="text-[10px] flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                   <span className="min-w-0 break-words text-gray-200 font-semibold">{LABEL[r.kind] || r.kind}</span>
+                  {isAiHealthKind(r.kind) ? <span className="text-red-300/80">AI health — not a guard action</span> : null}
                   <span className="text-gray-500">{r.engine}</span>
                   <span className="ml-auto text-gray-300 font-semibold tabular-nums">{r.fires}×</span>
                   <span className={`tabular-nums ${delta > 0 ? "text-amber-300" : delta < 0 ? "text-emerald-300" : "text-gray-500"}`}>
@@ -349,8 +401,8 @@ export function CryptoShadowPromotionsPanel({ className = "" }: { className?: st
           <button
             className="shrink-0 text-[10px] px-2.5 py-1 rounded-full bg-amber-500/40 text-amber-50 font-semibold hover:bg-amber-500/60 disabled:opacity-50"
             disabled={promoteAll.isPending || promote.isPending}
-            onClick={() => { if (window.confirm(`Make ALL ${candidates.length} proven losers into guards?\n\nEvery one is re-checked by the server first — any that no longer qualify are skipped and reported to you here. The live DeFi hot wallet will skip matching entries until you retire each guard. This changes live trading behavior.`)) promoteAll.mutate(); }}
-          >Make all {candidates.length} into guards</button>
+            onClick={() => { if (window.confirm(candidates.length === 1 ? `Make this proven loser into a guard?\n\nIt is re-checked by the server first. The live DeFi hot wallet will skip matching entries until you retire the guard. This changes live trading behavior.` : `Make ALL ${candidates.length} proven losers into guards?\n\nEvery one is re-checked by the server first — any that no longer qualify are skipped and reported to you here. The live DeFi hot wallet will skip matching entries until you retire each guard. This changes live trading behavior.`)) promoteAll.mutate(); }}
+          >{candidates.length === 1 ? "Make this 1 into a guard" : `Make all ${candidates.length} into guards`}</button>
           <span className="text-[9px] text-gray-500">One tap for the whole list — same per-bucket server re-check as one-by-one. DeFi hot wallet only.</span>
         </div>
       )}
@@ -694,6 +746,9 @@ function TrailBrainSection() {
   const engName = (e: string) => (e === "crypto" ? "Crypto" : e === "fx" ? "FX" : e === "sol" ? "Sol" : "Kalshi perps");
   const unit = (u: "R" | "pct") => (u === "R" ? "R" : "%");
   const fmtN = (v: number | null | undefined, u: "R" | "pct") => (v == null ? "—" : `${v > 0 ? "+" : ""}${v}${unit(u)}`);
+  // Most groups sit on the same (default) trail settings — print that config
+  // ONCE as a shared block; a group's row repeats it only where it differs.
+  const sharedBrain = sharedSummaryOf(data.groups.map((g) => g.paramsSummary));
   return (
     <div className="mt-2.5 border-t border-white/10 pt-2">
       <div className="flex items-start gap-2 mb-1">
@@ -717,6 +772,12 @@ function TrailBrainSection() {
         ))}
       </div>
 
+      {sharedBrain ? (
+        <div className="text-[10px] text-gray-400 rounded bg-black/20 px-2 py-1.5 mb-1 break-words">
+          Standard trail settings for {sharedBrain.count} of {data.groups.length} groups: <span className="text-gray-200">{sharedBrain.text}</span>
+          <span className="text-gray-500"> — a group below repeats its settings only where they differ from this.</span>
+        </div>
+      ) : null}
       {data.groups.length ? (
         <div className="space-y-0.5">
           {data.groups.map((g) => (
@@ -726,7 +787,7 @@ function TrailBrainSection() {
                 <span className="shrink-0 text-gray-500 tabular-nums">v{g.version}</span>
                 {g.status === "dormant" ? <span className="shrink-0 text-amber-300">stood down</span> : null}
               </div>
-              <div className="text-[10px] text-gray-300 mt-0.5 break-words">{g.paramsSummary}</div>
+              {(!sharedBrain || g.paramsSummary !== sharedBrain.text) ? <div className="text-[10px] text-gray-300 mt-0.5 break-words">{g.paramsSummary}</div> : null}
               {g.evidence ? (
                 <div className="text-[10px] flex flex-wrap gap-x-2.5 gap-y-0.5 mt-0.5 tabular-nums">
                   <span className="text-gray-400">{g.evidence.brainTrades} brain-guided closes</span>
@@ -810,6 +871,9 @@ function TrailGuardsSection() {
   if (!data) return null;
   const fresh = data.candidates.filter((c) => !c.alreadyGuarded);
   const active = data.guards.filter((g) => g.active);
+  // Guards on the same trail profile share one config block (below) instead
+  // of repeating the identical profile text on every guard row.
+  const sharedGuardProfile = sharedSummaryOf(active.map((g) => g.profileSummary));
   const retiredByLessons = data.guards.filter((g) => !g.active && g.retiredBy === "lessons");
   if (!fresh.length && !active.length && !retiredByLessons.length) return null;
   const eng = (e: string) => (e === "crypto" ? "Crypto" : "Sol");
@@ -832,8 +896,8 @@ function TrailGuardsSection() {
           <button
             className="shrink-0 text-[10px] px-2.5 py-1 rounded-full bg-sky-500/25 text-sky-100 font-semibold border border-sky-500/40 hover:bg-sky-500/40 disabled:opacity-50"
             disabled={promoteAll.isPending || promote.isPending}
-            onClick={() => { if (window.confirm(`Make ALL ${fresh.length} proven trail lessons into guards?\n\nEvery one is re-checked by the server first — any that no longer qualify are skipped and reported to you here. Guards change exit management only — never entries or sizing. You can retire each one anytime.`)) promoteAll.mutate(); }}
-          >Make all {fresh.length} into guards</button>
+            onClick={() => { if (window.confirm(fresh.length === 1 ? `Make this proven trail lesson into a guard?\n\nIt is re-checked by the server first. Guards change exit management only — never entries or sizing. You can retire it anytime.` : `Make ALL ${fresh.length} proven trail lessons into guards?\n\nEvery one is re-checked by the server first — any that no longer qualify are skipped and reported to you here. Guards change exit management only — never entries or sizing. You can retire each one anytime.`)) promoteAll.mutate(); }}
+          >{fresh.length === 1 ? "Make this 1 into a guard" : `Make all ${fresh.length} into guards`}</button>
           <span className="text-[9px] text-gray-500">One tap for the whole list — same per-lesson server re-check as one-by-one.</span>
         </div>
       )}
@@ -863,13 +927,19 @@ function TrailGuardsSection() {
       ))}
       </div>
       )}
+      {sharedGuardProfile ? (
+        <div className="text-[9px] text-gray-400 rounded bg-black/20 px-2 py-1 mb-1 break-words">
+          Standard guard profile for {sharedGuardProfile.count} of {active.length} guards: <span className="text-gray-200">{sharedGuardProfile.text}</span>
+          <span className="text-gray-500"> — a guard below repeats its profile only where it differs.</span>
+        </div>
+      ) : null}
       {active.map((g) => {
         const ev = data.evaluations?.[g.id];
         return (
         <div key={g.id} className="rounded bg-sky-500/10 border border-sky-500/25 px-2 py-1.5 mb-0.5">
           <div className="text-[10px] flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
             <span className="min-w-0 break-words text-sky-200 font-medium">🛡️ {eng(g.engine)} · {g.dimension} · {g.key}</span>
-            <span className="min-w-0 break-words text-gray-400">{g.action === "tighten" ? "tightened" : "profile locked"}: {g.profileSummary}</span>
+            <span className="min-w-0 break-words text-gray-400">{g.action === "tighten" ? "tightened" : "profile locked"}{(!sharedGuardProfile || g.profileSummary !== sharedGuardProfile.text) ? `: ${g.profileSummary}` : ""}</span>
             <button
               className="ml-auto shrink-0 text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-gray-300 border border-white/15 disabled:opacity-50"
               disabled={retire.isPending}
@@ -922,6 +992,7 @@ export function EngineSafeguardsPanel({ className = "" }: { className?: string }
     queryKey: ["/api/engine/guard-events?limit=40"],
     refetchInterval: 60000,
   });
+  const events = aggregateEvents(data?.events || []);
   return (
     <div className={`rounded-2xl p-4 overflow-hidden ${className}`} style={{ background: "rgba(17,24,39,0.5)", border: "1.5px solid rgba(75,85,99,0.5)" }} data-testid="engine-safeguards-panel">
       <PanelHeader
@@ -932,31 +1003,23 @@ export function EngineSafeguardsPanel({ className = "" }: { className?: string }
         explainer={<InfoExplainer title="Engine safeguards" accent="border-l-emerald-300/60">
           <p>This is the receipt feed for your engines' safety systems. Every time a protection steps in — refusing to loosen a stop, capping a position size to your limits, refusing a risky close, retrying a flatten — it is written here.</p>
           <p>Nothing here is an error. A busy feed on a wild day means the guards were doing their job while the market moved.</p>
-          <p>The chips at the top count each kind of action over the last 7 days, newest events below.</p>
+          <p>Per-kind counts live in <b>Guard fire rates</b> — this panel is the event feed itself. Runs of identical events are folded into one row with a ×N count.</p>
         </InfoExplainer>}
       />
-      {!data?.summary?.length ? (
+      {!events.length ? (
         <p className="text-[11px] text-gray-500 py-2">No safeguard has had to act yet.</p>
       ) : (
-        <>
-          <div className="flex flex-wrap gap-1.5 mb-3">
-            {data.summary.map((s) => (
-              <span key={s.kind} className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 tabular-nums">
-                {LABEL[s.kind] || s.kind} · {s.n}
-              </span>
-            ))}
-          </div>
-          <div className="space-y-1 max-h-56 overflow-y-auto overflow-x-hidden pr-1">
-            {data.events.map((e) => (
-              <div key={e.id} className="text-[10px] rounded-lg bg-black/20 px-2 py-1.5 break-words">
-                <span className="text-gray-300 font-semibold">{LABEL[e.kind] || e.kind}</span>
-                {e.symbol ? <span className="text-gray-400"> · {e.symbol}</span> : null}
-                <span className="text-gray-500"> — {e.detail}</span>
-                <span className="block text-gray-600">{new Date(e.created_at).toLocaleString()}</span>
-              </div>
-            ))}
-          </div>
-        </>
+        <div className="space-y-1 max-h-56 overflow-y-auto overflow-x-hidden pr-1">
+          {events.map((e) => (
+            <div key={e.id} className="text-[10px] rounded-lg bg-black/20 px-2 py-1.5 break-words">
+              <span className="text-gray-300 font-semibold">{LABEL[e.kind] || e.kind}</span>
+              {e.aggCount > 1 ? <span className="ml-1 px-1 rounded bg-emerald-500/20 text-emerald-200 font-bold tabular-nums">×{e.aggCount}</span> : null}
+              {e.symbol ? <span className="text-gray-400"> · {e.symbol}</span> : null}
+              <span className="text-gray-500"> — {e.detail}</span>
+              <span className="block text-gray-600">{new Date(e.created_at).toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

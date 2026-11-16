@@ -19,11 +19,12 @@ export default function StreakBanner({ compact = false }: StreakBannerProps) {
 
   if (!user) return null;
 
-  const streak = streakData || {
-    currentStreak: 0,
-    tier: 'YG',
-    xpPoints: 0,
-  };
+  // While /api/streak is still loading, render nothing — the old fallback
+  // fabricated "0 day / Young Gun" next to surfaces already showing the real
+  // streak, which read as the numbers contradicting each other.
+  if (!streakData) return null;
+
+  const streak = streakData;
 
   const currentTierConfig = TIER_CONFIG[streak.tier as keyof typeof TIER_CONFIG];
   const hasStreak = streak.currentStreak > 0;
