@@ -12729,7 +12729,7 @@ function ensureKalshiPerpShadowTables() {
       funding_rate_at_entry double precision, session_et text, hour_utc int, hour_et int, day_of_week int,
       earnings_within_48h boolean, corporate_action_pending boolean, live_gate_blocked boolean,
       leverage_estimate double precision, tags text[], advice_at_entry text,
-      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision, funding_paid_usd double precision)`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_poc double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_vah double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_val double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_position text`)).then(() => void 0).catch((e) => {
+      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision, funding_paid_usd double precision)`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_poc double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_vah double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_val double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_position text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_model text NOT NULL DEFAULT 'legacy'`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_estimate_usd double precision NOT NULL DEFAULT 0`)).then(() => void 0).catch((e) => {
       _ensured3 = null;
       throw e;
     });
@@ -48857,6 +48857,133 @@ var init_kalshi_perps = __esm({
   }
 });
 
+// server/services/kalshi-perp-costs.ts
+function feeValueToBps(v) {
+  const n = typeof v === "string" ? parseFloat(v) : Number(v);
+  if (!Number.isFinite(n) || n < 0) return null;
+  const bps = n <= 0.1 ? n * 1e4 : n;
+  return saneBps(bps) ? Math.round(bps * 1e4) / 1e4 : null;
+}
+function pickFee(entry, keys) {
+  for (const k2 of keys) {
+    if (entry && entry[k2] != null) {
+      const bps = feeValueToBps(entry[k2]);
+      if (bps != null) return bps;
+    }
+  }
+  return null;
+}
+function parseFeeTiersPayload(data) {
+  const arr2 = Array.isArray(data) ? data : Array.isArray(data?.fee_tiers) ? data.fee_tiers : Array.isArray(data?.feeTiers) ? data.feeTiers : Array.isArray(data?.tiers) ? data.tiers : [];
+  let best = null;
+  for (const entry of arr2) {
+    const takerBps = pickFee(entry, TAKER_KEYS);
+    const makerBps = pickFee(entry, MAKER_KEYS);
+    if (takerBps == null || makerBps == null) continue;
+    if (!best || takerBps > best.takerBps) best = { takerBps, makerBps, source: "api" };
+  }
+  return best;
+}
+function resolveFeeSchedule(api) {
+  return api ?? PUBLISHED_FEE_SCHEDULE;
+}
+function feeUsd(notionalUsd, schedule, liquidity) {
+  if (!(notionalUsd > 0)) return 0;
+  const bps = liquidity === "maker" ? schedule.makerBps : schedule.takerBps;
+  return notionalUsd * bps / 1e4;
+}
+function roundTripCostBps(schedule, openLiquidity = "taker", closeLiquidity = "taker") {
+  const open = openLiquidity === "maker" ? schedule.makerBps : schedule.takerBps;
+  const close = closeLiquidity === "maker" ? schedule.makerBps : schedule.takerBps;
+  return open + close;
+}
+function normalizeFundingRate(rate) {
+  if (!Number.isFinite(rate)) return 0;
+  if (Math.abs(rate) < FUNDING_DEADBAND) return 0;
+  return Math.max(-FUNDING_CAP, Math.min(FUNDING_CAP, rate));
+}
+function fundingPnlUsd(direction, rate, markPrice, contracts) {
+  const r = normalizeFundingRate(rate);
+  if (r === 0 || !(markPrice > 0) || !(contracts > 0)) return 0;
+  return (direction === "long" ? -1 : 1) * r * markPrice * contracts;
+}
+function accrueFundingFromPrints(args) {
+  const since = Math.max(args.openedMs, args.throughMs);
+  let deltaUsd = 0;
+  let through = since;
+  let applied = 0;
+  for (const p2 of args.prints) {
+    if (p2.fundingTimeMs <= since || p2.fundingTimeMs > args.nowMs) continue;
+    deltaUsd += fundingPnlUsd(args.direction, p2.rate, p2.markPrice, args.contracts);
+    through = Math.max(through, p2.fundingTimeMs);
+    applied++;
+  }
+  return { deltaUsd, throughMs: through, applied };
+}
+function etWallTimeToUtcMs(y, mo, d, hh, mi) {
+  const guess = Date.UTC(y, mo - 1, d, hh, mi);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).formatToParts(new Date(guess));
+  const g = (t) => Number(parts.find((p2) => p2.type === t)?.value || 0);
+  const asUtc = Date.UTC(g("year"), g("month") - 1, g("day"), g("hour") % 24, g("minute"), g("second"));
+  return guess + (guess - asUtc);
+}
+function etDateParts(ms) {
+  const parts = etDateFmt.formatToParts(new Date(ms));
+  const g = (t) => parts.find((p2) => p2.type === t)?.value || "";
+  const dowMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return { y: Number(g("year")), mo: Number(g("month")), d: Number(g("day")), dow: dowMap[g("weekday")] ?? 0 };
+}
+function lastFundingPrintMs(nowMs) {
+  let { y, mo, d, dow } = etDateParts(nowMs);
+  for (let back = 0; back < 5; back++) {
+    if (dow >= 1 && dow <= 5) {
+      const t = etWallTimeToUtcMs(y, mo, d, 16, 0);
+      if (t <= nowMs) return t;
+    }
+    const prev = new Date(etWallTimeToUtcMs(y, mo, d, 12, 0) - 24 * 36e5);
+    ({ y, mo, d, dow } = etDateParts(prev.getTime()));
+  }
+  return 0;
+}
+function fundingPrintCrossedMs(throughMs, nowMs) {
+  const last2 = lastFundingPrintMs(nowMs);
+  return last2 > throughMs && last2 <= nowMs ? last2 : null;
+}
+function fundingFallbackApplies(historyOk, throughMs, nowMs) {
+  return !historyOk && fundingPrintCrossedMs(throughMs, nowMs) != null;
+}
+var exactCostsEnabled, COST_MODEL_EXACT, COST_MODEL_LEGACY, PERP_FEE_TAKER_BPS, PERP_FEE_MAKER_BPS, PUBLISHED_FEE_SCHEDULE, saneBps, TAKER_KEYS, MAKER_KEYS, FUNDING_DEADBAND, FUNDING_CAP, etDateFmt;
+var init_kalshi_perp_costs = __esm({
+  "server/services/kalshi-perp-costs.ts"() {
+    "use strict";
+    exactCostsEnabled = () => process.env.KALSHI_PERP_EXACT_COSTS !== "off";
+    COST_MODEL_EXACT = "exact_v1";
+    COST_MODEL_LEGACY = "placeholder";
+    PERP_FEE_TAKER_BPS = 12;
+    PERP_FEE_MAKER_BPS = 5;
+    PUBLISHED_FEE_SCHEDULE = {
+      takerBps: PERP_FEE_TAKER_BPS,
+      makerBps: PERP_FEE_MAKER_BPS,
+      source: "published"
+    };
+    saneBps = (v) => Number.isFinite(v) && v >= 0 && v <= 100;
+    TAKER_KEYS = ["taker_fee_bps", "taker_bps", "taker_fee", "takerFeeBps", "taker"];
+    MAKER_KEYS = ["maker_fee_bps", "maker_bps", "maker_fee", "makerFeeBps", "maker"];
+    FUNDING_DEADBAND = 1e-4;
+    FUNDING_CAP = 0.02;
+    etDateFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" });
+  }
+});
+
 // server/services/kalshi-trading.ts
 var kalshi_trading_exports = {};
 __export(kalshi_trading_exports, {
@@ -48870,6 +48997,7 @@ __export(kalshi_trading_exports, {
   getKalshiBalance: () => getKalshiBalance,
   getKalshiMarginBalance: () => getKalshiMarginBalance,
   getKalshiMarginEnabled: () => getKalshiMarginEnabled,
+  getKalshiMarginFeeTiers: () => getKalshiMarginFeeTiers,
   getKalshiMarginFills: () => getKalshiMarginFills,
   getKalshiMarginFundingHistoryUsd: () => getKalshiMarginFundingHistoryUsd,
   getKalshiMarginOrders: () => getKalshiMarginOrders,
@@ -49311,12 +49439,26 @@ async function getKalshiMarginFundingHistoryUsd(userId, ticker, fromMs, toMs) {
     return null;
   }
 }
-var KALSHI_BASE, KALSHI_PATH_PREFIX, CREDS_FILE, _sessions, fpNum;
+async function getKalshiMarginFeeTiers(userId) {
+  const hit = _feeTierCache.get(userId);
+  if (hit && Date.now() - hit.at < FEE_TIER_TTL_MS) return hit.schedule;
+  let schedule = null;
+  try {
+    const data = await kalshiMarginGet(userId, "/margin/fee_tiers");
+    schedule = parseFeeTiersPayload(data);
+  } catch {
+    schedule = null;
+  }
+  _feeTierCache.set(userId, { at: Date.now(), schedule });
+  return schedule;
+}
+var KALSHI_BASE, KALSHI_PATH_PREFIX, CREDS_FILE, _sessions, fpNum, _feeTierCache, FEE_TIER_TTL_MS;
 var init_kalshi_trading = __esm({
   "server/services/kalshi-trading.ts"() {
     "use strict";
     init_cred_store();
     init_kalshi_perps();
+    init_kalshi_perp_costs();
     KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2";
     KALSHI_PATH_PREFIX = "/trade-api/v2";
     CREDS_FILE = path3.join(process.cwd(), "data", "kalshi_credentials.json");
@@ -49326,6 +49468,8 @@ var init_kalshi_trading = __esm({
       const n = typeof v === "string" ? parseFloat(v) : Number(v);
       return Number.isFinite(n) ? n : null;
     };
+    _feeTierCache = /* @__PURE__ */ new Map();
+    FEE_TIER_TTL_MS = 10 * 6e4;
   }
 });
 
@@ -62090,7 +62234,7 @@ var init_shadow_live_toggles = __esm({
 
 // server/services/kalshi-orb.ts
 function orbEtDayKey(tsMs2) {
-  const parts = etDateFmt.formatToParts(new Date(tsMs2));
+  const parts = etDateFmt2.formatToParts(new Date(tsMs2));
   const g = (t) => parts.find((p2) => p2.type === t)?.value || "";
   return `${g("year")}-${g("month")}-${g("day")}`;
 }
@@ -62143,11 +62287,11 @@ function orbAlreadyFiredToday(prior, ticker, nowMs) {
   const key = orbEtDayKey(nowMs);
   return prior.some((p2) => p2.ticker === ticker && orbEtDayKey(p2.openedAtMs) === key);
 }
-var etDateFmt, etPartsFmt, ORB_OPEN_MIN_ET, ORB_RANGE_END_MIN_ET, ORB_CLOSE_MIN_ET, ORB_RETEST_BUFFER;
+var etDateFmt2, etPartsFmt, ORB_OPEN_MIN_ET, ORB_RANGE_END_MIN_ET, ORB_CLOSE_MIN_ET, ORB_RETEST_BUFFER;
 var init_kalshi_orb = __esm({
   "server/services/kalshi-orb.ts"() {
     "use strict";
-    etDateFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+    etDateFmt2 = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
     etPartsFmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit", weekday: "short" });
     ORB_OPEN_MIN_ET = 9 * 60 + 30;
     ORB_RANGE_END_MIN_ET = 9 * 60 + 45;
@@ -68812,7 +68956,7 @@ async function getKalshiStockShadowReport(userId, days = 30) {
     ),
     pool.query(
       `SELECT id, strategy, ticker, underlying, direction, entry_price, stop_loss, take_profit,
-         contracts, notional_usd, funding_accrued_usd, score, max_hours, opened_at, cost_bps
+         contracts, notional_usd, funding_accrued_usd, funding_estimate_usd, cost_model, score, max_hours, opened_at, cost_bps
        FROM kalshi_perp_shadow_trades
        WHERE user_id=$1 AND status='open'
        ORDER BY opened_at DESC
@@ -68821,7 +68965,7 @@ async function getKalshiStockShadowReport(userId, days = 30) {
     ),
     pool.query(
       `SELECT t.id, t.strategy, t.ticker, t.underlying, t.direction, t.entry_price, t.exit_price,
-         t.return_pct, t.r_multiple, t.funding_accrued_usd, t.exit_reason, c.hold_minutes, t.closed_at
+         t.return_pct, t.r_multiple, t.funding_accrued_usd, t.funding_model, t.exit_reason, c.hold_minutes, t.closed_at
        FROM kalshi_perp_shadow_trades t
        LEFT JOIN kalshi_perp_shadow_context c ON c.trade_id=t.id AND c.user_id=t.user_id
        WHERE t.user_id=$1 AND t.status='closed' AND t.exclude_from_stats IS NOT TRUE
@@ -68854,7 +68998,8 @@ async function getKalshiStockShadowReport(userId, days = 30) {
     let unrealizedNetPct = null;
     if (currentMark != null && entry > 0) {
       const grossPct = p2.direction === "short" ? (entry - currentMark) / entry * 100 : (currentMark - entry) / entry * 100;
-      const fundingPct = Number(p2.notional_usd) > 0 ? Number(p2.funding_accrued_usd) / Number(p2.notional_usd) * 100 : 0;
+      const fundingUsdTotal = (Number(p2.funding_accrued_usd) || 0) + (p2.cost_model === COST_MODEL_EXACT ? Number(p2.funding_estimate_usd) || 0 : 0);
+      const fundingPct = Number(p2.notional_usd) > 0 ? fundingUsdTotal / Number(p2.notional_usd) * 100 : 0;
       unrealizedNetPct = grossPct + fundingPct - (Number(p2.cost_bps) || 0) / 100;
     }
     return {
@@ -68869,6 +69014,7 @@ async function getKalshiStockShadowReport(userId, days = 30) {
       contracts: Number(p2.contracts),
       notional_usd: Number(p2.notional_usd),
       funding_accrued_usd: Number(p2.funding_accrued_usd) || 0,
+      funding_estimate_usd: p2.cost_model === COST_MODEL_EXACT ? Number(p2.funding_estimate_usd) || 0 : 0,
       score: p2.score == null ? null : Number(p2.score),
       max_hours: Number(p2.max_hours),
       opened_at: toIso(p2.opened_at) || (/* @__PURE__ */ new Date(0)).toISOString(),
@@ -68957,6 +69103,7 @@ async function getKalshiStockShadowReport(userId, days = 30) {
       return_pct: Number(r.return_pct),
       r_multiple: r.r_multiple == null ? null : Number(r.r_multiple),
       funding_accrued_usd: Number(r.funding_accrued_usd) || 0,
+      funding_model: String(r.funding_model || "legacy"),
       exit_reason: r.exit_reason == null ? null : String(r.exit_reason),
       hold_minutes: r.hold_minutes == null ? null : Number(r.hold_minutes),
       closed_at: toIso(r.closed_at) || (/* @__PURE__ */ new Date(0)).toISOString()
@@ -69005,23 +69152,38 @@ function optionsAdapter(ticker) {
     }
   };
 }
-async function accrueFunding(t) {
+async function accrueFundingDetailed(t) {
   const since = Math.max(new Date(t.opened_at).getTime(), Number(t.funding_through_ms) || 0);
-  const rates = await getPerpFundingHistory(t.ticker).catch(() => []);
+  const hist = await getPerpFundingHistory(t.ticker).catch(() => null);
+  const historyOk = hist != null;
+  const rates = hist ?? [];
   let accrued = Number(t.funding_accrued_usd) || 0;
   let through = since;
-  for (const r of rates) {
-    if (r.fundingTimeMs <= since || r.fundingTimeMs > Date.now()) continue;
-    const notionalAtFunding = r.markPrice * Number(t.contracts);
-    accrued += (t.direction === "long" ? -1 : 1) * r.rate * notionalAtFunding;
-    through = Math.max(through, r.fundingTimeMs);
+  if (t.cost_model === COST_MODEL_EXACT) {
+    const r = accrueFundingFromPrints({
+      direction: t.direction,
+      contracts: Number(t.contracts),
+      openedMs: new Date(t.opened_at).getTime(),
+      throughMs: since,
+      nowMs: Date.now(),
+      prints: rates
+    });
+    accrued += r.deltaUsd;
+    through = r.throughMs;
+  } else {
+    for (const r of rates) {
+      if (r.fundingTimeMs <= since || r.fundingTimeMs > Date.now()) continue;
+      const notionalAtFunding = r.markPrice * Number(t.contracts);
+      accrued += (t.direction === "long" ? -1 : 1) * r.rate * notionalAtFunding;
+      through = Math.max(through, r.fundingTimeMs);
+    }
   }
   if (through !== since) {
     await pool.query(`UPDATE kalshi_perp_shadow_trades SET funding_accrued_usd=$2, funding_through_ms=$3 WHERE id=$1`, [t.id, accrued, through]);
   }
-  return accrued;
+  return { usd: accrued, historyOk, throughMs: through };
 }
-async function closeTrade(t, exit, why, fundingUsd, exclude) {
+async function closeTrade(t, exit, why, fundingUsd, exclude, fundingModel) {
   const short = t.direction === "short";
   const gross = exit != null ? (short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price * 100 : null;
   const fundingPct = gross != null && t.notional_usd > 0 ? fundingUsd / t.notional_usd * 100 : null;
@@ -69029,8 +69191,9 @@ async function closeTrade(t, exit, why, fundingUsd, exclude) {
   const r = net != null && t.sl_pct > 0 ? net / t.sl_pct : null;
   const upd = await pool.query(
     `UPDATE kalshi_perp_shadow_trades SET status='closed', exit_price=$2, exit_reason=$3, gross_return_pct=$4, return_pct=$5,
-       r_multiple=$6, funding_accrued_usd=$7, exclude_from_stats=$8, closed_at=now() WHERE id=$1 AND status='open'`,
-    [t.id, exit, why, gross, net, r, fundingUsd, exclude]
+       r_multiple=$6, funding_accrued_usd=$7, exclude_from_stats=$8, funding_estimate_usd=0,
+       funding_model=CASE WHEN $9::text IS NOT NULL THEN $9 ELSE funding_model END, closed_at=now() WHERE id=$1 AND status='open'`,
+    [t.id, exit, why, gross, net, r, fundingUsd, exclude, fundingModel ?? null]
   );
   if (!upd.rowCount) return false;
   const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 36e5;
@@ -69048,14 +69211,30 @@ async function resolveKalshiStockShadowTrades(userId) {
   const actions = await getPerpCorporateActions().catch(() => []);
   let closed = 0;
   for (const t of rows) {
-    const funding = await accrueFunding(t).catch(() => Number(t.funding_accrued_usd) || 0);
+    const acc = await accrueFundingDetailed(t).catch(() => ({
+      usd: Number(t.funding_accrued_usd) || 0,
+      historyOk: false,
+      throughMs: Number(t.funding_through_ms) || 0
+    }));
+    let funding = acc.usd;
+    let fundingModel = null;
+    if (t.cost_model === COST_MODEL_EXACT) {
+      fundingModel = "actual";
+      if (fundingFallbackApplies(acc.historyOk, acc.throughMs, Date.now())) {
+        fundingModel = "estimate";
+        const est = await getPerpFundingEstimate(t.ticker).catch(() => null);
+        const touch = await getPerpTouch(t.ticker).catch(() => null);
+        const mark = touch ? (touch.bid + touch.ask) / 2 : Number(t.entry_price);
+        if (est) funding += fundingPnlUsd(t.direction, est.rate, mark, Number(t.contracts));
+      }
+    }
     const openedMs = new Date(t.opened_at).getTime();
     const ca = actions.find((a) => a.ticker === t.ticker && a.status !== "cancelled" && a.status !== "lapsed" && a.effectiveMs != null && a.effectiveMs > openedMs && a.effectiveMs <= Date.now());
     const minsSinceOpen = Math.max(1, Math.min(5e3, Math.ceil((Date.now() - openedMs) / 6e4) + 5));
     const candles = await getPerpCandles(t.ticker, 1, minsSinceOpen).catch(() => []);
     const latest = candles[candles.length - 1];
     if (ca) {
-      if (await closeTrade(t, latest ? latest.c : Number(t.entry_price), "corporate_action", funding, true)) closed++;
+      if (await closeTrade(t, latest ? latest.c : Number(t.entry_price), "corporate_action", funding, true, fundingModel)) closed++;
       continue;
     }
     const short = t.direction === "short";
@@ -69090,8 +69269,17 @@ async function resolveKalshiStockShadowTrades(userId) {
       exit = null;
       why = "no price";
     }
-    if (!why) continue;
-    if (await closeTrade(t, exit, why, funding, false)) closed++;
+    if (!why) {
+      if (t.cost_model === COST_MODEL_EXACT) {
+        const est = await getPerpFundingEstimate(t.ticker).catch(() => null);
+        const mark = latest ? latest.c : Number(t.entry_price);
+        const estUsd = est ? fundingPnlUsd(t.direction, est.rate, mark, Number(t.contracts)) : 0;
+        await pool.query(`UPDATE kalshi_perp_shadow_trades SET funding_estimate_usd=$2 WHERE id=$1`, [t.id, estUsd]).catch(() => {
+        });
+      }
+      continue;
+    }
+    if (await closeTrade(t, exit, why, funding, false, fundingModel)) closed++;
   }
   return closed;
 }
@@ -69208,7 +69396,9 @@ async function runKalshiStockShadowCycle(userId) {
     const spreadBps = (ask - bid) / ((ask + bid) / 2) * 1e4;
     const fundEst = await getPerpFundingEstimate(mkt.ticker).catch(() => null);
     const slPct = Math.min(SL_HI(), Math.max(SL_LO(), ATR_MULT2() * atrPct));
-    const costBps = FEE_BPS();
+    const exactEra = exactCostsEnabled();
+    const costBps = exactEra ? roundTripCostBps(PUBLISHED_FEE_SCHEDULE) : FEE_BPS();
+    const costModel = exactEra ? COST_MODEL_EXACT : COST_MODEL_LEGACY;
     if (slPct < 3 * (costBps / 100)) continue;
     const now = Date.now();
     const et = etParts(now);
@@ -69310,9 +69500,9 @@ async function runKalshiStockShadowCycle(userId) {
       const earnings48 = perpEarningsEnabled() && eInfo ? earningsStampValue(eInfo, now) : null;
       const ins = await pool.query(
         `INSERT INTO kalshi_perp_shadow_trades (user_id, strategy, ticker, underlying, direction, entry_price, entry_bid, entry_ask,
-           stop_loss, take_profit, sl_pct, contracts, notional_usd, cost_bps, cost_model, score, max_hours)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'placeholder',$15,$16) RETURNING id`,
-        [userId, sig.strategy, mkt.ticker, mkt.underlying, sig.direction, entry, bid, ask, stop, target, slPct, contracts, notional, costBps, sig.score, paperMaxHoursFor2(sig.strategy)]
+           stop_loss, take_profit, sl_pct, contracts, notional_usd, cost_bps, cost_model, funding_model, score, max_hours)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
+        [userId, sig.strategy, mkt.ticker, mkt.underlying, sig.direction, entry, bid, ask, stop, target, slPct, contracts, notional, costBps, costModel, exactEra ? COST_MODEL_EXACT : "legacy", sig.score, paperMaxHoursFor2(sig.strategy)]
       );
       const id = ins.rows[0]?.id;
       if (!id) continue;
@@ -69404,6 +69594,7 @@ var init_kalshi_stock_shadow = __esm({
     init_kalshi_perp_brain();
     init_kalshi_earnings_calendar();
     init_kalshi_funding_fade();
+    init_kalshi_perp_costs();
     stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== "off";
     num10 = (n, d) => {
       const v = Number(process.env[n]);
@@ -69492,7 +69683,7 @@ function ensureKalshiPerpLiveTables() {
       status text NOT NULL DEFAULT 'sending',
       fill_count double precision, remaining_count double precision, avg_fill_price double precision,
       error text, reconcile_attempts int NOT NULL DEFAULT 0,
-      created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now())`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_live_orders_trade ON kalshi_perp_live_orders (live_trade_id)`)).then(() => void 0).catch((e) => {
+      created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now())`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_live_orders_trade ON kalshi_perp_live_orders (live_trade_id)`)).then(() => pool.query(`ALTER TABLE kalshi_perp_live_trades ADD COLUMN IF NOT EXISTS fees_usd double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_live_trades ADD COLUMN IF NOT EXISTS cost_model text`)).then(() => void 0).catch((e) => {
       _ensured12 = null;
       throw e;
     });
@@ -69743,15 +69934,19 @@ async function closeLiveTrade(userId, t, exitPrice, why, fundingUsd) {
   const contracts = Number(t.contracts);
   const dirSign = t.direction === "short" ? -1 : 1;
   const gross = exitPrice != null && entry > 0 && contracts > 0 ? dirSign * (exitPrice - entry) * contracts : null;
-  const net = gross != null ? gross + (fundingUsd ?? 0) : null;
   const notional = entry > 0 && contracts > 0 ? entry * contracts : Number(t.notional_usd) || 0;
+  const exactEra = exactCostsEnabled();
+  const schedule = exactEra ? resolveFeeSchedule(await getKalshiMarginFeeTiers(userId).catch(() => null)) : null;
+  const feesUsd = schedule ? feeUsd(notional, schedule, "taker") + (exitPrice != null ? feeUsd(exitPrice * contracts, schedule, "taker") : 0) : 0;
+  const costModel = exactEra ? COST_MODEL_EXACT : "legacy";
+  const net = gross != null ? gross + (fundingUsd ?? 0) - feesUsd : null;
   const returnPct = net != null && notional > 0 ? net / notional * 100 : null;
   const rMultiple2 = returnPct != null && Number(t.sl_pct) > 0 ? returnPct / Number(t.sl_pct) : null;
   const upd = await pool.query(
     `UPDATE kalshi_perp_live_trades SET status='closed', exit_price=$2, exit_reason=$3, gross_pnl_usd=$4,
-       funding_usd=$5, net_pnl_usd=$6, return_pct=$7, r_multiple=$8, closed_at=now()
+       funding_usd=$5, net_pnl_usd=$6, return_pct=$7, r_multiple=$8, fees_usd=$9, cost_model=$10, closed_at=now()
      WHERE id=$1 AND status IN ('open','closing')`,
-    [t.id, exitPrice, why, gross, fundingUsd, net, returnPct, rMultiple2]
+    [t.id, exitPrice, why, gross, fundingUsd, net, returnPct, rMultiple2, feesUsd, costModel]
   );
   if (!upd.rowCount) return false;
   Promise.resolve().then(async () => {
@@ -69771,7 +69966,7 @@ async function closeLiveTrade(userId, t, exitPrice, why, fundingUsd) {
         closedAt: /* @__PURE__ */ new Date(),
         source: "kalshi_perp",
         mt5Ticket: `perp-live-${t.id}`,
-        notes: `${t.strategy}: Kalshi stock-perp LIVE | ${why}${fundingUsd == null ? " | funding unrecorded" : ""}`
+        notes: `${t.strategy}: Kalshi stock-perp LIVE | ${why}${fundingUsd == null ? " | funding unrecorded" : ""}${exactEra ? ` | fees $${feesUsd.toFixed(2)} (${costModel}, ${schedule?.source ?? "published"} schedule)` : ""}`
       });
     } catch {
     }
@@ -70331,6 +70526,7 @@ var init_kalshi_perp_live = __esm({
     init_kalshi_perps();
     init_kalshi_trading();
     init_kalshi_stock_shadow();
+    init_kalshi_perp_costs();
     num11 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
@@ -85794,9 +85990,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "021650b9-dirty";
+var BUILD_COMMIT = "322ac6f1-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-16T08:42:34.839Z";
+var BUILT_AT = "2026-11-16T08:53:45.876Z";
 
 // server/stripe.ts
 init_db();

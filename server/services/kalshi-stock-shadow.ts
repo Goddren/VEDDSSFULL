@@ -48,9 +48,19 @@
 // gap-through stop fills, daily funding accrued at 16:00 ET (PINNED
 // convention: rate > 0 → longs pay shorts; payment = rate × mark ×
 // contracts), corporate-action force-close with the row excluded from
-// stats, fees as a stamped placeholder (cost_model='placeholder' until a
-// margin-enabled account's real /margin/fee_tiers can replace them), and a
-// cost floor: entries skipped when the stop is < 3× round-trip cost.
+// stats, and a cost floor: entries skipped when the stop is < 3×
+// round-trip cost. Fees/funding accounting eras (2026-11-16,
+// kalshi-perp-costs.ts): rows opened with exact accounting on carry
+// cost_model='exact_v1' — the published tier-0 schedule (12 bps taker
+// per leg, 24 round trip; this lane's client is public-only by
+// construction, so the published schedule is its fee source — the
+// authenticated /margin/fee_tiers read lives on the live lane) and
+// funding accrued from Kalshi's actual prints through the shared
+// module (0.01% deadband, ±2% cap), with the in-window estimate
+// carried separately and marked 'estimate' if it is ever booked.
+// Older rows and kill-switch-off rows keep cost_model='placeholder'
+// (the legacy 20 bps modeled round trip); recorded nets are never
+// rewritten. Kill switch: KALSHI_PERP_EXACT_COSTS=off.
 //
 // Caps mirror the crypto shadow lane: 30 open / 3 per strategy / no
 // duplicate underlying within a strategy / 60-min re-entry cooldown.
@@ -101,6 +111,10 @@ import {
   type EarningsLookup,
 } from './kalshi-earnings-calendar';
 import { fundingFadeEnabled, buildFundingFadeBook, fundingFadeForTicker, type FundingFadeBook } from './kalshi-funding-fade';
+import {
+  exactCostsEnabled, COST_MODEL_EXACT, COST_MODEL_LEGACY, PUBLISHED_FEE_SCHEDULE,
+  roundTripCostBps, accrueFundingFromPrints, fundingPnlUsd, fundingFallbackApplies,
+} from './kalshi-perp-costs';
 
 export const stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== 'off';
 
@@ -113,7 +127,7 @@ const COOLDOWN_MS = () => num('KALSHI_STOCK_SHADOW_COOLDOWN_MIN', 60) * 60_000;
 const EVERY_MS = () => num('KALSHI_STOCK_SHADOW_EVERY_MIN', 10) * 60_000;
 const NOTIONAL = () => num('KALSHI_STOCK_SHADOW_NOTIONAL_USD', 250);
 const MIN_CONF = () => num('KALSHI_STOCK_SHADOW_MIN_CONFIDENCE', 70);
-const FEE_BPS = () => num('KALSHI_STOCK_SHADOW_FEE_BPS', 20); // round-trip placeholder taker cost
+const FEE_BPS = () => num('KALSHI_STOCK_SHADOW_FEE_BPS', 20); // LEGACY era round-trip placeholder taker cost (exact era: kalshi-perp-costs.ts)
 const SL_LO = () => num('KALSHI_STOCK_SHADOW_SL_MIN_PCT', 0.8);
 const SL_HI = () => num('KALSHI_STOCK_SHADOW_SL_MAX_PCT', 4);
 const ATR_MULT = () => num('KALSHI_STOCK_SHADOW_SL_ATR_MULT', 1.5);
@@ -254,6 +268,9 @@ export interface KalshiStockShadowOpenPosition {
   contracts: number;
   notional_usd: number;
   funding_accrued_usd: number;
+  /** Exact-era rows only: the in-window funding estimate for the next
+   *  4pm ET print (display-only; never booked as realized). */
+  funding_estimate_usd: number;
   score: number | null;
   max_hours: number;
   opened_at: string;
@@ -272,6 +289,8 @@ export interface KalshiStockShadowRecentClose {
   return_pct: number;
   r_multiple: number | null;
   funding_accrued_usd: number;
+  /** Funding provenance: 'actual' | 'estimate' | 'exact_v1' | 'legacy'. */
+  funding_model: string;
   exit_reason: string | null;
   hold_minutes: number | null;
   closed_at: string;
@@ -429,7 +448,7 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
       [userId, windowDays]),
     pool.query(
       `SELECT id, strategy, ticker, underlying, direction, entry_price, stop_loss, take_profit,
-         contracts, notional_usd, funding_accrued_usd, score, max_hours, opened_at, cost_bps
+         contracts, notional_usd, funding_accrued_usd, funding_estimate_usd, cost_model, score, max_hours, opened_at, cost_bps
        FROM kalshi_perp_shadow_trades
        WHERE user_id=$1 AND status='open'
        ORDER BY opened_at DESC
@@ -437,7 +456,7 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
       [userId]),
     pool.query(
       `SELECT t.id, t.strategy, t.ticker, t.underlying, t.direction, t.entry_price, t.exit_price,
-         t.return_pct, t.r_multiple, t.funding_accrued_usd, t.exit_reason, c.hold_minutes, t.closed_at
+         t.return_pct, t.r_multiple, t.funding_accrued_usd, t.funding_model, t.exit_reason, c.hold_minutes, t.closed_at
        FROM kalshi_perp_shadow_trades t
        LEFT JOIN kalshi_perp_shadow_context c ON c.trade_id=t.id AND c.user_id=t.user_id
        WHERE t.user_id=$1 AND t.status='closed' AND t.exclude_from_stats IS NOT TRUE
@@ -479,8 +498,15 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
       const grossPct = p.direction === 'short'
         ? ((entry - currentMark) / entry) * 100
         : ((currentMark - entry) / entry) * 100;
+      // Exact-era rows also carry the in-window funding estimate for the
+      // next print, so the unrealized figure isn't blind to the funding
+      // charge that lands if the position is still open at 4pm ET. The
+      // estimate is replaced by the actual print when it lands — it is
+      // never added to funding_accrued_usd.
+      const fundingUsdTotal = (Number(p.funding_accrued_usd) || 0)
+        + (p.cost_model === COST_MODEL_EXACT ? (Number(p.funding_estimate_usd) || 0) : 0);
       const fundingPct = Number(p.notional_usd) > 0
-        ? (Number(p.funding_accrued_usd) / Number(p.notional_usd)) * 100
+        ? (fundingUsdTotal / Number(p.notional_usd)) * 100
         : 0;
       unrealizedNetPct = grossPct + fundingPct - (Number(p.cost_bps) || 0) / 100;
     }
@@ -496,6 +522,7 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
       contracts: Number(p.contracts),
       notional_usd: Number(p.notional_usd),
       funding_accrued_usd: Number(p.funding_accrued_usd) || 0,
+      funding_estimate_usd: p.cost_model === COST_MODEL_EXACT ? (Number(p.funding_estimate_usd) || 0) : 0,
       score: p.score == null ? null : Number(p.score),
       max_hours: Number(p.max_hours),
       opened_at: toIso(p.opened_at) || new Date(0).toISOString(),
@@ -593,6 +620,7 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
       return_pct: Number(r.return_pct),
       r_multiple: r.r_multiple == null ? null : Number(r.r_multiple),
       funding_accrued_usd: Number(r.funding_accrued_usd) || 0,
+      funding_model: String(r.funding_model || 'legacy'),
       exit_reason: r.exit_reason == null ? null : String(r.exit_reason),
       hold_minutes: r.hold_minutes == null ? null : Number(r.hold_minutes),
       closed_at: toIso(r.closed_at) || new Date(0).toISOString(),
@@ -668,37 +696,67 @@ const OPTIONS_CFG: any = {
 };
 
 // ── funding accrual ─────────────────────────────────────────────────────────
+interface FundingAccrual { usd: number; historyOk: boolean; throughMs: number }
+
 /** Accrue every funding event crossed since the trade's watermark.
  *  PINNED convention: rate > 0 → longs pay. Payment (P&L) for a LONG is
- *  −rate × mark × contracts; a SHORT receives it. */
-async function accrueFunding(t: any): Promise<number> {
+ *  −rate × mark × contracts; a SHORT receives it.
+ *
+ *  Exact-era trades (cost_model='exact_v1') accrue through the shared
+ *  kalshi-perp-costs module — Kalshi's ACTUAL historical prints with the
+ *  0.01% deadband and ±2% cap applied exactly. Legacy-era trades keep
+ *  the original print loop below, byte-for-byte: their era's accounting
+ *  does not change retroactively. historyOk reports whether the
+ *  historical read succeeded — the close path needs it for the
+ *  estimate-fallback rule (fundingFallbackApplies). */
+async function accrueFundingDetailed(t: any): Promise<FundingAccrual> {
   const since = Math.max(new Date(t.opened_at).getTime(), Number(t.funding_through_ms) || 0);
-  const rates = await getPerpFundingHistory(t.ticker).catch(() => []);
+  const hist = await getPerpFundingHistory(t.ticker).catch(() => null);
+  const historyOk = hist != null;
+  const rates = hist ?? [];
   let accrued = Number(t.funding_accrued_usd) || 0;
   let through = since;
-  for (const r of rates) {
-    if (r.fundingTimeMs <= since || r.fundingTimeMs > Date.now()) continue;
-    const notionalAtFunding = r.markPrice * Number(t.contracts);
-    accrued += (t.direction === 'long' ? -1 : 1) * r.rate * notionalAtFunding;
-    through = Math.max(through, r.fundingTimeMs);
+  if (t.cost_model === COST_MODEL_EXACT) {
+    const r = accrueFundingFromPrints({
+      direction: t.direction, contracts: Number(t.contracts),
+      openedMs: new Date(t.opened_at).getTime(), throughMs: since, nowMs: Date.now(), prints: rates,
+    });
+    accrued += r.deltaUsd;
+    through = r.throughMs;
+  } else {
+    for (const r of rates) {
+      if (r.fundingTimeMs <= since || r.fundingTimeMs > Date.now()) continue;
+      const notionalAtFunding = r.markPrice * Number(t.contracts);
+      accrued += (t.direction === 'long' ? -1 : 1) * r.rate * notionalAtFunding;
+      through = Math.max(through, r.fundingTimeMs);
+    }
   }
   if (through !== since) {
     await pool.query(`UPDATE kalshi_perp_shadow_trades SET funding_accrued_usd=$2, funding_through_ms=$3 WHERE id=$1`, [t.id, accrued, through]);
   }
-  return accrued;
+  return { usd: accrued, historyOk, throughMs: through };
+}
+
+async function accrueFunding(t: any): Promise<number> {
+  return (await accrueFundingDetailed(t)).usd;
 }
 
 // ── resolver ────────────────────────────────────────────────────────────────
-async function closeTrade(t: any, exit: number | null, why: string, fundingUsd: number, exclude: boolean): Promise<boolean> {
+async function closeTrade(t: any, exit: number | null, why: string, fundingUsd: number, exclude: boolean, fundingModel?: string | null): Promise<boolean> {
   const short = t.direction === 'short';
   const gross = exit != null ? ((short ? t.entry_price - exit : exit - t.entry_price) / t.entry_price) * 100 : null;
   const fundingPct = gross != null && t.notional_usd > 0 ? (fundingUsd / t.notional_usd) * 100 : null;
   const net = gross != null ? gross + (fundingPct ?? 0) - Number(t.cost_bps) / 100 : null;
   const r = net != null && t.sl_pct > 0 ? net / t.sl_pct : null;
+  // funding_model: stamped at close for exact-era trades ('actual' /
+  // 'estimate'); legacy rows keep the stamp they opened with. The
+  // in-window estimate column is zeroed — booked truth is
+  // funding_accrued_usd alone.
   const upd = await pool.query(
     `UPDATE kalshi_perp_shadow_trades SET status='closed', exit_price=$2, exit_reason=$3, gross_return_pct=$4, return_pct=$5,
-       r_multiple=$6, funding_accrued_usd=$7, exclude_from_stats=$8, closed_at=now() WHERE id=$1 AND status='open'`,
-    [t.id, exit, why, gross, net, r, fundingUsd, exclude]);
+       r_multiple=$6, funding_accrued_usd=$7, exclude_from_stats=$8, funding_estimate_usd=0,
+       funding_model=CASE WHEN $9::text IS NOT NULL THEN $9 ELSE funding_model END, closed_at=now() WHERE id=$1 AND status='open'`,
+    [t.id, exit, why, gross, net, r, fundingUsd, exclude, fundingModel ?? null]);
   if (!upd.rowCount) return false;
   const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 3_600_000;
   await pool.query(`UPDATE kalshi_perp_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, net_pct=$4, funding_paid_usd=$5 WHERE trade_id=$1`,
@@ -713,7 +771,28 @@ export async function resolveKalshiStockShadowTrades(userId: number): Promise<nu
   const actions = await getPerpCorporateActions().catch(() => []);
   let closed = 0;
   for (const t of rows) {
-    const funding = await accrueFunding(t).catch(() => Number(t.funding_accrued_usd) || 0);
+    const acc = await accrueFundingDetailed(t).catch(() => ({
+      usd: Number(t.funding_accrued_usd) || 0, historyOk: false, throughMs: Number(t.funding_through_ms) || 0,
+    }));
+    let funding = acc.usd;
+    // Exact-era funding provenance for the close stamp. Default
+    // 'actual': everything booked came from Kalshi's prints. The one
+    // exception is the fail-soft rule — the historical read failed
+    // across a 4pm ET print this position crossed: book the in-progress
+    // estimate for that print rather than pretending funding was zero,
+    // and stamp the trade 'estimate' so the substitution is visible in
+    // the record forever (never silent).
+    let fundingModel: string | null = null;
+    if (t.cost_model === COST_MODEL_EXACT) {
+      fundingModel = 'actual';
+      if (fundingFallbackApplies(acc.historyOk, acc.throughMs, Date.now())) {
+        fundingModel = 'estimate';
+        const est = await getPerpFundingEstimate(t.ticker).catch(() => null);
+        const touch = await getPerpTouch(t.ticker).catch(() => null);
+        const mark = touch ? (touch.bid + touch.ask) / 2 : Number(t.entry_price);
+        if (est) funding += fundingPnlUsd(t.direction, est.rate, mark, Number(t.contracts));
+      }
+    }
     const openedMs = new Date(t.opened_at).getTime();
     // Corporate action that became effective while the position was open:
     // force-close at the last mark and exclude the row from stats — the
@@ -725,7 +804,7 @@ export async function resolveKalshiStockShadowTrades(userId: number): Promise<nu
     const candles = await getPerpCandles(t.ticker, 1, minsSinceOpen).catch(() => [] as PerpBar[]);
     const latest = candles[candles.length - 1];
     if (ca) {
-      if (await closeTrade(t, latest ? latest.c : Number(t.entry_price), 'corporate_action', funding, true)) closed++;
+      if (await closeTrade(t, latest ? latest.c : Number(t.entry_price), 'corporate_action', funding, true, fundingModel)) closed++;
       continue;
     }
     const short = t.direction === 'short';
@@ -751,8 +830,19 @@ export async function resolveKalshiStockShadowTrades(userId: number): Promise<nu
         exit = touch ? (short ? touch.ask : touch.bid) : latest.c; why = 'time limit';
       }
     } else if (ageH >= t.max_hours + 24) { exit = null; why = 'no price'; }
-    if (!why) continue;
-    if (await closeTrade(t, exit, why, funding, false)) closed++;
+    if (!why) {
+      // Still open: refresh the exact-era in-window funding estimate for
+      // the next 4pm ET print (display-only — it is replaced by the
+      // actual print when it lands, never booked from here).
+      if (t.cost_model === COST_MODEL_EXACT) {
+        const est = await getPerpFundingEstimate(t.ticker).catch(() => null);
+        const mark = latest ? latest.c : Number(t.entry_price);
+        const estUsd = est ? fundingPnlUsd(t.direction, est.rate, mark, Number(t.contracts)) : 0;
+        await pool.query(`UPDATE kalshi_perp_shadow_trades SET funding_estimate_usd=$2 WHERE id=$1`, [t.id, estUsd]).catch(() => {});
+      }
+      continue;
+    }
+    if (await closeTrade(t, exit, why, funding, false, fundingModel)) closed++;
   }
   return closed;
 }
@@ -903,7 +993,15 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
     const spreadBps = ((ask - bid) / ((ask + bid) / 2)) * 10_000;
     const fundEst = await getPerpFundingEstimate(mkt.ticker).catch(() => null);
     const slPct = Math.min(SL_HI(), Math.max(SL_LO(), ATR_MULT() * atrPct));
-    const costBps = FEE_BPS();
+    // Accounting era for everything opened this cycle (kalshi-perp-
+    // costs.ts): exact era stamps the published tier-0 taker round trip
+    // (12 bps open + 12 bps close = 24) — this lane's client is
+    // public-only by construction, so the published schedule is its fee
+    // source, stated openly; the legacy era keeps the 20 bps modeled
+    // placeholder. The cost floor below judges the stamped figure.
+    const exactEra = exactCostsEnabled();
+    const costBps = exactEra ? roundTripCostBps(PUBLISHED_FEE_SCHEDULE) : FEE_BPS();
+    const costModel = exactEra ? COST_MODEL_EXACT : COST_MODEL_LEGACY;
     if (slPct < 3 * (costBps / 100)) continue; // cost floor (crypto lane rule)
     const now = Date.now();
     const et = etParts(now);
@@ -1012,9 +1110,9 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
       const earnings48 = perpEarningsEnabled() && eInfo ? earningsStampValue(eInfo, now) : null;
       const ins = await pool.query(
         `INSERT INTO kalshi_perp_shadow_trades (user_id, strategy, ticker, underlying, direction, entry_price, entry_bid, entry_ask,
-           stop_loss, take_profit, sl_pct, contracts, notional_usd, cost_bps, cost_model, score, max_hours)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'placeholder',$15,$16) RETURNING id`,
-        [userId, sig.strategy, mkt.ticker, mkt.underlying, sig.direction, entry, bid, ask, stop, target, slPct, contracts, notional, costBps, sig.score, paperMaxHoursFor(sig.strategy)]);
+           stop_loss, take_profit, sl_pct, contracts, notional_usd, cost_bps, cost_model, funding_model, score, max_hours)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
+        [userId, sig.strategy, mkt.ticker, mkt.underlying, sig.direction, entry, bid, ask, stop, target, slPct, contracts, notional, costBps, costModel, exactEra ? COST_MODEL_EXACT : 'legacy', sig.score, paperMaxHoursFor(sig.strategy)]);
       const id = ins.rows[0]?.id;
       if (!id) continue;
       await pool.query(

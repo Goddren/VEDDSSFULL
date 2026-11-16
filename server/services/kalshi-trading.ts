@@ -379,6 +379,7 @@ export async function cancelKalshiOrder(userId: number, orderId: string): Promis
 // immediate_or_cancel. reduce_only orders must be IOC or FOK.
 // ─────────────────────────────────────────────────────────────────────────────
 import { perpHost } from './kalshi-perps';
+import { parseFeeTiersPayload, type PerpFeeSchedule } from './kalshi-perp-costs';
 
 const fpNum = (v: any): number | null => {
   if (v == null || v === '') return null;
@@ -686,4 +687,29 @@ export async function getKalshiMarginFundingHistoryUsd(userId: number, ticker: s
     if (list.length && !parsed) return null;
     return sum;
   } catch { return null; }
+}
+
+// ── /margin/fee_tiers ─────────────────────────────────────────────────────
+const _feeTierCache = new Map<number, { at: number; schedule: PerpFeeSchedule | null }>();
+const FEE_TIER_TTL_MS = 10 * 60_000;
+
+/**
+ * The account's Kalshi perp fee schedule from GET /margin/fee_tiers,
+ * parsed by the shared kalshi-perp-costs module (base tier = highest
+ * taker; bps or decimal shapes). NEVER throws and returns null on any
+ * failure or unparseable payload — callers fall back to the published
+ * tier-0 schedule via resolveFeeSchedule(), with the source stated.
+ * Cached per user for 10 minutes (fee tiers change rarely; a stale
+ * schedule inside the TTL is the documented trade-off).
+ */
+export async function getKalshiMarginFeeTiers(userId: number): Promise<PerpFeeSchedule | null> {
+  const hit = _feeTierCache.get(userId);
+  if (hit && Date.now() - hit.at < FEE_TIER_TTL_MS) return hit.schedule;
+  let schedule: PerpFeeSchedule | null = null;
+  try {
+    const data = await kalshiMarginGet<any>(userId, '/margin/fee_tiers');
+    schedule = parseFeeTiersPayload(data);
+  } catch { schedule = null; }
+  _feeTierCache.set(userId, { at: Date.now(), schedule });
+  return schedule;
 }

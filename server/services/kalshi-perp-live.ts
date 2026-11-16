@@ -70,9 +70,13 @@ import {
 import {
   loadKalshiCredentials, getKalshiMarginEnabled, getKalshiMarginBalance, getKalshiMarginPositions,
   placeKalshiMarginOrder, findKalshiMarginOrderByClientId, getKalshiMarginFills, getKalshiMarginFundingHistoryUsd,
+  getKalshiMarginFeeTiers,
   type KalshiMarginPosition,
 } from './kalshi-trading';
 import { accountReplay } from './kalshi-stock-shadow';
+import {
+  exactCostsEnabled, COST_MODEL_EXACT, resolveFeeSchedule, feeUsd,
+} from './kalshi-perp-costs';
 
 const num = (n: string, d: number) => { const v = Number(process.env[n]); return Number.isFinite(v) && v > 0 ? v : d; };
 export const perpLiveEnabled = () => process.env.KALSHI_PERP_LIVE !== 'off';
@@ -388,21 +392,40 @@ async function fundingHistoryUsd(userId: number, ticker: string, fromMs: number,
  *  'kalshi_perp', strategy in the notes — the same shape the Kalshi event
  *  engine uses). P&L = contracts × price delta (perp price units already
  *  embed the 0.02-share contract size: Kalshi's own notional for these
- *  markets is contracts × price, and the shadow lane's P&L math matches). */
+ *  markets is contracts × price, and the shadow lane's P&L math matches).
+ *
+ *  Fees (exact-cost build, kalshi-perp-costs.ts): net also deducts the
+ *  round-trip fees computed by the SAME shared module the shadow lane
+ *  proves with — open leg + close leg at taker (this lane's orders are
+ *  marketable IOC limits) on the actual fill notionals, at the schedule
+ *  resolved for this account (authenticated /margin/fee_tiers when it
+ *  reads, the published tier-0 schedule otherwise — the source is
+ *  journaled). Funding already comes from Kalshi's own
+ *  /margin/funding_history amounts, so live and shadow funding are the
+ *  same ground truth. With KALSHI_PERP_EXACT_COSTS=off the close keeps
+ *  the pre-build accounting (no fee deduction) and stamps 'legacy'.
+ *  This is journaling only — no gate reads these figures before an
+ *  order decision; the gate chain above is untouched. */
 async function closeLiveTrade(userId: number, t: any, exitPrice: number | null, why: string, fundingUsd: number | null): Promise<boolean> {
   const entry = Number(t.entry_price);
   const contracts = Number(t.contracts);
   const dirSign = t.direction === 'short' ? -1 : 1;
   const gross = exitPrice != null && entry > 0 && contracts > 0 ? dirSign * (exitPrice - entry) * contracts : null;
-  const net = gross != null ? gross + (fundingUsd ?? 0) : null;
   const notional = entry > 0 && contracts > 0 ? entry * contracts : Number(t.notional_usd) || 0;
+  const exactEra = exactCostsEnabled();
+  const schedule = exactEra ? resolveFeeSchedule(await getKalshiMarginFeeTiers(userId).catch(() => null)) : null;
+  const feesUsd = schedule
+    ? feeUsd(notional, schedule, 'taker') + (exitPrice != null ? feeUsd(exitPrice * contracts, schedule, 'taker') : 0)
+    : 0;
+  const costModel = exactEra ? COST_MODEL_EXACT : 'legacy';
+  const net = gross != null ? gross + (fundingUsd ?? 0) - feesUsd : null;
   const returnPct = net != null && notional > 0 ? (net / notional) * 100 : null;
   const rMultiple = returnPct != null && Number(t.sl_pct) > 0 ? returnPct / Number(t.sl_pct) : null;
   const upd = await pool.query(
     `UPDATE kalshi_perp_live_trades SET status='closed', exit_price=$2, exit_reason=$3, gross_pnl_usd=$4,
-       funding_usd=$5, net_pnl_usd=$6, return_pct=$7, r_multiple=$8, closed_at=now()
+       funding_usd=$5, net_pnl_usd=$6, return_pct=$7, r_multiple=$8, fees_usd=$9, cost_model=$10, closed_at=now()
      WHERE id=$1 AND status IN ('open','closing')`,
-    [t.id, exitPrice, why, gross, fundingUsd, net, returnPct, rMultiple]);
+    [t.id, exitPrice, why, gross, fundingUsd, net, returnPct, rMultiple, feesUsd, costModel]);
   if (!upd.rowCount) return false;
   Promise.resolve().then(async () => {
     try {
@@ -421,7 +444,7 @@ async function closeLiveTrade(userId: number, t: any, exitPrice: number | null, 
         closedAt: new Date(),
         source: 'kalshi_perp',
         mt5Ticket: `perp-live-${t.id}`,
-        notes: `${t.strategy}: Kalshi stock-perp LIVE | ${why}${fundingUsd == null ? ' | funding unrecorded' : ''}`,
+        notes: `${t.strategy}: Kalshi stock-perp LIVE | ${why}${fundingUsd == null ? ' | funding unrecorded' : ''}${exactEra ? ` | fees $${feesUsd.toFixed(2)} (${costModel}, ${schedule?.source ?? 'published'} schedule)` : ''}`,
       });
     } catch { /* journal insert is best-effort; the live table is the lane's record */ }
   });
