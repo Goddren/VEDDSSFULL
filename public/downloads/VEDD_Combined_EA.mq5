@@ -580,11 +580,45 @@ void MarkProcessed(string id)
 }
 
 //+------------------------------------------------------------------+
+//| Index alias families — brokers name the same index differently:   |
+//| the S&P 500 is SPX500 on one broker, SP500 / US500 / SPX on       |
+//| another. A server signal using any family name resolves to the    |
+//| name THIS broker actually lists, instead of dying with            |
+//| "Symbol not found". Mirrors server/utils/symbolAliases.ts.        |
+//+------------------------------------------------------------------+
+bool TryIndexFamily(string &fam[], string sym, string &resolved)
+{
+   bool member = false;
+   for(int i = 0; i < ArraySize(fam); i++) if(fam[i] == sym) { member = true; break; }
+   if(!member) return false;
+   for(int i = 0; i < ArraySize(fam); i++)
+      if(SymbolInfoDouble(fam[i], SYMBOL_BID) > 0) { resolved = fam[i]; return true; }
+   return false;
+}
+
+string ResolveIndexAlias(string sym)
+{
+   string sp500[]  = {"US500", "SP500", "SPX500", "SPX", "SPXUSD", "SP500USD", "SPX500USD", "US500CASH", "SP500C"};
+   string nas100[] = {"NAS100", "USTEC", "NASDAQ100", "US100", "NDX100", "NQ100", "NQ", "NAS100CASH", "TECH100"};
+   string us30[]   = {"US30", "WS30", "DJ30", "DJI30", "WALLST30", "DOW30", "DJIA", "US30CASH", "USA30"};
+   string resolved = "";
+   if(TryIndexFamily(sp500, sym, resolved))  return resolved;
+   if(TryIndexFamily(nas100, sym, resolved)) return resolved;
+   if(TryIndexFamily(us30, sym, resolved))   return resolved;
+   return "";
+}
+
+//+------------------------------------------------------------------+
 //| Symbol normalizer                                                 |
 //+------------------------------------------------------------------+
 string NormalizeSymbol(string sym)
 {
    StringReplace(sym, "/", "");
+   if(SymbolInfoDouble(sym, SYMBOL_BID) > 0) return sym;
+   string upper = sym;
+   StringToUpper(upper);
+   string aliased = ResolveIndexAlias(upper);
+   if(aliased != "") return aliased;
    return sym;
 }
 
