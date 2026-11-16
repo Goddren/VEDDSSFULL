@@ -7183,12 +7183,21 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             // Risk-% sizing off this account's own balance + stop distance.
             let qty = 0; let sizeLabel = '';
             const _dxSide: 'BUY' | 'SELL' = decision.direction === 'BUY' ? 'BUY' : 'SELL';
-            const _dxSymNorm = dxSymbol.replace(/\//g, '').toUpperCase();
-            const spec = await svc.getInstrument(dxSymbol);
+            // SP500 parity: resolve the broker's OWN name for this instrument
+            // (SP500 ↔ SPX500 ↔ US500 ↔ SPX…) before anything broker-facing.
+            // The exact-name lookup used to miss every alias, so the S&P was
+            // untradable on DXtrade accounts naming it differently; and the
+            // order / snapshot / fill-verify / protection steps below all
+            // keyed on the engine's name instead of the broker's. No variant
+            // matched → spec null → the fail-closed logged skip (F3), never
+            // a naked order.
+            const spec = await svc.findInstrument(dxSymbol);
+            const _dxWireSymbol = String((spec as any)?.symbol || dxSymbol);
+            const _dxSymNorm = _dxWireSymbol.replace(/\//g, '').toUpperCase();
             // ── F3: FAIL CLOSED when the instrument spec is unavailable. Without it
             // the contract multiplier is unknown and computeRiskQuantity silently
             // defaults multiplier=1 → wildly mis-sized orders. Skip rather than guess.
-            if (!spec) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: instrument spec not found on Velotrade — skipped (cannot size safely without contract multiplier).` }); logDxtradeSkip(userId, dc.id, dxSymbol, 'no_instrument_spec', 'not tradable on Velotrade'); continue; }
+            if (!spec) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: instrument spec not found on Velotrade — skipped (cannot size safely without contract multiplier).` }); logDxtradeSkip(userId, dc.id, dxSymbol, 'no_instrument_spec', `not tradable on Velotrade (tried: ${indexSymbolVariants(dxSymbol).join(', ')})`); continue; }
             // ── F1: NEVER open a DXtrade position without a stop to attach. dxsca
             // ignores inline SL on the entry; we attach protection separately after
             // the fill (below), so a signal with no stop must not enter at all.
@@ -7265,7 +7274,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             // Open with a bare MARKET order (dxsca silently drops inline SL/TP legs).
             let r: any;
             try {
-              r = await svc.placeOrder(acct, { instrument: dxSymbol, side: _dxSide, quantity: qty, type: 'MARKET' });
+              r = await svc.placeOrder(acct, { instrument: _dxWireSymbol, side: _dxSide, quantity: qty, type: 'MARKET' });
             } catch (oe: any) {
               // Ambiguous outcome: a timeout/network error can mean the
               // broker filled and only the reply was lost. TradeLocker's
@@ -7275,7 +7284,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
               // close-by-symbol when no pre-existing position could be hit.
               let _oeClosed = false;
               if (_preDxQty.size === 0) {
-                try { await svc.closePosition(acct, dxSymbol, _dxSide, qty); _oeClosed = true; } catch { /* best-effort */ }
+                try { await svc.closePosition(acct, _dxWireSymbol, _dxSide, qty); _oeClosed = true; } catch { /* best-effort */ }
               }
               try {
                 const _rcTicket2 = `dx_${acct}_reconcile_${Date.now()}`;
@@ -7309,7 +7318,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 // close-by-symbol (a no-op if nothing filled) and record a
                 // NEEDS_RECONCILE row so a real position can't go untracked/naked.
                 let _emClosed = false;
-                try { await svc.closePosition(acct, dxSymbol, _dxSide, qty); _emClosed = true; } catch { /* best-effort */ }
+                try { await svc.closePosition(acct, _dxWireSymbol, _dxSide, qty); _emClosed = true; } catch { /* best-effort */ }
                 try {
                   const _rcTicket = `dx_${acct}_reconcile_${Date.now()}`;
                   await storage.createAiTradeResult({ userId, symbol: dxSymbol, direction: _dxSide, entryPrice: entryPrice || 0, exitPrice: 0, stopLoss: stopLoss || 0, takeProfit: takeProfit || 0, aiConfidence: adjustedConfidence || 0, result: 'NEEDS_RECONCILE', profitLoss: 0, source: 'dxtrade', connectionId: dc.id, mt5Ticket: _rcTicket, notes: `DXtrade fill UNVERIFIED (broker read failed) — emergency close ${_emClosed ? 'sent' : 'FAILED'}; verify on Velotrade` } as any);
@@ -7338,7 +7347,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 // prevents a late-appearing fill from becoming a naked, untracked
                 // position (the verifyError branch already does this).
                 let _lateClosed = false;
-                try { await svc.closePosition(acct, dxSymbol, _dxSide, qty); _lateClosed = true; } catch { /* no-op if nothing filled */ }
+                try { await svc.closePosition(acct, _dxWireSymbol, _dxSide, qty); _lateClosed = true; } catch { /* no-op if nothing filled */ }
                 addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: order did NOT fill — no position on the broker (likely rejected). Not recorded. Response: ${JSON.stringify(r?.result ?? r).slice(0, 140)}` });
                 logDxtradeSkip(userId, dc.id, dxSymbol, 'no_fill', `qty=${qty} side=${_dxSide} lateClose=${_lateClosed ? 'sent' : 'noop'} orderResp=${JSON.stringify(r?.result ?? r).slice(0, 380)}`);
               }
@@ -7346,13 +7355,13 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             }
             // ── F1: attach protective SL (+ TP) as real STOP/LIMIT close orders.
             let _prot: { stop?: any; takeProfit?: any; stopError?: string; tpError?: string } = {};
-            try { _prot = await svc.modifyProtection(acct, { instrument: dxSymbol, positionSide: _dxSide, quantity: _pos.quantity || qty, stopLoss: stopLoss || undefined, takeProfit: takeProfit || undefined, positionCode: _pos.positionId }); }
+            try { _prot = await svc.modifyProtection(acct, { instrument: _dxWireSymbol, positionSide: _dxSide, quantity: _pos.quantity || qty, stopLoss: stopLoss || undefined, takeProfit: takeProfit || undefined, positionCode: _pos.positionId }); }
             catch (pe: any) { _prot = { stopError: pe?.message || String(pe) }; }
             // B2: only emergency-close when the STOP itself failed (a TP-only failure
             // still leaves the position protected — closing would orphan the resting STOP).
             if (!_prot.stop) {
               try {
-                await svc.closePosition(acct, dxSymbol, _dxSide, _pos.quantity || qty, _pos.positionId);
+                await svc.closePosition(acct, _dxWireSymbol, _dxSide, _pos.quantity || qty, _pos.positionId);
                 addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED (${_prot.stopError || 'no stop returned'}) — position CLOSED immediately to avoid a naked entry.` });
               } catch (ce: any) {
                 addActivity(userId, { type: 'error', symbol: decision.symbol, message: `🚨 DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED and emergency close ALSO failed (${ce?.message}) — MANUAL ACTION NEEDED, position may be naked.` });
