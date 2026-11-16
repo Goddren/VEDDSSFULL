@@ -25599,6 +25599,7 @@ async function applyTrailBrainFx(userId, openPositions, marketAnalysis) {
   const state = engineStates[userId];
   if (!state || openPositions.length === 0) return;
   if (!trailBrainOn("fx")) return;
+  if (!state.config.trailingStopEnabled) return;
   if (!state.positionTrailState) state.positionTrailState = {};
   let tlConnections = [];
   try {
@@ -65595,7 +65596,7 @@ async function monitorOpenPositions(userId, cfg) {
           await closePosition2(userId, trade, px, "stop_loss");
           continue;
         }
-        if (Number(trade.stopLoss) > 0 && trade.entryPrice > 0) {
+        if (process.env.CRYPTO_TRAIL !== "off" && Number(trade.stopLoss) > 0 && trade.entryPrice > 0) {
           try {
             const tb = await trailBrainConsult(userId, "crypto", trade.strategy || "all", trade.symbol || "all");
             if (tb) {
@@ -86711,9 +86712,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "9fdc3039";
+var BUILD_COMMIT = "d432d48c";
 var BUILD_BRANCH = "feat/trail-brain";
-var BUILT_AT = "2026-11-16T09:13:10.756Z";
+var BUILT_AT = "2026-11-16T09:14:32.248Z";
 
 // server/stripe.ts
 init_db();
