@@ -14,6 +14,7 @@ import { storage } from '../storage';
 import { newsService } from '../news-service';
 import { getPipSize, getPipValue, setFxRate } from '../utils/pipUtils';
 import { toEpochSeconds } from '../utils/candleNormalize';
+import { indexSymbolVariants, INDEX_SYMBOL_ALIASES } from '../utils/symbolAliases';
 import { getTLRisk } from './tl-risk-settings';
 import { detectBOSCHOCH, detectWyckoff, type BOSCHOCHResult, type WyckoffResult } from '../utils/smcUtils';
 import { getPremiumDiscountContext } from '../utils/ictMacroUtils';
@@ -8395,9 +8396,9 @@ export function getNYTime(ts: number): { hour: number; minute: number; dateStr: 
 // right cached MT5 EA chart-data entry (or match a TradeLocker instrument)
 // regardless of what name the user's broker/chart actually uses.
 export const INDEX_BROKER_ALIASES: Record<string, string[]> = {
-  US30: ['US30CASH', 'US30C', 'DOW30', 'DOWJONES', 'DJIA', 'DJI', 'WS30', 'YM', 'DOW', 'USA30', 'CASH30', 'US30USD', 'DJA', 'WALLST30', 'WALLSTREET30', 'USWALL'],
-  NAS100: ['NAS100CASH', 'NAS100C', 'NASDAQ100', 'USTEC', 'NDX100', 'US100', 'NQ', 'NASDAQ', 'NASUSD', 'NA100', 'NDAQ', 'QQQ', 'TECH100', 'USTECH100', 'NASD100', 'NAS100USD'],
-  US500: ['SPXUSD', 'US500CASH', 'SP500USD', 'USINDEX', 'SPX500USD', 'ES', 'SPX', 'SPXC', 'SP500C', 'SPXUSDM', 'SPX500', 'SP500'],
+  US30: INDEX_SYMBOL_ALIASES.US30.filter(n => n !== 'US30'),
+  NAS100: INDEX_SYMBOL_ALIASES.NAS100.filter(n => n !== 'NAS100'),
+  US500: INDEX_SYMBOL_ALIASES.US500.filter(n => n !== 'US500'),
 };
 
 // Twelve Data doesn't carry raw US index tickers (DJI/SPX/NDX) at all — confirmed
@@ -8414,8 +8415,14 @@ async function getBrokerIndexCandles(
   // 1. MT5 EA chart-data cache — real broker index candles, already newest-first
   // (see BuildCandlesJson() in the EA: i=0 is the current/most-recent bar).
   const cache = (global as any).mt5ChartDataCache || {};
+  // Every name for the same index, resolved through the canonical symbol:
+  // the old keyed lookup (INDEX_BROKER_ALIASES[symbol]) returned nothing
+  // when the configured pair was itself an alias — a config saying SP500
+  // never matched an MT5 chart posting SPX500/US500 candles, so ORB saw
+  // no candles and skipped silently. indexSymbolVariants covers the
+  // whole family whichever name the config uses.
   const wanted = new Set(
-    [symbol, ...(INDEX_BROKER_ALIASES[symbol] || [])].map(s => s.replace(/[^A-Z0-9]/gi, '').toUpperCase())
+    indexSymbolVariants(symbol).map(s => s.replace(/[^A-Z0-9]/gi, '').toUpperCase())
   );
   const prefix = `mt5_chart_${userId}_`;
   const suffix = `_${mt5Tf}`;
