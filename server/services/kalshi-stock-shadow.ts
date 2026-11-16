@@ -52,9 +52,10 @@
 // margin-enabled account's real /margin/fee_tiers can replace them), and a
 // cost floor: entries skipped when the stop is < 3× round-trip cost.
 //
-// Caps mirror the crypto shadow lane: 30 open / 3 per strategy / no
-// duplicate underlying within a strategy / 60-min re-entry cooldown.
-// Entries every 10 min, resolver every 5 min. Kill switch:
+// Caps mirror the crypto shadow lane's shape: 45 open / 4 per strategy / no
+// duplicate underlying within a strategy / 60-min re-entry cooldown
+// (widened from 30 / 3 on 2026-11-15 — see the tuning note at the knobs).
+// Entries every 5 min, resolver every 5 min. Kill switch:
 // KALSHI_STOCK_SHADOW=off. Runs for the owner account only
 // (KALSHI_STOCK_SHADOW_USER_ID, else first admin) — per-user by design so
 // the shared shadow_ledger can carry the rows.
@@ -107,10 +108,25 @@ export const stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== 'off';
 const num = (n: string, d: number) => { const v = Number(process.env[n]); return Number.isFinite(v) && v > 0 ? v : d; };
 export const stockShadowEnabled = () => process.env.KALSHI_STOCK_SHADOW !== 'off';
 export const accountSimEnabled = () => process.env.KALSHI_ACCOUNT_SIM !== 'off';
-const MAX_OPEN = () => Math.floor(num('KALSHI_STOCK_SHADOW_MAX_OPEN', 30));
-const MAX_PER_STRAT = () => Math.floor(num('KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY', 3));
+// Scan-cadence tuning (2026-11-15, Chris's ask for more perp action): entry
+// evaluations now run on EVERY 5-minute tick (was every 10 min) and the
+// concurrency caps widened (30 → 45 open, 3 → 4 per strategy) so the lane
+// builds its shadow record materially faster toward the per-strategy
+// promotion bar. These are coverage throttles only — every entry gate
+// (perp brain, VP veto, earnings blackout, funding fade, lesson gates,
+// confidence floor, cost floor) is untouched. All env-tunable.
+const MAX_OPEN = () => Math.floor(num('KALSHI_STOCK_SHADOW_MAX_OPEN', 45));
+const MAX_PER_STRAT = () => Math.floor(num('KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY', 4));
 const COOLDOWN_MS = () => num('KALSHI_STOCK_SHADOW_COOLDOWN_MIN', 60) * 60_000;
-const EVERY_MS = () => num('KALSHI_STOCK_SHADOW_EVERY_MIN', 10) * 60_000;
+const EVERY_MS = () => num('KALSHI_STOCK_SHADOW_EVERY_MIN', 5) * 60_000;
+const TICK_MS = 5 * 60_000;
+
+/** Cadence/caps snapshot (env-driven, read live) — exported for the cadence
+ *  checks and so the before/after numbers in the tuning PR are code, not
+ *  prose. The universe cap lives in kalshi-perps.ts (maxStockPerpTickers). */
+export function stockShadowCadence(): { tickMs: number; entryEveryMs: number; maxOpen: number; maxPerStrategy: number; cooldownMs: number } {
+  return { tickMs: TICK_MS, entryEveryMs: EVERY_MS(), maxOpen: MAX_OPEN(), maxPerStrategy: MAX_PER_STRAT(), cooldownMs: COOLDOWN_MS() };
+}
 const NOTIONAL = () => num('KALSHI_STOCK_SHADOW_NOTIONAL_USD', 250);
 const MIN_CONF = () => num('KALSHI_STOCK_SHADOW_MIN_CONFIDENCE', 70);
 const FEE_BPS = () => num('KALSHI_STOCK_SHADOW_FEE_BPS', 20); // round-trip placeholder taker cost
@@ -1048,18 +1064,27 @@ async function resolveOwnerUserId(): Promise<number | null> {
 }
 
 let _started = false;
-/** Start the 5-minute lane tick (resolver each tick, entries every 10 min). Idempotent; never throws. */
+let _tickInFlight = false;
+/** Start the 5-minute lane tick (resolver + entries each tick). Idempotent; never throws. */
 export function startKalshiStockShadow(): void {
   if (_started) return;
   _started = true;
   if (!stockShadowEnabled()) { console.log('[kalshi-stock-shadow] disabled (KALSHI_STOCK_SHADOW=off).'); return; }
   const tick = async () => {
+    // In-flight guard (mirrors the crypto scanner's): with the widened
+    // 40-ticker universe a cycle can outlast the 5-minute tick, and two
+    // overlapping cycles would double the Kalshi API load for no extra
+    // coverage — the second tick's resolver pass is idempotent but not
+    // free. Skip the tick; the next one lands 5 minutes later.
+    if (_tickInFlight) { console.warn('[kalshi-stock-shadow] previous cycle still running — skipping this tick.'); return; }
+    _tickInFlight = true;
     try {
       const uid = await resolveOwnerUserId();
       if (uid) await runKalshiStockShadowCycle(uid);
     } catch (e: any) { console.error('[kalshi-stock-shadow] tick failed (non-fatal):', e?.message ?? e); }
+    finally { _tickInFlight = false; }
   };
   setTimeout(tick, 3 * 60_000).unref?.();
-  setInterval(tick, 5 * 60_000).unref?.();
+  setInterval(tick, TICK_MS).unref?.();
   console.log('[kalshi-stock-shadow] started — SHADOW lane on public Kalshi perp data (no credentials, no orders).');
 }

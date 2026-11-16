@@ -41,14 +41,38 @@ export function perpHost(): string {
 
 const num = (v: any): number => { const n = typeof v === 'string' ? parseFloat(v) : Number(v); return Number.isFinite(n) ? n : 0; };
 
+/** Backoff before retrying a transient Kalshi response (429 / 503). Pure so
+ *  the cadence checks can pin the math: honor the server's Retry-After when
+ *  present (capped at 5s), else exponential 400ms → 800ms → 1600ms. */
+export function kalshiRetryDelayMs(attempt: number, retryAfterSec?: number | null): number {
+  if (retryAfterSec != null && Number.isFinite(retryAfterSec) && retryAfterSec >= 0) {
+    return Math.min(5_000, Math.round(retryAfterSec * 1000));
+  }
+  return Math.min(5_000, 400 * 2 ** Math.max(0, attempt));
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 async function getJson(path: string): Promise<any> {
-  const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), 15_000);
-  try {
-    const res = await fetch(`${perpHost()}${path}`, { signal: ctrl.signal, headers: { accept: 'application/json' } });
-    if (!res.ok) throw new Error(`kalshi-perps GET ${path} -> ${res.status}`);
-    return await res.json();
-  } finally { clearTimeout(to); }
+  // 429/503 are transient (Kalshi rate limiting / brief unavailability) and
+  // are retried with backoff — every caller treats a throw as fail-soft, so
+  // without this a single 429 silently dropped that read for the whole
+  // cycle. Other failures keep the original throw-immediately behavior.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 15_000);
+    try {
+      const res = await fetch(`${perpHost()}${path}`, { signal: ctrl.signal, headers: { accept: 'application/json' } });
+      if ((res.status === 429 || res.status === 503) && attempt < 2) {
+        const ra = Number(res.headers.get('retry-after'));
+        await sleep(kalshiRetryDelayMs(attempt, Number.isFinite(ra) ? ra : null));
+        continue;
+      }
+      if (!res.ok) throw new Error(`kalshi-perps GET ${path} -> ${res.status}`);
+      return await res.json();
+    } finally { clearTimeout(to); }
+  }
+  throw new Error(`kalshi-perps GET ${path} -> retries exhausted`);
 }
 
 // ── markets ─────────────────────────────────────────────────────────────────
@@ -120,11 +144,21 @@ export async function getPerpMarkets(): Promise<PerpMarket[]> {
   return out;
 }
 
+/** Universe cap for the shadow lane: how many of the liquid stock perps the
+ *  lane evaluates each cycle, most liquid first. Widened 20 → 40 (2026-11-15,
+ *  Chris's ask for more perp action) so the lane builds its shadow record
+ *  across more of the 50+ listed names; the liquidity floors below are
+ *  unchanged, so names still have to earn their place. Env-tunable. */
+export function maxStockPerpTickers(): number {
+  const n = Number(process.env.KALSHI_STOCK_SHADOW_MAX_TICKERS ?? 40);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 40;
+}
+
 /** Active single-stock PERP markets passing the liquidity gate, most liquid first. */
 export async function getLiquidStockPerps(): Promise<PerpMarket[]> {
   const minVol = Number(process.env.KALSHI_STOCK_SHADOW_MIN_VOL24_USD ?? 25_000);
   const minOi = Number(process.env.KALSHI_STOCK_SHADOW_MIN_OI_USD ?? 10_000);
-  const maxTickers = Math.max(1, Math.floor(Number(process.env.KALSHI_STOCK_SHADOW_MAX_TICKERS ?? 20)));
+  const maxTickers = maxStockPerpTickers();
   const exclude = indexExcludeSet();
   const all = await getPerpMarkets();
   return all
