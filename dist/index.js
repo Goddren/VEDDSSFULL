@@ -413,6 +413,253 @@ var init_process_guards = __esm({
   }
 });
 
+// server/crash-heartbeat.ts
+var crash_heartbeat_exports = {};
+__export(crash_heartbeat_exports, {
+  crashHeartbeatEnabled: () => crashHeartbeatEnabled,
+  getLoopRegistry: () => getLoopRegistry,
+  loopTick: () => loopTick,
+  noteGuardedLoopError: () => noteGuardedLoopError,
+  processHeartbeatHealth: () => processHeartbeatHealth,
+  readWorkerHeartbeat: () => readWorkerHeartbeat,
+  startCrashHeartbeat: () => startCrashHeartbeat
+});
+import { Worker } from "node:worker_threads";
+import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+function loopTick(name, label) {
+  try {
+    const prev = loopRegistry.get(name);
+    loopRegistry.set(name, {
+      lastTickAt: (/* @__PURE__ */ new Date()).toISOString(),
+      label: label ?? prev?.label ?? null,
+      ticks: (prev?.ticks ?? 0) + 1
+    });
+  } catch {
+  }
+}
+function getLoopRegistry() {
+  const out = {};
+  try {
+    loopRegistry.forEach((rec, name) => {
+      out[name] = { ...rec };
+    });
+  } catch {
+  }
+  return out;
+}
+function crashHeartbeatEnabled() {
+  try {
+    return process.env.CRASH_HEARTBEAT !== "off";
+  } catch {
+    return true;
+  }
+}
+function toMB2(bytes) {
+  return Math.round(bytes / 1048576 * 10) / 10;
+}
+function workerFilePath() {
+  try {
+    const fromEnv = process.env.CRASH_HEARTBEAT_FILE;
+    if (fromEnv && fromEnv.trim()) return fromEnv.trim();
+  } catch {
+  }
+  return path.join(tmpdir(), "vedd-crash-heartbeat-worker.json");
+}
+function isWorkerRecord(v) {
+  return !!v && typeof v === "object" && typeof v.workerAt === "string";
+}
+function readWorkerHeartbeat() {
+  try {
+    const raw = readFileSync(workerFilePath(), "utf8");
+    const v = JSON.parse(raw);
+    if (isWorkerRecord(v)) {
+      return {
+        workerAt: v.workerAt,
+        workerUptimeSeconds: typeof v.workerUptimeSeconds === "number" ? v.workerUptimeSeconds : 0,
+        lastMainMessageAt: typeof v.lastMainMessageAt === "string" ? v.lastMainMessageAt : null
+      };
+    }
+  } catch {
+  }
+  return null;
+}
+function buildSnapshot() {
+  let rssMB = 0;
+  try {
+    rssMB = toMB2(process.memoryUsage().rss);
+  } catch {
+  }
+  return {
+    bootId: PROCESS_BOOTED_AT,
+    at: (/* @__PURE__ */ new Date()).toISOString(),
+    uptimeSeconds: Math.round(process.uptime()),
+    rssMB,
+    loops: getLoopRegistry(),
+    worker: readWorkerHeartbeat()
+  };
+}
+function startWitnessWorker() {
+  try {
+    const w = new Worker(WORKER_SOURCE, {
+      eval: true,
+      workerData: { file: workerFilePath(), intervalMs: WORKER_BEAT_MS }
+    });
+    try {
+      w.unref();
+    } catch {
+    }
+    w.on("error", (err) => {
+      witnessFailed = true;
+      try {
+        console.error("[crash-heartbeat] witness worker error (non-fatal):", err?.message ?? err);
+      } catch {
+      }
+    });
+    w.on("exit", (code) => {
+      if (code !== 0) witnessFailed = true;
+    });
+    witnessWorker = w;
+    pingWitness();
+  } catch (err) {
+    witnessFailed = true;
+    try {
+      console.error("[crash-heartbeat] witness worker failed to start (non-fatal):", err?.message ?? err);
+    } catch {
+    }
+  }
+}
+function pingWitness() {
+  try {
+    witnessWorker?.postMessage({ at: Date.now() });
+  } catch {
+  }
+}
+function isSnapshot(v) {
+  return !!v && typeof v === "object" && typeof v.bootId === "string" && typeof v.at === "string";
+}
+function persistSnapshot() {
+  try {
+    const snapshot = buildSnapshot();
+    void previousBootCapture2.then(() => {
+      try {
+        void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => {
+          try {
+            m.saveRuntimeState("crash_heartbeat", "latest", snapshot);
+          } catch {
+          }
+        }).catch(() => {
+        });
+      } catch {
+      }
+    }).catch(() => {
+    });
+  } catch {
+  }
+}
+function heartbeatCycle() {
+  try {
+    loopTick("crash-heartbeat", "persist");
+    pingWitness();
+    persistSnapshot();
+  } catch {
+  }
+}
+function startCrashHeartbeat() {
+  try {
+    if (started) return;
+    started = true;
+    if (!crashHeartbeatEnabled()) {
+      try {
+        console.log("[crash-heartbeat] disabled via CRASH_HEARTBEAT=off \u2014 registry only, no heartbeat, no witness worker.");
+      } catch {
+      }
+      return;
+    }
+    previousBootWorker = readWorkerHeartbeat();
+    previousBootCapture2 = (async () => {
+      try {
+        const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+        const v = await getRuntimeStateStrict2("crash_heartbeat", "latest");
+        if (isSnapshot(v) && v.bootId !== PROCESS_BOOTED_AT) {
+          previousBootMain = v;
+        }
+      } catch {
+      }
+    })();
+    startWitnessWorker();
+    heartbeatCycle();
+    const timer = setInterval(heartbeatCycle, HEARTBEAT_MS);
+    try {
+      timer.unref();
+    } catch {
+    }
+    try {
+      console.log("[crash-heartbeat] started \u2014 main snapshot every 30s, witness worker every 15s; /api/health exposes processHeartbeat.");
+    } catch {
+    }
+  } catch {
+  }
+}
+async function processHeartbeatHealth() {
+  try {
+    await previousBootCapture2;
+  } catch {
+  }
+  return {
+    enabled: crashHeartbeatEnabled(),
+    witnessFailed,
+    current: buildSnapshot(),
+    previousBoot: previousBootMain || previousBootWorker ? { main: previousBootMain, worker: previousBootWorker } : null
+  };
+}
+function noteGuardedLoopError(job, err) {
+  try {
+    recordProcessError("guardedJob", err, job);
+  } catch {
+  }
+}
+var loopRegistry, HEARTBEAT_MS, WORKER_BEAT_MS, WORKER_SOURCE, witnessWorker, witnessFailed, previousBootMain, previousBootWorker, previousBootCapture2, started;
+var init_crash_heartbeat = __esm({
+  "server/crash-heartbeat.ts"() {
+    "use strict";
+    init_process_guards();
+    loopRegistry = /* @__PURE__ */ new Map();
+    HEARTBEAT_MS = 3e4;
+    WORKER_BEAT_MS = 15e3;
+    WORKER_SOURCE = `
+'use strict';
+const { parentPort, workerData } = require('node:worker_threads');
+const fs = require('node:fs');
+let lastMainMessageAt = null;
+if (parentPort) {
+  parentPort.on('message', () => { lastMainMessageAt = new Date().toISOString(); beat(); });
+}
+function beat() {
+  try {
+    const rec = {
+      workerAt: new Date().toISOString(),
+      workerUptimeSeconds: Math.round(process.uptime()),
+      lastMainMessageAt: lastMainMessageAt,
+    };
+    const tmp = workerData.file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(rec));
+    fs.renameSync(tmp, workerData.file);
+  } catch (e) { /* the witness must never throw */ }
+}
+beat();
+setInterval(beat, workerData.intervalMs);
+`;
+    witnessWorker = null;
+    witnessFailed = false;
+    previousBootMain = null;
+    previousBootWorker = null;
+    previousBootCapture2 = Promise.resolve();
+    started = false;
+  }
+});
+
 // server/services/pair-filter.ts
 var pair_filter_exports = {};
 __export(pair_filter_exports, {
@@ -11402,13 +11649,13 @@ async function discoverNewPoolTokens(chainKey, minLiquidityUsd = 25e3, maxAgeHou
   newPoolsCache = { key, at: Date.now(), tokens };
   return tokens;
 }
-async function gt(path23) {
+async function gt(path24) {
   const run = async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
       const wait = Math.max(0, callBudget().minIntervalMs - (Date.now() - lastCallAt));
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       lastCallAt = Date.now();
-      const res2 = await fetch(`${GT}${path23}`, {
+      const res2 = await fetch(`${GT}${path24}`, {
         headers: cgHeaders(),
         signal: AbortSignal.timeout(2e4)
       });
@@ -11416,13 +11663,13 @@ async function gt(path23) {
       if (res2.status === 429) {
         const retryAfter = Number(res2.headers.get("retry-after")) || 0;
         const backoff = retryAfter > 0 ? retryAfter * 1e3 : 3e3 * (attempt + 1);
-        console.warn(`[defi-market-data] rate limited on ${path23}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
+        console.warn(`[defi-market-data] rate limited on ${path24}; waiting ${backoff}ms (attempt ${attempt + 1}/3)`);
         await new Promise((r) => setTimeout(r, backoff));
         continue;
       }
-      throw new Error(`GeckoTerminal ${res2.status} on ${path23}`);
+      throw new Error(`GeckoTerminal ${res2.status} on ${path24}`);
     }
-    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path23}`);
+    throw new Error(`GeckoTerminal rate limited after 3 attempts on ${path24}`);
   };
   const next = callChain.then(run, run);
   callChain = next.catch(() => void 0);
@@ -13723,6 +13970,7 @@ async function followerTick() {
     const { rows } = await pool.query(`SELECT id, user_id, wallet, label, last_signature FROM sol_follower_wallets ORDER BY user_id, id`);
     for (const fw of rows) await pollWallet(fw);
     await monitorFollowerPositions();
+    loopTick("sol-follower");
   } catch (e) {
     console.error("[sol-follower] tick failed (non-fatal):", e?.message ?? e);
   } finally {
@@ -13802,6 +14050,7 @@ var init_sol_follower = __esm({
   "server/services/sol-follower.ts"() {
     "use strict";
     init_db();
+    init_crash_heartbeat();
     init_paper_costs();
     init_trail_brain();
     _envInt = (n, d) => {
@@ -19589,9 +19838,10 @@ function refreshTlAfterTrade(userId) {
   });
 }
 function startTradeLockerSync() {
-  if (started) return;
-  started = true;
+  if (started2) return;
+  started2 = true;
   safeInterval("tradelocker-sync", SYNC_INTERVAL_MS, async () => {
+    loopTick("tradelocker-sync");
     const now = Date.now();
     for (const [userId, seenAt] of Array.from(activeUsers.entries())) {
       if (now - seenAt > ACTIVE_WINDOW_MS) {
@@ -19606,11 +19856,12 @@ function startTradeLockerSync() {
   });
   console.log("[TL-sync] Background TradeLocker balance sync started (20s interval).");
 }
-var lastOpenTickets, lastOutcomeReconcile, OUTCOME_RECONCILE_MS, lastDeepBackfill, DEEP_BACKFILL_MS, lastBalancePersist, BALANCE_PERSIST_MS, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, PENDING_SWEEP_MS, _lastPendingSweep, started;
+var lastOpenTickets, lastOutcomeReconcile, OUTCOME_RECONCILE_MS, lastDeepBackfill, DEEP_BACKFILL_MS, lastBalancePersist, BALANCE_PERSIST_MS, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, PENDING_SWEEP_MS, _lastPendingSweep, started2;
 var init_tradelocker_sync = __esm({
   "server/services/tradelocker-sync.ts"() {
     "use strict";
     init_storage();
+    init_crash_heartbeat();
     init_pipUtils();
     init_tradelocker();
     init_prop_firm_consistency();
@@ -19630,7 +19881,7 @@ var init_tradelocker_sync = __esm({
     inFlight = /* @__PURE__ */ new Set();
     PENDING_SWEEP_MS = 5 * 6e4;
     _lastPendingSweep = /* @__PURE__ */ new Map();
-    started = false;
+    started2 = false;
   }
 });
 
@@ -20574,7 +20825,7 @@ __export(tl_risk_settings_exports, {
   setTLRisk: () => setTLRisk
 });
 import * as fs from "fs";
-import * as path from "path";
+import * as path2 from "path";
 function loadAll() {
   try {
     if (fs.existsSync(FILE)) return JSON.parse(fs.readFileSync(FILE, "utf-8"));
@@ -20584,7 +20835,7 @@ function loadAll() {
 }
 function saveAll(map) {
   try {
-    const dir = path.dirname(FILE);
+    const dir = path2.dirname(FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(FILE, JSON.stringify(map, null, 2));
   } catch {
@@ -20617,7 +20868,7 @@ var FILE, DEFAULT;
 var init_tl_risk_settings = __esm({
   "server/services/tl-risk-settings.ts"() {
     "use strict";
-    FILE = path.join(process.cwd(), "data", "tl_risk_settings.json");
+    FILE = path2.join(process.cwd(), "data", "tl_risk_settings.json");
     DEFAULT = { useRiskPercent: true, riskPercent: 0.5 };
   }
 });
@@ -21195,9 +21446,9 @@ var init_dxtrade = __esm({
       async ensureLoggedIn() {
         if (!this.token) await this.login();
       }
-      async authed(path23, init = {}) {
+      async authed(path24, init = {}) {
         if (!this.token) await this.login();
-        const doFetch = () => fetch(`${this.base}${path23}`, {
+        const doFetch = () => fetch(`${this.base}${path24}`, {
           ...init,
           headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": `DXAPI ${this.token}`, ...init.headers || {} },
           signal: AbortSignal.timeout(2e4)
@@ -21440,8 +21691,8 @@ var init_dxtrade = __esm({
       async getInstruments(query = "") {
         const attempts = query ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`] : ["/instruments/query"];
         let last2 = "";
-        for (const path23 of attempts) {
-          const res2 = await this.authed(path23);
+        for (const path24 of attempts) {
+          const res2 = await this.authed(path24);
           const text3 = await res2.text();
           if (res2.ok) {
             try {
@@ -21554,10 +21805,10 @@ var init_dxtrade = __esm({
           `/accounts/${enc}/reports/trades?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso2)}`,
           `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso2)}`
         ];
-        for (const path23 of candidates) {
+        for (const path24 of candidates) {
           let res2;
           try {
-            res2 = await this.authed(path23);
+            res2 = await this.authed(path24);
           } catch {
             continue;
           }
@@ -21571,7 +21822,7 @@ var init_dxtrade = __esm({
           const list = data?.history ?? data?.trades ?? data?.orders ?? data?.positions ?? data?.items ?? (Array.isArray(data) ? data : []);
           if (!Array.isArray(list) || list.length === 0) {
             if (Array.isArray(list)) {
-              console.log(`[dxtrade] history via ${path23.split("?")[0]} \u2014 0 rows in window`);
+              console.log(`[dxtrade] history via ${path24.split("?")[0]} \u2014 0 rows in window`);
               return [];
             }
             continue;
@@ -21591,7 +21842,7 @@ var init_dxtrade = __esm({
             profit: o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit,
             closeTime: o.closeTime ?? o.closedAt ?? o.closeTimestamp ?? o.timestamp ?? o.updateTime ?? null
           }));
-          console.log(`[dxtrade] history via ${path23.split("?")[0]} \u2014 ${closed.length} closed rows`);
+          console.log(`[dxtrade] history via ${path24.split("?")[0]} \u2014 ${closed.length} closed rows`);
           return closed;
         }
         console.log(`[dxtrade] no working history endpoint found for ${accountCode} (tried ${candidates.length}) \u2014 close-sync will keep opens PENDING`);
@@ -24613,7 +24864,9 @@ async function scanMarkets(userId) {
       }])
     );
     if (triggerPairs.length > 0) {
-      setTimeout(() => scanMarkets(userId), 12e3);
+      setTimeout(() => {
+        scanMarkets(userId).catch((err) => recordProcessError("guardedJob", err, "fx-engine-scan-triggered"));
+      }, 12e3);
     }
     const analyzedPairs = Object.keys(marketAnalysis);
     if (analyzedPairs.length === 0) {
@@ -29602,8 +29855,14 @@ function scheduleScan(userId) {
   if (!state || state.status !== "running") return;
   const interval = getAdaptiveScanInterval(state.config);
   engineTimers[userId] = setTimeout(async () => {
-    await scanMarkets(userId);
-    scheduleScan(userId);
+    try {
+      await scanMarkets(userId);
+      loopTick("fx-engine-scan", `user ${userId}`);
+    } catch (err) {
+      recordProcessError("guardedJob", err, "fx-engine-scan");
+    } finally {
+      scheduleScan(userId);
+    }
   }, interval);
 }
 function scheduleGapScanner(userId) {
@@ -29623,8 +29882,14 @@ function scheduleGapScanner(userId) {
   setTimeout(async () => {
     const latestState = engineStates[userId];
     if (!latestState || latestState.status !== "running") return;
-    await runSundayGapScanner(userId);
-    scheduleGapScanner(userId);
+    try {
+      await runSundayGapScanner(userId);
+      loopTick("fx-gap-scanner", `user ${userId}`);
+    } catch (err) {
+      recordProcessError("guardedJob", err, "fx-gap-scanner");
+    } finally {
+      scheduleGapScanner(userId);
+    }
   }, msUntilScan);
   addActivity(userId, {
     type: "info",
@@ -30277,10 +30542,15 @@ function startLiveEngine(userId, config) {
       _dayStateRestore,
       new Promise((r) => setTimeout(r, 1e4))
       // never block startup indefinitely
-    ]).then(() => scanMarkets(userId)).then(() => scheduleScan(userId));
+    ]).then(() => scanMarkets(userId)).then(() => scheduleScan(userId)).catch((err) => {
+      recordProcessError("guardedJob", err, "fx-engine-start");
+      scheduleScan(userId);
+    });
   }, 2e3);
   if (positionMonitorIntervals[userId]) clearInterval(positionMonitorIntervals[userId]);
-  positionMonitorIntervals[userId] = setInterval(() => monitorPositions(userId), 25 * 1e3);
+  positionMonitorIntervals[userId] = setInterval(() => {
+    monitorPositions(userId).then(() => loopTick("fx-position-monitor", `user ${userId}`)).catch((err) => recordProcessError("guardedJob", err, "fx-position-monitor"));
+  }, 25 * 1e3);
   scheduleGapScanner(userId);
   try {
     const loadFn = global.loadPersistedBrain;
@@ -30690,7 +30960,9 @@ function updateLiveEngineConfig(userId, updates) {
   persistEngineConfig(userId, state.config);
   if (updates.scanIntervalMs && engineIntervals[userId]) {
     clearInterval(engineIntervals[userId]);
-    engineIntervals[userId] = setInterval(() => scanMarkets(userId), state.config.scanIntervalMs);
+    engineIntervals[userId] = setInterval(() => {
+      scanMarkets(userId).then(() => loopTick("fx-engine-scan", `user ${userId}`)).catch((err) => recordProcessError("guardedJob", err, "fx-engine-scan"));
+    }, state.config.scanIntervalMs);
   }
   addActivity(userId, {
     type: "info",
@@ -30797,6 +31069,8 @@ var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
     init_session();
+    init_crash_heartbeat();
+    init_process_guards();
     init_trail_brain();
     init_pair_key();
     init_service();
@@ -46866,6 +47140,7 @@ async function runScan(userId, state, triggerToken) {
   }
   saveEngineState(userId, state).catch(() => {
   });
+  loopTick("sol-engine", `user ${userId}`);
   if (state.isRunning) {
     if (state.scanTimer) clearTimeout(state.scanTimer);
     const nextMs = getAdaptiveScanInterval2(state.config);
@@ -47515,6 +47790,7 @@ var init_sol_engine = __esm({
   "server/services/sol-engine.ts"() {
     "use strict";
     init_solana_scanner();
+    init_crash_heartbeat();
     init_db();
     init_schema();
     init_sol_brain();
@@ -48575,9 +48851,9 @@ var init_tastytrade = __esm({
         }
         await this.login();
       }
-      async request(path23, init = {}, attempt = 0) {
+      async request(path24, init = {}, attempt = 0) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path23}`, {
+        const response = await fetch(`${this.baseUrl}${path24}`, {
           ...init,
           headers: {
             "Authorization": this.sessionToken || "",
@@ -48588,7 +48864,7 @@ var init_tastytrade = __esm({
         });
         if (!response.ok && RETRYABLE_STATUSES3.has(response.status) && attempt < RETRY_DELAYS3.length) {
           await new Promise((r) => setTimeout(r, RETRY_DELAYS3[attempt]));
-          return this.request(path23, init, attempt + 1);
+          return this.request(path24, init, attempt + 1);
         }
         return response;
       }
@@ -49048,7 +49324,7 @@ __export(cred_store_exports, {
   restoreDurableFiles: () => restoreDurableFiles
 });
 import * as fs2 from "fs";
-import * as path2 from "path";
+import * as path3 from "path";
 function ensureTable5() {
   if (!tableReady4) {
     tableReady4 = pool.query(`CREATE TABLE IF NOT EXISTS durable_files (
@@ -49069,7 +49345,7 @@ async function restoreDurableFiles() {
     const { rows } = await pool.query("SELECT name, content FROM durable_files");
     for (const r of rows) {
       if (!DURABLE_FILES.includes(r.name)) continue;
-      const fp = path2.join(DATA_DIR, r.name);
+      const fp = path3.join(DATA_DIR, r.name);
       const existing = fs2.existsSync(fp) ? fs2.readFileSync(fp, "utf-8").trim() : "";
       if (!existing || existing === "{}") {
         fs2.writeFileSync(fp, r.content);
@@ -49095,7 +49371,7 @@ var init_cred_store = __esm({
   "server/services/cred-store.ts"() {
     "use strict";
     init_db();
-    DATA_DIR = path2.join(process.cwd(), "data");
+    DATA_DIR = path3.join(process.cwd(), "data");
     DURABLE_FILES = [
       "kalshi_credentials.json",
       "polymarket_us.json",
@@ -49130,12 +49406,12 @@ __export(kalshi_perps_exports, {
 function perpHost() {
   return process.env.KALSHI_PERP_HOST === "demo" ? DEMO_HOST : PROD_HOST;
 }
-async function getJson(path23) {
+async function getJson(path24) {
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), 15e3);
   try {
-    const res2 = await fetch(`${perpHost()}${path23}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
-    if (!res2.ok) throw new Error(`kalshi-perps GET ${path23} -> ${res2.status}`);
+    const res2 = await fetch(`${perpHost()}${path24}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
+    if (!res2.ok) throw new Error(`kalshi-perps GET ${path24} -> ${res2.status}`);
     return await res2.json();
   } finally {
     clearTimeout(to);
@@ -49520,7 +49796,7 @@ __export(kalshi_trading_exports, {
   testKalshiCredentials: () => testKalshiCredentials
 });
 import * as fs3 from "fs";
-import * as path3 from "path";
+import * as path4 from "path";
 import * as crypto7 from "crypto";
 function loadAllCreds() {
   try {
@@ -49532,7 +49808,7 @@ function loadAllCreds() {
 }
 function saveAllCreds(map) {
   try {
-    const dir = path3.dirname(CREDS_FILE);
+    const dir = path4.dirname(CREDS_FILE);
     if (!fs3.existsSync(dir)) fs3.mkdirSync(dir, { recursive: true });
     const content = JSON.stringify(map, null, 2);
     fs3.writeFileSync(CREDS_FILE, content);
@@ -49964,7 +50240,7 @@ var init_kalshi_trading = __esm({
     init_kalshi_perp_costs();
     KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2";
     KALSHI_PATH_PREFIX = "/trade-api/v2";
-    CREDS_FILE = path3.join(process.cwd(), "data", "kalshi_credentials.json");
+    CREDS_FILE = path4.join(process.cwd(), "data", "kalshi_credentials.json");
     _sessions = /* @__PURE__ */ new Map();
     fpNum = (v) => {
       if (v == null || v === "") return null;
@@ -50796,6 +51072,7 @@ function startEngineWatchdog() {
   const tick3 = async () => {
     try {
       const status = await computeStatus();
+      loopTick("engine-watchdog");
       _lastStatus = status;
       _lastStatusAt = Date.now();
       const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
@@ -50814,6 +51091,7 @@ var init_engine_watchdog = __esm({
   "server/services/engine-watchdog.ts"() {
     "use strict";
     init_db();
+    init_crash_heartbeat();
     TICK_MS = 30 * 60 * 1e3;
     FX_STALE_HOURS = 24;
     SOL_STALE_HOURS = 48;
@@ -51620,7 +51898,7 @@ __export(kalshi_performance_exports, {
   recordKalshiOutcome: () => recordKalshiOutcome
 });
 import * as fs4 from "fs";
-import * as path4 from "path";
+import * as path5 from "path";
 function emptyStat(strategy) {
   return {
     strategy,
@@ -51645,7 +51923,7 @@ function loadAll2() {
 }
 function saveAll2(store) {
   try {
-    const dir = path4.dirname(FILE2);
+    const dir = path5.dirname(FILE2);
     if (!fs4.existsSync(dir)) fs4.mkdirSync(dir, { recursive: true });
     const content = JSON.stringify(store, null, 2);
     fs4.writeFileSync(FILE2, content);
@@ -51701,7 +51979,7 @@ var init_kalshi_performance = __esm({
   "server/services/kalshi-performance.ts"() {
     "use strict";
     init_cred_store();
-    FILE2 = path4.join(process.cwd(), "data", "kalshi_performance.json");
+    FILE2 = path5.join(process.cwd(), "data", "kalshi_performance.json");
   }
 });
 
@@ -52237,8 +52515,10 @@ function startKalshiEngine(userId) {
   if (s.isRunning) return;
   s.isRunning = true;
   _persistKalshiRunState(userId, true, s.isPaperMode);
-  _runKalshiScan(userId).catch(console.error);
-  const iv = setInterval(() => _runKalshiScan(userId).catch(console.error), 5 * 60 * 1e3);
+  _runKalshiScan(userId).then(() => loopTick("kalshi-engine", `user ${userId}`)).catch((e) => recordProcessError("guardedJob", e, "kalshi-engine"));
+  const iv = setInterval(() => {
+    _runKalshiScan(userId).then(() => loopTick("kalshi-engine", `user ${userId}`)).catch((e) => recordProcessError("guardedJob", e, "kalshi-engine"));
+  }, 5 * 60 * 1e3);
   _timers.set(userId, iv);
   const pv = setInterval(() => {
     const st = getKalshiEngineState(userId);
@@ -53059,6 +53339,8 @@ var init_kalshi_engine = __esm({
   "server/services/kalshi-engine.ts"() {
     "use strict";
     init_kalshi();
+    init_crash_heartbeat();
+    init_process_guards();
     init_kalshi_trading();
     init_kalshi_strategies();
     init_btc_5min_predictor();
@@ -53271,20 +53553,20 @@ var init_tradovate = __esm({
         }
         return data;
       }
-      async get(path23) {
+      async get(path24) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path23}`, {
+        const response = await fetch(`${this.baseUrl}${path24}`, {
           headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
         });
         if (!response.ok) {
           const text3 = await response.text();
-          throw new Error(`Tradovate GET ${path23} failed (${response.status}): ${text3}`);
+          throw new Error(`Tradovate GET ${path24} failed (${response.status}): ${text3}`);
         }
         return response.json();
       }
-      async post(path23, body) {
+      async post(path24, body) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path23}`, {
+        const response = await fetch(`${this.baseUrl}${path24}`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${this.accessToken}`,
@@ -53295,7 +53577,7 @@ var init_tradovate = __esm({
         });
         if (!response.ok) {
           const text3 = await response.text();
-          throw new Error(`Tradovate POST ${path23} failed (${response.status}): ${text3}`);
+          throw new Error(`Tradovate POST ${path24} failed (${response.status}): ${text3}`);
         }
         return response.json();
       }
@@ -54780,8 +55062,14 @@ function scheduleNextScan(userId) {
   const state = scannerStates[userId];
   if (!state || state.status !== "running") return;
   scannerTimers[userId] = setTimeout(async () => {
-    await scanFuturesMarkets(userId);
-    scheduleNextScan(userId);
+    try {
+      await scanFuturesMarkets(userId);
+      loopTick("futures-scanner", `user ${userId}`);
+    } catch (err) {
+      recordProcessError("guardedJob", err, "futures-scanner");
+    } finally {
+      scheduleNextScan(userId);
+    }
   }, state.config.scanIntervalMs);
 }
 function startFuturesScanner(config) {
@@ -54846,7 +55134,7 @@ function startFuturesScanner(config) {
     message: `\u{1F680} Futures Scanner STARTED | Instruments: ${fullConfig.symbols.join(", ")} | Interval: ${fullConfig.scanIntervalMs / 1e3}s | Min confidence: ${fullConfig.minConfidence}% | Auto-execute: ${fullConfig.enableAutoExecution ? "ON" : "OFF (signals only)"}`
   });
   setTimeout(() => {
-    scanFuturesMarkets(config.userId).then(() => scheduleNextScan(config.userId));
+    scanFuturesMarkets(config.userId).then(() => loopTick("futures-scanner", `user ${config.userId}`)).catch((err) => recordProcessError("guardedJob", err, "futures-scanner")).finally(() => scheduleNextScan(config.userId));
   }, 3e3);
   return scannerStates[config.userId];
 }
@@ -54953,6 +55241,8 @@ var init_futures_scanner = __esm({
     init_markov_chain();
     init_orderflow_strategy();
     init_moomoo();
+    init_crash_heartbeat();
+    init_process_guards();
     DEFAULT_FUTURES_SYMBOLS = ["NQ", "ES", "GC", "CL", "MNQ", "MES"];
     scannerStates = {};
     scannerTimers = {};
@@ -54993,10 +55283,10 @@ __export(polymarket_autonomous_engine_exports, {
   updateEngineConfig: () => updateEngineConfig
 });
 import * as fs5 from "fs";
-import * as path5 from "path";
+import * as path6 from "path";
 function _loadPolymarketPrivateKey(userId) {
   try {
-    const fp = path5.join(process.cwd(), "data", "polymarket_keys.json");
+    const fp = path6.join(process.cwd(), "data", "polymarket_keys.json");
     if (!fs5.existsSync(fp)) return null;
     const map = JSON.parse(fs5.readFileSync(fp, "utf-8"));
     const enc = map[String(userId)];
@@ -55126,8 +55416,10 @@ function startEngine(userId) {
   if (s.isRunning) return;
   s.isRunning = true;
   _persistRunState(userId, true, s.isPaperMode);
-  _runScan(userId).catch(console.error);
-  const iv = setInterval(() => _runScan(userId).catch(console.error), 5 * 60 * 1e3);
+  _runScan(userId).then(() => loopTick("polymarket-autonomous", `user ${userId}`)).catch((e) => recordProcessError("guardedJob", e, "polymarket-autonomous"));
+  const iv = setInterval(() => {
+    _runScan(userId).then(() => loopTick("polymarket-autonomous", `user ${userId}`)).catch((e) => recordProcessError("guardedJob", e, "polymarket-autonomous"));
+  }, 5 * 60 * 1e3);
   _intervals.set(userId, iv);
 }
 function stopEngine(userId) {
@@ -55386,6 +55678,8 @@ var CLOB_BASE2, POLY_CHAIN, CTF_ADDRESS, _privateKeys, _states2, _intervals, DEF
 var init_polymarket_autonomous_engine = __esm({
   "server/services/polymarket-autonomous-engine.ts"() {
     "use strict";
+    init_crash_heartbeat();
+    init_process_guards();
     init_polymarket();
     init_tradelocker();
     CLOB_BASE2 = "https://clob.polymarket.com";
@@ -55421,7 +55715,7 @@ __export(polymarket_us_exports, {
   toPmUsNum: () => toPmUsNum
 });
 import * as fs6 from "fs";
-import * as path6 from "path";
+import * as path7 from "path";
 import * as crypto8 from "crypto";
 function loadAll3() {
   try {
@@ -55433,7 +55727,7 @@ function loadAll3() {
 }
 function saveAll3(map) {
   try {
-    const dir = path6.dirname(FILE3);
+    const dir = path7.dirname(FILE3);
     if (!fs6.existsSync(dir)) fs6.mkdirSync(dir, { recursive: true });
     const content = JSON.stringify(map, null, 2);
     fs6.writeFileSync(FILE3, content);
@@ -55552,7 +55846,7 @@ var init_polymarket_us = __esm({
     init_cred_store();
     BASE_URL = "https://api.polymarket.us";
     GATEWAY_URL = "https://gateway.polymarket.us";
-    FILE3 = path6.join(process.cwd(), "data", "polymarket_us.json");
+    FILE3 = path7.join(process.cwd(), "data", "polymarket_us.json");
     PKCS8_ED25519_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
     toPmUsNum = (x) => (x && typeof x === "object" ? parseFloat(x.value) : parseFloat(x)) || 0;
     _toNum = toPmUsNum;
@@ -55639,8 +55933,10 @@ function startPmUsEngine(userId) {
   if (s.isRunning) return;
   s.isRunning = true;
   _persistPmUsRunState(userId, true, s.isPaperMode);
-  _runScan2(userId).catch(console.error);
-  _timers2.set(userId, setInterval(() => _runScan2(userId).catch(console.error), 5 * 60 * 1e3));
+  _runScan2(userId).then(() => loopTick("polymarket-us", `user ${userId}`)).catch((e) => recordProcessError("guardedJob", e, "polymarket-us"));
+  _timers2.set(userId, setInterval(() => {
+    _runScan2(userId).then(() => loopTick("polymarket-us", `user ${userId}`)).catch((e) => recordProcessError("guardedJob", e, "polymarket-us"));
+  }, 5 * 60 * 1e3));
 }
 function stopPmUsEngine(userId) {
   const s = getPmUsEngineState(userId);
@@ -55912,6 +56208,8 @@ var init_polymarket_us_engine = __esm({
   "server/services/polymarket-us-engine.ts"() {
     "use strict";
     init_kalshi_strategies();
+    init_crash_heartbeat();
+    init_process_guards();
     init_kalshi_engine();
     init_polymarket_us();
     DEFAULT_CONFIG4 = {
@@ -56006,8 +56304,8 @@ function teamsMatchMarket(homeTeam, awayTeam, question) {
   return (q.includes(h) || q.includes(hFull)) && (q.includes(a) || q.includes(aFull));
 }
 async function fetchScoreboard(sport) {
-  const path23 = SPORT_PATHS[sport];
-  const data = await safeGet(`${ESPN_BASE}/${path23}/scoreboard`);
+  const path24 = SPORT_PATHS[sport];
+  const data = await safeGet(`${ESPN_BASE}/${path24}/scoreboard`);
   return data?.events ?? [];
 }
 function injuryAdjustment(injuries, sport) {
@@ -57507,7 +57805,7 @@ __export(image_processor_exports, {
   createSharedImageUrl: () => createSharedImageUrl
 });
 import fs7 from "fs";
-import path7 from "path";
+import path8 from "path";
 async function getCanvas() {
   try {
     return await import("canvas");
@@ -57536,11 +57834,11 @@ async function addWatermarkToImage(originalImagePath, outputFilename) {
     ctx.fillText("VEDDAI", logoX + logoWidth / 2, logoY + logoHeight / 2);
     ctx.font = `${logoHeight * 0.25}px Arial`;
     ctx.fillText("AI-Powered Trading Analysis", logoX + logoWidth / 2, logoY + logoHeight * 0.75);
-    const sharedDir = path7.join("uploads", "shared");
+    const sharedDir = path8.join("uploads", "shared");
     if (!fs7.existsSync(sharedDir)) {
       fs7.mkdirSync(sharedDir, { recursive: true });
     }
-    const outputPath = path7.join(sharedDir, outputFilename);
+    const outputPath = path8.join(sharedDir, outputFilename);
     const out = fs7.createWriteStream(outputPath);
     const stream = canvas.createJPEGStream({ quality: 0.95 });
     return new Promise((resolve, reject) => {
@@ -57703,11 +58001,11 @@ async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilen
       ctx.fillStyle = "#3B82F6";
       ctx.fillText(`R:R ${analysis.riskRewardRatio}`, summaryBox.x + 150, summaryBox.y + 35);
     }
-    const annotatedDir = path7.join("uploads", "annotated");
+    const annotatedDir = path8.join("uploads", "annotated");
     if (!fs7.existsSync(annotatedDir)) {
       fs7.mkdirSync(annotatedDir, { recursive: true });
     }
-    const outputPath = path7.join(annotatedDir, outputFilename);
+    const outputPath = path8.join(annotatedDir, outputFilename);
     const out = fs7.createWriteStream(outputPath);
     const stream = canvas.createJPEGStream({ quality: 0.95 });
     return new Promise((resolve, reject) => {
@@ -58378,7 +58676,7 @@ __export(futures_brain_exports, {
   runFuturesBrainLearning: () => runFuturesBrainLearning
 });
 import * as fs9 from "fs";
-import * as path9 from "path";
+import * as path10 from "path";
 function rMultiple(t) {
   if (!t.exitPrice || !t.stopLoss) return 0;
   const riskDist = Math.abs(t.entryPrice - t.stopLoss);
@@ -58497,9 +58795,9 @@ async function computeFuturesBrain(userId) {
   global.veddFuturesBrain = global.veddFuturesBrain || {};
   global.veddFuturesBrain[userId] = brain;
   try {
-    const brainDir = path9.join(process.cwd(), "data", "brains");
+    const brainDir = path10.join(process.cwd(), "data", "brains");
     if (!fs9.existsSync(brainDir)) fs9.mkdirSync(brainDir, { recursive: true });
-    fs9.writeFileSync(path9.join(brainDir, `futures_brain_${userId}.json`), JSON.stringify(brain));
+    fs9.writeFileSync(path10.join(brainDir, `futures_brain_${userId}.json`), JSON.stringify(brain));
   } catch {
   }
   console.log(`[futures-brain] Learned from ${closed.length} trades across ${uniqueSymbols.length} symbols for user ${userId}`);
@@ -58510,7 +58808,7 @@ async function runFuturesBrainLearning(userId) {
 }
 function loadPersistedFuturesBrain(userId) {
   try {
-    const p2 = path9.join(process.cwd(), "data", "brains", `futures_brain_${userId}.json`);
+    const p2 = path10.join(process.cwd(), "data", "brains", `futures_brain_${userId}.json`);
     if (!fs9.existsSync(p2)) return null;
     const brain = JSON.parse(fs9.readFileSync(p2, "utf-8"));
     global.veddFuturesBrain = global.veddFuturesBrain || {};
@@ -59591,6 +59889,7 @@ function startSocialAutopilot() {
           console.log(`[social] morning email: ${r.note} (${r.count} post sets)`);
         }
       }
+      loopTick("social-autopilot");
     } catch (e) {
       console.error("[social] tick failed (non-fatal):", e?.message || e);
     }
@@ -59607,6 +59906,7 @@ var init_social_autopilot = __esm({
   "server/services/social-autopilot.ts"() {
     "use strict";
     init_db();
+    init_crash_heartbeat();
     OWNER = () => Number(process.env.SOCIAL_OWNER_USER_ID ?? 1);
     SITE = () => (process.env.PUBLIC_SITE_URL || "https://veddbuild.com").replace(/\/$/, "");
     RISK = "Not financial advice. Trading involves risk; past results don\u2019t guarantee future returns.";
@@ -60038,7 +60338,7 @@ var share_card_service_exports = {};
 __export(share_card_service_exports, {
   generateShareCard: () => generateShareCard
 });
-import path10 from "path";
+import path11 from "path";
 import fs10 from "fs";
 async function generateShareCard(data) {
   let createCanvas, loadImage;
@@ -60060,7 +60360,7 @@ async function generateShareCard(data) {
   ctx.fillStyle = headerGradient;
   ctx.fillRect(0, 0, CARD_WIDTH, 180);
   try {
-    const logoPath = path10.join(process.cwd(), "attached_assets", "IMG_3645.png");
+    const logoPath = path11.join(process.cwd(), "attached_assets", "IMG_3645.png");
     if (fs10.existsSync(logoPath)) {
       const logo = await loadImage(logoPath);
       const logoHeight = 80;
@@ -60097,7 +60397,7 @@ async function generateShareCard(data) {
       if (imagePath.startsWith("/")) {
         imagePath = imagePath.substring(1);
       }
-      const fullImagePath = path10.join(process.cwd(), imagePath);
+      const fullImagePath = path11.join(process.cwd(), imagePath);
       if (fs10.existsSync(fullImagePath)) {
         const chartImage = await loadImage(fullImagePath);
         const maxWidth = CARD_WIDTH - PADDING * 2;
@@ -60211,7 +60511,7 @@ async function generateShareCard(data) {
         if (imgPath.startsWith("/")) {
           imgPath = imgPath.substring(1);
         }
-        const fullPath = path10.join(process.cwd(), imgPath);
+        const fullPath = path11.join(process.cwd(), imgPath);
         if (fs10.existsSync(fullPath)) {
           chartImage = await loadImage(fullPath);
           const maxChartWidth = CARD_WIDTH - PADDING * 2 - 40;
@@ -61752,7 +62052,7 @@ __export(options_brain_exports, {
   runOptionsBrainLearning: () => runOptionsBrainLearning
 });
 import * as fs11 from "fs";
-import * as path11 from "path";
+import * as path12 from "path";
 function pctReturn(t) {
   if (!t.exitPrice || !t.entryPrice) return 0;
   return (t.exitPrice - t.entryPrice) / t.entryPrice * 100;
@@ -61911,9 +62211,9 @@ async function computeOptionsBrain(userId) {
   global.veddOptionsBrain = global.veddOptionsBrain || {};
   global.veddOptionsBrain[userId] = brain;
   try {
-    const brainDir = path11.join(process.cwd(), "data", "brains");
+    const brainDir = path12.join(process.cwd(), "data", "brains");
     if (!fs11.existsSync(brainDir)) fs11.mkdirSync(brainDir, { recursive: true });
-    fs11.writeFileSync(path11.join(brainDir, `options_brain_${userId}.json`), JSON.stringify(brain));
+    fs11.writeFileSync(path12.join(brainDir, `options_brain_${userId}.json`), JSON.stringify(brain));
   } catch {
   }
   console.log(`[options-brain] Learned from ${closed.length} trades across ${uniqueSymbols.length} underlyings for user ${userId}`);
@@ -61924,7 +62224,7 @@ async function runOptionsBrainLearning(userId) {
 }
 function loadPersistedOptionsBrain(userId) {
   try {
-    const p2 = path11.join(process.cwd(), "data", "brains", `options_brain_${userId}.json`);
+    const p2 = path12.join(process.cwd(), "data", "brains", `options_brain_${userId}.json`);
     if (!fs11.existsSync(p2)) return null;
     const brain = JSON.parse(fs11.readFileSync(p2, "utf-8"));
     global.veddOptionsBrain = global.veddOptionsBrain || {};
@@ -62537,6 +62837,7 @@ function startTrailBrainLearning() {
         if (!Number.isFinite(userId)) continue;
         await runTrailBrainLearningForUser(userId);
       }
+      loopTick("trail-brain-learning");
     } catch (e) {
       console.error("[trail-brain] sweep failed (non-fatal):", e?.message || e);
     }
@@ -62554,6 +62855,7 @@ var init_trail_brain_learning = __esm({
   "server/services/trail-brain-learning.ts"() {
     "use strict";
     init_db();
+    init_crash_heartbeat();
     init_runtime_state();
     init_trail_brain();
     WINDOW_DAYS2 = 90;
@@ -63484,8 +63786,8 @@ __export(coinbase_exports, {
 });
 import crypto12 from "crypto";
 import jwt from "jsonwebtoken";
-function buildJwt(keyName, privateKeyPem, method, path23) {
-  const uri = `${method} ${API_HOST}${path23}`;
+function buildJwt(keyName, privateKeyPem, method, path24) {
+  const uri = `${method} ${API_HOST}${path24}`;
   const now = Math.floor(Date.now() / 1e3);
   const payload2 = { sub: keyName, iss: "cdp", nbf: now, exp: now + 120, uri };
   return jwt.sign(payload2, privateKeyPem, {
@@ -63506,9 +63808,9 @@ var init_coinbase = __esm({
         this.keyName = keyName;
         this.privateKey = privateKeyPem.includes("\\n") ? privateKeyPem.replace(/\\n/g, "\n") : privateKeyPem;
       }
-      async get(path23) {
-        const token = buildJwt(this.keyName, this.privateKey, "GET", path23);
-        const res2 = await fetch(`https://${API_HOST}${path23}`, {
+      async get(path24) {
+        const token = buildJwt(this.keyName, this.privateKey, "GET", path24);
+        const res2 = await fetch(`https://${API_HOST}${path24}`, {
           method: "GET",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           signal: AbortSignal.timeout(12e3)
@@ -63519,9 +63821,9 @@ var init_coinbase = __esm({
         }
         return res2.json();
       }
-      async post(path23, body) {
-        const token = buildJwt(this.keyName, this.privateKey, "POST", path23);
-        const res2 = await fetch(`https://${API_HOST}${path23}`, {
+      async post(path24, body) {
+        const token = buildJwt(this.keyName, this.privateKey, "POST", path24);
+        const res2 = await fetch(`https://${API_HOST}${path24}`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -63563,8 +63865,8 @@ var init_coinbase = __esm({
         const accounts = [];
         let cursor = "";
         for (let i = 0; i < 10; i++) {
-          const path23 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
-          const data = await this.get(path23);
+          const path24 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+          const data = await this.get(path24);
           for (const a of data?.accounts ?? []) accounts.push(a);
           if (data?.has_next && data?.cursor) cursor = data.cursor;
           else break;
@@ -63633,22 +63935,22 @@ var init_kraken = __esm({
         this.apiKey = apiKey;
         this.secret = secret;
       }
-      sign(path23, nonce, postData) {
+      sign(path24, nonce, postData) {
         const sha256 = crypto13.createHash("sha256").update(nonce + postData).digest();
-        const message = Buffer.concat([Buffer.from(path23, "utf8"), sha256]);
+        const message = Buffer.concat([Buffer.from(path24, "utf8"), sha256]);
         const key = Buffer.from(this.secret, "base64");
         return crypto13.createHmac("sha512", key).update(message).digest("base64");
       }
       async privatePost(endpoint, params = {}) {
-        const path23 = `/0/private/${endpoint}`;
+        const path24 = `/0/private/${endpoint}`;
         const nonce = String(Date.now() * 1e3);
         const body = new URLSearchParams({ nonce, ...params });
         const postData = body.toString();
-        const res2 = await fetch(`${API_HOST2}${path23}`, {
+        const res2 = await fetch(`${API_HOST2}${path24}`, {
           method: "POST",
           headers: {
             "API-Key": this.apiKey,
-            "API-Sign": this.sign(path23, nonce, postData),
+            "API-Sign": this.sign(path24, nonce, postData),
             "Content-Type": "application/x-www-form-urlencoded",
             "User-Agent": "VEDD/1.0"
           },
@@ -63922,8 +64224,8 @@ function baseUrl(testnet) {
 function tradedAddress(c) {
   return (c.vaultAddress || c.accountAddress).toLowerCase();
 }
-async function post(testnet, path23, body) {
-  const r = await fetch(baseUrl(testnet) + path23, {
+async function post(testnet, path24, body) {
+  const r = await fetch(baseUrl(testnet) + path24, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -63934,9 +64236,9 @@ async function post(testnet, path23, body) {
   try {
     j = JSON.parse(text3);
   } catch {
-    throw new Error(`Hyperliquid ${path23} HTTP ${r.status}: ${text3.slice(0, 200)}`);
+    throw new Error(`Hyperliquid ${path24} HTTP ${r.status}: ${text3.slice(0, 200)}`);
   }
-  if (!r.ok) throw new Error(`Hyperliquid ${path23} HTTP ${r.status}: ${text3.slice(0, 200)}`);
+  if (!r.ok) throw new Error(`Hyperliquid ${path24} HTTP ${r.status}: ${text3.slice(0, 200)}`);
   return j;
 }
 async function getMeta(testnet) {
@@ -67129,8 +67431,8 @@ async function releaseCryptoRunLock() {
   }
 }
 function startCryptocomEngineScanner() {
-  if (started2) return;
-  started2 = true;
+  if (started3) return;
+  started3 = true;
   const RETRY_MS = 6e4;
   const tryStart = () => {
     acquireCryptoRunLock().then((locked) => {
@@ -67151,6 +67453,7 @@ function startCryptocomEngineScanner() {
         }
         _skippedTicks = 0;
         scanInFlight = true;
+        loopTick("crypto-scanner");
         const _t0 = Date.now();
         void hb({ tick_at: /* @__PURE__ */ new Date(), skipped_ticks: 0 });
         const SCAN_TIMEOUT_MS = 4 * 60 * 1e3;
@@ -67182,11 +67485,12 @@ function startCryptocomEngineScanner() {
   };
   tryStart();
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, defiUniverse, CRYPTO_SL_ATR_MULT, CRYPTO_MIN_RR, _modelUniverse, _gasStatus, ROTATE_AFTER_H, ROTATE_FLAT_PCT, ROTATE_MIN_SCORE, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, EXIT_BUDGET_MS, ENTRY_BUDGET_MS, userInFlight, _cycleNo, USER_CONCURRENCY, started2, scanInFlight, _skippedTicks, _scansCompleted, WORKER_ID, _hbBooted, CRYPTO_RUN_LOCK_KEY, _holdsRunLock, STALE_AFTER_MS;
+var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, defiUniverse, CRYPTO_SL_ATR_MULT, CRYPTO_MIN_RR, _modelUniverse, _gasStatus, ROTATE_AFTER_H, ROTATE_FLAT_PCT, ROTATE_MIN_SCORE, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, EXIT_BUDGET_MS, ENTRY_BUDGET_MS, userInFlight, _cycleNo, USER_CONCURRENCY, started3, scanInFlight, _skippedTicks, _scansCompleted, WORKER_ID, _hbBooted, CRYPTO_RUN_LOCK_KEY, _holdsRunLock, STALE_AFTER_MS;
 var init_cryptocom_scanner = __esm({
   "server/services/cryptocom-scanner.ts"() {
     "use strict";
     init_storage();
+    init_crash_heartbeat();
     init_cryptocom();
     init_indicators();
     init_crypto_brain();
@@ -67224,7 +67528,7 @@ var init_cryptocom_scanner = __esm({
     userInFlight = /* @__PURE__ */ new Set();
     _cycleNo = 0;
     USER_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.CRYPTO_USER_CONCURRENCY) || 4));
-    started2 = false;
+    started3 = false;
     scanInFlight = false;
     _skippedTicks = 0;
     _scansCompleted = 0;
@@ -68687,20 +68991,21 @@ async function runOptionsEngineScan() {
   }
 }
 function startOptionsEngineScanner() {
-  if (started3) return;
-  started3 = true;
+  if (started4) return;
+  started4 = true;
   const LOOP_INTERVAL_MS = 6e4;
   setInterval(() => {
-    runOptionsEngineScan().catch(() => {
-    });
+    runOptionsEngineScan().then(() => loopTick("options-scanner")).catch((e) => recordProcessError("guardedJob", e, "options-scanner"));
   }, LOOP_INTERVAL_MS);
   console.log("[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/order_flow/auto).");
 }
-var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, CORRELATED_BASKET_CAP, CORRELATED_BASKETS, STRATEGY_RUNNERS2, OPTIONS_STRATEGY_RUNNERS, sessionPeakEquity2, OPTIONS_USER_BUDGET_MS, optionsUserInFlight, optionsScanRunning, optionsCycle, started3;
+var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, CORRELATED_BASKET_CAP, CORRELATED_BASKETS, STRATEGY_RUNNERS2, OPTIONS_STRATEGY_RUNNERS, sessionPeakEquity2, OPTIONS_USER_BUDGET_MS, optionsUserInFlight, optionsScanRunning, optionsCycle, started4;
 var init_options_scanner = __esm({
   "server/services/options-scanner.ts"() {
     "use strict";
     init_storage();
+    init_crash_heartbeat();
+    init_process_guards();
     init_alpaca();
     init_options_brain();
     MIN_SCAN_INTERVAL_MS2 = 3e4;
@@ -68732,7 +69037,7 @@ var init_options_scanner = __esm({
     optionsUserInFlight = /* @__PURE__ */ new Set();
     optionsScanRunning = false;
     optionsCycle = 0;
-    started3 = false;
+    started4 = false;
   }
 });
 
@@ -70449,6 +70754,7 @@ function startKalshiStockShadow() {
     try {
       const uid2 = await resolveOwnerUserId();
       if (uid2) await runKalshiStockShadowCycle(uid2);
+      loopTick("kalshi-stock-shadow");
     } catch (e) {
       console.error("[kalshi-stock-shadow] tick failed (non-fatal):", e?.message ?? e);
     }
@@ -70462,6 +70768,7 @@ var init_kalshi_stock_shadow = __esm({
   "server/services/kalshi-stock-shadow.ts"() {
     "use strict";
     init_db();
+    init_crash_heartbeat();
     init_ensure_kalshi_perp_shadow_tables();
     init_trail_brain();
     init_kalshi_perps();
@@ -71423,6 +71730,7 @@ function startKalshiPerpLive() {
     try {
       const uid2 = await resolveOwnerUserId2();
       if (uid2) await runKalshiPerpLiveCycle(uid2);
+      loopTick("kalshi-perp-live");
     } catch (e) {
       console.error("[kalshi-perp-live] tick failed (non-fatal):", e?.message ?? e);
     }
@@ -71436,6 +71744,7 @@ var init_kalshi_perp_live = __esm({
   "server/services/kalshi-perp-live.ts"() {
     "use strict";
     init_db();
+    init_crash_heartbeat();
     init_ensure_kalshi_perp_live_tables();
     init_trail_brain();
     init_ensure_kalshi_perp_shadow_tables();
@@ -72059,6 +72368,7 @@ function startKalshiWeatherShadow() {
     try {
       const uid2 = await resolveOwnerUserId3();
       if (uid2) await runKalshiWeatherShadowCycle(uid2);
+      loopTick("kalshi-weather-shadow");
     } catch (e) {
       console.error("[kalshi-weather-shadow] tick failed (non-fatal):", e?.message ?? e);
     }
@@ -72072,6 +72382,7 @@ var init_kalshi_weather_shadow = __esm({
   "server/services/kalshi-weather-shadow.ts"() {
     "use strict";
     init_db();
+    init_crash_heartbeat();
     init_ensure_kalshi_weather_shadow_tables();
     init_kalshi_weather();
     init_kalshi();
@@ -72773,6 +73084,7 @@ function startKalshiSportsShadow() {
     try {
       const uid2 = await resolveOwnerUserId4();
       if (uid2) await runKalshiSportsShadowCycle(uid2);
+      loopTick("kalshi-sports-shadow");
     } catch (e) {
       console.error("[kalshi-sports-shadow] tick failed (non-fatal):", e?.message ?? e);
     }
@@ -72786,6 +73098,7 @@ var init_kalshi_sports_shadow = __esm({
   "server/services/kalshi-sports-shadow.ts"() {
     "use strict";
     init_db();
+    init_crash_heartbeat();
     init_ensure_kalshi_sports_shadow_tables();
     init_kalshi();
     init_kalshi_price_snapshots();
@@ -73861,8 +74174,8 @@ async function runRuinConeSimulation(userId, params = {}) {
   let hitTargetCount = 0;
   const targetEquity = startingEquity + profitTarget;
   for (let s = 0; s < numSimulations; s++) {
-    const path23 = new Float64Array(numTrades + 1);
-    path23[0] = startingEquity;
+    const path24 = new Float64Array(numTrades + 1);
+    path24[0] = startingEquity;
     let equity = startingEquity;
     let peak = startingEquity;
     let firstFailIndex = -1;
@@ -73875,7 +74188,7 @@ async function runRuinConeSimulation(userId, params = {}) {
     for (let t = 1; t <= numTrades; t++) {
       const pnl = pnls[Math.random() * sourceTradeCount | 0];
       equity += pnl;
-      path23[t] = equity;
+      path24[t] = equity;
       if (equity > peak) peak = equity;
       if (!everRuin && peak - equity >= maxDrawdownLimit) {
         everRuin = true;
@@ -73894,7 +74207,7 @@ async function runRuinConeSimulation(userId, params = {}) {
         tradeInDay = 0;
       }
     }
-    paths[s] = path23;
+    paths[s] = path24;
     finalEquities[s] = equity;
     if (everRuin) ruinCount++;
     if (everDailyBreach) dailyBreachCount++;
@@ -76889,7 +77202,7 @@ var init_ffmpeg = __esm({
 // server/services/video-branding.ts
 import fs12 from "fs";
 import os from "os";
-import path12 from "path";
+import path13 from "path";
 function findLogo() {
   return LOGO_CANDIDATES.find((p2) => fs12.existsSync(p2)) ?? null;
 }
@@ -76899,9 +77212,9 @@ async function brandVideo(video, aspect = "9:16") {
     console.warn("[video-branding] logo not found; skipping branding");
     return null;
   }
-  const dir = fs12.mkdtempSync(path12.join(os.tmpdir(), "vedd-brand-"));
-  const src = path12.join(dir, "in.mp4");
-  const dst = path12.join(dir, "out.mp4");
+  const dir = fs12.mkdtempSync(path13.join(os.tmpdir(), "vedd-brand-"));
+  const src = path13.join(dir, "in.mp4");
+  const dst = path13.join(dir, "out.mp4");
   try {
     fs12.writeFileSync(src, video);
     const { width: sw, height: sh } = await probe(src);
@@ -76961,7 +77274,7 @@ var init_video_branding = __esm({
     "use strict";
     init_ffmpeg();
     LOGO_CANDIDATES = [
-      path12.resolve(process.cwd(), "attached_assets/IMG_3645.png")
+      path13.resolve(process.cwd(), "attached_assets/IMG_3645.png")
     ];
     END_CARD_SECONDS = 1.5;
     FPS = 16;
@@ -77055,7 +77368,7 @@ var init_content_asset_store = __esm({
 // server/services/video-audio.ts
 import fs13 from "fs";
 import os2 from "os";
-import path13 from "path";
+import path14 from "path";
 import { fileURLToPath } from "url";
 function videoAudioEnabled() {
   return process.env.VIDEO_AUDIO !== "off";
@@ -77075,7 +77388,7 @@ function resolveMusicBed() {
   if (!beds.length) return null;
   const wanted = (process.env.VIDEO_MUSIC_BED || "").trim();
   const name = wanted && beds.includes(wanted) ? wanted : beds.includes(DEFAULT_BED) ? DEFAULT_BED : beds[0];
-  return { name, file: path13.join(dir, name) };
+  return { name, file: path14.join(dir, name) };
 }
 function capNarrationText(raw, maxWords = MAX_NARRATION_WORDS) {
   const cap = Math.max(1, Math.floor(maxWords) || MAX_NARRATION_WORDS);
@@ -77163,9 +77476,9 @@ async function synthesizeNarration(text3) {
   return null;
 }
 async function applyVideoAudio(video, opts = {}) {
-  const dir = fs13.mkdtempSync(path13.join(os2.tmpdir(), "vedd-audio-"));
-  const src = path13.join(dir, "in.mp4");
-  const dst = path13.join(dir, "out.mp4");
+  const dir = fs13.mkdtempSync(path14.join(os2.tmpdir(), "vedd-audio-"));
+  const src = path14.join(dir, "in.mp4");
+  const dst = path14.join(dir, "out.mp4");
   try {
     fs13.writeFileSync(src, video);
     const info2 = await probe(src).catch(() => null);
@@ -77189,7 +77502,7 @@ async function applyVideoAudio(video, opts = {}) {
     if (text3) {
       speech = await synthesizeNarration(text3);
       if (speech) {
-        narrFile = path13.join(dir, "narr.mp3");
+        narrFile = path14.join(dir, "narr.mp3");
         fs13.writeFileSync(narrFile, speech.buffer);
       } else {
         reason = reason || "narration synthesis failed";
@@ -77290,9 +77603,9 @@ var init_video_audio = __esm({
     FALLBACK_TTS_VOICE = "onyx";
     DEFAULT_BED = "bed-groove.mp3";
     AUDIO_DIR_CANDIDATES = [
-      path13.resolve(process.cwd(), "server/assets/audio"),
-      path13.resolve(path13.dirname(fileURLToPath(import.meta.url)), "../server/assets/audio"),
-      path13.resolve(path13.dirname(fileURLToPath(import.meta.url)), "../../server/assets/audio")
+      path14.resolve(process.cwd(), "server/assets/audio"),
+      path14.resolve(path14.dirname(fileURLToPath(import.meta.url)), "../server/assets/audio"),
+      path14.resolve(path14.dirname(fileURLToPath(import.meta.url)), "../../server/assets/audio")
     ];
   }
 });
@@ -77385,7 +77698,7 @@ var init_chart_overlay = __esm({
 
 // server/services/app-screens.ts
 import fs14 from "fs";
-import path14 from "path";
+import path15 from "path";
 function screenCatalogForPrompt() {
   return APP_SCREENS.map((s) => `${s.id} \u2014 ${s.shows}`).join("\n");
 }
@@ -77396,10 +77709,10 @@ function screenImagePath(id) {
   let found = null;
   if (screen) {
     const candidates = [
-      path14.resolve(process.cwd(), "dist/public/app-screens", screen.file),
-      path14.resolve(process.cwd(), "client/public/app-screens", screen.file),
-      path14.resolve(__dirname, "../public/app-screens", screen.file),
-      path14.resolve(__dirname, "../../client/public/app-screens", screen.file)
+      path15.resolve(process.cwd(), "dist/public/app-screens", screen.file),
+      path15.resolve(process.cwd(), "client/public/app-screens", screen.file),
+      path15.resolve(__dirname, "../public/app-screens", screen.file),
+      path15.resolve(__dirname, "../../client/public/app-screens", screen.file)
     ];
     found = candidates.find((c) => fs14.existsSync(c)) ?? null;
     if (!found) console.warn(`[app-screens] ${screen.file} not found in any known location \u2014 scene will render without the screen overlay`);
@@ -78222,7 +78535,7 @@ __export(explainer_video_exports, {
 });
 import fs15 from "fs";
 import os3 from "os";
-import path15 from "path";
+import path16 from "path";
 function ensureJobTable() {
   return tableReady5 ??= pool.query(`CREATE TABLE IF NOT EXISTS content_video_jobs (
       id SERIAL PRIMARY KEY,
@@ -78636,8 +78949,8 @@ async function renderSceneViaReplicate(scene, script, aspect, presenterImage, pr
   }
   if (!res2.ok) throw new Error(`Replicate ${res2.status}: ${(await res2.text().catch(() => "")).slice(0, 200)}`);
   let data = await res2.json();
-  const started7 = Date.now();
-  while ((data.status === "starting" || data.status === "processing") && Date.now() - started7 < MAX_WAIT_MS) {
+  const started8 = Date.now();
+  while ((data.status === "starting" || data.status === "processing") && Date.now() - started8 < MAX_WAIT_MS) {
     await new Promise((r) => setTimeout(r, POLL_MS));
     const poll = await fetch(data.urls.get, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(2e4) });
     if (poll.ok) data = await poll.json();
@@ -78651,13 +78964,13 @@ function sceneAudioPlan(hasAudio, muteScenes) {
   return hasAudio.map((h) => muteScenes ? false : h);
 }
 async function assemble(clipUrls, aspect, charts = [], screens = [], opts = {}) {
-  const dir = fs15.mkdtempSync(path15.join(os3.tmpdir(), "vedd-explainer-"));
+  const dir = fs15.mkdtempSync(path16.join(os3.tmpdir(), "vedd-explainer-"));
   try {
     const files = [];
     for (let i = 0; i < clipUrls.length; i++) {
       const r = await fetch(clipUrls[i], { signal: AbortSignal.timeout(6e4) });
       if (!r.ok) throw new Error(`could not download scene ${i + 1}`);
-      const f = path15.join(dir, `s${i}.mp4`);
+      const f = path16.join(dir, `s${i}.mp4`);
       fs15.writeFileSync(f, Buffer.from(await r.arrayBuffer()));
       files.push(f);
     }
@@ -78729,7 +79042,7 @@ async function assembleFiles(files, aspect, dir, charts = [], screens = [], opts
       f.push(`[${logoIdx}:v]scale=${wm}:-2,format=rgba,colorchannelmixer=aa=0.85[wm]`);
       f.push(`[cv][wm]overlay=W-w-${m}:H-h-${m}[outv]`);
     }
-    const out = path15.join(dir, "out.mp4");
+    const out = path16.join(dir, "out.mp4");
     args.push(
       "-filter_complex",
       f.join(";"),
@@ -80209,10 +80522,10 @@ var init_clipper_core = __esm({
 import { spawn as spawn3 } from "child_process";
 import crypto16 from "crypto";
 import fs16 from "fs";
-import path16 from "path";
+import path17 from "path";
 function resolveYtdlpBin() {
   if (process.env.CLIPPER_YTDLP_PATH) return process.env.CLIPPER_YTDLP_PATH;
-  const bundled = path16.join(
+  const bundled = path17.join(
     process.cwd(),
     "server",
     "assets",
@@ -80241,7 +80554,7 @@ function youtubeCookiesConfigured() {
 function writeYouTubeCookiesFile(dir) {
   const parsed = loadYouTubeCookies();
   if (!parsed.ok) return null;
-  const file = path16.join(dir, `.yt-cookies-${crypto16.randomBytes(6).toString("hex")}.txt`);
+  const file = path17.join(dir, `.yt-cookies-${crypto16.randomBytes(6).toString("hex")}.txt`);
   fs16.writeFileSync(file, parsed.content, { mode: 384 });
   return file;
 }
@@ -80313,7 +80626,7 @@ async function downloadYouTubeVideo(url, destDir, opts) {
       throw new Error(`Video too long: exceeds the ${opts.maxMinutes} minute limit`);
     }
     const clients = ytdlpClientChain(process.env.CLIPPER_YTDLP_CLIENTS);
-    const outputTemplate = path16.join(destDir, "source.%(ext)s");
+    const outputTemplate = path17.join(destDir, "source.%(ext)s");
     await runYtdlp(
       buildYtdlpDownloadArgs(url, {
         outputTemplate,
@@ -80328,7 +80641,7 @@ async function downloadYouTubeVideo(url, destDir, opts) {
     );
     const produced = fs16.readdirSync(destDir).filter((f) => /^source\.(mp4|webm|mov|m4v|mkv)$/i.test(f)).sort((a, b) => (a.endsWith(".mp4") ? 0 : 1) - (b.endsWith(".mp4") ? 0 : 1));
     if (!produced.length) throw new YtdlpError("unknown", "yt-dlp finished but produced no video file");
-    const file = path16.join(destDir, produced[0]);
+    const file = path17.join(destDir, produced[0]);
     const size = fs16.statSync(file).size;
     if (size > opts.maxBytes) throw new Error("Video file too large to process");
     return { file, title: info2.title, lengthSec: info2.lengthSec };
@@ -80361,7 +80674,7 @@ __export(clipper_exports, {
 });
 import fs17 from "fs";
 import os4 from "os";
-import path17 from "path";
+import path18 from "path";
 import { Readable, Transform } from "stream";
 import { pipeline } from "stream/promises";
 async function insertJob2(userId, payload2) {
@@ -80431,7 +80744,7 @@ async function materializeUpload(assetId, workDir) {
   const asset = await getPersistedAsset(assetId);
   if (!asset) throw new Error("That uploaded file could not be found \u2014 please upload it again.");
   const ext = asset.mimeType.includes("webm") ? "webm" : asset.mimeType.includes("quicktime") ? "mov" : asset.mimeType.includes("matroska") ? "mkv" : "mp4";
-  const dest = path17.join(workDir, `source.${ext}`);
+  const dest = path18.join(workDir, `source.${ext}`);
   await fs17.promises.writeFile(dest, asset.data);
   return dest;
 }
@@ -80496,10 +80809,10 @@ async function transcribeChunkOpenRouter(file, offset, chunkDur) {
   return parseTranscriptResponse(resp, offset, chunkDur);
 }
 async function transcribe(workDir, srcFile, durationSec) {
-  const audioFile = path17.join(workDir, "audio.mp3");
+  const audioFile = path18.join(workDir, "audio.mp3");
   await runFfmpeg(["-i", srcFile, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "32k", "-y", audioFile], 3e5);
   const silences = await runFfmpeg(["-i", audioFile, "-af", "silencedetect=noise=-35dB:d=0.4", "-f", "null", "-"], 3e5).then((stderr) => parseSilenceDetect(stderr)).catch(() => []);
-  const chunkPattern = path17.join(workDir, "chunk-%03d.mp3");
+  const chunkPattern = path18.join(workDir, "chunk-%03d.mp3");
   await runFfmpeg(["-i", audioFile, "-f", "segment", "-segment_time", String(CHUNK_SEC), "-reset_timestamps", "1", "-c", "copy", "-y", chunkPattern], 12e4);
   const chunkFiles = fs17.readdirSync(workDir).filter((f) => /^chunk-\d+\.mp3$/.test(f)).sort();
   if (!chunkFiles.length) throw new Error("transcription produced no audio");
@@ -80508,7 +80821,7 @@ async function transcribe(workDir, srcFile, durationSec) {
   const texts = [];
   let source = "whisper";
   for (let i = 0; i < chunkFiles.length; i++) {
-    const file = path17.join(workDir, chunkFiles[i]);
+    const file = path18.join(workDir, chunkFiles[i]);
     const offset = i * CHUNK_SEC;
     const chunkDur = Math.max(1, Math.min(CHUNK_SEC, durationSec - offset));
     let part;
@@ -80606,11 +80919,11 @@ async function renderClip(workDir, srcFile, moment, words, settings, srcW, srcH)
   const localWords = words.filter((w) => w.end > moment.startSec && w.start < moment.endSec).map((w) => ({ word: w.word, start: Math.max(0, w.start - moment.startSec), end: Math.min(moment.durationSec, w.end - moment.startSec) })).filter((w) => w.end > w.start);
   const cues = buildCaptionCues(localWords, settings.captionStyle);
   const ass = buildAssDocument(cues, settings.captionStyle, { width: frame.w, height: frame.h, hookTitle: moment.hook });
-  const assPath = path17.join(workDir, `caps-${moment.rank}.ass`);
+  const assPath = path18.join(workDir, `caps-${moment.rank}.ass`);
   await fs17.promises.writeFile(assPath, ass, "utf8");
-  const fontsDir = path17.join(process.cwd(), "server", "assets", "fonts");
+  const fontsDir = path18.join(process.cwd(), "server", "assets", "fonts");
   const reframe = buildReframeFilter(srcW, srcH, settings.aspect);
-  const out = path17.join(workDir, `clip-${moment.rank}.mp4`);
+  const out = path18.join(workDir, `clip-${moment.rank}.mp4`);
   const render = async (crf) => {
     await runFfmpeg([
       "-ss",
@@ -80652,7 +80965,7 @@ async function runClipperJob(jobId, userId, payload2) {
   const isUpload = !!payload2.uploadAssetId;
   const cls = isUpload ? { kind: "upload" } : classifySourceUrl(payload2.url || "");
   if (cls.kind === "unsupported") throw new Error(`unsupported: ${cls.reason}`);
-  const workDir = fs17.mkdtempSync(path17.join(os4.tmpdir(), "vedd-clipper-"));
+  const workDir = fs17.mkdtempSync(path18.join(os4.tmpdir(), "vedd-clipper-"));
   try {
     await setStep(jobId, 0);
     let srcFile;
@@ -80665,7 +80978,7 @@ async function runClipperJob(jobId, userId, payload2) {
       srcFile = dl.file;
       sourceTitle = dl.title;
     } else {
-      srcFile = path17.join(workDir, "source.mp4");
+      srcFile = path18.join(workDir, "source.mp4");
       await downloadDirect(payload2.url, srcFile);
     }
     const meta = await probe(srcFile);
@@ -80785,7 +81098,7 @@ __export(slide_flattener_exports, {
   flattenSlideImage: () => flattenSlideImage
 });
 import sharp from "sharp";
-import * as path18 from "path";
+import * as path19 from "path";
 import * as fs18 from "fs";
 function escapeXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -80869,7 +81182,7 @@ var init_slide_flattener = __esm({
   "server/services/slide-flattener.ts"() {
     "use strict";
     CANVAS_SIZE = 1080;
-    LOGO_PATH = path18.join(process.cwd(), "attached_assets", "IMG_3645.png");
+    LOGO_PATH = path19.join(process.cwd(), "attached_assets", "IMG_3645.png");
   }
 });
 
@@ -85125,8 +85438,14 @@ function startBlogPostScheduler() {
     const delay = next.getTime() - now.getTime();
     console.log(`[blog-scheduler] Next auto blog post at ${next.toISOString()} (in ${Math.round(delay / 6e4)} min)`);
     setTimeout(async () => {
-      await runScheduledBlogPost();
-      scheduleNext2();
+      try {
+        await runScheduledBlogPost();
+        loopTick("blog-scheduler");
+      } catch (err) {
+        recordProcessError("guardedJob", err, "blog-scheduler");
+      } finally {
+        scheduleNext2();
+      }
     }, delay);
   }
   scheduleNext2();
@@ -85138,6 +85457,8 @@ var init_blog_scheduler = __esm({
     init_openai();
     init_storage();
     init_content_asset_store();
+    init_crash_heartbeat();
+    init_process_guards();
     TARGET_UTC_DAYS2 = [3, 5];
     RUN_HOUR_UTC = 13;
   }
@@ -85320,23 +85641,24 @@ async function syncUserDxtradeOutcomes(userId) {
   return added;
 }
 function startDxtradeSync() {
-  if (started4) return;
-  started4 = true;
+  if (started5) return;
+  started5 = true;
   setInterval(() => {
-    syncAllDxtradeOutcomes().catch(() => {
-    });
+    syncAllDxtradeOutcomes().then(() => loopTick("dxtrade-sync")).catch((e) => recordProcessError("guardedJob", e, "dxtrade-sync"));
   }, SYNC_INTERVAL_MS2);
   console.log("[DX Sync] Background DXtrade outcome sync started (90s interval).");
 }
-var SYNC_INTERVAL_MS2, LOOKBACK_MS, started4, running;
+var SYNC_INTERVAL_MS2, LOOKBACK_MS, started5, running;
 var init_dxtrade_sync = __esm({
   "server/services/dxtrade-sync.ts"() {
     "use strict";
     init_db();
+    init_crash_heartbeat();
+    init_process_guards();
     init_storage();
     SYNC_INTERVAL_MS2 = 9e4;
     LOOKBACK_MS = 30 * 24 * 3600 * 1e3;
-    started4 = false;
+    started5 = false;
     running = false;
   }
 });
@@ -85460,11 +85782,10 @@ __export(strategy_runner_exports, {
   startStrategyRunner: () => startStrategyRunner
 });
 function startStrategyRunner() {
-  if (started5) return;
-  started5 = true;
+  if (started6) return;
+  started6 = true;
   setInterval(() => {
-    tick().catch(() => {
-    });
+    tick().then(() => loopTick("strategy-runner")).catch((e) => recordProcessError("guardedJob", e, "strategy-runner"));
   }, TICK_MS3);
   console.log("[Strategy Runner] Deployment runner started (30s interval).");
 }
@@ -85989,11 +86310,13 @@ async function dispatchBreakeven(dep, open, newStop, newTp) {
   }
   return false;
 }
-var TICK_MS3, TF_API, TF_MS, CRYPTOS, CONTRACT_SIZE3, started5, ticking, _lessonStateCache;
+var TICK_MS3, TF_API, TF_MS, CRYPTOS, CONTRACT_SIZE3, started6, ticking, _lessonStateCache;
 var init_strategy_runner = __esm({
   "server/services/strategy-runner.ts"() {
     "use strict";
     init_wizard_spec_strategies();
+    init_crash_heartbeat();
+    init_process_guards();
     init_strategy_deployments();
     init_shadow_lesson_gate();
     init_strategy_backtest();
@@ -86005,7 +86328,7 @@ var init_strategy_runner = __esm({
     TF_MS = { M1: 6e4, M5: 3e5, M15: 9e5, M30: 18e5, H1: 36e5, H4: 144e5, D1: 864e5 };
     CRYPTOS = /* @__PURE__ */ new Set(["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "LTCUSD", "DOGEUSD"]);
     CONTRACT_SIZE3 = { XAUUSD: 100, XAGUSD: 5e3, BTCUSD: 1, ETHUSD: 10, SOLUSD: 100, XRPUSD: 1e4 };
-    started5 = false;
+    started6 = false;
     ticking = false;
     _lessonStateCache = /* @__PURE__ */ new Map();
   }
@@ -86037,6 +86360,7 @@ async function pollOnce() {
     if (price === void 0) continue;
     await resolvePaperTrade(trade.id, price);
   }
+  loopTick("paper-trade-resolver");
 }
 function startPaperTradeResolverLoop() {
   console.log(`[paper-trade-resolver] Background paper-trade resolver loop started (${POLL_INTERVAL_MS4 / 6e4}min interval).`);
@@ -86052,6 +86376,7 @@ var init_paper_trade_resolver_loop = __esm({
   "server/services/paper-trade-resolver-loop.ts"() {
     "use strict";
     init_db();
+    init_crash_heartbeat();
     init_schema();
     init_service();
     init_paper_trade_tracker();
@@ -86126,6 +86451,7 @@ async function auditDxtrade() {
 async function auditOnce() {
   await auditTradeLocker();
   await auditDxtrade();
+  loopTick("prop-firm-consistency-audit");
 }
 function startPropFirmConsistencyAuditLoop() {
   console.log(`[Consistency Audit] Background prop-firm consistency audit loop started (${POLL_INTERVAL_MS5 / 6e4}min interval).`);
@@ -86141,6 +86467,7 @@ var init_prop_firm_consistency_audit_loop = __esm({
   "server/services/prop-firm-consistency-audit-loop.ts"() {
     "use strict";
     init_storage();
+    init_crash_heartbeat();
     init_db();
     init_prop_firm_consistency();
     POLL_INTERVAL_MS5 = 3 * 60 * 1e3;
@@ -86278,33 +86605,39 @@ async function tick2() {
     closed++;
   }
   if (closed) console.log(`[fx-paper-monitor] tick closed ${closed}/${open.length} open paper trade(s).`);
+  loopTick("fx-paper-monitor");
 }
 function startFxPaperMonitor() {
-  if (started6) return;
-  started6 = true;
+  if (started7) return;
+  started7 = true;
   console.log(`[fx-paper-monitor] started \u2014 closing open FX paper trades on SL/TP every ${TICK_MS4 / 6e4} min (max-hold ${MAX_HOLD_MS / 36e5}h).`);
   setInterval(() => {
-    tick2().catch((e) => console.error("[fx-paper-monitor] tick error:", e?.message ?? e));
+    tick2().catch((e) => {
+      console.error("[fx-paper-monitor] tick error:", e?.message ?? e);
+      recordProcessError("guardedJob", e, "fx-paper-monitor");
+    });
   }, TICK_MS4);
   setTimeout(() => {
-    tick2().catch(() => {
-    });
+    tick2().catch((e) => recordProcessError("guardedJob", e, "fx-paper-monitor"));
   }, 15e3);
 }
-var TICK_MS4, MAX_HOLD_MS, started6;
+var TICK_MS4, MAX_HOLD_MS, started7;
 var init_fx_paper_monitor = __esm({
   "server/services/fx-paper-monitor.ts"() {
     "use strict";
     init_db();
+    init_crash_heartbeat();
+    init_process_guards();
     init_service();
     TICK_MS4 = 3 * 60 * 1e3;
     MAX_HOLD_MS = 3 * 24 * 60 * 60 * 1e3;
-    started6 = false;
+    started7 = false;
   }
 });
 
 // server/index.ts
 init_process_guards();
+init_crash_heartbeat();
 import express2 from "express";
 import { createServer as createServer2 } from "http";
 
@@ -86381,7 +86714,7 @@ import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
 import * as fs19 from "fs";
-import * as path19 from "path";
+import * as path20 from "path";
 
 // server/trading-coach.ts
 init_openai();
@@ -86908,9 +87241,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "d6da054b-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-16T09:19:55.385Z";
+var BUILD_COMMIT = "e08416ce";
+var BUILD_BRANCH = "feat/crash-cause-hunt";
+var BUILT_AT = "2026-11-17T01:36:20.749Z";
 
 // server/stripe.ts
 init_db();
@@ -87593,18 +87926,18 @@ async function sendPasswordResetEmail(to, resetLink) {
 // server/video-processor.ts
 import { spawn } from "child_process";
 import fs8 from "fs";
-import path8 from "path";
+import path9 from "path";
 import { v4 as uuidv4 } from "uuid";
-var uploadsDir = path8.join(process.cwd(), "uploads");
-var framesDir = path8.join(uploadsDir, "frames");
+var uploadsDir = path9.join(process.cwd(), "uploads");
+var framesDir = path9.join(uploadsDir, "frames");
 if (!fs8.existsSync(framesDir)) {
   fs8.mkdirSync(framesDir, { recursive: true });
 }
 async function extractFramesFromVideo(videoBuffer, numFrames = 4, videoMimeType = "video/mp4") {
   const videoId = uuidv4();
   const extension = videoMimeType.includes("quicktime") ? "mov" : videoMimeType.includes("webm") ? "webm" : "mp4";
-  const videoPath = path8.join(uploadsDir, `${videoId}.${extension}`);
-  const framePattern = path8.join(framesDir, `${videoId}_frame_%03d.jpg`);
+  const videoPath = path9.join(uploadsDir, `${videoId}.${extension}`);
+  const framePattern = path9.join(framesDir, `${videoId}_frame_%03d.jpg`);
   try {
     await fs8.promises.writeFile(videoPath, videoBuffer);
     console.log("Video saved to:", videoPath);
@@ -87617,7 +87950,7 @@ async function extractFramesFromVideo(videoBuffer, numFrames = 4, videoMimeType 
     const frames = [];
     for (let i = 1; i <= numFrames; i++) {
       const timestamp2 = interval * i;
-      const framePath = path8.join(framesDir, `${videoId}_frame_${String(i).padStart(3, "0")}.jpg`);
+      const framePath = path9.join(framesDir, `${videoId}_frame_${String(i).padStart(3, "0")}.jpg`);
       await extractFrameAtTime(videoPath, framePath, timestamp2);
       if (fs8.existsSync(framePath)) {
         const frameBuffer = await fs8.promises.readFile(framePath);
@@ -90898,7 +91231,7 @@ var mediaUpload = multer({
     cb(null, true);
   }
 });
-var uploadsDir2 = path19.join(process.cwd(), "uploads");
+var uploadsDir2 = path20.join(process.cwd(), "uploads");
 if (!fs19.existsSync(uploadsDir2)) {
   fs19.mkdirSync(uploadsDir2, { recursive: true });
 }
@@ -91314,6 +91647,25 @@ async function registerRoutes(app2, existingServer) {
         } catch {
           return null;
         }
+      })(),
+      // Crash-cause hunt (2026-11-16): the silent deaths kept coming with
+      // processErrors EMPTY and the memory trail FLAT (~224 MB peaks on
+      // boots that lived only ~4–7 minutes), so neither a catchable error
+      // nor memory explains them. crash-heartbeat.ts adds the missing
+      // witnesses: a registry of named loops' last ticks, a 30s heartbeat
+      // snapshot persisted to runtime_state, and a worker-thread heartbeat
+      // on its own timer. previousBoot is the dead process's final record:
+      // if its worker kept beating after its last main-thread message, the
+      // event loop was BLOCKED; if worker and main stop together, the
+      // process died/was killed; previousBoot.main.loops names the last
+      // loop that ticked before the end. Kill switch CRASH_HEARTBEAT=off.
+      processHeartbeat: await (async () => {
+        try {
+          const { processHeartbeatHealth: processHeartbeatHealth2 } = await Promise.resolve().then(() => (init_crash_heartbeat(), crash_heartbeat_exports));
+          return await processHeartbeatHealth2();
+        } catch {
+          return null;
+        }
       })()
     });
   });
@@ -91351,7 +91703,7 @@ async function registerRoutes(app2, existingServer) {
         return res2.status(400).json({ message: "No file uploaded" });
       }
       const fileName = `${uuidv42()}.${req.file.mimetype.split("/")[1]}`;
-      const filePath = path19.join(uploadsDir2, fileName);
+      const filePath = path20.join(uploadsDir2, fileName);
       console.log("Generated filename:", fileName);
       console.log("Full file path:", filePath);
       try {
@@ -91381,13 +91733,13 @@ async function registerRoutes(app2, existingServer) {
       if (!allowedTypes.includes(req.file.mimetype)) {
         return res2.status(400).json({ message: "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed." });
       }
-      const avatarsDir = path19.join(process.cwd(), "uploads", "avatars");
+      const avatarsDir = path20.join(process.cwd(), "uploads", "avatars");
       if (!fs19.existsSync(avatarsDir)) {
         fs19.mkdirSync(avatarsDir, { recursive: true });
       }
       const ext = req.file.mimetype.split("/")[1];
       const fileName = `avatar-${req.user.id}-${Date.now()}.${ext}`;
-      const filePath = path19.join(avatarsDir, fileName);
+      const filePath = path20.join(avatarsDir, fileName);
       await fs19.promises.writeFile(filePath, req.file.buffer);
       const avatarUrl = `/uploads/avatars/${fileName}`;
       res2.json({ avatarUrl });
@@ -91483,7 +91835,7 @@ async function registerRoutes(app2, existingServer) {
       }
       const extension = filename?.split(".").pop() || "png";
       const generatedFilename = `${uuidv42()}.${extension}`;
-      const filePath = path19.join(uploadsDir2, generatedFilename);
+      const filePath = path20.join(uploadsDir2, generatedFilename);
       const imageUrl = `/uploads/${generatedFilename}`;
       try {
         const imageBuffer = Buffer.from(cleanBase64, "base64");
@@ -91620,7 +91972,7 @@ async function registerRoutes(app2, existingServer) {
           const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : void 0;
           const analysis = await analyzeChartImage(frame.base64, detectedSymbol, req.user?.id);
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
-          const framePath = path19.join(uploadsDir2, frameFileName);
+          const framePath = path20.join(uploadsDir2, frameFileName);
           const frameBuffer = Buffer.from(frame.base64, "base64");
           await fs19.promises.writeFile(framePath, frameBuffer);
           const imageUrl = `/uploads/${frameFileName}`;
@@ -92022,10 +92374,10 @@ Respond ONLY in valid JSON format with these exact keys:
       if (!imageUrl) {
         return res2.status(400).json({ message: "No image URL provided" });
       }
-      const filePath = path19.join(process.cwd(), imageUrl.replace(/^\//, ""));
+      const filePath = path20.join(process.cwd(), imageUrl.replace(/^\//, ""));
       console.log("Attempting to analyze image at path:", filePath);
       if (!fs19.existsSync(filePath)) {
-        const alternativePath = path19.join(uploadsDir2, path19.basename(imageUrl));
+        const alternativePath = path20.join(uploadsDir2, path20.basename(imageUrl));
         console.log("Image not found, trying alternative path:", alternativePath);
         if (!fs19.existsSync(alternativePath)) {
           return res2.status(404).json({ message: "Image file not found" });
@@ -92211,9 +92563,9 @@ Respond ONLY in valid JSON format with these exact keys:
         const originalImageUrl = analysis.imageUrl;
         console.log("Original image URL:", originalImageUrl);
         const imagePath = originalImageUrl.startsWith("/") ? originalImageUrl.substring(1) : originalImageUrl;
-        const basename2 = path19.basename(imagePath);
+        const basename2 = path20.basename(imagePath);
         console.log("Image basename:", basename2);
-        const originalImagePath = path19.join(process.cwd(), "uploads", basename2);
+        const originalImagePath = path20.join(process.cwd(), "uploads", basename2);
         console.log("Full image path:", originalImagePath);
         if (!fs19.existsSync(originalImagePath)) {
           console.error("Original image not found at path:", originalImagePath);
@@ -92312,12 +92664,12 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/shared-image/:filename", (req, res2) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path19.basename(filename);
-      const sharedPath = path19.join(process.cwd(), "uploads", "shared", sanitizedFilename);
+      const sanitizedFilename = path20.basename(filename);
+      const sharedPath = path20.join(process.cwd(), "uploads", "shared", sanitizedFilename);
       if (fs19.existsSync(sharedPath)) {
         return res2.sendFile(sharedPath);
       }
-      const regularPath = path19.join(process.cwd(), "uploads", sanitizedFilename);
+      const regularPath = path20.join(process.cwd(), "uploads", sanitizedFilename);
       if (fs19.existsSync(regularPath)) {
         return res2.sendFile(regularPath);
       }
@@ -92330,8 +92682,8 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/annotated-image/:filename", (req, res2) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path19.basename(filename);
-      const annotatedPath = path19.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
+      const sanitizedFilename = path20.basename(filename);
+      const annotatedPath = path20.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
       if (fs19.existsSync(annotatedPath)) {
         return res2.sendFile(annotatedPath);
       }
@@ -95892,11 +96244,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       });
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
       const shareCardFileName = `share-card-${shareId}.png`;
-      const shareCardPath = path19.join(process.cwd(), "uploads", "share-cards");
+      const shareCardPath = path20.join(process.cwd(), "uploads", "share-cards");
       if (!fs19.existsSync(shareCardPath)) {
         fs19.mkdirSync(shareCardPath, { recursive: true });
       }
-      const fullPath = path19.join(shareCardPath, shareCardFileName);
+      const fullPath = path20.join(shareCardPath, shareCardFileName);
       fs19.writeFileSync(fullPath, shareCardBuffer);
       const shareCardUrl = `/uploads/share-cards/${shareCardFileName}`;
       const shareUrl = `share-${shareId}`;
@@ -102981,7 +103333,7 @@ Return this EXACT JSON (no markdown, no commentary):
     if (!strat?.plan) return res2.status(404).json({ error: "No active VEDD SS AI plan" });
     try {
       const { createCanvas, loadImage } = await import("canvas");
-      const path23 = await import("path");
+      const path24 = await import("path");
       const fs21 = await import("fs");
       const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const engineState = getLiveEngineState3(userId);
@@ -103068,7 +103420,7 @@ Return this EXACT JSON (no markdown, no commentary):
       ctx.closePath();
       ctx.fill();
       try {
-        const logoPath = path23.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
+        const logoPath = path24.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
         if (fs21.default.existsSync(logoPath)) {
           const logo = await loadImage(logoPath);
           const lh = 64, lw = logo.width / logo.height * lh;
@@ -103330,9 +103682,9 @@ Return this EXACT JSON (no markdown, no commentary):
       }
       const buffer = canvas.toBuffer("image/png");
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
-      const outDir = path23.default.join(process.cwd(), "uploads", "share-cards");
+      const outDir = path24.default.join(process.cwd(), "uploads", "share-cards");
       if (!fs21.default.existsSync(outDir)) fs21.default.mkdirSync(outDir, { recursive: true });
-      const filePath = path23.default.join(outDir, fileName);
+      const filePath = path24.default.join(outDir, fileName);
       fs21.default.writeFileSync(filePath, buffer);
       res2.json({
         success: true,
@@ -104306,8 +104658,8 @@ Rules:
       if (!fxModelsReplayOn2()) return res2.status(404).json({ error: "Replay is off" });
       if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
       const days = Math.max(1, Math.min(14, Math.floor(Number(req.body?.days) || 14)));
-      const { run, started: started7 } = await startFxModelReplay2(req.user.id, days);
-      res2.json({ success: true, started: started7, run, simulation: true });
+      const { run, started: started8 } = await startFxModelReplay2(req.user.id, days);
+      res2.json({ success: true, started: started8, run, simulation: true });
     } catch (e) {
       res2.status(500).json({ error: e?.message || "failed" });
     }
@@ -106141,9 +106493,9 @@ Format each recommendation as a clear, concise action item.`;
     }
     global.veddAIBrain[userId] = brain;
     try {
-      const brainDir = path19.join(process.cwd(), "data", "brains");
+      const brainDir = path20.join(process.cwd(), "data", "brains");
       if (!fs19.existsSync(brainDir)) fs19.mkdirSync(brainDir, { recursive: true });
-      fs19.writeFileSync(path19.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+      fs19.writeFileSync(path20.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
     } catch (_brainSaveErr) {
     }
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
@@ -106152,7 +106504,7 @@ Format each recommendation as a clear, concise action item.`;
   global.runBrainLearning = runBrainLearning;
   global.loadPersistedBrain = (userId) => {
     try {
-      const p2 = path19.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+      const p2 = path20.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
       if (!fs19.existsSync(p2)) return null;
       const brain = JSON.parse(fs19.readFileSync(p2, "utf-8"));
       global.veddAIBrain = global.veddAIBrain || {};
@@ -106372,7 +106724,7 @@ Format each recommendation as a clear, concise action item.`;
     let brain = g.veddAIBrain[userId];
     if (!brain) {
       try {
-        const p2 = path19.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        const p2 = path20.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
         if (fs19.existsSync(p2)) {
           brain = JSON.parse(fs19.readFileSync(p2, "utf-8"));
           g.veddAIBrain[userId] = brain;
@@ -107520,9 +107872,9 @@ Respond with ONLY valid JSON:
         global.veddAIBrain[userId].lastWeeklyScan = scan;
         global.veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
         try {
-          const brainDir = path19.join(process.cwd(), "data", "brains");
+          const brainDir = path20.join(process.cwd(), "data", "brains");
           if (!fs19.existsSync(brainDir)) fs19.mkdirSync(brainDir, { recursive: true });
-          fs19.writeFileSync(path19.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
+          fs19.writeFileSync(path20.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
         } catch (_) {
         }
       }
@@ -108523,7 +108875,7 @@ Respond with ONLY valid JSON:
       });
     }
   });
-  const _polyWalletsFile = path19.join(process.cwd(), "data", "polymarket_wallets.json");
+  const _polyWalletsFile = path20.join(process.cwd(), "data", "polymarket_wallets.json");
   const _loadPolyWallets = () => {
     try {
       if (fs19.existsSync(_polyWalletsFile)) return JSON.parse(fs19.readFileSync(_polyWalletsFile, "utf-8"));
@@ -108533,7 +108885,7 @@ Respond with ONLY valid JSON:
   };
   const _savePolyWallets = (map) => {
     try {
-      const dir = path19.join(process.cwd(), "data");
+      const dir = path20.join(process.cwd(), "data");
       if (!fs19.existsSync(dir)) fs19.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
       fs19.writeFileSync(_polyWalletsFile, content);
@@ -110001,7 +110353,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const closed = await closeAllKalshiTrades2(userId);
     res2.json({ success: true, closed, state: getKalshiEngineState2(userId) });
   });
-  const _polyKeysFile = path19.join(process.cwd(), "data", "polymarket_keys.json");
+  const _polyKeysFile = path20.join(process.cwd(), "data", "polymarket_keys.json");
   const _loadPolyKeys = () => {
     try {
       if (fs19.existsSync(_polyKeysFile)) return JSON.parse(fs19.readFileSync(_polyKeysFile, "utf-8"));
@@ -110011,7 +110363,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
   };
   const _savePolyKeys = (map) => {
     try {
-      const dir = path19.join(process.cwd(), "data");
+      const dir = path20.join(process.cwd(), "data");
       if (!fs19.existsSync(dir)) fs19.mkdirSync(dir, { recursive: true });
       const content = JSON.stringify(map, null, 2);
       fs19.writeFileSync(_polyKeysFile, content);
@@ -111296,9 +111648,9 @@ Format your response as JSON with exactly these keys:
       let mediaType = null;
       if (req.file && req.file.buffer) {
         const fs21 = await import("fs/promises");
-        const path23 = await import("path");
-        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path23.extname(req.file.originalname)}`;
-        const uploadPath = path23.join(process.cwd(), "uploads", filename);
+        const path24 = await import("path");
+        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path24.extname(req.file.originalname)}`;
+        const uploadPath = path24.join(process.cwd(), "uploads", filename);
         await fs21.writeFile(uploadPath, req.file.buffer);
         mediaUrl = `/uploads/${filename}`;
         mediaType = req.file.mimetype.startsWith("video/") ? "video" : "image";
@@ -112112,7 +112464,7 @@ Generate a JSON object with:
       }
       const id = parseInt(streamId);
       const filename = `stream-recording-${streamType}-${id}-${Date.now()}.webm`;
-      const filePath = path19.join(uploadsDir2, filename);
+      const filePath = path20.join(uploadsDir2, filename);
       fs19.writeFileSync(filePath, file.buffer);
       const recordingUrl = `/uploads/${filename}`;
       if (streamType === "schedule") {
@@ -117906,7 +118258,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res2.status(403).json({ error: "Admin access required" });
     }
     try {
-      const dataFile = path19.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path20.join(process.cwd(), "data", "curricula.json");
       let curricula = [];
       try {
         curricula = JSON.parse(fs19.readFileSync(dataFile, "utf-8"));
@@ -117919,7 +118271,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         ...req.body
       };
       curricula.push(entry);
-      fs19.mkdirSync(path19.join(process.cwd(), "data"), { recursive: true });
+      fs19.mkdirSync(path20.join(process.cwd(), "data"), { recursive: true });
       fs19.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
       res2.json({ success: true, id: entry.id, message: "Curriculum saved to Academy" });
     } catch (err) {
@@ -117929,7 +118281,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/workforce/modules", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path19.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path20.join(process.cwd(), "data", "curricula.json");
       let saved = [];
       try {
         saved = JSON.parse(fs19.readFileSync(dataFile, "utf-8"));
@@ -118021,7 +118373,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   });
   app2.get("/api/verify/:certId", async (req, res2) => {
     try {
-      const dataFile = path19.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path20.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
         certs = JSON.parse(fs19.readFileSync(dataFile, "utf-8"));
@@ -120075,13 +120427,13 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
 // server/vite.ts
 import express from "express";
 import fs20 from "fs";
-import path21 from "path";
+import path22 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path20 from "path";
+import path21 from "path";
 var isReplit = process.env.REPL_ID !== void 0;
 var replitPlugins = isReplit ? [
   (await import("@replit/vite-plugin-shadcn-theme-json")).default(),
@@ -120100,14 +120452,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path20.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path20.resolve(import.meta.dirname, "shared"),
-      "@assets": path20.resolve(import.meta.dirname, "attached_assets")
+      "@": path21.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path21.resolve(import.meta.dirname, "shared"),
+      "@assets": path21.resolve(import.meta.dirname, "attached_assets")
     }
   },
-  root: path20.resolve(import.meta.dirname, "client"),
+  root: path21.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path20.resolve(import.meta.dirname, "dist/public"),
+    outDir: path21.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 4e3,
     rollupOptions: {
@@ -120230,7 +120582,7 @@ async function setupVite(app2, server) {
       return res2.status(404).json({ error: "Not found", path: url });
     }
     try {
-      const clientTemplate = path21.resolve(
+      const clientTemplate = path22.resolve(
         import.meta.dirname,
         "..",
         "client",
@@ -120256,7 +120608,7 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path21.resolve(import.meta.dirname, "..", "dist", "public");
+  const distPath = path22.resolve(import.meta.dirname, "..", "dist", "public");
   console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs20.existsSync(distPath)}`);
   if (!fs20.existsSync(distPath)) {
     throw new Error(
@@ -120279,7 +120631,7 @@ function serveStatic(app2) {
       }
     }
   }));
-  const indexPath = path21.resolve(distPath, "index.html");
+  const indexPath = path22.resolve(distPath, "index.html");
   const versionScript = `<script>
 (function(){
   try{
@@ -120326,7 +120678,7 @@ function serveStatic(app2) {
 }
 
 // server/index.ts
-import path22 from "path";
+import path23 from "path";
 
 // server/auth.ts
 init_storage();
@@ -121264,19 +121616,19 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   log(`serving on port ${PORT}`);
 });
 setupAuth(app);
-app.use("/uploads", express2.static(path22.join(process.cwd(), "uploads")));
-app.use("/ea-templates", express2.static(path22.join(process.cwd(), "public/ea-templates")));
-app.use("/downloads", express2.static(path22.join(process.cwd(), "public/downloads"), {
+app.use("/uploads", express2.static(path23.join(process.cwd(), "uploads")));
+app.use("/ea-templates", express2.static(path23.join(process.cwd(), "public/ea-templates")));
+app.use("/downloads", express2.static(path23.join(process.cwd(), "public/downloads"), {
   setHeaders: (res2, filePath) => {
     if (filePath.endsWith(".mq5")) {
       res2.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res2.setHeader("Content-Disposition", 'attachment; filename="' + path22.basename(filePath) + '"');
+      res2.setHeader("Content-Disposition", 'attachment; filename="' + path23.basename(filePath) + '"');
     }
   }
 }));
 app.use((req, res2, next) => {
   const start = Date.now();
-  const path23 = req.path;
+  const path24 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res2.json;
   res2.json = function(bodyJson, ...args) {
@@ -121285,8 +121637,8 @@ app.use((req, res2, next) => {
   };
   res2.on("finish", () => {
     const duration = Date.now() - start;
-    if (path23.startsWith("/api")) {
-      let logLine = `${req.method} ${path23} ${res2.statusCode} in ${duration}ms`;
+    if (path24.startsWith("/api")) {
+      let logLine = `${req.method} ${path24} ${res2.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
@@ -121478,15 +121830,16 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
   } catch (err) {
     console.error(`[startup] ensureFxBrainTable import error (non-fatal):`, err?.message ?? err);
   }
-  setInterval(async () => {
+  safeInterval("fx-brain-health", 30 * 60 * 1e3, async () => {
     try {
       const { checkFxBrainHealth: checkFxBrainHealth2 } = await Promise.resolve().then(() => (init_fx_brain(), fx_brain_exports));
       const h = await checkFxBrainHealth2();
       if (h.stalled) console.error(`[fx-brain-watchdog] ${h.message}`);
+      loopTick("fx-brain-health");
     } catch (err) {
       console.error(`[fx-brain-watchdog] health check itself failed (non-fatal):`, err?.message ?? err);
     }
-  }, 30 * 60 * 1e3);
+  });
   try {
     const { ensureSolBrainTable: ensureSolBrainTable2 } = await Promise.resolve().then(() => (init_ensure_sol_brain_table(), ensure_sol_brain_table_exports));
     await ensureSolBrainTable2();
@@ -122540,6 +122893,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startAmbassadorPrimeScheduler2();
     const { startPersonaContentScheduler: startPersonaContentScheduler2 } = await Promise.resolve().then(() => (init_persona_content_engine(), persona_content_engine_exports));
     startPersonaContentScheduler2();
+    startCrashHeartbeat();
     const { startBlogPostScheduler: startBlogPostScheduler2 } = await Promise.resolve().then(() => (init_blog_scheduler(), blog_scheduler_exports));
     startBlogPostScheduler2();
     const { startSocialAutopilot: startSocialAutopilot2 } = await Promise.resolve().then(() => (init_social_autopilot(), social_autopilot_exports));
