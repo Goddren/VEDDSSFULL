@@ -28,6 +28,7 @@
 // stops, or reconfigures an engine.
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
+import { loopTick } from '../crash-heartbeat';
 
 const TICK_MS = 30 * 60 * 1000;
 const FX_STALE_HOURS = 24;
@@ -259,6 +260,7 @@ export function startEngineWatchdog(): void {
   const tick = async () => {
     try {
       const status = await computeStatus();
+      loopTick('engine-watchdog');
       _lastStatus = status;
       _lastStatusAt = Date.now();
       const { saveRuntimeState } = await import('./runtime-state');
