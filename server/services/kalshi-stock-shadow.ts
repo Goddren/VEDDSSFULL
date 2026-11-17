@@ -135,6 +135,150 @@ const SL_HI = () => num('KALSHI_STOCK_SHADOW_SL_MAX_PCT', 4);
 const ATR_MULT = () => num('KALSHI_STOCK_SHADOW_SL_ATR_MULT', 1.5);
 const RR = () => num('KALSHI_STOCK_SHADOW_RR', 2);
 
+// ── stats validity (2026-11-16 stats blow-up fix) ──────────────────────────
+// A close in this lane resolves through the resolver's own candle walk:
+// stops sit at slPct ∈ [0.8%, 4%], targets at 2R (≤ +8%), fills price at
+// the touch or the candle open. A REAL resolved trade therefore cannot
+// post |return_pct| anywhere near 100 — a long cannot lose more than its
+// notional, and a >100% gain would have crossed the 2R target in the same
+// walk first. Values beyond ±100% (or non-finite) can only come from
+// corrupt price inputs: an off-scale candle/touch print, a near-zero
+// entry quote passing the bid>0 guard, a funding print read in the wrong
+// unit. Before this fix a single such row poisoned every headline stat —
+// the panel's sum(notional × return_pct / 100), the bucket medians, and
+// the $100 replay's whole-balance compounding — while the count-based
+// stats (trades, wins, win rate) stayed sane: production showed a
+// −$9.24e14 "net result" next to a perfectly ordinary 359-trade count.
+// Validity is therefore enforced at write time (closeTrade stamps the
+// row excluded + stats_invalid_reason), at read time (the report and
+// bucket-stat queries carry the same bound), and inside the pure
+// aggregators — and invalid closes are counted and surfaced in the
+// panel payload, never silently dropped.
+export const maxValidReturnPct = () => num('KALSHI_STOCK_SHADOW_MAX_VALID_RETURN_PCT', 100);
+export function isValidShadowReturnPct(v: unknown): boolean {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) && Math.abs(n) <= maxValidReturnPct();
+}
+
+/** Absolute ceiling on a sane entry price for this lane's universe
+ *  (single-stock perps + major crypto perps; the most expensive real
+ *  underlying, BTC, is ~1e5). An entry print above this is off-scale by
+ *  construction, whatever it claims. This is the production blow-up's
+ *  actual shape (per-strategy attribution, 2026-11-16): one
+ *  opt_volume_profile trade whose entry print was ~9.24e14 — contracts
+ *  = max(1, round(250 / entry)) = 1, so notional_usd = entry ≈ 9.24e14
+ *  while its return_pct stayed a plausible-looking −100.05 and its R a
+ *  sane-looking −25. A return-only guard catches that row by 0.05 of a
+ *  percent; the entry ceiling names the corrupt field directly. */
+export const maxValidEntryUsd = () => num('KALSHI_STOCK_SHADOW_MAX_VALID_ENTRY_USD', 1_000_000);
+
+/** The largest notional consistent with this lane's sizing for a given
+ *  entry: contracts = max(1, round(target / entry)), so the notional is
+ *  ≈ target for ordinary prices and exactly entry when one contract
+ *  already exceeds the target (BTC-class prices). A notional beyond
+ *  max(2× target, 1.5× entry) is inconsistent with the trade's own
+ *  stated entry — the notional (or contracts) field itself is corrupt,
+ *  independent of whether the entry price was sane. */
+export function maxValidNotionalUsd(entryPrice: unknown, targetNotionalUsd: number): number {
+  const entry = Number(entryPrice);
+  const target = Number.isFinite(targetNotionalUsd) && targetNotionalUsd > 0 ? targetNotionalUsd : 250;
+  return Math.max(2 * target, (Number.isFinite(entry) && entry > 0 ? entry : 0) * 1.5);
+}
+export function isValidShadowNotional(entryPrice: unknown, notionalUsd: unknown, targetNotionalUsd: number): boolean {
+  const n = Number(notionalUsd);
+  return Number.isFinite(n) && n > 0 && n <= maxValidNotionalUsd(entryPrice, targetNotionalUsd);
+}
+
+/** Why a computed close is not usable evidence, or null when it is.
+ *  Pure — exercised directly by scripts/check-kalshi-perp-stats-fix.ts. */
+export function shadowCloseInvalidReason(parts: {
+  entryPrice: unknown; exitPrice: unknown;
+  grossPct: number | null; fundingPct: number | null; netPct: number | null;
+  notionalUsd?: unknown; targetNotionalUsd?: number;
+}): string | null {
+  const entry = Number(parts.entryPrice);
+  if (!Number.isFinite(entry) || entry <= 0 || entry > maxValidEntryUsd()) return 'entry_price';
+  if (parts.notionalUsd != null && !isValidShadowNotional(entry, parts.notionalUsd, parts.targetNotionalUsd ?? 250)) return 'notional';
+  if (parts.exitPrice != null) {
+    const exit = Number(parts.exitPrice);
+    if (!Number.isFinite(exit) || exit <= 0) return 'exit_price';
+  }
+  const bound = maxValidReturnPct();
+  if (parts.grossPct != null && (!Number.isFinite(parts.grossPct) || Math.abs(parts.grossPct) > bound)) return 'gross_return';
+  if (parts.fundingPct != null && (!Number.isFinite(parts.fundingPct) || Math.abs(parts.fundingPct) > bound)) return 'funding';
+  if (parts.netPct != null && (!Number.isFinite(parts.netPct) || Math.abs(parts.netPct) > bound)) return 'net_return';
+  return null;
+}
+
+// ── data repair: stamp the pre-fix poisoned rows (Chris-approved) ────────
+// The write/read guards above protect everything computed from now on,
+// and the report's read-time bound keeps poisoned rows out of the panel
+// even before they are stamped. But the promotion-bar and live-gate
+// readers (shadow-live-toggles.ts, kalshi-perp-live.ts) filter closes
+// ONLY on exclude_from_stats — so a pre-fix poisoned row stays valid
+// evidence for the PR #89/#91 bars until it carries the stamp. This
+// boot-time repair applies the stamp: same geometry signature as the
+// report's read filter (return bound / entry ceiling / notional
+// consistency, all from the helpers above), stamp-only — NO deletes,
+// NO value rewrites, open trades and already-excluded rows untouched,
+// and a write-time reason already on a row is never overwritten. The
+// predicate is self-exhausting (a stamped row no longer matches), so
+// the once-per-boot memo below is a courtesy, not a correctness need.
+// Kill switch: KALSHI_PERP_STATS_REPAIR=off.
+export const statsRepairEnabled = () => process.env.KALSHI_PERP_STATS_REPAIR !== 'off';
+export const STATS_REPAIR_REASON = 'auto-repair: invalid close geometry';
+
+/** Pure mirror of the repair UPDATE's WHERE clause, over a row's raw
+ *  fields — exercised directly by scripts/check-kalshi-perp-stats-fix.ts.
+ *  A NULL return_pct fails no return test (SQL: abs(NULL) > bound is
+ *  NULL), but the entry/notional geometry tests still apply. */
+export function shadowRowNeedsStatsRepair(row: {
+  status?: unknown; excludeFromStats?: unknown;
+  returnPct?: unknown; entryPrice?: unknown; notionalUsd?: unknown; targetNotionalUsd?: number;
+}): boolean {
+  if (String(row.status) !== 'closed') return false;
+  if (row.excludeFromStats === true) return false;
+  const rp = row.returnPct == null ? null : Number(row.returnPct);
+  if (rp != null && (!Number.isFinite(rp) || Math.abs(rp) > maxValidReturnPct())) return true;
+  const entry = Number(row.entryPrice);
+  if (Number.isFinite(entry) && entry > maxValidEntryUsd()) return true;
+  const notional = Number(row.notionalUsd);
+  if (Number.isFinite(notional) && notional > maxValidNotionalUsd(entry, row.targetNotionalUsd ?? NOTIONAL())) return true;
+  return false;
+}
+
+let _statsRepair: Promise<number> | null = null;
+export function repairKalshiPerpShadowStats(): Promise<number> {
+  if (!_statsRepair) {
+    _statsRepair = (async () => {
+      if (!statsRepairEnabled()) return 0;
+      await ensureKalshiPerpShadowTables();
+      const res = await pool.query(
+        `UPDATE kalshi_perp_shadow_trades
+           SET exclude_from_stats = true,
+               stats_invalid_reason = COALESCE(stats_invalid_reason, $4)
+         WHERE status='closed' AND exclude_from_stats IS NOT TRUE
+           AND (abs(return_pct) > $1::float
+                OR entry_price > $2::float
+                OR notional_usd > greatest($3::float, entry_price * 1.5))
+         RETURNING id`,
+        [maxValidReturnPct(), maxValidEntryUsd(), 2 * NOTIONAL(), STATS_REPAIR_REASON]);
+      const ids = (res.rows || []).map((r: any) => r.id);
+      if (ids.length) {
+        console.warn(`[kalshi-stock-shadow] stats auto-repair: stamped ${ids.length} pre-fix closed trade(s) excluded from stats (ids: ${ids.join(', ')}) — invalid close geometry, values left untouched`);
+      }
+      return ids.length;
+    })().catch((e: any) => {
+      // A failed repair must never block boot or the lane; reset the
+      // memo so a later call can retry.
+      _statsRepair = null;
+      console.error('[kalshi-stock-shadow] stats auto-repair failed (non-fatal):', e?.message ?? e);
+      return 0;
+    });
+  }
+  return _statsRepair;
+}
+
 const CRYPTO_PORTS = ['breakout', 'trend_following', 'structure', 'divergence', 'order_flow', 'volume_profile'] as const;
 const OPTIONS_PORTS = ['orb', 'volume_profile', 'breakout', 'momentum', 'order_flow'] as const;
 
@@ -203,7 +347,7 @@ function quantile(s: number[], q: number) { if (!s.length) return 0; const p = (
 export function aggregateKalshiStats(rows: any[]): KalshiBucketStat[] {
   const g = new Map<string, number[]>();
   for (const r of rows) {
-    const v = Number(r.net_pct); if (!Number.isFinite(v)) continue;
+    const v = Number(r.net_pct); if (!isValidShadowReturnPct(v)) continue;
     for (const [dim, bucket] of Object.entries({ ...kalshiBucketsOf(r), all: 'all' })) {
       const k = `${r.strategy}|${dim}|${bucket}`; (g.get(k) ?? g.set(k, []).get(k)!).push(v);
     }
@@ -224,7 +368,8 @@ export async function computeKalshiStockShadowStats(userId: number, force = fals
     `SELECT c.strategy, c.ticker, c.direction, c.session_et, c.spread_bps, c.atr_pct, c.funding_rate_at_entry, c.htf_aligned, c.hour_et, c.vp_position, c.net_pct
        FROM kalshi_perp_shadow_context c JOIN kalshi_perp_shadow_trades t ON t.id = c.trade_id
       WHERE c.user_id=$1 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL AND t.exclude_from_stats IS NOT TRUE
-        AND c.closed_at >= now() - interval '60 days'`, [userId]);
+        AND abs(c.net_pct) <= $2::float
+        AND c.closed_at >= now() - interval '60 days'`, [userId, maxValidReturnPct()]);
   const stats = aggregateKalshiStats(rows);
   _statsCache.set(userId, { at: Date.now(), stats });
   return stats;
@@ -237,6 +382,11 @@ export interface KalshiStockShadowSummary {
   avgR: number | null;
   estNetPnlUsd: number;
   fundingUsd: number;
+  /** Closed trades in the window quarantined as invalid (impossible
+   *  values — see the ±100 bound): stamped at close since the fix, plus
+   *  pre-fix rows failing the bound at read time. Counted and shown in
+   *  the panel; never included in any statistic. */
+  invalidExcludedCount: number;
   lastOpenedAt: string | null;
   lastClosedAt: string | null;
   enabled: boolean;
@@ -360,12 +510,22 @@ export interface KalshiAccountSimResult {
  * positions at once at a fixed ~$250 notional, while this replay applies
  * each result to the full balance sequentially — that is the honest,
  * easy-to-read version of "what would these results have done to $100".
+ *
+ * maxValidPct (optional): closes with |pct| beyond the bound are skipped
+ * as corrupt. The stock-perp lane passes its ±100 bound — whole-balance
+ * compounding is exactly where one poisoned row did the most damage (a
+ * pct ≤ −100 would zero/invert the balance and flip the sign of every
+ * later trade). The weather/sports lanes share this helper WITHOUT the
+ * bound on purpose: their binary-contract closes legitimately exceed
+ * +100% (a 10¢ YES that settles YES is +900%).
  */
 export function accountReplay(
   closes: Array<number | { return_pct: number }>,
   startBalance = 100,
+  maxValidPct?: number,
 ): KalshiAccountSimResult {
   const start = Number.isFinite(startBalance) && startBalance > 0 ? startBalance : 100;
+  const bound = maxValidPct != null && Number.isFinite(maxValidPct) && maxValidPct > 0 ? maxValidPct : null;
   let balance = start;
   let peak = start;
   let maxDrawdownPct = 0;
@@ -375,6 +535,7 @@ export function accountReplay(
   for (const close of closes) {
     const pct = typeof close === 'number' ? close : Number((close as { return_pct: number })?.return_pct);
     if (!Number.isFinite(pct)) continue;
+    if (bound != null && Math.abs(pct) > bound) continue;
     balance += (balance * pct) / 100;
     trades++;
     if (balance > peak) peak = balance;
@@ -413,10 +574,21 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
   const windowDays = Number.isFinite(days) ? Math.max(1, Math.min(365, Math.floor(days))) : 30;
   await ensureKalshiPerpShadowTables();
 
+  // The abs(return_pct) bound + the notional bound are the read-time half
+  // of the stats-validity quarantine: closes written before the write-time
+  // stamp existed can still carry impossible values (the production
+  // blow-up's row passes a return-only check almost cleanly — its
+  // notional is the corrupt field), and no aggregate may consume them.
+  const returnBound = maxValidReturnPct();
+  const notionalCap = 2 * NOTIONAL();
+  const entryCeiling = maxValidEntryUsd();
   const validCloseWhere = `user_id=$1 AND status='closed' AND exclude_from_stats IS NOT TRUE
-    AND return_pct IS NOT NULL AND closed_at >= now() - ($2::int * interval '1 day')`;
+    AND return_pct IS NOT NULL AND abs(return_pct) <= $3::float
+    AND notional_usd <= greatest($4::float, entry_price * 1.5)
+    AND entry_price <= $5::float
+    AND closed_at >= now() - ($2::int * interval '1 day')`;
   const simOn = accountSimEnabled();
-  const [summaryRes, byStrategyRes, openRes, recentClosesRes, closesRes] = await Promise.all([
+  const [summaryRes, byStrategyRes, openRes, recentClosesRes, closesRes, invalidRes] = await Promise.all([
     pool.query(
       `WITH valid_closes AS (
          SELECT * FROM kalshi_perp_shadow_trades WHERE ${validCloseWhere}
@@ -433,7 +605,7 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
            WHERE user_id=$1 AND (status='open' OR opened_at >= now() - ($2::int * interval '1 day'))) AS last_opened_at,
          max(closed_at) AS last_closed_at
        FROM valid_closes`,
-      [userId, windowDays]),
+      [userId, windowDays, returnBound, notionalCap, entryCeiling]),
     pool.query(
       `SELECT strategy,
          count(*)::int AS trades,
@@ -447,7 +619,7 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
        WHERE ${validCloseWhere}
        GROUP BY strategy
        ORDER BY trades DESC, strategy ASC`,
-      [userId, windowDays]),
+      [userId, windowDays, returnBound, notionalCap, entryCeiling]),
     pool.query(
       `SELECT id, strategy, ticker, underlying, direction, entry_price, stop_loss, take_profit,
          contracts, notional_usd, funding_accrued_usd, funding_estimate_usd, cost_model, score, max_hours, opened_at, cost_bps
@@ -462,10 +634,13 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
        FROM kalshi_perp_shadow_trades t
        LEFT JOIN kalshi_perp_shadow_context c ON c.trade_id=t.id AND c.user_id=t.user_id
        WHERE t.user_id=$1 AND t.status='closed' AND t.exclude_from_stats IS NOT TRUE
-         AND t.return_pct IS NOT NULL AND t.closed_at >= now() - ($2::int * interval '1 day')
+         AND t.return_pct IS NOT NULL AND abs(t.return_pct) <= $3::float
+         AND t.notional_usd <= greatest($4::float, t.entry_price * 1.5)
+         AND t.entry_price <= $5::float
+         AND t.closed_at >= now() - ($2::int * interval '1 day')
        ORDER BY t.closed_at DESC
        LIMIT 10`,
-      [userId, windowDays]),
+      [userId, windowDays, returnBound, notionalCap, entryCeiling]),
     // Every valid close in the window, oldest first, for the $100-account
     // replay (the recent-closes list above is capped at 10 — never reuse it).
     // Same validCloseWhere, so corporate-action rows stay excluded.
@@ -475,8 +650,24 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
          FROM kalshi_perp_shadow_trades
          WHERE ${validCloseWhere}
          ORDER BY closed_at ASC, id ASC`,
-        [userId, windowDays])
+        [userId, windowDays, returnBound, notionalCap, entryCeiling])
       : Promise.resolve(null),
+    // Quarantine count for the panel: closes stamped invalid at write
+    // time (stats_invalid_reason set — those rows are also excluded, so
+    // they need their own count), plus pre-fix rows that fail the bound
+    // at read time and are not otherwise excluded. Corporate-action
+    // exclusions (valid values, no stamp) are NOT counted here.
+    pool.query(
+      `SELECT count(*)::int AS invalid_count
+       FROM kalshi_perp_shadow_trades
+       WHERE user_id=$1 AND status='closed' AND return_pct IS NOT NULL
+         AND closed_at >= now() - ($2::int * interval '1 day')
+         AND (stats_invalid_reason IS NOT NULL
+              OR (exclude_from_stats IS NOT TRUE
+                  AND (abs(return_pct) > $3::float
+                       OR notional_usd > greatest($4::float, entry_price * 1.5)
+                       OR entry_price > $5::float)))`,
+      [userId, windowDays, returnBound, notionalCap, entryCeiling]),
   ]);
 
   const s = summaryRes.rows[0] || {};
@@ -538,7 +729,7 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
   // strategy, not a split of one account).
   const windowCloses: Array<{ strategy: string; return_pct: number }> =
     ((closesRes as any)?.rows || []).map((r: any) => ({ strategy: String(r.strategy), return_pct: Number(r.return_pct) }));
-  const accountSim = simOn ? accountReplay(windowCloses) : undefined;
+  const accountSim = simOn ? accountReplay(windowCloses, 100, maxValidReturnPct()) : undefined;
   const perStrategySim = new Map<string, KalshiAccountSimResult>();
   if (simOn) {
     const grouped = new Map<string, Array<{ return_pct: number }>>();
@@ -547,7 +738,7 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
       list.push({ return_pct: c.return_pct });
       grouped.set(c.strategy, list);
     }
-    grouped.forEach((list, strategy) => perStrategySim.set(strategy, accountReplay(list)));
+    grouped.forEach((list, strategy) => perStrategySim.set(strategy, accountReplay(list, 100, maxValidReturnPct())));
   }
 
   // Perp-brain audit summary for the panel: what the brain stopped in this
@@ -588,6 +779,7 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
       avgR: s.avg_r == null ? null : Number(s.avg_r),
       estNetPnlUsd: Number(s.est_net_pnl_usd) || 0,
       fundingUsd: Number(s.funding_usd) || 0,
+      invalidExcludedCount: Number((invalidRes.rows[0] as any)?.invalid_count) || 0,
       lastOpenedAt: toIso(s.last_opened_at),
       lastClosedAt: toIso(s.last_closed_at),
       enabled: stockShadowEnabled(),
@@ -750,6 +942,23 @@ async function closeTrade(t: any, exit: number | null, why: string, fundingUsd: 
   const fundingPct = gross != null && t.notional_usd > 0 ? (fundingUsd / t.notional_usd) * 100 : null;
   const net = gross != null ? gross + (fundingPct ?? 0) - Number(t.cost_bps) / 100 : null;
   const r = net != null && t.sl_pct > 0 ? net / t.sl_pct : null;
+  // Stats-validity quarantine (2026-11-16 blow-up fix): a close whose
+  // computed values are physically impossible for this lane (see the
+  // ±100 bound above shadowCloseInvalidReason) is corrupt evidence —
+  // an off-scale price print or a near-zero entry quote — not a result.
+  // It still closes (the position is over), but it is stamped excluded
+  // with the reason, exactly like a corporate-action close, so no
+  // aggregate, bar check, or ledger read can ever consume it. The
+  // computed values stay on the row for audit; exclusion is what keeps
+  // them out of every statistic.
+  const invalidReason = shadowCloseInvalidReason({
+    entryPrice: t.entry_price, exitPrice: exit, grossPct: gross, fundingPct, netPct: net,
+    notionalUsd: t.notional_usd, targetNotionalUsd: NOTIONAL(),
+  });
+  if (invalidReason) {
+    exclude = true;
+    console.warn(`[kalshi-stock-shadow] close quarantined as invalid (${invalidReason}): trade ${t.id} ${t.ticker} entry=${t.entry_price} exit=${exit} gross=${gross} fundingPct=${fundingPct} net=${net}`);
+  }
   // funding_model: stamped at close for exact-era trades ('actual' /
   // 'estimate'); legacy rows keep the stamp they opened with. The
   // in-window estimate column is zeroed — booked truth is
@@ -757,8 +966,9 @@ async function closeTrade(t: any, exit: number | null, why: string, fundingUsd: 
   const upd = await pool.query(
     `UPDATE kalshi_perp_shadow_trades SET status='closed', exit_price=$2, exit_reason=$3, gross_return_pct=$4, return_pct=$5,
        r_multiple=$6, funding_accrued_usd=$7, exclude_from_stats=$8, funding_estimate_usd=0,
-       funding_model=CASE WHEN $9::text IS NOT NULL THEN $9 ELSE funding_model END, closed_at=now() WHERE id=$1 AND status='open'`,
-    [t.id, exit, why, gross, net, r, fundingUsd, exclude, fundingModel ?? null]);
+       funding_model=CASE WHEN $9::text IS NOT NULL THEN $9 ELSE funding_model END,
+       stats_invalid_reason=$10, closed_at=now() WHERE id=$1 AND status='open'`,
+    [t.id, exit, why, gross, net, r, fundingUsd, exclude, fundingModel ?? null, invalidReason]);
   if (!upd.rowCount) return false;
   const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 3_600_000;
   await pool.query(`UPDATE kalshi_perp_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, net_pct=$4, funding_paid_usd=$5 WHERE trade_id=$1`,
@@ -1007,6 +1217,16 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
     const touch = await getPerpTouch(mkt.ticker).catch(() => null);
     const bid = touch?.bid ?? mkt.bid, ask = touch?.ask ?? mkt.ask;
     if (!(bid > 0) || !(ask > bid)) continue;
+    // Data-sanity cross-check (2026-11-16 stats blow-up fix): the touch
+    // and the H1 candle close are independent reads of the same price.
+    // If they disagree by more than 3×, one source is off-scale — the
+    // near-zero / wrong-unit quote that later explodes return_pct when
+    // it becomes a close's denominator. Skip the ticker this cycle
+    // rather than opening a position on a corrupt entry price.
+    if (!(bid >= lastClose / 3 && ask <= lastClose * 3)) {
+      console.warn(`[kalshi-stock-shadow] skipping ${mkt.ticker}: touch ${bid}/${ask} disagrees with H1 close ${lastClose} — off-scale price suspected`);
+      continue;
+    }
     const spreadBps = ((ask - bid) / ((ask + bid) / 2)) * 10_000;
     const fundEst = await getPerpFundingEstimate(mkt.ticker).catch(() => null);
     const slPct = Math.min(SL_HI(), Math.max(SL_LO(), ATR_MULT() * atrPct));

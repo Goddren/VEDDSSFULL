@@ -172,7 +172,8 @@ export async function trailBrainGroupEvidence(userId: number, g: TrailBrainGroup
         const { rows } = await pool.query(
           `SELECT COUNT(*)::int AS trades, AVG(return_pct) AS avg_final,
                   AVG(CASE WHEN peak_gain_pct IS NOT NULL AND gross_return_pct IS NOT NULL THEN peak_gain_pct - gross_return_pct END) AS avg_giveback
-             FROM kalshi_perp_shadow_trades WHERE ${where}`, params);
+             FROM kalshi_perp_shadow_trades WHERE ${where}
+               AND exclude_from_stats IS NOT TRUE AND (return_pct IS NULL OR abs(return_pct) <= 100)`, params);
         const r = rows[0] ?? {};
         return { trades: Number(r.trades) || 0, avgFinal: num(r.avg_final), avgGiveback: num(r.avg_giveback) };
       };

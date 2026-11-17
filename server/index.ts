@@ -1312,6 +1312,12 @@ async function withRetry<T>(
       await import('./services/sol-shadow-stats').then((m) => m.ensureSolShadowContextTable());
       await import('./services/crypto-shadow').then((m) => m.ensureCryptoShadowTables()).catch((e: any) => console.error('[startup] crypto shadow tables (non-fatal):', e?.message ?? e));
       await import('./services/ensure-kalshi-perp-shadow-tables').then((m) => m.ensureKalshiPerpShadowTables()).catch((e: any) => console.error('[startup] kalshi perp shadow tables (non-fatal):', e?.message ?? e));
+      // Stats blow-up data repair (2026-11-16, Chris-approved): stamp the
+      // pre-fix poisoned shadow closes excluded so the promotion-bar /
+      // live-gate readers (which filter only on exclude_from_stats) stop
+      // consuming them as evidence. Idempotent + self-exhausting; kill
+      // switch KALSHI_PERP_STATS_REPAIR=off.
+      await import('./services/kalshi-stock-shadow').then((m) => m.repairKalshiPerpShadowStats()).catch((e: any) => console.error('[startup] kalshi perp shadow stats repair (non-fatal):', e?.message ?? e));
       console.log('[startup] SOL Engine tables created/verified.');
     } catch (err) {
       console.error('[startup] SOL Engine tables migration (non-fatal):', (err as Error).message);

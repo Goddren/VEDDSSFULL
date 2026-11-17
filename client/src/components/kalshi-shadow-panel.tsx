@@ -13,6 +13,7 @@ interface KalshiShadowSummary {
   avgR: number | null;
   estNetPnlUsd: number;
   fundingUsd: number;
+  invalidExcludedCount?: number;
   lastOpenedAt: string | null;
   lastClosedAt: string | null;
   enabled: boolean;
@@ -514,6 +515,14 @@ export function KalshiShadowPanel({ className = "" }: { className?: string }) {
             <StatCard label="Funding total" value={fmtMoney(summary.fundingUsd, { signed: true })} detail="collected (+) or paid (−) in funding" valueClass={pnlClass(summary.fundingUsd)} />
             <StatCard label="Avg R" value={fmtR(summary.avgR)} detail="average result per closed trade, in R" />
           </div>
+
+          {summary.invalidExcludedCount ? (
+            <p className="mt-1.5 text-[10px] leading-snug text-amber-200/90" data-testid="kalshi-shadow-invalid-note">
+              {summary.invalidExcludedCount} closed trade{summary.invalidExcludedCount === 1 ? "" : "s"} in this window carried impossible values
+              (a bad price print, not a real result) and {summary.invalidExcludedCount === 1 ? "was" : "were"} quarantined — excluded from every
+              statistic above and from the $100 replay, and counted here so the exclusion is never silent.
+            </p>
+          ) : null}
 
           {data.accountSim ? (
             <div className="mt-2 rounded-lg border border-cyan-400/25 bg-cyan-500/[0.06] px-3 py-2.5">
