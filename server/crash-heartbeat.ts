@@ -294,7 +294,7 @@ export function aggregateCpuProfile(profile: any, limit: number = STALL_TOP_LIMI
       if (prev) prev.samples += c;
       else byFn.set(key, { function: fn, file, line, samples: c });
     }
-    return [...byFn.values()].sort((a, b) => b.samples - a.samples).slice(0, limit);
+    return Array.from(byFn.values()).sort((a, b) => b.samples - a.samples).slice(0, limit);
   } catch { return []; }
 }
 
@@ -310,7 +310,7 @@ export function getLagSpikes(): LagSpikeRecord[] {
 
 function recordLagSpike(lagMs: number): void {
   try {
-    const recentLoops = [...loopRegistry.entries()]
+    const recentLoops = Array.from(loopRegistry.entries())
       .map(([name, rec]) => ({ name, lastTickAt: rec.lastTickAt }))
       .sort((a, b) => (a.lastTickAt < b.lastTickAt ? 1 : -1))
       .slice(0, 5);
