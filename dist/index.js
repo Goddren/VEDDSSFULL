@@ -416,15 +416,25 @@ var init_process_guards = __esm({
 // server/crash-heartbeat.ts
 var crash_heartbeat_exports = {};
 __export(crash_heartbeat_exports, {
+  STALL_CAPTURE_MS: () => STALL_CAPTURE_MS,
+  STALL_THRESHOLD_MS: () => STALL_THRESHOLD_MS,
+  aggregateCpuProfile: () => aggregateCpuProfile,
   crashHeartbeatEnabled: () => crashHeartbeatEnabled,
+  getInspectorUrl: () => getInspectorUrl,
+  getLagSpikes: () => getLagSpikes,
   getLoopRegistry: () => getLoopRegistry,
   loopTick: () => loopTick,
   noteGuardedLoopError: () => noteGuardedLoopError,
   processHeartbeatHealth: () => processHeartbeatHealth,
+  readStallRecord: () => readStallRecord,
   readWorkerHeartbeat: () => readWorkerHeartbeat,
-  startCrashHeartbeat: () => startCrashHeartbeat
+  stallCaptureEnabled: () => stallCaptureEnabled,
+  stallFilePath: () => stallFilePath,
+  startCrashHeartbeat: () => startCrashHeartbeat,
+  toStallHealthView: () => toStallHealthView
 });
 import { Worker } from "node:worker_threads";
+import * as inspector from "node:inspector";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -491,20 +501,216 @@ function buildSnapshot() {
     rssMB = toMB2(process.memoryUsage().rss);
   } catch {
   }
+  refreshCurrentStall();
   return {
     bootId: PROCESS_BOOTED_AT,
     at: (/* @__PURE__ */ new Date()).toISOString(),
     uptimeSeconds: Math.round(process.uptime()),
     rssMB,
     loops: getLoopRegistry(),
-    worker: readWorkerHeartbeat()
+    worker: readWorkerHeartbeat(),
+    lagSpikes: getLagSpikes(),
+    lastStall: toStallHealthView(currentStall)
   };
+}
+function stallCaptureEnabled() {
+  try {
+    return crashHeartbeatEnabled() && process.env.CRASH_STALL_CAPTURE !== "off";
+  } catch {
+    return true;
+  }
+}
+function stallThresholdMs() {
+  try {
+    const v = parseInt(process.env.CRASH_STALL_THRESHOLD_MS ?? "", 10);
+    if (Number.isFinite(v) && v >= 500) return v;
+  } catch {
+  }
+  return STALL_THRESHOLD_MS;
+}
+function stallCaptureMs() {
+  try {
+    const v = parseInt(process.env.CRASH_STALL_CAPTURE_MS ?? "", 10);
+    if (Number.isFinite(v) && v >= 500) return v;
+  } catch {
+  }
+  return STALL_CAPTURE_MS;
+}
+function stallFilePath() {
+  try {
+    const fromEnv = process.env.CRASH_STALL_FILE;
+    if (fromEnv && fromEnv.trim()) return fromEnv.trim();
+  } catch {
+  }
+  const wf = workerFilePath();
+  return wf.endsWith(".json") ? `${wf.slice(0, -".json".length)}-stall.json` : `${wf}-stall.json`;
+}
+function aggregateCpuProfile(profile, limit = STALL_TOP_LIMIT) {
+  try {
+    const nodes = Array.isArray(profile?.nodes) ? profile.nodes : [];
+    const counts = /* @__PURE__ */ new Map();
+    for (const n of nodes) {
+      if (n && typeof n.id === "number" && typeof n.hitCount === "number" && n.hitCount > 0) {
+        counts.set(n.id, n.hitCount);
+      }
+    }
+    if (counts.size === 0 && Array.isArray(profile?.samples)) {
+      for (const id of profile.samples) {
+        if (typeof id === "number") counts.set(id, (counts.get(id) ?? 0) + 1);
+      }
+    }
+    const byFn = /* @__PURE__ */ new Map();
+    for (const n of nodes) {
+      const c = counts.get(n?.id) ?? 0;
+      if (!c) continue;
+      const cf = n.callFrame ?? {};
+      const fn = typeof cf.functionName === "string" && cf.functionName ? cf.functionName : "(anonymous)";
+      const file = (typeof cf.url === "string" ? cf.url : "").replace(/^file:\/\//, "");
+      const line2 = (typeof cf.lineNumber === "number" ? cf.lineNumber : -1) + 1;
+      const key = `${fn}|${file}|${line2}`;
+      const prev = byFn.get(key);
+      if (prev) prev.samples += c;
+      else byFn.set(key, { function: fn, file, line: line2, samples: c });
+    }
+    return Array.from(byFn.values()).sort((a, b) => b.samples - a.samples).slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+function getLagSpikes() {
+  try {
+    return lagSpikes.map((s) => ({ ...s, recentLoops: s.recentLoops.map((r) => ({ ...r })) }));
+  } catch {
+    return [];
+  }
+}
+function recordLagSpike(lagMs) {
+  try {
+    const recentLoops = Array.from(loopRegistry.entries()).map(([name, rec]) => ({ name, lastTickAt: rec.lastTickAt })).sort((a, b) => a.lastTickAt < b.lastTickAt ? 1 : -1).slice(0, 5);
+    lagSpikes.push({ at: (/* @__PURE__ */ new Date()).toISOString(), lagMs: Math.round(lagMs), recentLoops });
+    while (lagSpikes.length > LAG_RING_MAX) lagSpikes.shift();
+  } catch {
+  }
+}
+function sanitizeStallRecord(v) {
+  try {
+    if (!v || typeof v !== "object") return null;
+    if (typeof v.bootId !== "string" || typeof v.stallStartedAt !== "string" || typeof v.detectedAt !== "string") return null;
+    const topFunctions = Array.isArray(v.topFunctions) ? v.topFunctions.filter((f) => !!f && typeof f === "object").slice(0, STALL_TOP_LIMIT).map((f) => ({
+      function: typeof f.function === "string" ? f.function : "(anonymous)",
+      file: typeof f.file === "string" ? f.file : "",
+      line: typeof f.line === "number" ? f.line : 0,
+      samples: typeof f.samples === "number" ? f.samples : 0
+    })) : [];
+    return {
+      bootId: v.bootId,
+      stallStartedAt: v.stallStartedAt,
+      detectedAt: v.detectedAt,
+      capturedAt: typeof v.capturedAt === "string" ? v.capturedAt : null,
+      resumedAt: typeof v.resumedAt === "string" ? v.resumedAt : null,
+      durationSeconds: typeof v.durationSeconds === "number" ? v.durationSeconds : null,
+      captureMethod: v.captureMethod === "profiler" || v.captureMethod === "debugger" ? v.captureMethod : "none",
+      topFunctions
+    };
+  } catch {
+    return null;
+  }
+}
+function readStallRecord() {
+  try {
+    return sanitizeStallRecord(JSON.parse(readFileSync(stallFilePath(), "utf8")));
+  } catch {
+    return null;
+  }
+}
+function refreshCurrentStall() {
+  try {
+    const rec = readStallRecord();
+    if (rec && rec.bootId === PROCESS_BOOTED_AT) currentStall = rec;
+  } catch {
+  }
+}
+function toStallHealthView(rec) {
+  if (!rec) return null;
+  try {
+    let durationSeconds = "ongoing";
+    if (typeof rec.durationSeconds === "number") {
+      durationSeconds = rec.durationSeconds;
+    } else if (rec.resumedAt) {
+      const d = Math.round((new Date(rec.resumedAt).getTime() - new Date(rec.stallStartedAt).getTime()) / 1e3 * 10) / 10;
+      if (Number.isFinite(d) && d >= 0) durationSeconds = d;
+    }
+    return {
+      detectedAt: rec.detectedAt,
+      stallStartedAt: rec.stallStartedAt,
+      durationSeconds,
+      topFunctions: rec.topFunctions,
+      captureMethod: rec.captureMethod
+    };
+  } catch {
+    return null;
+  }
+}
+function openInspectorIfEnabled() {
+  try {
+    if (!stallCaptureEnabled()) return;
+    try {
+      const existing = inspector.url();
+      if (existing) {
+        inspectorUrl = existing;
+        return;
+      }
+    } catch {
+    }
+    inspector.open(0, "127.0.0.1", false);
+    const url2 = inspector.url();
+    if (url2) inspectorUrl = url2;
+  } catch (err) {
+    try {
+      console.error("[crash-heartbeat] inspector open failed (non-fatal):", err?.message ?? err);
+    } catch {
+    }
+  }
+}
+function getInspectorUrl() {
+  return inspectorUrl;
+}
+function startLagMonitor() {
+  try {
+    if (lagMonitorStarted) return;
+    lagMonitorStarted = true;
+    let last2 = Date.now();
+    const timer = setInterval(() => {
+      try {
+        const now = Date.now();
+        const lag = now - last2 - LAG_CHECK_MS;
+        last2 = now;
+        if (lag >= LAG_SPIKE_MS) recordLagSpike(lag);
+        pingWitness();
+      } catch {
+      }
+    }, LAG_CHECK_MS);
+    try {
+      timer.unref();
+    } catch {
+    }
+  } catch {
+  }
 }
 function startWitnessWorker() {
   try {
     const w = new Worker(WORKER_SOURCE, {
       eval: true,
-      workerData: { file: workerFilePath(), intervalMs: WORKER_BEAT_MS }
+      workerData: {
+        file: workerFilePath(),
+        intervalMs: WORKER_BEAT_MS,
+        stallFile: stallFilePath(),
+        bootId: PROCESS_BOOTED_AT,
+        inspectorUrl: stallCaptureEnabled() ? inspectorUrl : null,
+        stallThresholdMs: stallThresholdMs(),
+        stallCaptureMs: stallCaptureMs(),
+        stallCheckMs: STALL_CHECK_MS
+      }
     });
     try {
       w.unref();
@@ -578,6 +784,11 @@ function startCrashHeartbeat() {
       return;
     }
     previousBootWorker = readWorkerHeartbeat();
+    try {
+      const rec = readStallRecord();
+      if (rec && rec.bootId !== PROCESS_BOOTED_AT) previousBootStall = rec;
+    } catch {
+    }
     previousBootCapture2 = (async () => {
       try {
         const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
@@ -588,7 +799,9 @@ function startCrashHeartbeat() {
       } catch {
       }
     })();
+    openInspectorIfEnabled();
     startWitnessWorker();
+    if (stallCaptureEnabled()) startLagMonitor();
     heartbeatCycle();
     const timer = setInterval(heartbeatCycle, HEARTBEAT_MS);
     try {
@@ -607,11 +820,20 @@ async function processHeartbeatHealth() {
     await previousBootCapture2;
   } catch {
   }
+  refreshCurrentStall();
   return {
     enabled: crashHeartbeatEnabled(),
     witnessFailed,
     current: buildSnapshot(),
-    previousBoot: previousBootMain || previousBootWorker ? { main: previousBootMain, worker: previousBootWorker } : null
+    lastStall: toStallHealthView(currentStall),
+    previousBoot: previousBootMain || previousBootWorker || previousBootStall ? {
+      main: previousBootMain,
+      worker: previousBootWorker,
+      // The dead boot's stall summary comes from the worker-written
+      // disk record (the frozen main loop never persisted again);
+      // fall back to whatever its last DB snapshot carried.
+      lastStall: toStallHealthView(previousBootStall) ?? previousBootMain?.lastStall ?? null
+    } : null
   };
 }
 function noteGuardedLoopError(job, err) {
@@ -620,7 +842,7 @@ function noteGuardedLoopError(job, err) {
   } catch {
   }
 }
-var loopRegistry, HEARTBEAT_MS, WORKER_BEAT_MS, WORKER_SOURCE, witnessWorker, witnessFailed, previousBootMain, previousBootWorker, previousBootCapture2, started;
+var loopRegistry, HEARTBEAT_MS, WORKER_BEAT_MS, STALL_THRESHOLD_MS, STALL_CAPTURE_MS, STALL_CHECK_MS, LAG_CHECK_MS, LAG_SPIKE_MS, LAG_RING_MAX, STALL_TOP_LIMIT, lagSpikes, previousBootStall, currentStall, inspectorUrl, lagMonitorStarted, WORKER_SOURCE, witnessWorker, witnessFailed, previousBootMain, previousBootWorker, previousBootCapture2, started;
 var init_crash_heartbeat = __esm({
   "server/crash-heartbeat.ts"() {
     "use strict";
@@ -628,14 +850,28 @@ var init_crash_heartbeat = __esm({
     loopRegistry = /* @__PURE__ */ new Map();
     HEARTBEAT_MS = 3e4;
     WORKER_BEAT_MS = 15e3;
+    STALL_THRESHOLD_MS = 2e4;
+    STALL_CAPTURE_MS = 8e3;
+    STALL_CHECK_MS = 2e3;
+    LAG_CHECK_MS = 1e3;
+    LAG_SPIKE_MS = 2e3;
+    LAG_RING_MAX = 20;
+    STALL_TOP_LIMIT = 20;
+    lagSpikes = [];
+    previousBootStall = null;
+    currentStall = null;
+    inspectorUrl = null;
+    lagMonitorStarted = false;
     WORKER_SOURCE = `
 'use strict';
 const { parentPort, workerData } = require('node:worker_threads');
 const fs = require('node:fs');
+const net = require('node:net');
+const crypto = require('node:crypto');
 let lastMainMessageAt = null;
-if (parentPort) {
-  parentPort.on('message', () => { lastMainMessageAt = new Date().toISOString(); beat(); });
-}
+let lastMainMessageMs = 0;
+let stallEpisode = null;
+let capturedRecord = null;
 function beat() {
   try {
     const rec = {
@@ -648,8 +884,290 @@ function beat() {
     fs.renameSync(tmp, workerData.file);
   } catch (e) { /* the witness must never throw */ }
 }
+function writeStallFile(rec) {
+  try {
+    const tmp = workerData.stallFile + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(rec));
+    fs.renameSync(tmp, workerData.stallFile);
+  } catch (e) { /* never throw */ }
+}
+function sleepMs(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function withTimeout(p, ms, label) {
+  return Promise.race([p, new Promise(function (_, rej) {
+    setTimeout(function () { rej(new Error('timeout: ' + label)); }, ms);
+  })]);
+}
+function stripFileUrl(u) { return (typeof u === 'string' ? u : '').replace(/^file:\\/\\//, ''); }
+// Compact copy of the main module's aggregateCpuProfile (this eval worker is
+// self-contained and cannot import). Keep the two in step.
+function aggregateProfileWorker(profile, limit) {
+  try {
+    const nodes = (profile && Array.isArray(profile.nodes)) ? profile.nodes : [];
+    const counts = new Map();
+    for (const n of nodes) {
+      if (n && typeof n.id === 'number' && typeof n.hitCount === 'number' && n.hitCount > 0) counts.set(n.id, n.hitCount);
+    }
+    if (counts.size === 0 && profile && Array.isArray(profile.samples)) {
+      for (const id of profile.samples) { if (typeof id === 'number') counts.set(id, (counts.get(id) || 0) + 1); }
+    }
+    const byFn = new Map();
+    for (const n of nodes) {
+      const c = counts.get(n && n.id) || 0;
+      if (!c) continue;
+      const cf = n.callFrame || {};
+      const fn = (typeof cf.functionName === 'string' && cf.functionName) ? cf.functionName : '(anonymous)';
+      const file = stripFileUrl(cf.url);
+      const line = (typeof cf.lineNumber === 'number' ? cf.lineNumber : -1) + 1;
+      const k = fn + '|' + file + '|' + line;
+      const prev = byFn.get(k);
+      if (prev) prev.samples += c; else byFn.set(k, { function: fn, file: file, line: line, samples: c });
+    }
+    return Array.from(byFn.values()).sort(function (a, b) { return b.samples - a.samples; }).slice(0, limit);
+  } catch (e) { return []; }
+}
+// Minimal WebSocket client (Node builtins only) for the inspector protocol:
+// HTTP upgrade handshake, masked client frames, fragmented-message reassembly.
+function createCdpClient(url) {
+  return new Promise(function (resolve, reject) {
+    const m = /^ws:\\/\\/([^:\\/]+):(\\d+)(\\/.*)$/.exec(url);
+    if (!m) { reject(new Error('unparseable inspector url')); return; }
+    const host = m[1];
+    const port = parseInt(m[2], 10);
+    const pathQ = m[3];
+    const key = crypto.randomBytes(16).toString('base64');
+    const socket = net.connect(port, host);
+    let settled = false;
+    let upgraded = false;
+    let buf = Buffer.alloc(0);
+    let fragParts = [];
+    let nextId = 1;
+    const pending = new Map();
+    const eventSubs = [];
+    function failAll(err) {
+      for (const p of pending.values()) { try { p.rej(err); } catch (e) {} }
+      pending.clear();
+    }
+    function sendText(text) {
+      const payload = Buffer.from(text, 'utf8');
+      const mask = crypto.randomBytes(4);
+      let header;
+      if (payload.length < 126) { header = Buffer.alloc(2); header[1] = 0x80 | payload.length; }
+      else if (payload.length < 65536) { header = Buffer.alloc(4); header[1] = 0x80 | 126; header.writeUInt16BE(payload.length, 2); }
+      else { header = Buffer.alloc(10); header[1] = 0x80 | 127; header.writeBigUInt64BE(BigInt(payload.length), 2); }
+      header[0] = 0x81;
+      const masked = Buffer.alloc(payload.length);
+      for (let i = 0; i < payload.length; i++) masked[i] = payload[i] ^ mask[i % 4];
+      socket.write(Buffer.concat([header, mask, masked]));
+    }
+    function onMessage(text) {
+      let msg;
+      try { msg = JSON.parse(text); } catch (e) { return; }
+      if (msg.id && pending.has(msg.id)) {
+        const p = pending.get(msg.id);
+        pending.delete(msg.id);
+        if (msg.error) p.rej(new Error((msg.error && msg.error.message) || 'cdp error'));
+        else p.res(msg.result);
+        return;
+      }
+      if (msg.method) {
+        for (const s of eventSubs.slice()) { if (s.method === msg.method) { try { s.fn(msg.params); } catch (e) {} } }
+      }
+    }
+    function drainFrames() {
+      for (;;) {
+        if (buf.length < 2) return;
+        const b0 = buf[0];
+        const b1 = buf[1];
+        const fin = (b0 & 0x80) !== 0;
+        const opcode = b0 & 0x0f;
+        let len = b1 & 0x7f;
+        let off = 2;
+        if (len === 126) { if (buf.length < 4) return; len = buf.readUInt16BE(2); off = 4; }
+        else if (len === 127) { if (buf.length < 10) return; len = Number(buf.readBigUInt64BE(2)); off = 10; }
+        if (buf.length < off + len) return;
+        const payload = buf.slice(off, off + len);
+        buf = buf.slice(off + len);
+        if (opcode === 9) {
+          try {
+            const h = Buffer.from([0x8a, 0x80]);
+            socket.write(Buffer.concat([h, crypto.randomBytes(4)]));
+          } catch (e) {}
+          continue;
+        }
+        if (opcode === 8) { try { socket.destroy(); } catch (e) {} return; }
+        if (opcode === 1 || opcode === 0) {
+          fragParts.push(payload);
+          if (fin) {
+            const full = Buffer.concat(fragParts).toString('utf8');
+            fragParts = [];
+            onMessage(full);
+          }
+        }
+      }
+    }
+    const client = {
+      call: function (method, params) {
+        return new Promise(function (res2, rej2) {
+          const id = nextId++;
+          pending.set(id, { res: res2, rej: rej2 });
+          try { sendText(JSON.stringify({ id: id, method: method, params: params || {} })); }
+          catch (e) { pending.delete(id); rej2(e); }
+        });
+      },
+      waitEvent: function (method, timeoutMs) {
+        return new Promise(function (res2) {
+          const sub = { method: method, fn: null };
+          const timer = setTimeout(function () {
+            const i = eventSubs.indexOf(sub);
+            if (i >= 0) eventSubs.splice(i, 1);
+            res2(null);
+          }, timeoutMs);
+          sub.fn = function (params) {
+            clearTimeout(timer);
+            const i = eventSubs.indexOf(sub);
+            if (i >= 0) eventSubs.splice(i, 1);
+            res2(params);
+          };
+          eventSubs.push(sub);
+        });
+      },
+      close: function () { try { socket.destroy(); } catch (e) {} },
+    };
+    socket.on('connect', function () {
+      try {
+        socket.write(
+          'GET ' + pathQ + ' HTTP/1.1\\r\\n' +
+          'Host: ' + host + ':' + port + '\\r\\n' +
+          'Upgrade: websocket\\r\\n' +
+          'Connection: Upgrade\\r\\n' +
+          'Sec-WebSocket-Key: ' + key + '\\r\\n' +
+          'Sec-WebSocket-Version: 13\\r\\n\\r\\n');
+      } catch (e) {}
+    });
+    socket.on('data', function (chunk) {
+      try {
+        buf = Buffer.concat([buf, chunk]);
+        if (!upgraded) {
+          const idx = buf.indexOf('\\r\\n\\r\\n');
+          if (idx === -1) return;
+          const head = buf.slice(0, idx).toString('utf8');
+          if (!/^HTTP\\/1\\.1 101/.test(head)) {
+            if (!settled) { settled = true; reject(new Error('inspector upgrade refused')); }
+            try { socket.destroy(); } catch (e) {}
+            return;
+          }
+          upgraded = true;
+          buf = buf.slice(idx + 4);
+          if (!settled) { settled = true; resolve(client); }
+        }
+        drainFrames();
+      } catch (e) { /* never throw */ }
+    });
+    socket.on('error', function (err) {
+      if (!settled) { settled = true; reject(err); }
+      failAll(err);
+    });
+    socket.on('close', function () { failAll(new Error('cdp socket closed')); });
+  });
+}
+async function captureStall(ep) {
+  const record = {
+    bootId: workerData.bootId,
+    stallStartedAt: ep.stallStartedAt,
+    detectedAt: ep.detectedAt,
+    capturedAt: null,
+    resumedAt: null,
+    durationSeconds: null,
+    captureMethod: 'none',
+    topFunctions: [],
+    profile: null,
+  };
+  const pingMsAtStart = lastMainMessageMs;
+  let client = null;
+  try {
+    client = await withTimeout(createCdpClient(workerData.inspectorUrl), 10000, 'connect');
+    try {
+      await withTimeout(client.call('Profiler.enable'), 5000, 'Profiler.enable');
+      try { await withTimeout(client.call('Profiler.setSamplingInterval', { interval: 1000 }), 5000, 'setSamplingInterval'); } catch (e) {}
+      await withTimeout(client.call('Profiler.start'), 5000, 'Profiler.start');
+      await sleepMs(workerData.stallCaptureMs);
+      const res = await withTimeout(client.call('Profiler.stop'), 10000, 'Profiler.stop');
+      if (res && res.profile) {
+        record.profile = res.profile;
+        record.topFunctions = aggregateProfileWorker(res.profile, 20);
+        record.captureMethod = 'profiler';
+      }
+    } catch (e) { /* fall through to the debugger route */ }
+    if (record.captureMethod === 'none') {
+      try {
+        await withTimeout(client.call('Debugger.enable'), 5000, 'Debugger.enable');
+        const pausedP = client.waitEvent('Debugger.paused', 6000);
+        await withTimeout(client.call('Debugger.pause'), 5000, 'Debugger.pause');
+        const paused = await pausedP;
+        if (paused && Array.isArray(paused.callFrames) && paused.callFrames.length) {
+          record.topFunctions = paused.callFrames.slice(0, 20).map(function (f) {
+            return {
+              function: (f && f.functionName) || '(anonymous)',
+              file: stripFileUrl(f && f.url),
+              line: ((f && f.location && typeof f.location.lineNumber === 'number') ? f.location.lineNumber : -1) + 1,
+              samples: 0,
+            };
+          });
+          record.captureMethod = 'debugger';
+        }
+        try { await client.call('Debugger.resume'); } catch (e) {}
+        try { await client.call('Debugger.disable'); } catch (e) {}
+      } catch (e) { /* capture stays 'none' \u2014 the stall record itself still persists */ }
+    }
+  } catch (e) { /* capture stays 'none' */ }
+  try { if (client) client.close(); } catch (e) {}
+  try {
+    if (lastMainMessageMs > pingMsAtStart && lastMainMessageAt) {
+      record.resumedAt = lastMainMessageAt;
+      const d = Math.round(((new Date(lastMainMessageAt).getTime() - new Date(ep.stallStartedAt).getTime()) / 1000) * 10) / 10;
+      if (isFinite(d) && d >= 0) record.durationSeconds = d;
+    }
+  } catch (e) {}
+  record.capturedAt = new Date().toISOString();
+  capturedRecord = record;
+  writeStallFile(record);
+}
+function closeStallEpisodeIfOpen() {
+  try {
+    if (capturedRecord && !capturedRecord.resumedAt && lastMainMessageAt) {
+      capturedRecord.resumedAt = lastMainMessageAt;
+      const startMs = new Date(capturedRecord.stallStartedAt).getTime();
+      const endMs = new Date(lastMainMessageAt).getTime();
+      if (isFinite(startMs) && isFinite(endMs) && endMs >= startMs) {
+        capturedRecord.durationSeconds = Math.round(((endMs - startMs) / 1000) * 10) / 10;
+      }
+      writeStallFile(capturedRecord);
+    }
+    if (capturedRecord && capturedRecord.resumedAt) stallEpisode = null;
+  } catch (e) { /* never throw */ }
+}
+function checkStall() {
+  try {
+    if (!workerData.inspectorUrl) return;
+    if (!lastMainMessageMs) return;
+    if (stallEpisode) return;
+    if (Date.now() - lastMainMessageMs > workerData.stallThresholdMs) {
+      stallEpisode = { stallStartedAt: lastMainMessageAt, detectedAt: new Date().toISOString() };
+      captureStall(stallEpisode).catch(function () {});
+    }
+  } catch (e) { /* never throw */ }
+}
+if (parentPort) {
+  parentPort.on('message', () => {
+    lastMainMessageAt = new Date().toISOString();
+    lastMainMessageMs = Date.now();
+    closeStallEpisodeIfOpen();
+    beat();
+  });
+}
 beat();
 setInterval(beat, workerData.intervalMs);
+setInterval(checkStall, workerData.stallCheckMs);
 `;
     witnessWorker = null;
     witnessFailed = false;
@@ -7965,9 +8483,9 @@ function classifySymbol(symbol) {
   if (s.includes("NAS") || s.includes("SPX") || s.includes("US30") || s.includes("SPY") || s.includes("GER") || s.includes("UK100") || s.includes("NKY") || s.includes("DAX") || s.includes("FTSE")) return "INDICES";
   return "FOREX";
 }
-function fetchGitHubRaw(url) {
+function fetchGitHubRaw(url2) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, {
+    const req = https.get(url2, {
       headers: { "User-Agent": "VEDD-Trading-AI/1.0" },
       timeout: 5e3
     }, (res2) => {
@@ -9866,17 +10384,17 @@ function normSymbol(v) {
 }
 function collapseToSignals(fills) {
   const sorted = [...fills].sort((a, b) => a.entryMs - b.entryMs);
-  const open = /* @__PURE__ */ new Map();
+  const open2 = /* @__PURE__ */ new Map();
   const groups = [];
   for (const f of sorted) {
     const key = normSymbol(f.symbol) + "|" + String(f.direction || "").toUpperCase();
-    const g = open.get(key);
+    const g = open2.get(key);
     if (g && f.entryMs - g.start <= WINDOW_MS) {
       g.rows.push(f);
       continue;
     }
     const fresh = { start: f.entryMs, rows: [f] };
-    open.set(key, fresh);
+    open2.set(key, fresh);
     groups.push(fresh.rows);
   }
   return groups.map((rows) => {
@@ -11015,15 +11533,15 @@ var init_twelve_data = __esm({
         const symbol = this.normalizeSymbol(request.symbol, request.assetType);
         const interval = this.mapTimeframe(request.timeframe);
         const outputSize = request.limit || 50;
-        const url = new URL(`${TWELVE_DATA_BASE_URL}/time_series`);
-        url.searchParams.set("symbol", symbol);
-        url.searchParams.set("interval", interval);
-        url.searchParams.set("outputsize", outputSize.toString());
-        url.searchParams.set("apikey", this.apiKey);
-        url.searchParams.set("timezone", "UTC");
+        const url2 = new URL(`${TWELVE_DATA_BASE_URL}/time_series`);
+        url2.searchParams.set("symbol", symbol);
+        url2.searchParams.set("interval", interval);
+        url2.searchParams.set("outputsize", outputSize.toString());
+        url2.searchParams.set("apikey", this.apiKey);
+        url2.searchParams.set("timezone", "UTC");
         try {
           rateLimiter.recordRequest(this.name);
-          const response = await fetch(url.toString());
+          const response = await fetch(url2.toString());
           if (response.status === 401) {
             throw new Error("Twelve Data API key is invalid or expired. Please check your TWELVE_DATA_API_KEY in secrets.");
           }
@@ -11138,8 +11656,8 @@ async function fetchIndexFromYahoo(req) {
   const tf = req.timeframe;
   const interval = tf === "1m" ? "1m" : tf === "5m" ? "5m" : tf === "15m" ? "15m" : tf === "30m" ? "30m" : tf === "1h" || tf === "4h" ? "60m" : tf === "1w" ? "1wk" : "1d";
   const range = interval === "1m" ? "5d" : interval === "5m" || interval === "15m" || interval === "30m" ? "30d" : interval === "60m" ? "180d" : "5y";
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(hit[1])}?interval=${interval}&range=${range}`;
-  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(12e3) });
+  const url2 = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(hit[1])}?interval=${interval}&range=${range}`;
+  const r = await fetch(url2, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(12e3) });
   if (!r.ok) return null;
   const j = await r.json();
   const res2 = j?.chart?.result?.[0];
@@ -11343,9 +11861,9 @@ __export(markov_chain_exports, {
   getMarkovSignal: () => getMarkovSignal,
   getMarkovSnapshot: () => getMarkovSnapshot
 });
-function classifyCandle(open, close, threshold = 6e-4) {
-  if (close <= 0 || open <= 0) return "NEUTRAL";
-  const changePct = (close - open) / open;
+function classifyCandle(open2, close, threshold = 6e-4) {
+  if (close <= 0 || open2 <= 0) return "NEUTRAL";
+  const changePct = (close - open2) / open2;
   const strong = threshold * 2;
   if (changePct >= strong) return "STRONG_BULL";
   if (changePct > 0) return "BULL";
@@ -12162,7 +12680,7 @@ async function evictOldestFlat(userId) {
 async function paperSummary(userId) {
   await ensurePaperTable();
   const settings = await getPaperSettings(userId);
-  const [{ rows: agg }, { rows: open }, { rows: recent }, { rows: byToken }, { rows: weeks }] = await Promise.all([
+  const [{ rows: agg }, { rows: open2 }, { rows: recent }, { rows: byToken }, { rows: weeks }] = await Promise.all([
     pool.query(`SELECT count(*)::int n, count(*) FILTER (WHERE pnl_usd > 0)::int w, COALESCE(sum(pnl_usd),0)::float pnl,
                        COALESCE(avg(r_multiple),0)::float avg_r FROM crypto_paper_trades WHERE user_id=$1 AND status='closed'`, [userId]),
     pool.query(`SELECT id, symbol, direction, strategy, entry_price, stop_loss, take_profit, notional_usd, opened_at FROM crypto_paper_trades WHERE user_id=$1 AND status='open' ORDER BY opened_at DESC`, [userId]),
@@ -12182,7 +12700,7 @@ async function paperSummary(userId) {
     balance: settings.startBalance + Number(a.pnl || 0),
     stats: { trades: a.n, wins: a.w, winRate: winRate2, avgR: a.avg_r, pnlUsd: a.pnl },
     readiness: { ready: ready2, bar, progressTrades: Math.min(1, a.n / bar.trades), noLosingWeek },
-    open,
+    open: open2,
     recent,
     best: byToken.slice(0, 5),
     worst: byToken.slice(-5).reverse()
@@ -13145,7 +13663,7 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
   const { isTokenizedAsset: isTokenizedAsset2, underlyingOf: underlyingOf2, paperMaxHoursFor: paperMaxHoursFor2 } = await Promise.resolve().then(() => (init_crypto_paper(), crypto_paper_exports));
   const { estimateCryptoRoundTripBps: estimateCryptoRoundTripBps2 } = await Promise.resolve().then(() => (init_paper_costs(), paper_costs_exports));
   const stats = await computeCryptoShadowStats(userId).catch(() => []);
-  const { rows: open } = await pool.query(`SELECT strategy, underlying FROM crypto_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  const { rows: open2 } = await pool.query(`SELECT strategy, underlying FROM crypto_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
   const { rows: recent } = await pool.query(
     `SELECT strategy, underlying FROM crypto_shadow_trades WHERE user_id=$1 AND status='closed' AND closed_at >= now() - ($2::text || ' milliseconds')::interval`,
     [userId, String(COOLDOWN_MS())]
@@ -13157,7 +13675,7 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
   let opened = 0;
   const shadowCfg = { ...cfg, directionFilter: "both" };
   for (const symbol of symbols) {
-    if (open.length >= MAX_OPEN()) break;
+    if (open2.length >= MAX_OPEN()) break;
     if (isTokenizedAsset2(symbol)) continue;
     const uni = deps.universe(symbol);
     if (!uni?.poolAddress) continue;
@@ -13184,10 +13702,10 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
     const ch1 = pctChange(bars, 1), ch24 = pctChange(bars, 24);
     const vol24 = bars.slice(-24).reduce((a, b) => a + (b.v || 0) * (b.c || 0), 0);
     for (const sig of signals) {
-      if (open.length >= MAX_OPEN()) break;
+      if (open2.length >= MAX_OPEN()) break;
       const strat = sig.strategy;
-      if (open.filter((o) => o.strategy === strat).length >= MAX_PER_STRAT()) continue;
-      if (open.some((o) => o.strategy === strat && o.underlying === und)) continue;
+      if (open2.filter((o) => o.strategy === strat).length >= MAX_PER_STRAT()) continue;
+      if (open2.some((o) => o.strategy === strat && o.underlying === und)) continue;
       if (recent.some((o) => o.strategy === strat && o.underlying === und)) continue;
       const price = Number(sig.price) || Number(uni.priceUsd);
       if (!(price > 0)) continue;
@@ -13288,7 +13806,7 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
         ]
       ).catch(() => {
       });
-      open.push({ strategy: strat, underlying: und });
+      open2.push({ strategy: strat, underlying: und });
       opened++;
     }
   }
@@ -13771,8 +14289,8 @@ async function handleLeaderEvent(fw, ev) {
   const userId = fw.user_id;
   const now = Date.now();
   if (ev.side === "sell") {
-    const open2 = await openPositionsFor(userId);
-    const pos = open2.find((p2) => p2.leader_wallet === ev.wallet && p2.mint === ev.mint);
+    const open3 = await openPositionsFor(userId);
+    const pos = open3.find((p2) => p2.leader_wallet === ev.wallet && p2.mint === ev.mint);
     if (!pos) {
       await recordEvent(userId, ev, "no_open_mirror", "leader sold a token with no open mirror");
       return;
@@ -13822,16 +14340,16 @@ async function handleLeaderEvent(fw, ev) {
     }
   } catch {
   }
-  const open = await openPositionsFor(userId);
-  if (open.length >= FOLLOWER_MAX_OPEN) {
+  const open2 = await openPositionsFor(userId);
+  if (open2.length >= FOLLOWER_MAX_OPEN) {
     await recordEvent(userId, ev, "skipped_cap_open", `lane cap reached (${FOLLOWER_MAX_OPEN} open mirrors)`);
     return;
   }
-  if (open.filter((p2) => p2.leader_wallet === ev.wallet).length >= FOLLOWER_MAX_PER_WALLET) {
+  if (open2.filter((p2) => p2.leader_wallet === ev.wallet).length >= FOLLOWER_MAX_PER_WALLET) {
     await recordEvent(userId, ev, "skipped_cap_wallet", `per-wallet cap reached (${FOLLOWER_MAX_PER_WALLET} open mirrors for this leader)`);
     return;
   }
-  if (open.some((p2) => p2.leader_wallet === ev.wallet && p2.mint === ev.mint)) {
+  if (open2.some((p2) => p2.leader_wallet === ev.wallet && p2.mint === ev.mint)) {
     await recordEvent(userId, ev, "skipped_already_open", "a mirror for this leader + token is already open (v1 does not add to mirrors)");
     return;
   }
@@ -14000,7 +14518,7 @@ async function getSolFollowerReport(userId) {
       WHERE user_id=$1 AND status='closed' AND net_pct IS NOT NULL ORDER BY closed_at`,
     [userId]
   );
-  const { rows: open } = await pool.query(
+  const { rows: open2 } = await pool.query(
     `SELECT id, leader_wallet, leader_label, mint, symbol, size_sol, entry_price, leader_entry_price, leader_entry_at, opened_at, entry_lag_sec, remaining_fraction
        FROM sol_follower_positions WHERE user_id=$1 AND status='open' ORDER BY opened_at DESC`,
     [userId]
@@ -14029,7 +14547,7 @@ async function getSolFollowerReport(userId) {
       ...stats,
       wallet: w.wallet,
       label: w.label,
-      openCount: open.filter((o) => o.leader_wallet === w.wallet).length,
+      openCount: open2.filter((o) => o.leader_wallet === w.wallet).length,
       avgEntryLagSec: lags.length ? lags.reduce((a, b) => a + b, 0) / lags.length : null,
       verdict: v.verdict,
       verdictLine: v.line
@@ -14041,7 +14559,7 @@ async function getSolFollowerReport(userId) {
     maxEventAgeSec: FOLLOWER_MAX_EVENT_AGE_SEC,
     bar: FOLLOWER_LIVE_BAR,
     wallets: wallets.map((w) => ({ ...w, score: scores.find((s) => s.wallet === w.wallet) })),
-    open,
+    open: open2,
     recentClosed: recent
   };
 }
@@ -15904,10 +16422,10 @@ async function serializeAuth(label, fn) {
   });
   return run;
 }
-async function loginFetchWith429Retry(url, body) {
+async function loginFetchWith429Retry(url2, body) {
   const backoffs = [1500, 3500];
   for (let attempt = 0; ; attempt++) {
-    const resp = await fetch(url, {
+    const resp = await fetch(url2, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -17388,11 +17906,11 @@ var init_tradelocker = __esm({
         const nowMs = Date.now();
         const fromMs = fromTs != null ? fromTs * 1e3 : nowMs - 864e5;
         const toMs = toTs != null ? toTs * 1e3 : nowMs;
-        const url = `${this.baseUrl}/trade/history?routeId=${infoRouteId}&tradableInstrumentId=${tradableInstrumentId}&resolution=${resolution}&from=${fromMs}&to=${toMs}`;
+        const url2 = `${this.baseUrl}/trade/history?routeId=${infoRouteId}&tradableInstrumentId=${tradableInstrumentId}&resolution=${resolution}&from=${fromMs}&to=${toMs}`;
         let histResp = null;
         const backoffs = [400, 900];
         for (let attempt = 0; ; attempt++) {
-          histResp = await fetch(url, {
+          histResp = await fetch(url2, {
             headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
           });
           if (histResp.status !== 429 || attempt >= backoffs.length) break;
@@ -17893,8 +18411,8 @@ var init_tradelocker = __esm({
         if (Object.keys(body).length === 0) {
           return { success: false, error: "No SL or TP provided to modify" };
         }
-        const url = `${this.baseUrl}/trade/positions/${positionId}`;
-        console.log(`[TradeLocker Modify] PATCH ${url} | SL=${stopLoss} TP=${takeProfit} accNum=${this.accNum}`);
+        const url2 = `${this.baseUrl}/trade/positions/${positionId}`;
+        console.log(`[TradeLocker Modify] PATCH ${url2} | SL=${stopLoss} TP=${takeProfit} accNum=${this.accNum}`);
         const checkBody = async (resp, verb) => {
           const text3 = await resp.text().catch(() => "");
           let data = null;
@@ -17917,7 +18435,7 @@ var init_tradelocker = __esm({
           return { success: true };
         };
         try {
-          const response = await fetch(url, {
+          const response = await fetch(url2, {
             method: "PATCH",
             headers: {
               "Authorization": `Bearer ${this.accessToken}`,
@@ -17928,7 +18446,7 @@ var init_tradelocker = __esm({
           });
           if (response.status === 405) {
             console.log("[TradeLocker Modify] PATCH not supported, trying PUT");
-            const putResponse = await fetch(url, {
+            const putResponse = await fetch(url2, {
               method: "PUT",
               headers: {
                 "Authorization": `Bearer ${this.accessToken}`,
@@ -19935,8 +20453,8 @@ var init_news_service = __esm({
         const to = toDate.toISOString().split("T")[0];
         try {
           const cleanSymbol = this.normalizeSymbol(symbol);
-          const url = `${FINNHUB_BASE_URL}/company-news?symbol=${cleanSymbol}&from=${from}&to=${to}&token=${this.apiKey}`;
-          const response = await fetch(url);
+          const url2 = `${FINNHUB_BASE_URL}/company-news?symbol=${cleanSymbol}&from=${from}&to=${to}&token=${this.apiKey}`;
+          const response = await fetch(url2);
           if (!response.ok) {
             throw new Error(`Finnhub API error: ${response.status}`);
           }
@@ -19965,8 +20483,8 @@ var init_news_service = __esm({
           return this.getFallbackMarketNews();
         }
         try {
-          const url = `${FINNHUB_BASE_URL}/news?category=${category}&token=${this.apiKey}`;
-          const response = await fetch(url);
+          const url2 = `${FINNHUB_BASE_URL}/news?category=${category}&token=${this.apiKey}`;
+          const response = await fetch(url2);
           if (!response.ok) {
             throw new Error(`Finnhub API error: ${response.status}`);
           }
@@ -20575,8 +21093,8 @@ ${headlines}`
         const from = fromDate.toISOString().split("T")[0];
         const to = toDate.toISOString().split("T")[0];
         try {
-          const url = `${FINNHUB_BASE_URL}/calendar/economic?from=${from}&to=${to}&token=${this.apiKey}`;
-          const response = await fetch(url);
+          const url2 = `${FINNHUB_BASE_URL}/calendar/economic?from=${from}&to=${to}&token=${this.apiKey}`;
+          const response = await fetch(url2);
           if (!response.ok) {
             const status = response.status;
             if (status === 429) {
@@ -21228,8 +21746,8 @@ var init_cryptocom = __esm({
       // ── Public market data (no auth needed) — static so the scanner can pull
       // candles/price without a per-user connection/credentials. ─────────────────
       static async getCandles(instrumentName, timeframe, count) {
-        const url = `https://api.crypto.com/exchange/v1/public/get-candlestick?instrument_name=${encodeURIComponent(instrumentName)}&timeframe=${encodeURIComponent(timeframe)}&count=${count}`;
-        const res2 = await fetch(url, { signal: AbortSignal.timeout(15e3) });
+        const url2 = `https://api.crypto.com/exchange/v1/public/get-candlestick?instrument_name=${encodeURIComponent(instrumentName)}&timeframe=${encodeURIComponent(timeframe)}&count=${count}`;
+        const res2 = await fetch(url2, { signal: AbortSignal.timeout(15e3) });
         if (!res2.ok) throw new Error(`Crypto.com candlestick fetch failed: ${res2.status}`);
         const data = await res2.json();
         if (data.code !== void 0 && data.code !== 0) throw new Error(`Crypto.com candlestick error ${data.code}: ${data.message}`);
@@ -21237,8 +21755,8 @@ var init_cryptocom = __esm({
         return rows.map((r) => ({ t: Number(r.t), o: parseFloat(r.o), h: parseFloat(r.h), l: parseFloat(r.l), c: parseFloat(r.c), v: parseFloat(r.v) }));
       }
       static async getTicker(instrumentName) {
-        const url = `https://api.crypto.com/exchange/v1/public/get-tickers?instrument_name=${encodeURIComponent(instrumentName)}`;
-        const res2 = await fetch(url, { signal: AbortSignal.timeout(1e4) });
+        const url2 = `https://api.crypto.com/exchange/v1/public/get-tickers?instrument_name=${encodeURIComponent(instrumentName)}`;
+        const res2 = await fetch(url2, { signal: AbortSignal.timeout(1e4) });
         if (!res2.ok) return null;
         const data = await res2.json();
         const t = data.result?.data?.[0];
@@ -38183,13 +38701,13 @@ Respond with valid JSON only. No markdown, no explanation.` : "Respond with vali
                   content: typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((c) => {
                     if (c.type === "text") return { type: "text", text: c.text };
                     if (c.type === "image_url") {
-                      const url = c.image_url?.url || "";
-                      if (url.startsWith("data:")) {
-                        const [meta, data] = url.split(",");
+                      const url2 = c.image_url?.url || "";
+                      if (url2.startsWith("data:")) {
+                        const [meta, data] = url2.split(",");
                         const mediaType = meta.split(":")[1].split(";")[0];
                         return { type: "image", source: { type: "base64", media_type: mediaType, data } };
                       }
-                      return { type: "image", source: { type: "url", url } };
+                      return { type: "image", source: { type: "url", url: url2 } };
                     }
                     return c;
                   }) : m.content
@@ -44180,10 +44698,10 @@ var init_trade_source = __esm({
 
 // server/solana-scanner.ts
 import OpenAI4 from "openai";
-async function fetchJsonRetry(url, tries = 2) {
+async function fetchJsonRetry(url2, tries = 2) {
   for (let i = 0; i < tries; i++) {
     try {
-      const res2 = await fetch(url);
+      const res2 = await fetch(url2);
       if (res2.ok) return await res2.json();
     } catch {
     }
@@ -48572,15 +49090,15 @@ var init_alpaca = __esm({
           "Content-Type": "application/json"
         };
       }
-      async request(url, init = {}, attempt = 0) {
-        const response = await fetch(url, {
+      async request(url2, init = {}, attempt = 0) {
+        const response = await fetch(url2, {
           ...init,
           headers: { ...this.headers(), ...init.headers || {} },
           signal: AbortSignal.timeout(12e3)
         });
         if (!response.ok && RETRYABLE_STATUSES2.has(response.status) && attempt < RETRY_DELAYS2.length) {
           await new Promise((r) => setTimeout(r, RETRY_DELAYS2[attempt]));
-          return this.request(url, init, attempt + 1);
+          return this.request(url2, init, attempt + 1);
         }
         return response;
       }
@@ -49082,8 +49600,8 @@ __export(onchain_indexer_exports, {
   getIndexedBalances: () => getIndexedBalances,
   isIndexerAvailable: () => isIndexerAvailable
 });
-async function rpc(url, method, params) {
-  const res2 = await fetch(url, {
+async function rpc(url2, method, params) {
+  const res2 = await fetch(url2, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id: 1, jsonrpc: "2.0", method, params }),
@@ -49110,19 +49628,19 @@ async function getIndexedBalances(address) {
   const holdings = [];
   const scanned = [];
   await Promise.all(Object.entries(ALCHEMY_NETS).map(async ([, cfg]) => {
-    const url = `https://${cfg.net}.g.alchemy.com/v2/${key}`;
+    const url2 = `https://${cfg.net}.g.alchemy.com/v2/${key}`;
     try {
-      const nativeHex = await rpc(url, "eth_getBalance", [address, "latest"]);
+      const nativeHex = await rpc(url2, "eth_getBalance", [address, "latest"]);
       const nativeAmt = hexToNum(nativeHex, 18);
       if (nativeAmt > 0) holdings.push({ chain: cfg.name, symbol: cfg.nativeSymbol, amount: nativeAmt });
-      const balRes = await rpc(url, "alchemy_getTokenBalances", [address, "erc20"]);
+      const balRes = await rpc(url2, "alchemy_getTokenBalances", [address, "erc20"]);
       const tokens = (balRes?.tokenBalances ?? []).filter((t) => t.tokenBalance && t.tokenBalance !== "0x" && !/^0x0+$/.test(t.tokenBalance));
       for (const t of tokens.slice(0, 40)) {
         const contract = t.contractAddress;
         let meta = _metaCache.get(contract);
         if (meta === void 0) {
           try {
-            const m = await rpc(url, "alchemy_getTokenMetadata", [contract]);
+            const m = await rpc(url2, "alchemy_getTokenMetadata", [contract]);
             meta = typeof m?.decimals === "number" && m?.symbol ? { symbol: m.symbol, decimals: m.decimals } : null;
           } catch {
             meta = null;
@@ -49180,8 +49698,8 @@ __export(onchain_balances_exports, {
   getOnchainBalances: () => getOnchainBalances,
   isValidEvmAddress: () => isValidEvmAddress
 });
-async function rpc2(url, method, params) {
-  const res2 = await fetch(url, {
+async function rpc2(url2, method, params) {
+  const res2 = await fetch(url2, {
     method: "POST",
     headers: { "Content-Type": "application/json", "User-Agent": "VEDD/1.0" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
@@ -49672,9 +50190,9 @@ function feeUsd(notionalUsd, schedule, liquidity) {
   return notionalUsd * bps / 1e4;
 }
 function roundTripCostBps(schedule, openLiquidity = "taker", closeLiquidity = "taker") {
-  const open = openLiquidity === "maker" ? schedule.makerBps : schedule.takerBps;
+  const open2 = openLiquidity === "maker" ? schedule.makerBps : schedule.takerBps;
   const close = closeLiquidity === "maker" ? schedule.makerBps : schedule.takerBps;
-  return open + close;
+  return open2 + close;
 }
 function normalizeFundingRate(rate) {
   if (!Number.isFinite(rate)) return 0;
@@ -50822,9 +51340,9 @@ async function sendTelegram(chatId, message) {
   if (!token) return { success: false, channel: "telegram", error: "TELEGRAM_BOT_TOKEN not set. Create a free bot at @BotFather on Telegram." };
   if (!chatId?.trim()) return { success: false, channel: "telegram", error: "chatId required \u2014 user must have started your bot first." };
   try {
-    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    const url2 = `https://api.telegram.org/bot${token}/sendMessage`;
     const body = JSON.stringify({ chat_id: chatId, text: message, parse_mode: "HTML" });
-    const res2 = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+    const res2 = await fetch(url2, { method: "POST", headers: { "Content-Type": "application/json" }, body });
     const data = await res2.json();
     if (!data.ok) return { success: false, channel: "telegram", error: data.description || "Telegram API error" };
     return { success: true, channel: "telegram", id: String(data.result?.message_id) };
@@ -51124,8 +51642,8 @@ function parseDollars(val) {
   return isNaN(n) ? 0 : Math.round(n * 100);
 }
 async function fetchNearestEvent(seriesTicker) {
-  const url = `${KALSHI_BASE2}/events?series_ticker=${seriesTicker}&limit=10&status=open`;
-  const res2 = await fetch(url, {
+  const url2 = `${KALSHI_BASE2}/events?series_ticker=${seriesTicker}&limit=10&status=open`;
+  const res2 = await fetch(url2, {
     headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
     signal: AbortSignal.timeout(8e3)
   });
@@ -51142,8 +51660,8 @@ async function fetchNearestEvent(seriesTicker) {
   return upcoming[0] ?? null;
 }
 async function fetchEventMarkets(eventTicker) {
-  const url = `${KALSHI_BASE2}/markets?event_ticker=${eventTicker}&limit=200`;
-  const res2 = await fetch(url, {
+  const url2 = `${KALSHI_BASE2}/markets?event_ticker=${eventTicker}&limit=200`;
+  const res2 = await fetch(url2, {
     headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
     signal: AbortSignal.timeout(1e4)
   });
@@ -51229,8 +51747,8 @@ async function getKalshiBTCEvent(currentBTCPrice, forceRefresh = false) {
   return getKalshiCryptoEvent("KXBTC", currentBTCPrice, forceRefresh);
 }
 async function getKalshiMarketStatus(ticker) {
-  const url = `${KALSHI_BASE2}/markets/${encodeURIComponent(ticker)}`;
-  const res2 = await fetch(url, {
+  const url2 = `${KALSHI_BASE2}/markets/${encodeURIComponent(ticker)}`;
+  const res2 = await fetch(url2, {
     headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
     signal: AbortSignal.timeout(8e3)
   });
@@ -51321,8 +51839,8 @@ function sma2(values, period) {
   return slice.reduce((a, b) => a + b, 0) / slice.length;
 }
 async function fetchBinanceCandles(symbol, interval, limit) {
-  const url = `${BINANCE_BASE}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-  const res2 = await fetch(url, {
+  const url2 = `${BINANCE_BASE}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  const res2 = await fetch(url2, {
     headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
     signal: AbortSignal.timeout(8e3)
   });
@@ -51338,8 +51856,8 @@ async function fetchBinanceCandles(symbol, interval, limit) {
   }));
 }
 async function fetchCoinbaseCandles(limit, product = "BTC-USD") {
-  const url = `${COINBASE_BASE}/products/${product}/candles?granularity=300`;
-  const res2 = await fetch(url, {
+  const url2 = `${COINBASE_BASE}/products/${product}/candles?granularity=300`;
+  const res2 = await fetch(url2, {
     headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
     signal: AbortSignal.timeout(8e3)
   });
@@ -51367,8 +51885,8 @@ async function fetchCandlesWithFallback(symbol, interval, limit, coinbaseProduct
   }
 }
 async function fetchYahooCandles(yahooSymbol, limit) {
-  const url = `${YAHOO_BASE}/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=5m&range=1d`;
-  const res2 = await fetch(url, {
+  const url2 = `${YAHOO_BASE}/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=5m&range=1d`;
+  const res2 = await fetch(url2, {
     headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0 (VEDD-Trading-AI/1.0)" },
     signal: AbortSignal.timeout(1e4)
   });
@@ -52208,8 +52726,8 @@ async function fetchEnsembleDailyMax(city, targetLocalDate) {
   const cacheKey = `${city.code}:${targetLocalDate}`;
   const hit = _ensembleCache.get(cacheKey);
   if (hit && Date.now() - hit.ts < ENSEMBLE_TTL_MS) return hit.members;
-  const url = `https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${city.lat}&longitude=${city.lon}&hourly=temperature_2m&models=gfs025&forecast_days=4&temperature_unit=fahrenheit&timezone=${encodeURIComponent(city.tz)}`;
-  const res2 = await fetch(url, { headers: { "User-Agent": "VEDD-Trading-AI/1.0" }, signal: AbortSignal.timeout(1e4) });
+  const url2 = `https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${city.lat}&longitude=${city.lon}&hourly=temperature_2m&models=gfs025&forecast_days=4&temperature_unit=fahrenheit&timezone=${encodeURIComponent(city.tz)}`;
+  const res2 = await fetch(url2, { headers: { "User-Agent": "VEDD-Trading-AI/1.0" }, signal: AbortSignal.timeout(1e4) });
   if (!res2.ok) throw new Error(`Open-Meteo ensemble ${res2.status}`);
   const data = await res2.json();
   const hourly = data.hourly;
@@ -53803,8 +54321,8 @@ var init_moomoo = __esm({
           return { success: true, isPaper: true };
         }
         try {
-          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
-          const res2 = await fetch(`${url}/v1/user/check`, {
+          const url2 = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+          const res2 = await fetch(`${url2}/v1/user/check`, {
             method: "GET",
             headers: { "Content-Type": "application/json" },
             signal: AbortSignal.timeout(5e3)
@@ -53836,8 +54354,8 @@ var init_moomoo = __esm({
           };
         }
         try {
-          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
-          const res2 = await fetch(`${url}/v1/accinfo/query`, {
+          const url2 = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+          const res2 = await fetch(`${url2}/v1/accinfo/query`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ acc_id: parseInt(this.connection.accountId) || 0, acc_type: 1, currency: 1 }),
@@ -53870,7 +54388,7 @@ var init_moomoo = __esm({
           return { success: true, orderId: `${orderId}_PAPER`, isPaper: true };
         }
         try {
-          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+          const url2 = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
           const body = {
             header: { req_id: orderId },
             acc_id: parseInt(this.connection.accountId) || 0,
@@ -53887,7 +54405,7 @@ var init_moomoo = __esm({
             // real trading
             remark: "VEDD_AUTO"
           };
-          const res2 = await fetch(`${url}/v1/trade/place_order`, {
+          const res2 = await fetch(`${url2}/v1/trade/place_order`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -53906,8 +54424,8 @@ var init_moomoo = __esm({
       // option quote/trade permissions enabled on the connected Futu account.
       async getOptionsChain(underlyingCode) {
         if (this.isPaperMode()) return [];
-        const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
-        const res2 = await fetch(`${url}/v1/qot/get_option_chain`, {
+        const url2 = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+        const res2 = await fetch(`${url2}/v1/qot/get_option_chain`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ owner: { market: 11, code: underlyingCode } }),
@@ -53926,7 +54444,7 @@ var init_moomoo = __esm({
           return { success: true, orderId: `${orderId}_PAPER`, isPaper: true };
         }
         try {
-          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+          const url2 = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
           const body = {
             header: { req_id: orderId },
             acc_id: parseInt(this.connection.accountId) || 0,
@@ -53940,7 +54458,7 @@ var init_moomoo = __esm({
             trd_env: 1,
             remark: "VEDD_AUTO_OPTIONS"
           };
-          const res2 = await fetch(`${url}/v1/trade/place_order`, {
+          const res2 = await fetch(`${url2}/v1/trade/place_order`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -53958,8 +54476,8 @@ var init_moomoo = __esm({
       async cancelOrder(orderId) {
         if (this.isPaperMode()) return { success: true };
         try {
-          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
-          const res2 = await fetch(`${url}/v1/trade/modify_order`, {
+          const url2 = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+          const res2 = await fetch(`${url2}/v1/trade/modify_order`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ order_id: parseInt(orderId) || 0, modify_order_op: 1, trd_env: 1 }),
@@ -56280,9 +56798,9 @@ function kellySize(modelProb, marketPrice) {
   if (f <= 0) return void 0;
   return Math.min(f * 100, 5);
 }
-async function safeGet(url, params) {
+async function safeGet(url2, params) {
   try {
-    const res2 = await axios.get(url, {
+    const res2 = await axios.get(url2, {
       params,
       timeout: 1e4,
       headers: { "User-Agent": "Mozilla/5.0 VEDD-Sports/1.0" }
@@ -56327,8 +56845,8 @@ function injuryAdjustment(injuries, sport) {
 }
 async function fetchNewsHeadlines(query) {
   try {
-    const url = `${GOOGLE_NEWS_BASE}?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
-    const res2 = await axios.get(url, { timeout: 8e3 });
+    const url2 = `${GOOGLE_NEWS_BASE}?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
+    const res2 = await axios.get(url2, { timeout: 8e3 });
     const xml = res2.data;
     const titles = [];
     const titleRegex = /<item>[\s\S]*?<title>([\s\S]*?)<\/title>/g;
@@ -57039,8 +57557,8 @@ async function buildEngines(userId, guardMap) {
     }
   }
   try {
-    const open = await storage.getOpenOptionsEngineTrades(userId);
-    engines.push({ id: "options", name: "Options Engine", state: open.length ? "running" : "no_data", evidence: open.length ? `${open.length} options position(s) currently open.` : "No running-state signal and no open options positions for this user.", lastActivityAt: null, openPositions: open.length });
+    const open2 = await storage.getOpenOptionsEngineTrades(userId);
+    engines.push({ id: "options", name: "Options Engine", state: open2.length ? "running" : "no_data", evidence: open2.length ? `${open2.length} options position(s) currently open.` : "No running-state signal and no open options positions for this user.", lastActivityAt: null, openPositions: open2.length });
   } catch {
     engines.push({ id: "options", name: "Options Engine", state: "unknown", evidence: "Options engine state could not be read.", lastActivityAt: null, openPositions: null });
   }
@@ -57050,11 +57568,11 @@ async function buildEngines(userId, guardMap) {
   return engines;
 }
 async function buildPositions(userId) {
-  const open = [];
+  const open2 = [];
   const closes = [];
   try {
     const pos = global.mt5OpenPositions?.[userId];
-    if (Array.isArray(pos)) for (const p2 of pos) open.push({
+    if (Array.isArray(pos)) for (const p2 of pos) open2.push({
       engine: "MT5",
       account: "MT5",
       symbol: p2.symbol || "?",
@@ -57070,7 +57588,7 @@ async function buildPositions(userId) {
   try {
     const { getTlAccountData: getTlAccountData2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
     const live = getTlAccountData2(userId);
-    for (const p2 of live.positions || []) open.push({
+    for (const p2 of live.positions || []) open2.push({
       engine: "TradeLocker",
       account: "TradeLocker",
       symbol: p2.symbol || p2.instrument || "?",
@@ -57088,7 +57606,7 @@ async function buildPositions(userId) {
       `SELECT symbol, direction, mode, size_usd, entry_price, opened_at FROM sol_engine_positions WHERE user_id = $1 AND status = 'open' ORDER BY opened_at DESC LIMIT 20`,
       [userId]
     );
-    for (const r of rows) open.push({
+    for (const r of rows) open2.push({
       engine: "Sol Engine",
       account: "Solana",
       symbol: r.symbol,
@@ -57109,7 +57627,7 @@ async function buildPositions(userId) {
   ];
   for (const [engine, load] of lanes) {
     const rows = await safe(load, []);
-    for (const t of rows.slice(0, 20)) open.push({
+    for (const t of rows.slice(0, 20)) open2.push({
       engine,
       account: engine.replace(" Engine", ""),
       symbol: t.symbol || t.underlying || "?",
@@ -57124,7 +57642,7 @@ async function buildPositions(userId) {
   try {
     const { getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
     const s = getKalshiEngineState2(userId);
-    for (const t of s?.openTrades || []) open.push({
+    for (const t of s?.openTrades || []) open2.push({
       engine: "Kalshi",
       account: "Kalshi",
       symbol: t.ticker || t.marketTicker || t.title || "?",
@@ -57150,7 +57668,7 @@ async function buildPositions(userId) {
     });
   } catch {
   }
-  return { open, closes };
+  return { open: open2, closes };
 }
 async function buildEngineRoom(userId) {
   const hit = cache8.get(userId);
@@ -64586,12 +65104,12 @@ async function loadTokenIndex(chainKey) {
   if (cached2 && Date.now() - at < 6 * 36e5) return cached2;
   const chain = DEFI_CHAINS[chainKey];
   const errors = [];
-  for (const url of sourcesFor(chainKey)) {
+  for (const url2 of sourcesFor(chainKey)) {
     try {
-      const res2 = await fetch(url, { signal: AbortSignal.timeout(15e3) });
+      const res2 = await fetch(url2, { signal: AbortSignal.timeout(15e3) });
       const ct = res2.headers.get("content-type") ?? "";
       if (!res2.ok || !ct.includes("json")) {
-        errors.push(`${url} -> ${res2.status} ${ct || "no content-type"}`);
+        errors.push(`${url2} -> ${res2.status} ${ct || "no content-type"}`);
         continue;
       }
       const data = await res2.json();
@@ -64602,14 +65120,14 @@ async function loadTokenIndex(chainKey) {
         if (cid === chain?.chainId) idx.set(String(t.symbol).toUpperCase(), t.address);
       }
       if (idx.size === 0) {
-        errors.push(`${url} -> parsed but 0 tokens for chainId ${chain?.chainId}`);
+        errors.push(`${url2} -> parsed but 0 tokens for chainId ${chain?.chainId}`);
         continue;
       }
       tokenIndexCache.set(chainKey, idx);
       tokenIndexLoadedAt.set(chainKey, Date.now());
       return idx;
     } catch (e) {
-      errors.push(`${url} -> ${e?.message}`);
+      errors.push(`${url2} -> ${e?.message}`);
     }
   }
   if (cached2) {
@@ -65238,10 +65756,10 @@ async function loadHotWallet(userId) {
 async function readUsdcBalance(chainKey, address) {
   try {
     const usdc = DEFI_CHAINS[chainKey]?.usdc;
-    const url = rpcUrlFor(chainKey);
-    if (!usdc || !url || !/^0x[0-9a-fA-F]{40}$/.test(address)) return null;
+    const url2 = rpcUrlFor(chainKey);
+    if (!usdc || !url2 || !/^0x[0-9a-fA-F]{40}$/.test(address)) return null;
     const data = "0x70a08231" + address.slice(2).toLowerCase().padStart(64, "0");
-    const r = await fetch(url, {
+    const r = await fetch(url2, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: usdc, data }, "latest"] }),
@@ -66330,8 +66848,8 @@ async function closePosition2(userId, trade, currentPrice, reason) {
 }
 async function manualCloseCryptoTrade(userId, tradeId) {
   try {
-    const open = await storage.getOpenCryptocomEngineTrades(userId);
-    const trade = open.find((t) => t.id === tradeId);
+    const open2 = await storage.getOpenCryptocomEngineTrades(userId);
+    const trade = open2.find((t) => t.id === tradeId);
     if (!trade) return { ok: false, error: "Trade not found or already closed" };
     const cfgForClose = await storage.getUserCryptocomEngineConfig(userId).catch(() => void 0);
     const closeChain = cfgForClose?.defiChain || "base";
@@ -66783,9 +67301,9 @@ async function executeSignalSingle(service, connection2, userId, symbol, result,
           }
           if (_rotOk && usdc != null) {
             const { getDefiPrice: getDefiPrice2 } = await Promise.resolve().then(() => (init_defi_market_data(), defi_market_data_exports));
-            const open = (await storage.getOpenCryptocomEngineTrades(userId)).filter((t) => t.venue === "defi" && t.symbol !== symbol);
+            const open2 = (await storage.getOpenCryptocomEngineTrades(userId)).filter((t) => t.venue === "defi" && t.symbol !== symbol);
             const cands = [];
-            for (const t of open) {
+            for (const t of open2) {
               const ageH = (Date.now() - new Date(t.createdAt ?? 0).getTime()) / 36e5;
               if (!(ageH >= ROTATE_AFTER_H())) continue;
               const px = t.poolAddress ? await getDefiPrice2(chain, t.poolAddress).catch(() => null) ?? 0 : 0;
@@ -67646,8 +68164,8 @@ function nyMarketOpenUTC(reference) {
   return new Date(Date.UTC(y, m - 1, d, 0, 0, 0) + utcMinutesSinceMidnight * 6e4);
 }
 function nyMarketCloseUTC(reference) {
-  const open = nyMarketOpenUTC(reference);
-  return new Date(open.getTime() + 6.5 * 60 * 6e4);
+  const open2 = nyMarketOpenUTC(reference);
+  return new Date(open2.getTime() + 6.5 * 60 * 6e4);
 }
 function isWeekday(date2) {
   const dow = date2.getUTCDay();
@@ -67655,15 +68173,15 @@ function isWeekday(date2) {
 }
 async function runOrb(service, symbol, cfg) {
   const now = /* @__PURE__ */ new Date();
-  const open = nyMarketOpenUTC(now);
-  const rangeEnd = new Date(open.getTime() + cfg.orbRangeMinutes * 6e4);
-  if (!isWeekday(now) || now < open) {
+  const open2 = nyMarketOpenUTC(now);
+  const rangeEnd = new Date(open2.getTime() + cfg.orbRangeMinutes * 6e4);
+  if (!isWeekday(now) || now < open2) {
     return { decision: "watching", reasoning: `${symbol}: market is closed \u2014 ORB needs the regular session to be open.`, score: null, price: null, dailyChangePercent: null, strategy: "orb" };
   }
   if (now < rangeEnd) {
     return { decision: "watching", reasoning: `${symbol}: opening range still forming (first ${cfg.orbRangeMinutes} min) \u2014 checking again once it closes.`, score: null, price: null, dailyChangePercent: null, strategy: "orb" };
   }
-  const bars = await service.getBars(symbol, "1Min", open, now, 500);
+  const bars = await service.getBars(symbol, "1Min", open2, now, 500);
   if (bars.length < cfg.orbRangeMinutes) {
     return { decision: "error", reasoning: `${symbol}: not enough intraday bars returned to compute the opening range.`, score: null, price: null, dailyChangePercent: null, strategy: "orb" };
   }
@@ -67996,10 +68514,10 @@ async function assembleOptionsConsensus(userId, symbol, result, cfg) {
 async function scanSymbol2(service, symbol, cfg) {
   const now = /* @__PURE__ */ new Date();
   if (cfg.sessionFilterEnabled && isWeekday(now)) {
-    const open = nyMarketOpenUTC(now);
+    const open2 = nyMarketOpenUTC(now);
     const close = nyMarketCloseUTC(now);
     const closeGuardStart = new Date(close.getTime() - cfg.avoidLastMinutesBeforeClose * 6e4);
-    if (now >= close || now < open) {
+    if (now >= close || now < open2) {
       return { decision: "watching", reasoning: `${symbol}: outside regular market hours \u2014 session filter is on.`, score: null, price: null, dailyChangePercent: null, strategy: cfg.strategyMode };
     }
     if (now >= closeGuardStart) {
@@ -70491,7 +71009,7 @@ async function runKalshiStockShadowCycle(userId) {
   const fundingBook = fundingFadeEnabled() ? await buildFundingFadeBook(markets.map((m) => m.ticker)).catch(() => null) : null;
   const actions = await getPerpCorporateActions().catch(() => []);
   const pendingCa = new Set(actions.filter((a) => a.status === "scheduled" && a.effectiveMs != null && a.effectiveMs <= Date.now() + 24 * 36e5).map((a) => a.ticker));
-  const { rows: open } = await pool.query(`SELECT strategy, underlying FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
+  const { rows: open2 } = await pool.query(`SELECT strategy, underlying FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
   const { rows: recent } = await pool.query(
     `SELECT strategy, underlying FROM kalshi_perp_shadow_trades WHERE user_id=$1 AND status='closed' AND closed_at >= now() - ($2::text || ' milliseconds')::interval`,
     [userId, String(COOLDOWN_MS2())]
@@ -70505,7 +71023,7 @@ async function runKalshiStockShadowCycle(userId) {
   const optCfg = { ...OPTIONS_CFG, minConfidence: MIN_CONF() };
   let opened = 0;
   for (const mkt of markets) {
-    if (open.length >= MAX_OPEN2()) break;
+    if (open2.length >= MAX_OPEN2()) break;
     if (!mkt.scheduleOpen || pendingCa.has(mkt.ticker)) continue;
     const symbol = `KALSHI:${mkt.ticker}`;
     const bars15 = await getPerpBars(mkt.ticker, "15m", 40).catch(() => []);
@@ -70600,9 +71118,9 @@ async function runKalshiStockShadowCycle(userId) {
     }
     const eInfo = earningsByUnderlying.get(mkt.underlying);
     for (const sig of signals) {
-      if (open.length >= MAX_OPEN2()) break;
-      if (open.filter((o) => o.strategy === sig.strategy).length >= MAX_PER_STRAT2()) continue;
-      if (open.some((o) => o.strategy === sig.strategy && o.underlying === mkt.underlying)) continue;
+      if (open2.length >= MAX_OPEN2()) break;
+      if (open2.filter((o) => o.strategy === sig.strategy).length >= MAX_PER_STRAT2()) continue;
+      if (open2.some((o) => o.strategy === sig.strategy && o.underlying === mkt.underlying)) continue;
       if (recent.some((o) => o.strategy === sig.strategy && o.underlying === mkt.underlying)) continue;
       const short = sig.direction === "short";
       const entry = short ? bid : ask;
@@ -70722,7 +71240,7 @@ async function runKalshiStockShadowCycle(userId) {
         ]
       ).catch(() => {
       });
-      open.push({ strategy: sig.strategy, underlying: mkt.underlying });
+      open2.push({ strategy: sig.strategy, underlying: mkt.underlying });
       opened++;
     }
   }
@@ -71955,8 +72473,8 @@ async function fetchEcmwfDailyMax(city, targetLocalDate, fetcher = defaultFetche
   const cacheKey = `${city.code}:${targetLocalDate}`;
   const hit = _ecmwfCache.get(cacheKey);
   if (hit && Date.now() - hit.ts < 30 * 6e4) return hit.members;
-  const url = `https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${city.lat}&longitude=${city.lon}&hourly=temperature_2m&models=ecmwf_ifs025&forecast_days=4&temperature_unit=fahrenheit&timezone=${encodeURIComponent(city.tz)}`;
-  const data = await fetcher(url);
+  const url2 = `https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${city.lat}&longitude=${city.lon}&hourly=temperature_2m&models=ecmwf_ifs025&forecast_days=4&temperature_unit=fahrenheit&timezone=${encodeURIComponent(city.tz)}`;
+  const data = await fetcher(url2);
   const members = extractMemberDailyMaxima(data?.hourly, targetLocalDate);
   if (!members.length) throw new Error("Open-Meteo ECMWF ensemble: no member maxima");
   _ecmwfCache.set(cacheKey, { members, ts: Date.now() });
@@ -72405,9 +72923,9 @@ var init_kalshi_weather_shadow = __esm({
     NOTIONAL_USD = () => num13("KALSHI_WEATHER_SHADOW_NOTIONAL_USD", 100);
     EVERY_MS3 = () => num13("KALSHI_WEATHER_SHADOW_EVERY_MIN", 30) * 6e4;
     ALL_CITY_KEYS = Object.keys(WEATHER_CITIES);
-    defaultFetcher = async (url) => {
-      const res2 = await fetch(url, { headers: { "User-Agent": "VEDD-Trading-AI/1.0" }, signal: AbortSignal.timeout(1e4) });
-      if (!res2.ok) throw new Error(`fetch ${res2.status} for ${url.split("?")[0]}`);
+    defaultFetcher = async (url2) => {
+      const res2 = await fetch(url2, { headers: { "User-Agent": "VEDD-Trading-AI/1.0" }, signal: AbortSignal.timeout(1e4) });
+      if (!res2.ok) throw new Error(`fetch ${res2.status} for ${url2.split("?")[0]}`);
       return res2.json();
     };
     _ecmwfCache = /* @__PURE__ */ new Map();
@@ -72613,8 +73131,8 @@ function configuredOddsSource() {
 }
 async function fetchOddsApiGames(league, fetcher) {
   const key = process.env.ODDS_API_KEY;
-  const url = `https://api.the-odds-api.com/v4/sports/${league.oddsApiSportKey}/odds/?apiKey=${encodeURIComponent(key)}&regions=us&markets=h2h&oddsFormat=decimal`;
-  return normalizeOddsApiPayload(await fetcher(url), league.key);
+  const url2 = `https://api.the-odds-api.com/v4/sports/${league.oddsApiSportKey}/odds/?apiKey=${encodeURIComponent(key)}&regions=us&markets=h2h&oddsFormat=decimal`;
+  return normalizeOddsApiPayload(await fetcher(url2), league.key);
 }
 async function oddspapiSportId(league, fetcher) {
   if (Date.now() - _papiSportsCache.at > 24 * 36e5) {
@@ -73128,9 +73646,9 @@ var init_kalshi_sports_shadow = __esm({
       { key: "NCAAB", kalshiSeries: "KXNCAAMBGAME", oddsApiSportKey: "basketball_ncaab", oddspapiSportSlug: "basketball" }
     ];
     BOOK_PREFERENCE = ["pinnacle", "draftkings", "fanduel", "betmgm", "bet365", "williamhill_us", "betrivers", "espnbet"];
-    defaultFetcher2 = async (url) => {
-      const res2 = await fetch(url, { headers: { "User-Agent": "VEDD-Trading-AI/1.0", Accept: "application/json" }, signal: AbortSignal.timeout(12e3) });
-      if (!res2.ok) throw new Error(`fetch ${res2.status} for ${url.split("?")[0]}`);
+    defaultFetcher2 = async (url2) => {
+      const res2 = await fetch(url2, { headers: { "User-Agent": "VEDD-Trading-AI/1.0", Accept: "application/json" }, signal: AbortSignal.timeout(12e3) });
+      if (!res2.ok) throw new Error(`fetch ${res2.status} for ${url2.split("?")[0]}`);
       return res2.json();
     };
     KALSHI_BASE3 = "https://api.elections.kalshi.com/trade-api/v2";
@@ -77876,12 +78394,12 @@ async function generateFalVideo(styledPrompt, opts) {
       return null;
     }
     const data = await result.json();
-    const url = data?.video?.url || (Array.isArray(data?.output) ? data.output[0] : void 0);
-    if (!url) {
+    const url2 = data?.video?.url || (Array.isArray(data?.output) ? data.output[0] : void 0);
+    if (!url2) {
       console.error("[fal-video] fal result had no video URL");
       return null;
     }
-    return { url, provider: `fal:${model}`, quality };
+    return { url: url2, provider: `fal:${model}`, quality };
   } catch (e) {
     console.error("[fal-video] fal error:", e.message);
     return null;
@@ -78240,9 +78758,9 @@ async function generateViaReplicate(styledPrompt, opts) {
       return null;
     }
     const output = data?.output;
-    const url = Array.isArray(output) ? output[0] : output;
-    if (!url) return null;
-    return { url, provider: `replicate:${model}`, quality };
+    const url2 = Array.isArray(output) ? output[0] : output;
+    if (!url2) return null;
+    return { url: url2, provider: `replicate:${model}`, quality };
   } catch (e) {
     console.error("[video-generation] Replicate error:", e.message);
     return null;
@@ -78956,9 +79474,9 @@ async function renderSceneViaReplicate(scene, script, aspect, presenterImage, pr
     if (poll.ok) data = await poll.json();
   }
   if (data.status !== "succeeded") throw new Error(data.status === "failed" ? `scene failed: ${String(data.error).slice(0, 200)}` : "scene timed out");
-  const url = Array.isArray(data.output) ? data.output[0] : data.output;
-  if (!url) throw new Error("scene returned no video");
-  return { url, predictionId: data.id };
+  const url2 = Array.isArray(data.output) ? data.output[0] : data.output;
+  if (!url2) throw new Error("scene returned no video");
+  return { url: url2, predictionId: data.id };
 }
 function sceneAudioPlan(hasAudio, muteScenes) {
   return hasAudio.map((h) => muteScenes ? false : h);
@@ -79551,8 +80069,8 @@ async function generateFluxImage(prompt, retriesLeft = 2) {
       return null;
     }
     const output = data?.output;
-    const url = Array.isArray(output) ? output[0] : output;
-    return url ?? null;
+    const url2 = Array.isArray(output) ? output[0] : output;
+    return url2 ?? null;
   } catch (e) {
     console.error("[image-generation] Replicate FLUX error:", e.message);
     return null;
@@ -79953,11 +80471,11 @@ function validateClipperSettings(raw) {
   return { ok: true, settings: s };
 }
 function classifySourceUrl(raw) {
-  const url = String(raw || "").trim();
-  if (!url) return { kind: "unsupported", reason: "Paste a video link first." };
+  const url2 = String(raw || "").trim();
+  if (!url2) return { kind: "unsupported", reason: "Paste a video link first." };
   let u;
   try {
-    u = new URL(url);
+    u = new URL(url2);
   } catch {
     return { kind: "unsupported", reason: "That does not look like a valid link." };
   }
@@ -80277,7 +80795,7 @@ function ytdlpClientChain(envValue) {
   const parts = String(envValue || "").split(",").map((s) => s.trim()).filter((s) => YT_CLIENT_OK.test(s));
   return parts.length ? parts.slice(0, 8) : [...YTDLP_DEFAULT_CLIENTS];
 }
-function buildYtdlpInfoArgs(url, clients, noCheckCerts2 = false, cookiesFile) {
+function buildYtdlpInfoArgs(url2, clients, noCheckCerts2 = false, cookiesFile) {
   return [
     "--no-warnings",
     "--no-playlist",
@@ -80290,10 +80808,10 @@ function buildYtdlpInfoArgs(url, clients, noCheckCerts2 = false, cookiesFile) {
     ...cookiesFile ? ["--cookies", cookiesFile] : [],
     ...noCheckCerts2 ? ["--no-check-certificates"] : [],
     "--dump-single-json",
-    url
+    url2
   ];
 }
-function buildYtdlpDownloadArgs(url, opts) {
+function buildYtdlpDownloadArgs(url2, opts) {
   return [
     "--no-warnings",
     "--no-playlist",
@@ -80319,7 +80837,7 @@ function buildYtdlpDownloadArgs(url, opts) {
     ...opts.noCheckCerts ? ["--no-check-certificates"] : [],
     "-o",
     opts.outputTemplate,
-    url
+    url2
   ];
 }
 function classifyYtdlpError(text3) {
@@ -80600,10 +81118,10 @@ function runYtdlp(args, timeoutMs, scrub = []) {
     });
   });
 }
-async function fetchYouTubeInfo(url, cookiesFile) {
+async function fetchYouTubeInfo(url2, cookiesFile) {
   const clients = ytdlpClientChain(process.env.CLIPPER_YTDLP_CLIENTS);
   const { stdout } = await runYtdlp(
-    buildYtdlpInfoArgs(url, clients, noCheckCerts(), cookiesFile),
+    buildYtdlpInfoArgs(url2, clients, noCheckCerts(), cookiesFile),
     24e4,
     [cookiesFile]
   );
@@ -80618,17 +81136,17 @@ async function fetchYouTubeInfo(url, cookiesFile) {
     lengthSec: Number(parsed.duration || 0) || void 0
   };
 }
-async function downloadYouTubeVideo(url, destDir, opts) {
+async function downloadYouTubeVideo(url2, destDir, opts) {
   const cookiesFile = writeYouTubeCookiesFile(destDir) || void 0;
   try {
-    const info2 = await fetchYouTubeInfo(url, cookiesFile);
+    const info2 = await fetchYouTubeInfo(url2, cookiesFile);
     if (info2.lengthSec && info2.lengthSec > opts.maxMinutes * 60) {
       throw new Error(`Video too long: exceeds the ${opts.maxMinutes} minute limit`);
     }
     const clients = ytdlpClientChain(process.env.CLIPPER_YTDLP_CLIENTS);
     const outputTemplate = path17.join(destDir, "source.%(ext)s");
     await runYtdlp(
-      buildYtdlpDownloadArgs(url, {
+      buildYtdlpDownloadArgs(url2, {
         outputTemplate,
         maxBytes: opts.maxBytes,
         clients,
@@ -80715,8 +81233,8 @@ async function setStep(id, stepIndex, progress2) {
   }).catch(() => {
   });
 }
-async function downloadDirect(url, dest) {
-  const res2 = await fetch(url, {
+async function downloadDirect(url2, dest) {
+  const res2 = await fetch(url2, {
     signal: AbortSignal.timeout(5 * 6e4),
     headers: { "user-agent": "Mozilla/5.0 (compatible; VEDDClipper/1.0)" },
     redirect: "follow"
@@ -81638,11 +82156,11 @@ async function apifyScrape(actorId, input) {
     return [];
   }
 }
-async function redditFetchJSON(url, headers) {
+async function redditFetchJSON(url2, headers) {
   try {
-    const res2 = await fetch(url, { headers, signal: AbortSignal.timeout(15e3) });
+    const res2 = await fetch(url2, { headers, signal: AbortSignal.timeout(15e3) });
     if (!res2.ok) {
-      console.log(`[LeadHunter] Reddit HTTP ${res2.status} for ${url}`);
+      console.log(`[LeadHunter] Reddit HTTP ${res2.status} for ${url2}`);
       return null;
     }
     const ct = res2.headers.get("content-type") || "";
@@ -81722,13 +82240,13 @@ async function scrapeTwitter() {
   const all = [];
   for (const query of queries) {
     try {
-      const url = new URL("https://api.twitter.com/2/tweets/search/recent");
-      url.searchParams.set("query", query);
-      url.searchParams.set("max_results", "10");
-      url.searchParams.set("tweet.fields", "created_at,public_metrics,author_id,text");
-      url.searchParams.set("expansions", "author_id");
-      url.searchParams.set("user.fields", "username,name,public_metrics");
-      const res2 = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
+      const url2 = new URL("https://api.twitter.com/2/tweets/search/recent");
+      url2.searchParams.set("query", query);
+      url2.searchParams.set("max_results", "10");
+      url2.searchParams.set("tweet.fields", "created_at,public_metrics,author_id,text");
+      url2.searchParams.set("expansions", "author_id");
+      url2.searchParams.set("user.fields", "username,name,public_metrics");
+      const res2 = await fetch(url2.toString(), { headers: { Authorization: `Bearer ${token}` } });
       if (res2.status === 402) {
         console.log("[LeadHunter] Twitter search requires paid plan (402) \u2014 skipping");
         break;
@@ -81774,14 +82292,14 @@ async function scrapeStockTwits() {
   ];
   const all = [];
   const seen = /* @__PURE__ */ new Set();
-  for (const url of streams) {
+  for (const url2 of streams) {
     try {
-      const res2 = await fetch(url, {
+      const res2 = await fetch(url2, {
         headers: { "User-Agent": "VEDDBuild-LeadHunter/1.0" },
         signal: AbortSignal.timeout(12e3)
       });
       if (!res2.ok) {
-        console.log(`[LeadHunter] StockTwits ${url} HTTP ${res2.status}`);
+        console.log(`[LeadHunter] StockTwits ${url2} HTTP ${res2.status}`);
         continue;
       }
       const data = await res2.json();
@@ -82339,7 +82857,7 @@ async function logStep(runDate, stepName, status, error) {
   } catch {
   }
 }
-function buildOAuthHeader(method, url, params) {
+function buildOAuthHeader(method, url2, params) {
   const apiKey = process.env.TWITTER_API_KEY;
   const apiSecret = process.env.TWITTER_API_SECRET;
   const accessToken = process.env.TWITTER_ACCESS_TOKEN;
@@ -82356,7 +82874,7 @@ function buildOAuthHeader(method, url, params) {
   const allParams = { ...params, ...oauthParams };
   const sortedKeys = Object.keys(allParams).sort();
   const paramStr = sortedKeys.map((k2) => `${encodeURIComponent(k2)}=${encodeURIComponent(allParams[k2])}`).join("&");
-  const sigBase = [method.toUpperCase(), encodeURIComponent(url), encodeURIComponent(paramStr)].join("&");
+  const sigBase = [method.toUpperCase(), encodeURIComponent(url2), encodeURIComponent(paramStr)].join("&");
   const sigKey = `${encodeURIComponent(apiSecret)}&${encodeURIComponent(accessSecret)}`;
   const signature = crypto17.createHmac("sha1", sigKey).update(sigBase).digest("base64");
   oauthParams["oauth_signature"] = signature;
@@ -82365,10 +82883,10 @@ function buildOAuthHeader(method, url, params) {
 }
 async function postTweet(text3) {
   try {
-    const url = "https://api.twitter.com/2/tweets";
-    const oauthHeader = buildOAuthHeader("POST", url, {});
+    const url2 = "https://api.twitter.com/2/tweets";
+    const oauthHeader = buildOAuthHeader("POST", url2, {});
     if (!oauthHeader) return null;
-    const res2 = await fetch(url, {
+    const res2 = await fetch(url2, {
       method: "POST",
       headers: {
         Authorization: oauthHeader,
@@ -82429,8 +82947,8 @@ async function scrapeRedditInsights(theme) {
   const headers = { "User-Agent": "VEDD-Ambassador-Prime/1.0 (trading research bot)" };
   for (const sub of subreddits) {
     try {
-      const url = `https://www.reddit.com/r/${sub}/hot.json?limit=8&raw_json=1`;
-      const res2 = await fetch(url, { headers, signal: AbortSignal.timeout(8e3) });
+      const url2 = `https://www.reddit.com/r/${sub}/hot.json?limit=8&raw_json=1`;
+      const res2 = await fetch(url2, { headers, signal: AbortSignal.timeout(8e3) });
       if (!res2.ok) continue;
       const data = await res2.json();
       const children = data?.data?.children ?? [];
@@ -85847,19 +86365,19 @@ async function runDeployment(dep) {
     await runShadowDeployment(dep, spec, sig, bars);
     return;
   }
-  const open = await getOpenStrategyTrade(dep.id);
-  if (open) {
+  const open2 = await getOpenStrategyTrade(dep.id);
+  if (open2) {
     if (dep.platform !== "mt5") {
-      const vanished = await resolveVanishedPosition(dep, open, sig.close);
+      const vanished = await resolveVanishedPosition(dep, open2, sig.close);
       if (vanished) {
         await touchDeployment(dep.id, { error: null, lastSignalAt: true });
         return;
       }
     }
-    const isLong = String(open.direction).toUpperCase() === "BUY";
-    if (spec.risk.breakevenTriggerPips && !open.breakeven_applied) {
+    const isLong = String(open2.direction).toUpperCase() === "BUY";
+    if (spec.risk.breakevenTriggerPips && !open2.breakeven_applied) {
       const pip = getPipSize(spec.symbol);
-      const entry = Number(open.entry_price);
+      const entry = Number(open2.entry_price);
       const trig = spec.risk.breakevenTriggerPips * pip;
       const hit = isLong ? sig.close >= entry + trig : sig.close <= entry - trig;
       if (hit && entry > 0) {
@@ -85868,8 +86386,8 @@ async function runDeployment(dep) {
         const newStop = round5(isLong ? entry + off : entry - off);
         const tpDist2 = spec.risk.takeProfitAtrMult && sig.atr ? spec.risk.takeProfitAtrMult * sig.atr : spec.risk.takeProfitPips ? spec.risk.takeProfitPips * pip : null;
         const newTp = tpDist2 ? round5(isLong ? entry + tpDist2 : entry - tpDist2) : null;
-        const moved = await dispatchBreakeven(dep, open, newStop, newTp);
-        if (moved) await markStrategyTradeBreakeven(open.id).catch(() => {
+        const moved = await dispatchBreakeven(dep, open2, newStop, newTp);
+        if (moved) await markStrategyTradeBreakeven(open2.id).catch(() => {
         });
       }
     }
@@ -85878,13 +86396,13 @@ async function runDeployment(dep) {
       await touchDeployment(dep.id, { error: null });
       return;
     }
-    const ok = await dispatchClose(dep, open);
+    const ok = await dispatchClose(dep, open2);
     if (!ok) {
       await touchDeployment(dep.id, { error: "exit dispatch failed \u2014 position may still be open, will retry next bar" });
       return;
     }
-    const pnl = tradePnl(spec, open, sig.close);
-    await closeStrategyTrade(open.id, sig.close, pnl, "exit_signal");
+    const pnl = tradePnl(spec, open2, sig.close);
+    await closeStrategyTrade(open2.id, sig.close, pnl, "exit_signal");
     await touchDeployment(dep.id, { error: null, lastSignalAt: true });
     return;
   }
@@ -85955,19 +86473,19 @@ async function getDeploymentShadowLessonState(deploymentId, force = false) {
 }
 async function runShadowDeployment(dep, spec, sig, bars) {
   const bar = bars[bars.length - 1];
-  const open = await getOpenStrategyTrade(dep.id);
+  const open2 = await getOpenStrategyTrade(dep.id);
   let position = null;
-  if (open) {
-    const entry = Number(open.entry_price) || 0;
+  if (open2) {
+    const entry = Number(open2.entry_price) || 0;
     position = {
-      direction: String(open.direction).toUpperCase() === "SELL" ? "SELL" : "BUY",
+      direction: String(open2.direction).toUpperCase() === "SELL" ? "SELL" : "BUY",
       entryPrice: entry,
-      stopLoss: open.stop_loss != null ? Number(open.stop_loss) : null,
-      takeProfit: open.take_profit != null ? Number(open.take_profit) : null,
-      extremePrice: open.extreme_price != null ? Number(open.extreme_price) : entry,
-      breakevenApplied: !!open.breakeven_applied,
-      riskDist: open.risk_price_dist != null ? Number(open.risk_price_dist) : null,
-      volume: Number(open.volume) || spec.risk.lotSize
+      stopLoss: open2.stop_loss != null ? Number(open2.stop_loss) : null,
+      takeProfit: open2.take_profit != null ? Number(open2.take_profit) : null,
+      extremePrice: open2.extreme_price != null ? Number(open2.extreme_price) : entry,
+      breakevenApplied: !!open2.breakeven_applied,
+      riskDist: open2.risk_price_dist != null ? Number(open2.risk_price_dist) : null,
+      volume: Number(open2.volume) || spec.risk.lotSize
     };
   }
   if (!position) {
@@ -85998,7 +86516,7 @@ async function runShadowDeployment(dep, spec, sig, bars) {
     }
   }
   let entriesAllowed = true;
-  if (!open && spec.risk.maxTradesPerDay && spec.risk.maxTradesPerDay > 0) {
+  if (!open2 && spec.risk.maxTradesPerDay && spec.risk.maxTradesPerDay > 0) {
     const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { rows } = await pool2.query(
       `SELECT COUNT(*)::int AS n FROM strategy_trades WHERE deployment_id=$1 AND mode='shadow' AND opened_at::date = CURRENT_DATE`,
@@ -86021,11 +86539,11 @@ async function runShadowDeployment(dep, spec, sig, bars) {
       extremePrice: decision.extremePrice
     });
     await touchDeployment(dep.id, { error: null, lastSignalAt: true });
-  } else if (decision.type === "close" && open) {
-    await closeStrategyTrade(open.id, decision.exitPrice, decision.pnl, decision.exitReason, decision.rMultiple);
+  } else if (decision.type === "close" && open2) {
+    await closeStrategyTrade(open2.id, decision.exitPrice, decision.pnl, decision.exitReason, decision.rMultiple);
     await touchDeployment(dep.id, { error: null, lastSignalAt: true });
-  } else if (decision.type === "update" && open) {
-    await updateStrategyTradeLevels(open.id, {
+  } else if (decision.type === "update" && open2) {
+    await updateStrategyTradeLevels(open2.id, {
       stopLoss: decision.stopLoss,
       extremePrice: decision.extremePrice,
       breakevenApplied: decision.breakevenApplied
@@ -86035,7 +86553,7 @@ async function runShadowDeployment(dep, spec, sig, bars) {
     await touchDeployment(dep.id, { error: null });
   }
 }
-async function resolveVanishedPosition(dep, open, lastClose) {
+async function resolveVanishedPosition(dep, open2, lastClose) {
   assertBrokerDispatchAllowed(dep, "resolveVanishedPosition");
   try {
     if (dep.platform === "dxtrade") {
@@ -86053,14 +86571,14 @@ async function resolveVanishedPosition(dep, open, lastClose) {
       if (!acct) return false;
       const positions = await svc.getPositions(acct).catch(() => null);
       if (!positions) return false;
-      const stillOpen = positions.some((p2) => open.platform_ref && String(p2.positionId) === String(open.platform_ref) || (p2.instrument || "").replace("/", "").toUpperCase() === open.symbol && String(p2.side).toUpperCase() === String(open.direction).toUpperCase());
+      const stillOpen = positions.some((p2) => open2.platform_ref && String(p2.positionId) === String(open2.platform_ref) || (p2.instrument || "").replace("/", "").toUpperCase() === open2.symbol && String(p2.side).toUpperCase() === String(open2.direction).toUpperCase());
       if (stillOpen) return false;
-      const since = new Date(open.opened_at).getTime() - 6e4;
+      const since = new Date(open2.opened_at).getTime() - 6e4;
       const closed = await svc.getClosedTradesWithPnl(acct, since).catch(() => []);
-      const mine = closed.find((o) => open.platform_ref && String(o.positionId) === String(open.platform_ref));
+      const mine = closed.find((o) => open2.platform_ref && String(o.positionId) === String(open2.platform_ref));
       const raw = mine ? mine.profit ?? mine.pnl ?? mine.realizedPnl ?? null : null;
       const pnl = raw != null && isFinite(Number(raw)) ? Number(raw) : null;
-      await closeStrategyTrade(open.id, Number(mine?.closePrice) || lastClose, pnl, "broker_sl_tp");
+      await closeStrategyTrade(open2.id, Number(mine?.closePrice) || lastClose, pnl, "broker_sl_tp");
       return true;
     }
     if (dep.platform === "tradelocker") {
@@ -86072,14 +86590,14 @@ async function resolveVanishedPosition(dep, open, lastClose) {
       const svc = await getOrCreateService2(conn);
       const positions = await svc.getPositionsNormalized({ fresh: true }).catch(() => null);
       if (!positions) return false;
-      const stillOpen = positions.some((p2) => open.platform_ref && String(p2.id) === String(open.platform_ref) || (p2.symbol || "").toUpperCase() === open.symbol && String(p2.direction).toUpperCase() === String(open.direction).toUpperCase());
+      const stillOpen = positions.some((p2) => open2.platform_ref && String(p2.id) === String(open2.platform_ref) || (p2.symbol || "").toUpperCase() === open2.symbol && String(p2.direction).toUpperCase() === String(open2.direction).toUpperCase());
       if (stillOpen) return false;
-      const since = new Date(open.opened_at).getTime() - 6e4;
+      const since = new Date(open2.opened_at).getTime() - 6e4;
       const closed = await svc.getClosedPositions(since).catch(() => []);
-      const mine = closed.find((o) => String(o.symbol || "").toUpperCase().replace("/", "") === open.symbol && new Date(o.closedAt ?? o.closeTime ?? o.createdAt ?? 0).getTime() >= since);
+      const mine = closed.find((o) => String(o.symbol || "").toUpperCase().replace("/", "") === open2.symbol && new Date(o.closedAt ?? o.closeTime ?? o.createdAt ?? 0).getTime() >= since);
       const raw = mine ? mine.pnl ?? mine.realizedPnl ?? mine.profit ?? null : null;
       const pnl = raw != null && isFinite(Number(raw)) ? Number(raw) : null;
-      await closeStrategyTrade(open.id, Number(mine?.closePrice ?? mine?.exitPrice) || lastClose, pnl, "broker_sl_tp");
+      await closeStrategyTrade(open2.id, Number(mine?.closePrice ?? mine?.exitPrice) || lastClose, pnl, "broker_sl_tp");
       return true;
     }
   } catch {
@@ -86087,13 +86605,13 @@ async function resolveVanishedPosition(dep, open, lastClose) {
   }
   return false;
 }
-function tradePnl(spec, open, exitPrice) {
-  const entry = Number(open.entry_price) || 0;
-  const dirSign = String(open.direction).toUpperCase() === "BUY" ? 1 : -1;
+function tradePnl(spec, open2, exitPrice) {
+  const entry = Number(open2.entry_price) || 0;
+  const dirSign = String(open2.direction).toUpperCase() === "BUY" ? 1 : -1;
   const diff = (exitPrice - entry) * dirSign;
-  const volume = Number(open.volume) || 0;
+  const volume = Number(open2.volume) || 0;
   let pnl;
-  if (open.platform === "dxtrade") {
+  if (open2.platform === "dxtrade") {
     pnl = diff * volume;
   } else {
     const cs = CONTRACT_SIZE3[spec.symbol.replace(/[^A-Z]/g, "")] ?? 1e5;
@@ -86182,7 +86700,7 @@ async function dispatchOpen(dep, spec, direction, stopLoss, takeProfit, refPrice
   }
   return null;
 }
-async function dispatchClose(dep, open) {
+async function dispatchClose(dep, open2) {
   assertBrokerDispatchAllowed(dep, "dispatchClose");
   try {
     if (dep.platform === "mt5") {
@@ -86190,8 +86708,8 @@ async function dispatchClose(dep, open) {
       broadcastMT5Signal2(dep.userId, {
         id: `wiz_close_${dep.id}_${Date.now()}`,
         timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-        symbol: open.symbol,
-        direction: open.direction,
+        symbol: open2.symbol,
+        direction: open2.direction,
         action: "CLOSE",
         lotSize: 0,
         entryPrice: null,
@@ -86216,10 +86734,10 @@ async function dispatchClose(dep, open) {
       if (!conn) return false;
       const r = await executeMT5SignalOnTradeLocker2(conn, {
         action: "CLOSE",
-        symbol: open.symbol,
-        direction: open.direction,
+        symbol: open2.symbol,
+        direction: open2.direction,
         volume: 0,
-        positionId: open.platform_ref || void 0,
+        positionId: open2.platform_ref || void 0,
         closeReason: "wizard strategy exit rule"
       });
       return !!r.success;
@@ -86234,9 +86752,9 @@ async function dispatchClose(dep, open) {
       const { executeSignalOnDxtrade: executeSignalOnDxtrade2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
       const r = await executeSignalOnDxtrade2(rows[0], {
         action: "CLOSE",
-        symbol: open.symbol,
-        direction: open.direction,
-        positionCode: open.platform_ref || void 0
+        symbol: open2.symbol,
+        direction: open2.direction,
+        positionCode: open2.platform_ref || void 0
       });
       return !!r.success;
     }
@@ -86245,7 +86763,7 @@ async function dispatchClose(dep, open) {
   }
   return false;
 }
-async function dispatchBreakeven(dep, open, newStop, newTp) {
+async function dispatchBreakeven(dep, open2, newStop, newTp) {
   assertBrokerDispatchAllowed(dep, "dispatchBreakeven");
   try {
     if (dep.platform === "mt5") {
@@ -86253,8 +86771,8 @@ async function dispatchBreakeven(dep, open, newStop, newTp) {
       broadcastMT5Signal2(dep.userId, {
         id: `wiz_be_${dep.id}_${Date.now()}`,
         timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-        symbol: open.symbol,
-        direction: open.direction,
+        symbol: open2.symbol,
+        direction: open2.direction,
         action: "MODIFY",
         lotSize: 0,
         entryPrice: null,
@@ -86278,10 +86796,10 @@ async function dispatchBreakeven(dep, open, newStop, newTp) {
       if (!conn) return false;
       const r = await executeMT5SignalOnTradeLocker2(conn, {
         action: "MODIFY",
-        symbol: open.symbol,
-        direction: open.direction,
+        symbol: open2.symbol,
+        direction: open2.direction,
         volume: 0,
-        positionId: open.platform_ref || void 0,
+        positionId: open2.platform_ref || void 0,
         stopLoss: newStop,
         takeProfit: newTp ?? void 0
       });
@@ -86297,9 +86815,9 @@ async function dispatchBreakeven(dep, open, newStop, newTp) {
       const { executeSignalOnDxtrade: executeSignalOnDxtrade2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
       const r = await executeSignalOnDxtrade2(rows[0], {
         action: "MODIFY",
-        symbol: open.symbol,
-        direction: open.direction,
-        positionCode: open.platform_ref || void 0,
+        symbol: open2.symbol,
+        direction: open2.direction,
+        positionCode: open2.platform_ref || void 0,
         stopLoss: newStop,
         takeProfit: newTp ?? void 0
       });
@@ -86539,17 +87057,17 @@ async function closeCascade(t, exit, pnl, pips, hit) {
   console.log(`[fx-paper-monitor] closed #${t.id} ${t.pair} ${t.direction} @ ${exit} (${hit}) pnl ${pnl} pips ${pips}`);
 }
 async function tick2() {
-  let open;
+  let open2;
   try {
-    open = arr(await db.execute(sql16`SELECT id, user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, opened_at FROM fx_paper_trades WHERE status='open'`));
+    open2 = arr(await db.execute(sql16`SELECT id, user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, opened_at FROM fx_paper_trades WHERE status='open'`));
   } catch (e) {
     console.error("[fx-paper-monitor] load failed:", e.message);
     return;
   }
-  if (!open.length) return;
+  if (!open2.length) return;
   const barCache2 = /* @__PURE__ */ new Map();
   let closed = 0;
-  for (const t of open) {
+  for (const t of open2) {
     const pair = t.pair;
     if (!pair) continue;
     const entry = Number(t.entry_price);
@@ -86604,7 +87122,7 @@ async function tick2() {
     await closeCascade(t, exit, pnl, pips, hit).catch((e) => console.error(`[fx-paper-monitor] close #${t.id} failed:`, e.message));
     closed++;
   }
-  if (closed) console.log(`[fx-paper-monitor] tick closed ${closed}/${open.length} open paper trade(s).`);
+  if (closed) console.log(`[fx-paper-monitor] tick closed ${closed}/${open2.length} open paper trade(s).`);
   loopTick("fx-paper-monitor");
 }
 function startFxPaperMonitor() {
@@ -87241,9 +87759,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "e08416ce";
-var BUILD_BRANCH = "feat/crash-cause-hunt";
-var BUILT_AT = "2026-11-17T01:36:20.749Z";
+var BUILD_COMMIT = "218eb7f6";
+var BUILD_BRANCH = "feat/stall-capture";
+var BUILT_AT = "2026-11-17T13:19:09.978Z";
 
 // server/stripe.ts
 init_db();
@@ -91713,9 +92231,9 @@ async function registerRoutes(app2, existingServer) {
         console.error("Error writing file to disk:", writeError);
         return res2.status(500).json({ message: "Error saving file to disk" });
       }
-      const url = `/uploads/${fileName}`;
-      console.log("Returning success with URL:", url);
-      res2.json({ url });
+      const url2 = `/uploads/${fileName}`;
+      console.log("Returning success with URL:", url2);
+      res2.json({ url: url2 });
     } catch (error) {
       console.error("Upload error:", error);
       res2.status(500).json({ message: "Error uploading file" });
@@ -95428,7 +95946,7 @@ IMPORTANT:
         });
       }
       globalStore[userRefreshKey] = now;
-      const { currentPrice, high, low, open } = priceData;
+      const { currentPrice, high, low, open: open2 } = priceData;
       console.log(`EA Refresh Request: ${symbol} ${timeframe}, Price: ${currentPrice}`);
       let newsSentiment = null;
       let upcomingEvents = [];
@@ -95478,7 +95996,7 @@ Next Economic Event: ${nextEvent.event} (${nextEvent.impact} impact) at ${nextEv
       const analysisPrompt = `Analyze the current market conditions for ${symbol} on ${timeframe} timeframe.
 
 Current Price Data:
-- Open: ${open}
+- Open: ${open2}
 - High: ${high}
 - Low: ${low}
 - Current: ${currentPrice}
@@ -104711,11 +105229,11 @@ Rules:
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const limit = Math.min(parseInt(String(req.query.limit || "50"), 10) || 50, 200);
-    const [open, recent] = await Promise.all([
+    const [open2, recent] = await Promise.all([
       storage.getOpenOptionsEngineTrades(userId),
       storage.getUserOptionsEngineTrades(userId, limit)
     ]);
-    res2.json({ open, recent });
+    res2.json({ open: open2, recent });
   });
   app2.post("/api/options-brain/learn", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
@@ -105557,11 +106075,11 @@ Rules:
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const limit = Math.min(parseInt(String(req.query.limit || "50"), 10) || 50, 200);
-    const [open, recent] = await Promise.all([
+    const [open2, recent] = await Promise.all([
       storage.getOpenCryptocomEngineTrades(userId),
       storage.getUserCryptocomEngineTrades(userId, limit)
     ]);
-    res2.json({ open, recent });
+    res2.json({ open: open2, recent });
   });
   app2.get("/api/cryptocom-engine/defi-wallet", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.json({ connected: false });
@@ -109435,8 +109953,8 @@ Respond with ONLY valid JSON:
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const open = await pool2.query(`SELECT 1 FROM cryptocom_engine_trades WHERE user_id=$1 AND venue='hyperliquid' AND status IN ('open','closing') LIMIT 1`, [userId]);
-    if (open.rows.length) return res2.status(409).json({ error: "Close the open Hyperliquid trades first \u2014 the engine needs this connection to manage them." });
+    const open2 = await pool2.query(`SELECT 1 FROM cryptocom_engine_trades WHERE user_id=$1 AND venue='hyperliquid' AND status IN ('open','closing') LIMIT 1`, [userId]);
+    if (open2.rows.length) return res2.status(409).json({ error: "Close the open Hyperliquid trades first \u2014 the engine needs this connection to manage them." });
     await pool2.query(`DELETE FROM hyperliquid_connections WHERE user_id=$1`, [userId]);
     res2.json({ ok: true });
   });
@@ -110211,9 +110729,9 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
         results.push({ test: "user Anthropic", ok: false, status: "no-key", error: "No Anthropic key" });
       }
       const probes = [];
-      const rawProbe = async (label, url, init) => {
+      const rawProbe = async (label, url2, init) => {
         try {
-          const r = await fetch(url, { ...init || {}, signal: AbortSignal.timeout(2e4) });
+          const r = await fetch(url2, { ...init || {}, signal: AbortSignal.timeout(2e4) });
           const txt = await r.text().catch(() => "");
           probes.push({ probe: label, ok: true, status: r.status, bytes: txt.length });
         } catch (e) {
@@ -113943,7 +114461,7 @@ This request will not trigger a transaction or cost any fees.`;
       const userId = req.user.id;
       try {
         const { pool: _p } = await Promise.resolve().then(() => (init_db(), db_exports));
-        const [{ rows: agg }, { rows: open }, { rows: recent }, { rows: byStrat }, { rows: weeks }, { rows: st }] = await Promise.all([
+        const [{ rows: agg }, { rows: open2 }, { rows: recent }, { rows: byStrat }, { rows: weeks }, { rows: st }] = await Promise.all([
           _p.query(`SELECT count(*)::int n, count(*) FILTER (WHERE close_pnl_pct > 0)::int w, COALESCE(avg(close_pnl_pct),0)::float avg_pct,
                            COALESCE(sum(size * close_pnl_pct / 100),0)::float pnl_sol
                       FROM sol_engine_positions WHERE user_id=$1 AND mode='paper' AND status='closed' AND close_pnl_pct IS NOT NULL`, [userId]),
@@ -113976,7 +114494,7 @@ This request will not trigger a transaction or cost any fees.`;
           baseCapitalSol: Number(st[0]?.paper_base_capital) || 0,
           stats: { trades: a.n, wins: a.w, winRate: winRate2, avgPct: a.avg_pct, pnlSol: a.pnl_sol },
           readiness: { ready: a.n >= bar.trades && winRate2 >= bar.winRate && a.avg_pct > 0 && noLosingWeek, bar, progressTrades: Math.min(1, a.n / bar.trades), noLosingWeek },
-          open,
+          open: open2,
           recent,
           byStrategy: byStrat
         });
@@ -115695,8 +116213,8 @@ This request will not trigger a transaction or cost any fees.`;
   }
   async function reverseGeocode(lat, lon) {
     try {
-      const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
-      const resp = await fetch(url, {
+      const url2 = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
+      const resp = await fetch(url2, {
         headers: { "User-Agent": "VEDD-Platform/1.0 (veddbuild.com)" },
         signal: AbortSignal.timeout(4e3)
       });
@@ -120225,10 +120743,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     }
     if (process.env.TWITTER_BEARER_TOKEN) {
       try {
-        const url = new URL("https://api.twitter.com/2/tweets/search/recent");
-        url.searchParams.set("query", '("AI trading") -is:retweet lang:en');
-        url.searchParams.set("max_results", "10");
-        const r = await fetch(url.toString(), { headers: { Authorization: `Bearer ${process.env.TWITTER_BEARER_TOKEN}` } });
+        const url2 = new URL("https://api.twitter.com/2/tweets/search/recent");
+        url2.searchParams.set("query", '("AI trading") -is:retweet lang:en');
+        url2.searchParams.set("max_results", "10");
+        const r = await fetch(url2.toString(), { headers: { Authorization: `Bearer ${process.env.TWITTER_BEARER_TOKEN}` } });
         const d = await r.json();
         results.platforms.twitter = { status: r.status, count: (d.data || []).length, error: r.status === 402 ? "Requires paid Twitter plan ($100/mo Basic)" : d.errors?.[0]?.message || d.title || (r.ok ? null : "HTTP " + r.status) };
       } catch (e) {
@@ -120492,8 +121010,8 @@ function escapeHtml(str) {
 function stripHtml(html) {
   return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
-async function injectBlogSeoMeta(html, url) {
-  const match = url.match(/^\/blog\/([^/?]+)/);
+async function injectBlogSeoMeta(html, url2) {
+  const match = url2.match(/^\/blog\/([^/?]+)/);
   if (!match) return html;
   let post2;
   try {
@@ -120577,9 +121095,9 @@ async function setupVite(app2, server) {
   });
   app2.use(vite.middlewares);
   app2.use("*", async (req, res2, next) => {
-    const url = req.originalUrl;
-    if (url.startsWith("/api/")) {
-      return res2.status(404).json({ error: "Not found", path: url });
+    const url2 = req.originalUrl;
+    if (url2.startsWith("/api/")) {
+      return res2.status(404).json({ error: "Not found", path: url2 });
     }
     try {
       const clientTemplate = path22.resolve(
@@ -120593,8 +121111,8 @@ async function setupVite(app2, server) {
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
       );
-      let page = await vite.transformIndexHtml(url, template);
-      page = await injectBlogSeoMeta(page, url);
+      let page = await vite.transformIndexHtml(url2, template);
+      page = await injectBlogSeoMeta(page, url2);
       res2.status(200).set({
         "Content-Type": "text/html",
         "Cache-Control": "no-cache, no-store, must-revalidate",
