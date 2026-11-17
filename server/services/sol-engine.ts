@@ -1,4 +1,5 @@
 import { scanAndAnalyzeTokens, fetchCryptoMacroContext, type DexSource, type TokenAnalysis, type CryptoMacroContext } from '../solana-scanner';
+import { loopTick } from '../crash-heartbeat';
 import { db } from '../db';
 import { solEngineSettings, solEnginePositions } from '../../shared/schema';
 import { eq, sql } from 'drizzle-orm';
@@ -2965,6 +2966,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
   // Periodic DB save — persist settings + stats after every scan
   saveEngineState(userId, state).catch(() => {});
 
+  loopTick('sol-engine', `user ${userId}`);
   if (state.isRunning) {
     // Single-timer invariant: clear any existing timer before arming a new one so
     // a surge/orphaned invocation can never leave two steady loops running.

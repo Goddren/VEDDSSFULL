@@ -39,6 +39,8 @@
  * the generated MT5 EA, which ticks inside the terminal.
  */
 import { getWizardStrategy } from './wizard-spec-strategies';
+import { loopTick } from '../crash-heartbeat';
+import { recordProcessError } from '../process-guards';
 import {
   listRunningDeployments, touchDeployment, openStrategyTrade,
   getOpenStrategyTrade, closeStrategyTrade, markStrategyTradeBreakeven, updateStrategyTradeLevels,
@@ -63,7 +65,13 @@ let ticking = false;
 export function startStrategyRunner(): void {
   if (started) return;
   started = true;
-  setInterval(() => { tick().catch(() => {}); }, TICK_MS);
+  // Crash-hunt hardening: the catch was silent — a failing runner tick now
+  // records by name on /api/health, and each completed tick is registered.
+  setInterval(() => {
+    tick()
+      .then(() => loopTick('strategy-runner'))
+      .catch((e) => recordProcessError('guardedJob', e, 'strategy-runner'));
+  }, TICK_MS);
   console.log('[Strategy Runner] Deployment runner started (30s interval).');
 }
 

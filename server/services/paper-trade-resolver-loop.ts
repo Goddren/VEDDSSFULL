@@ -5,6 +5,7 @@
  * existed but was never called anywhere.
  */
 import { db } from '../db';
+import { loopTick } from '../crash-heartbeat';
 import { paperTrades } from '../../shared/schema';
 import { eq } from 'drizzle-orm';
 import { marketDataService } from '../market-data/service';
@@ -36,6 +37,7 @@ async function pollOnce(): Promise<void> {
     if (price === undefined) continue;
     await resolvePaperTrade(trade.id, price);
   }
+  loopTick('paper-trade-resolver');
 }
 
 export function startPaperTradeResolverLoop(): void {

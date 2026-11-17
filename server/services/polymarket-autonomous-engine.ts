@@ -13,6 +13,8 @@
  */
 
 import * as fs from 'fs';
+import { loopTick } from '../crash-heartbeat';
+import { recordProcessError } from '../process-guards';
 import * as path from 'path';
 import { getPolymarketBTCSentiment, type PolymarketMarket, type PolymarketBTCSentiment } from './polymarket';
 import { decryptPassword } from '../tradelocker';
@@ -278,8 +280,15 @@ export function startEngine(userId: number): void {
   if (s.isRunning) return;
   s.isRunning = true;
   _persistRunState(userId, true, s.isPaperMode);
-  _runScan(userId).catch(console.error);
-  const iv = setInterval(() => _runScan(userId).catch(console.error), 5 * 60 * 1000);
+  // Crash-hunt hardening: .catch(console.error) → named recording + ticks.
+  _runScan(userId)
+    .then(() => loopTick('polymarket-autonomous', `user ${userId}`))
+    .catch((e) => recordProcessError('guardedJob', e, 'polymarket-autonomous'));
+  const iv = setInterval(() => {
+    _runScan(userId)
+      .then(() => loopTick('polymarket-autonomous', `user ${userId}`))
+      .catch((e) => recordProcessError('guardedJob', e, 'polymarket-autonomous'));
+  }, 5 * 60 * 1000);
   _intervals.set(userId, iv);
 }
 

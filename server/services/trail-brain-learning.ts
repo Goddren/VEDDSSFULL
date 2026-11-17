@@ -26,6 +26,7 @@
 // real-time layer keeps applying the parameters already learned.
 
 import { pool } from '../db';
+import { loopTick } from '../crash-heartbeat';
 import { loadRuntimeState } from './runtime-state';
 import {
   adjustTrailBrainParams, defaultTrailBrainParams, ensureTrailBrainColumns, getTrailBrainStore,
@@ -297,6 +298,7 @@ export function startTrailBrainLearning(): void {
         if (!Number.isFinite(userId)) continue;
         await runTrailBrainLearningForUser(userId);
       }
+      loopTick('trail-brain-learning');
     } catch (e: any) {
       console.error('[trail-brain] sweep failed (non-fatal):', e?.message || e);
     }

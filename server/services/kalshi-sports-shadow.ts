@@ -28,6 +28,7 @@
 // KALSHI_SPORTS_ODDS=off. Owner account only, mirroring the other lanes.
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
+import { loopTick } from '../crash-heartbeat';
 import { ensureKalshiSportsShadowTables } from './ensure-kalshi-sports-shadow-tables';
 import { getKalshiMarketStatus } from './kalshi';
 import {
@@ -716,6 +717,7 @@ export function startKalshiSportsShadow(): void {
     try {
       const uid = await resolveOwnerUserId();
       if (uid) await runKalshiSportsShadowCycle(uid);
+      loopTick('kalshi-sports-shadow');
     } catch (e: any) { console.error('[kalshi-sports-shadow] tick failed (non-fatal):', e?.message ?? e); }
   };
   setTimeout(tick, 5 * 60_000).unref?.();

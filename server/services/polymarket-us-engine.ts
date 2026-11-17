@@ -9,6 +9,8 @@
 // currently lists; if none exist yet it runs live and reports "waiting for market".
 
 import { getKalshiSignal, getKalshiConsensus, type KalshiStrategy, type TradeSignal } from './kalshi-strategies';
+import { loopTick } from '../crash-heartbeat';
+import { recordProcessError } from '../process-guards';
 import { scanAllKalshiStrategies } from './kalshi-engine';
 import {
   hasPmUsCredentials, findPmUsCryptoMarket, getPmUsBbo, placePmUsOrder, testPmUsConnection, toPmUsNum,
@@ -161,8 +163,15 @@ export function startPmUsEngine(userId: number): void {
   if (s.isRunning) return;
   s.isRunning = true;
   _persistPmUsRunState(userId, true, s.isPaperMode);
-  _runScan(userId).catch(console.error);
-  _timers.set(userId, setInterval(() => _runScan(userId).catch(console.error), 5 * 60 * 1000));
+  // Crash-hunt hardening: .catch(console.error) → named recording + ticks.
+  _runScan(userId)
+    .then(() => loopTick('polymarket-us', `user ${userId}`))
+    .catch((e) => recordProcessError('guardedJob', e, 'polymarket-us'));
+  _timers.set(userId, setInterval(() => {
+    _runScan(userId)
+      .then(() => loopTick('polymarket-us', `user ${userId}`))
+      .catch((e) => recordProcessError('guardedJob', e, 'polymarket-us'));
+  }, 5 * 60 * 1000));
 }
 
 export function stopPmUsEngine(userId: number): void {

@@ -13,6 +13,7 @@
 // only ever be discovered at the moment a trade was attempted, never ahead
 // of it. Added so both platforms get the same standing visibility.
 import { storage } from '../storage';
+import { loopTick } from '../crash-heartbeat';
 import { pool } from '../db';
 import { getConsistencyStatus, ConsistencyResult } from './prop-firm-consistency';
 
@@ -85,6 +86,7 @@ async function auditDxtrade(): Promise<void> {
 async function auditOnce(): Promise<void> {
   await auditTradeLocker();
   await auditDxtrade();
+  loopTick('prop-firm-consistency-audit');
 }
 
 export function startPropFirmConsistencyAuditLoop(): void {

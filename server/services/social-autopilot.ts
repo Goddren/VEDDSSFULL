@@ -15,6 +15,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { pool } from '../db';
+import { loopTick } from '../crash-heartbeat';
 
 const OWNER = () => Number(process.env.SOCIAL_OWNER_USER_ID ?? 1);
 const SITE = () => (process.env.PUBLIC_SITE_URL || 'https://veddbuild.com').replace(/\/$/, '');
@@ -513,6 +514,7 @@ export function startSocialAutopilot(): void {
           console.log(`[social] morning email: ${r.note} (${r.count} post sets)`);
         }
       }
+      loopTick('social-autopilot');
     } catch (e: any) { console.error('[social] tick failed (non-fatal):', e?.message || e); }
   };
   setInterval(tick, 60 * 60 * 1000);

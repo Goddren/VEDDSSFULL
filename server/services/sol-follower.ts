@@ -57,6 +57,7 @@
 // (shared with the Sol shadow lane, shadow-lesson-gate.ts).
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
+import { loopTick } from '../crash-heartbeat';
 import { estimateSolRoundTripCost } from './paper-costs';
 import { trailBrainSolConsult, trailBrainDecide, stampTrailBrainTrade } from './trail-brain';
 
@@ -631,6 +632,7 @@ async function followerTick(): Promise<void> {
     const { rows } = await pool.query(`SELECT id, user_id, wallet, label, last_signature FROM sol_follower_wallets ORDER BY user_id, id`);
     for (const fw of rows) await pollWallet(fw);
     await monitorFollowerPositions();
+    loopTick('sol-follower');
   } catch (e: any) {
     console.error('[sol-follower] tick failed (non-fatal):', e?.message ?? e);
   } finally {
