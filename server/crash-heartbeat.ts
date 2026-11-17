@@ -76,7 +76,7 @@ export function loopTick(name: string, label?: string): void {
 export function getLoopRegistry(): Record<string, LoopTickRecord> {
   const out: Record<string, LoopTickRecord> = {};
   try {
-    for (const [name, rec] of loopRegistry) out[name] = { ...rec };
+    loopRegistry.forEach((rec, name) => { out[name] = { ...rec }; });
   } catch { /* never throw */ }
   return out;
 }
