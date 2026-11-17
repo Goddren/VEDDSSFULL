@@ -7022,6 +7022,231 @@ var init_storage = __esm({
   }
 });
 
+// server/process-guards.ts
+function formatError(err) {
+  try {
+    if (err instanceof Error) {
+      const stack = err.stack ? err.stack.split("\n").slice(0, MAX_STACK_LINES).join("\n") : null;
+      return { message: err.message || String(err), stack };
+    }
+    if (typeof err === "string") return { message: err, stack: null };
+    let message;
+    try {
+      message = JSON.stringify(err);
+    } catch {
+      message = String(err);
+    }
+    return { message: message ?? String(err), stack: null };
+  } catch {
+    return { message: "unformattable error", stack: null };
+  }
+}
+function recordProcessError(type, err, job) {
+  try {
+    const { message, stack } = formatError(err);
+    const record = {
+      type,
+      message,
+      stack,
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      ...job ? { job } : {}
+    };
+    totalSinceBoot += 1;
+    recentErrors.push(record);
+    if (recentErrors.length > MAX_RECENT) recentErrors.shift();
+    console.error(
+      `[process-guard] ${type}${job ? ` in job "${job}"` : ""} \u2014 RECORDED, process kept alive (#${totalSinceBoot} since boot). Fix the cause; do not rely on this net.
+  message: ${message}
+` + (stack ? `  stack: ${stack.split("\n").join("\n  ")}` : "  stack: (none)")
+    );
+    try {
+      void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => {
+        try {
+          m.saveRuntimeState("process_errors", "latest", record);
+        } catch {
+        }
+      }).catch(() => {
+      });
+    } catch {
+    }
+  } catch {
+    try {
+      console.error("[process-guard] recordProcessError itself failed (suppressed)");
+    } catch {
+    }
+  }
+}
+function installProcessGuards() {
+  if (installed) return;
+  installed = true;
+  process.on("unhandledRejection", (reason) => {
+    recordProcessError("unhandledRejection", reason);
+  });
+  process.on("uncaughtException", (err) => {
+    recordProcessError("uncaughtException", err);
+  });
+  console.log(
+    `[boot] process started pid=${process.pid} at=${(/* @__PURE__ */ new Date()).toISOString()} \u2014 process guards installed: unhandledRejection/uncaughtException are logged + recorded on /api/health, never exit.`
+  );
+}
+function toMB(bytes) {
+  return Math.round(bytes / 1048576 * 10) / 10;
+}
+function takeMemorySample() {
+  try {
+    const m = process.memoryUsage();
+    return {
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      uptimeSeconds: Math.round(process.uptime()),
+      rssMB: toMB(m.rss),
+      heapUsedMB: toMB(m.heapUsed),
+      heapTotalMB: toMB(m.heapTotal),
+      externalMB: toMB(m.external)
+    };
+  } catch {
+    return null;
+  }
+}
+function currentBootRecord() {
+  const samples = memorySamples.slice(-MEMORY_PERSIST_SAMPLES);
+  return {
+    bootedAt: PROCESS_BOOTED_AT,
+    pid: process.pid,
+    samples,
+    peakRssMB: memoryPeakRssMB,
+    lastSampleAt: samples.length ? samples[samples.length - 1].at : null
+  };
+}
+function persistMemoryTrail() {
+  try {
+    void previousBootCapture.then(() => {
+      try {
+        void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => {
+          try {
+            m.saveRuntimeState("process_memory", "latest", currentBootRecord());
+          } catch {
+          }
+        }).catch(() => {
+        });
+      } catch {
+      }
+    }).catch(() => {
+    });
+  } catch {
+  }
+}
+function sampleMemoryNow() {
+  try {
+    if (!memoryTrailActive) return;
+    const sample = takeMemorySample();
+    if (!sample) return;
+    memorySamples.push(sample);
+    if (memorySamples.length > MEMORY_RING_MAX) memorySamples.shift();
+    if (sample.rssMB > memoryPeakRssMB) memoryPeakRssMB = sample.rssMB;
+    for (const threshold of MEMORY_WARN_THRESHOLDS_MB) {
+      if (sample.rssMB >= threshold && !memoryWarnedThresholds.has(threshold)) {
+        memoryWarnedThresholds.add(threshold);
+        try {
+          console.warn(
+            `[process-guards] RSS crossed ${threshold}MB \u2014 if this process dies next, suspect the instance memory limit`
+          );
+        } catch {
+        }
+      }
+    }
+    persistMemoryTrail();
+  } catch {
+  }
+}
+function startMemoryTrail() {
+  try {
+    if (memoryTrailStarted) return;
+    memoryTrailStarted = true;
+    if (process.env.PROCESS_MEMORY_TRAIL === "off") return;
+    memoryTrailActive = true;
+    previousBootCapture = (async () => {
+      try {
+        const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+        const v = await getRuntimeStateStrict2("process_memory", "latest");
+        if (v && typeof v === "object" && typeof v.bootedAt === "string" && v.bootedAt !== PROCESS_BOOTED_AT && Array.isArray(v.samples)) {
+          previousBootRecord = {
+            bootedAt: v.bootedAt,
+            pid: typeof v.pid === "number" ? v.pid : 0,
+            samples: v.samples,
+            peakRssMB: typeof v.peakRssMB === "number" ? v.peakRssMB : 0,
+            lastSampleAt: typeof v.lastSampleAt === "string" ? v.lastSampleAt : null
+          };
+        }
+      } catch {
+      }
+    })();
+    sampleMemoryNow();
+    const timer = setInterval(sampleMemoryNow, MEMORY_SAMPLE_MS);
+    try {
+      timer.unref();
+    } catch {
+    }
+  } catch {
+  }
+}
+function safeInterval(name, ms, fn) {
+  return setInterval(() => {
+    Promise.resolve().then(fn).catch((e) => recordProcessError("guardedJob", e, name));
+  }, ms);
+}
+function safeTimeout(name, ms, fn) {
+  return setTimeout(() => {
+    Promise.resolve().then(fn).catch((e) => recordProcessError("guardedJob", e, name));
+  }, ms);
+}
+var MAX_RECENT, MAX_STACK_LINES, PROCESS_BOOTED_AT, recentErrors, totalSinceBoot, installed, MEMORY_SAMPLE_MS, MEMORY_RING_MAX, MEMORY_PERSIST_SAMPLES, MEMORY_WARN_THRESHOLDS_MB, memorySamples, memoryPeakRssMB, previousBootRecord, memoryTrailActive, memoryTrailStarted, memoryWarnedThresholds, previousBootCapture;
+var init_process_guards = __esm({
+  "server/process-guards.ts"() {
+    "use strict";
+    MAX_RECENT = 10;
+    MAX_STACK_LINES = 8;
+    PROCESS_BOOTED_AT = (/* @__PURE__ */ new Date()).toISOString();
+    recentErrors = [];
+    totalSinceBoot = 0;
+    installed = false;
+    installProcessGuards();
+    MEMORY_SAMPLE_MS = 6e4;
+    MEMORY_RING_MAX = 30;
+    MEMORY_PERSIST_SAMPLES = 10;
+    MEMORY_WARN_THRESHOLDS_MB = [400, 700];
+    memorySamples = [];
+    memoryPeakRssMB = 0;
+    previousBootRecord = null;
+    memoryTrailActive = false;
+    memoryTrailStarted = false;
+    memoryWarnedThresholds = /* @__PURE__ */ new Set();
+    previousBootCapture = Promise.resolve();
+    startMemoryTrail();
+  }
+});
+
+// server/crash-heartbeat.ts
+function loopTick(name, label) {
+  try {
+    const prev = loopRegistry.get(name);
+    loopRegistry.set(name, {
+      lastTickAt: (/* @__PURE__ */ new Date()).toISOString(),
+      label: label ?? prev?.label ?? null,
+      ticks: (prev?.ticks ?? 0) + 1
+    });
+  } catch {
+  }
+}
+var loopRegistry, previousBootCapture2;
+var init_crash_heartbeat = __esm({
+  "server/crash-heartbeat.ts"() {
+    "use strict";
+    init_process_guards();
+    loopRegistry = /* @__PURE__ */ new Map();
+    previousBootCapture2 = Promise.resolve();
+  }
+});
+
 // server/cryptocom.ts
 var cryptocom_exports = {};
 __export(cryptocom_exports, {
@@ -15669,6 +15894,7 @@ async function followerTick() {
     const { rows } = await pool.query(`SELECT id, user_id, wallet, label, last_signature FROM sol_follower_wallets ORDER BY user_id, id`);
     for (const fw of rows) await pollWallet(fw);
     await monitorFollowerPositions();
+    loopTick("sol-follower");
   } catch (e) {
     console.error("[sol-follower] tick failed (non-fatal):", e?.message ?? e);
   } finally {
@@ -15748,6 +15974,7 @@ var init_sol_follower = __esm({
   "server/services/sol-follower.ts"() {
     "use strict";
     init_db();
+    init_crash_heartbeat();
     init_paper_costs();
     init_trail_brain();
     _envInt = (n, d) => {
@@ -19238,209 +19465,6 @@ var init_tradelocker = __esm({
   }
 });
 
-// server/process-guards.ts
-function formatError(err) {
-  try {
-    if (err instanceof Error) {
-      const stack = err.stack ? err.stack.split("\n").slice(0, MAX_STACK_LINES).join("\n") : null;
-      return { message: err.message || String(err), stack };
-    }
-    if (typeof err === "string") return { message: err, stack: null };
-    let message;
-    try {
-      message = JSON.stringify(err);
-    } catch {
-      message = String(err);
-    }
-    return { message: message ?? String(err), stack: null };
-  } catch {
-    return { message: "unformattable error", stack: null };
-  }
-}
-function recordProcessError(type, err, job) {
-  try {
-    const { message, stack } = formatError(err);
-    const record = {
-      type,
-      message,
-      stack,
-      at: (/* @__PURE__ */ new Date()).toISOString(),
-      ...job ? { job } : {}
-    };
-    totalSinceBoot += 1;
-    recentErrors.push(record);
-    if (recentErrors.length > MAX_RECENT) recentErrors.shift();
-    console.error(
-      `[process-guard] ${type}${job ? ` in job "${job}"` : ""} \u2014 RECORDED, process kept alive (#${totalSinceBoot} since boot). Fix the cause; do not rely on this net.
-  message: ${message}
-` + (stack ? `  stack: ${stack.split("\n").join("\n  ")}` : "  stack: (none)")
-    );
-    try {
-      void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => {
-        try {
-          m.saveRuntimeState("process_errors", "latest", record);
-        } catch {
-        }
-      }).catch(() => {
-      });
-    } catch {
-    }
-  } catch {
-    try {
-      console.error("[process-guard] recordProcessError itself failed (suppressed)");
-    } catch {
-    }
-  }
-}
-function installProcessGuards() {
-  if (installed) return;
-  installed = true;
-  process.on("unhandledRejection", (reason) => {
-    recordProcessError("unhandledRejection", reason);
-  });
-  process.on("uncaughtException", (err) => {
-    recordProcessError("uncaughtException", err);
-  });
-  console.log(
-    `[boot] process started pid=${process.pid} at=${(/* @__PURE__ */ new Date()).toISOString()} \u2014 process guards installed: unhandledRejection/uncaughtException are logged + recorded on /api/health, never exit.`
-  );
-}
-function toMB(bytes) {
-  return Math.round(bytes / 1048576 * 10) / 10;
-}
-function takeMemorySample() {
-  try {
-    const m = process.memoryUsage();
-    return {
-      at: (/* @__PURE__ */ new Date()).toISOString(),
-      uptimeSeconds: Math.round(process.uptime()),
-      rssMB: toMB(m.rss),
-      heapUsedMB: toMB(m.heapUsed),
-      heapTotalMB: toMB(m.heapTotal),
-      externalMB: toMB(m.external)
-    };
-  } catch {
-    return null;
-  }
-}
-function currentBootRecord() {
-  const samples = memorySamples.slice(-MEMORY_PERSIST_SAMPLES);
-  return {
-    bootedAt: PROCESS_BOOTED_AT,
-    pid: process.pid,
-    samples,
-    peakRssMB: memoryPeakRssMB,
-    lastSampleAt: samples.length ? samples[samples.length - 1].at : null
-  };
-}
-function persistMemoryTrail() {
-  try {
-    void previousBootCapture.then(() => {
-      try {
-        void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => {
-          try {
-            m.saveRuntimeState("process_memory", "latest", currentBootRecord());
-          } catch {
-          }
-        }).catch(() => {
-        });
-      } catch {
-      }
-    }).catch(() => {
-    });
-  } catch {
-  }
-}
-function sampleMemoryNow() {
-  try {
-    if (!memoryTrailActive) return;
-    const sample = takeMemorySample();
-    if (!sample) return;
-    memorySamples.push(sample);
-    if (memorySamples.length > MEMORY_RING_MAX) memorySamples.shift();
-    if (sample.rssMB > memoryPeakRssMB) memoryPeakRssMB = sample.rssMB;
-    for (const threshold of MEMORY_WARN_THRESHOLDS_MB) {
-      if (sample.rssMB >= threshold && !memoryWarnedThresholds.has(threshold)) {
-        memoryWarnedThresholds.add(threshold);
-        try {
-          console.warn(
-            `[process-guards] RSS crossed ${threshold}MB \u2014 if this process dies next, suspect the instance memory limit`
-          );
-        } catch {
-        }
-      }
-    }
-    persistMemoryTrail();
-  } catch {
-  }
-}
-function startMemoryTrail() {
-  try {
-    if (memoryTrailStarted) return;
-    memoryTrailStarted = true;
-    if (process.env.PROCESS_MEMORY_TRAIL === "off") return;
-    memoryTrailActive = true;
-    previousBootCapture = (async () => {
-      try {
-        const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-        const v = await getRuntimeStateStrict2("process_memory", "latest");
-        if (v && typeof v === "object" && typeof v.bootedAt === "string" && v.bootedAt !== PROCESS_BOOTED_AT && Array.isArray(v.samples)) {
-          previousBootRecord = {
-            bootedAt: v.bootedAt,
-            pid: typeof v.pid === "number" ? v.pid : 0,
-            samples: v.samples,
-            peakRssMB: typeof v.peakRssMB === "number" ? v.peakRssMB : 0,
-            lastSampleAt: typeof v.lastSampleAt === "string" ? v.lastSampleAt : null
-          };
-        }
-      } catch {
-      }
-    })();
-    sampleMemoryNow();
-    const timer = setInterval(sampleMemoryNow, MEMORY_SAMPLE_MS);
-    try {
-      timer.unref();
-    } catch {
-    }
-  } catch {
-  }
-}
-function safeInterval(name, ms, fn) {
-  return setInterval(() => {
-    Promise.resolve().then(fn).catch((e) => recordProcessError("guardedJob", e, name));
-  }, ms);
-}
-function safeTimeout(name, ms, fn) {
-  return setTimeout(() => {
-    Promise.resolve().then(fn).catch((e) => recordProcessError("guardedJob", e, name));
-  }, ms);
-}
-var MAX_RECENT, MAX_STACK_LINES, PROCESS_BOOTED_AT, recentErrors, totalSinceBoot, installed, MEMORY_SAMPLE_MS, MEMORY_RING_MAX, MEMORY_PERSIST_SAMPLES, MEMORY_WARN_THRESHOLDS_MB, memorySamples, memoryPeakRssMB, previousBootRecord, memoryTrailActive, memoryTrailStarted, memoryWarnedThresholds, previousBootCapture;
-var init_process_guards = __esm({
-  "server/process-guards.ts"() {
-    "use strict";
-    MAX_RECENT = 10;
-    MAX_STACK_LINES = 8;
-    PROCESS_BOOTED_AT = (/* @__PURE__ */ new Date()).toISOString();
-    recentErrors = [];
-    totalSinceBoot = 0;
-    installed = false;
-    installProcessGuards();
-    MEMORY_SAMPLE_MS = 6e4;
-    MEMORY_RING_MAX = 30;
-    MEMORY_PERSIST_SAMPLES = 10;
-    MEMORY_WARN_THRESHOLDS_MB = [400, 700];
-    memorySamples = [];
-    memoryPeakRssMB = 0;
-    previousBootRecord = null;
-    memoryTrailActive = false;
-    memoryTrailStarted = false;
-    memoryWarnedThresholds = /* @__PURE__ */ new Set();
-    previousBootCapture = Promise.resolve();
-    startMemoryTrail();
-  }
-});
-
 // server/services/signal-confidence.ts
 var signal_confidence_exports = {};
 __export(signal_confidence_exports, {
@@ -20150,6 +20174,7 @@ function startTradeLockerSync() {
   if (started) return;
   started = true;
   safeInterval("tradelocker-sync", SYNC_INTERVAL_MS, async () => {
+    loopTick("tradelocker-sync");
     const now = Date.now();
     for (const [userId, seenAt] of Array.from(activeUsers.entries())) {
       if (now - seenAt > ACTIVE_WINDOW_MS) {
@@ -20169,6 +20194,7 @@ var init_tradelocker_sync = __esm({
   "server/services/tradelocker-sync.ts"() {
     "use strict";
     init_storage();
+    init_crash_heartbeat();
     init_pipUtils();
     init_tradelocker();
     init_prop_firm_consistency();
@@ -25005,7 +25031,9 @@ async function scanMarkets(userId) {
       }])
     );
     if (triggerPairs.length > 0) {
-      setTimeout(() => scanMarkets(userId), 12e3);
+      setTimeout(() => {
+        scanMarkets(userId).catch((err) => recordProcessError("guardedJob", err, "fx-engine-scan-triggered"));
+      }, 12e3);
     }
     const analyzedPairs = Object.keys(marketAnalysis);
     if (analyzedPairs.length === 0) {
@@ -29994,8 +30022,14 @@ function scheduleScan(userId) {
   if (!state || state.status !== "running") return;
   const interval = getAdaptiveScanInterval(state.config);
   engineTimers[userId] = setTimeout(async () => {
-    await scanMarkets(userId);
-    scheduleScan(userId);
+    try {
+      await scanMarkets(userId);
+      loopTick("fx-engine-scan", `user ${userId}`);
+    } catch (err) {
+      recordProcessError("guardedJob", err, "fx-engine-scan");
+    } finally {
+      scheduleScan(userId);
+    }
   }, interval);
 }
 function scheduleGapScanner(userId) {
@@ -30015,8 +30049,14 @@ function scheduleGapScanner(userId) {
   setTimeout(async () => {
     const latestState = engineStates[userId];
     if (!latestState || latestState.status !== "running") return;
-    await runSundayGapScanner(userId);
-    scheduleGapScanner(userId);
+    try {
+      await runSundayGapScanner(userId);
+      loopTick("fx-gap-scanner", `user ${userId}`);
+    } catch (err) {
+      recordProcessError("guardedJob", err, "fx-gap-scanner");
+    } finally {
+      scheduleGapScanner(userId);
+    }
   }, msUntilScan);
   addActivity(userId, {
     type: "info",
@@ -30669,10 +30709,15 @@ function startLiveEngine(userId, config) {
       _dayStateRestore,
       new Promise((r) => setTimeout(r, 1e4))
       // never block startup indefinitely
-    ]).then(() => scanMarkets(userId)).then(() => scheduleScan(userId));
+    ]).then(() => scanMarkets(userId)).then(() => scheduleScan(userId)).catch((err) => {
+      recordProcessError("guardedJob", err, "fx-engine-start");
+      scheduleScan(userId);
+    });
   }, 2e3);
   if (positionMonitorIntervals[userId]) clearInterval(positionMonitorIntervals[userId]);
-  positionMonitorIntervals[userId] = setInterval(() => monitorPositions(userId), 25 * 1e3);
+  positionMonitorIntervals[userId] = setInterval(() => {
+    monitorPositions(userId).then(() => loopTick("fx-position-monitor", `user ${userId}`)).catch((err) => recordProcessError("guardedJob", err, "fx-position-monitor"));
+  }, 25 * 1e3);
   scheduleGapScanner(userId);
   try {
     const loadFn = global.loadPersistedBrain;
@@ -31082,7 +31127,9 @@ function updateLiveEngineConfig(userId, updates) {
   persistEngineConfig(userId, state.config);
   if (updates.scanIntervalMs && engineIntervals[userId]) {
     clearInterval(engineIntervals[userId]);
-    engineIntervals[userId] = setInterval(() => scanMarkets(userId), state.config.scanIntervalMs);
+    engineIntervals[userId] = setInterval(() => {
+      scanMarkets(userId).then(() => loopTick("fx-engine-scan", `user ${userId}`)).catch((err) => recordProcessError("guardedJob", err, "fx-engine-scan"));
+    }, state.config.scanIntervalMs);
   }
   addActivity(userId, {
     type: "info",
@@ -31189,6 +31236,8 @@ var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
     init_session();
+    init_crash_heartbeat();
+    init_process_guards();
     init_trail_brain();
     init_pair_key();
     init_service();
@@ -41069,6 +41118,7 @@ function startCryptocomEngineScanner() {
         }
         _skippedTicks = 0;
         scanInFlight = true;
+        loopTick("crypto-scanner");
         const _t0 = Date.now();
         void hb({ tick_at: /* @__PURE__ */ new Date(), skipped_ticks: 0 });
         const SCAN_TIMEOUT_MS = 4 * 60 * 1e3;
@@ -41105,6 +41155,7 @@ var init_cryptocom_scanner = __esm({
   "server/services/cryptocom-scanner.ts"() {
     "use strict";
     init_storage();
+    init_crash_heartbeat();
     init_cryptocom();
     init_indicators();
     init_crypto_brain();

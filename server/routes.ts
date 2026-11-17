@@ -1394,6 +1394,23 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
           return await processMemoryHealth();
         } catch { return null; }
       })(),
+      // Crash-cause hunt (2026-11-16): the silent deaths kept coming with
+      // processErrors EMPTY and the memory trail FLAT (~224 MB peaks on
+      // boots that lived only ~4–7 minutes), so neither a catchable error
+      // nor memory explains them. crash-heartbeat.ts adds the missing
+      // witnesses: a registry of named loops' last ticks, a 30s heartbeat
+      // snapshot persisted to runtime_state, and a worker-thread heartbeat
+      // on its own timer. previousBoot is the dead process's final record:
+      // if its worker kept beating after its last main-thread message, the
+      // event loop was BLOCKED; if worker and main stop together, the
+      // process died/was killed; previousBoot.main.loops names the last
+      // loop that ticked before the end. Kill switch CRASH_HEARTBEAT=off.
+      processHeartbeat: await (async () => {
+        try {
+          const { processHeartbeatHealth } = await import('./crash-heartbeat');
+          return await processHeartbeatHealth();
+        } catch { return null; }
+      })(),
     });
   });
 

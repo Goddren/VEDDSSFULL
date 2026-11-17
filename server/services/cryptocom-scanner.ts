@@ -8,6 +8,7 @@
 // consistency rule, R-multiple trailing stops, Dual-Vote Consensus).
 
 import { storage } from '../storage';
+import { loopTick } from '../crash-heartbeat';
 import { CryptoComService, decryptApiSecret } from '../cryptocom';
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import type { CryptocomEngineConfig, CryptocomConnection } from '../../shared/schema';
@@ -2493,6 +2494,7 @@ export function startCryptocomEngineScanner(): void {
     }
     _skippedTicks = 0;
     scanInFlight = true;
+    loopTick('crypto-scanner');
     const _t0 = Date.now();
     void hb({ tick_at: new Date(), skipped_ticks: 0 });
 

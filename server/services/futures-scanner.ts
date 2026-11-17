@@ -10,6 +10,8 @@ import { FUTURES_INSTRUMENTS, getInstrument, calculateContractSize } from '../fu
 import { getMarkovSignal } from './markov-chain';
 import { computeOrderFlow } from './orderflow-strategy';
 import { getMoomooService, type MoomooOrderResult } from '../moomoo';
+import { loopTick } from '../crash-heartbeat';
+import { recordProcessError } from '../process-guards';
 
 // ── Default instruments to scan (most liquid) ─────────────────────────────────
 export const DEFAULT_FUTURES_SYMBOLS = ['NQ', 'ES', 'GC', 'CL', 'MNQ', 'MES'];
@@ -1366,9 +1368,20 @@ async function scanFuturesMarkets(userId: number): Promise<void> {
 function scheduleNextScan(userId: number): void {
   const state = scannerStates[userId];
   if (!state || state.status !== 'running') return;
+  // Crash-hunt hardening (2026-11-16): the re-arm used to sit AFTER the
+  // await with no catch — one rejection escaping scanFuturesMarkets (whose
+  // own catch can itself throw via addActivity) killed this user's chain
+  // permanently and silently. The re-arm now lives in `finally`, and an
+  // escaping error is recorded by name on /api/health (processErrors).
   scannerTimers[userId] = setTimeout(async () => {
-    await scanFuturesMarkets(userId);
-    scheduleNextScan(userId);
+    try {
+      await scanFuturesMarkets(userId);
+      loopTick('futures-scanner', `user ${userId}`);
+    } catch (err) {
+      recordProcessError('guardedJob', err, 'futures-scanner');
+    } finally {
+      scheduleNextScan(userId);
+    }
   }, state.config.scanIntervalMs);
 }
 
@@ -1440,9 +1453,14 @@ export function startFuturesScanner(config: FuturesScanConfig): FuturesScanState
     message: `🚀 Futures Scanner STARTED | Instruments: ${fullConfig.symbols.join(', ')} | Interval: ${fullConfig.scanIntervalMs / 1000}s | Min confidence: ${fullConfig.minConfidence}% | Auto-execute: ${fullConfig.enableAutoExecution ? 'ON' : 'OFF (signals only)'}`,
   });
 
-  // First scan after 3 seconds, then on interval
+  // First scan after 3 seconds, then on interval. Crash-hunt hardening:
+  // this used to be .then()-only — a rejected first scan meant the chain
+  // never started at all. The chain now starts from `finally` either way.
   setTimeout(() => {
-    scanFuturesMarkets(config.userId).then(() => scheduleNextScan(config.userId));
+    scanFuturesMarkets(config.userId)
+      .then(() => loopTick('futures-scanner', `user ${config.userId}`))
+      .catch((err) => recordProcessError('guardedJob', err, 'futures-scanner'))
+      .finally(() => scheduleNextScan(config.userId));
   }, 3000);
 
   return scannerStates[config.userId];

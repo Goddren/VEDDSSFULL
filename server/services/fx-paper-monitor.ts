@@ -7,6 +7,8 @@
 // paper trade against live price and closes it when its SL/TP is touched (or a
 // max-hold timeout elapses), writing a real result the brain then trains on.
 import { db } from '../db';
+import { loopTick } from '../crash-heartbeat';
+import { recordProcessError } from '../process-guards';
 import { sql } from 'drizzle-orm';
 import { marketDataService } from '../market-data/service';
 
@@ -123,6 +125,7 @@ async function tick(): Promise<void> {
     closed++;
   }
   if (closed) console.log(`[fx-paper-monitor] tick closed ${closed}/${open.length} open paper trade(s).`);
+  loopTick('fx-paper-monitor');
 }
 
 let started = false;
@@ -130,6 +133,6 @@ export function startFxPaperMonitor(): void {
   if (started) return;
   started = true;
   console.log(`[fx-paper-monitor] started — closing open FX paper trades on SL/TP every ${TICK_MS / 60000} min (max-hold ${MAX_HOLD_MS / 3600000}h).`);
-  setInterval(() => { tick().catch(e => console.error('[fx-paper-monitor] tick error:', e?.message ?? e)); }, TICK_MS);
-  setTimeout(() => { tick().catch(() => {}); }, 15000); // first pass shortly after boot
+  setInterval(() => { tick().catch(e => { console.error('[fx-paper-monitor] tick error:', e?.message ?? e); recordProcessError('guardedJob', e, 'fx-paper-monitor'); }); }, TICK_MS);
+  setTimeout(() => { tick().catch((e) => recordProcessError('guardedJob', e, 'fx-paper-monitor')); }, 15000); // first pass shortly after boot
 }

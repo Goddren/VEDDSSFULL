@@ -96,6 +96,7 @@
 // of this lane: no new data source here can place an order.
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
+import { loopTick } from '../crash-heartbeat';
 import { ensureKalshiPerpShadowTables } from './ensure-kalshi-perp-shadow-tables';
 import { trailBrainConsult, trailBrainStopPrice, stampTrailBrainTrade } from './trail-brain';
 import {
@@ -1171,6 +1172,7 @@ export function startKalshiStockShadow(): void {
     try {
       const uid = await resolveOwnerUserId();
       if (uid) await runKalshiStockShadowCycle(uid);
+      loopTick('kalshi-stock-shadow');
     } catch (e: any) { console.error('[kalshi-stock-shadow] tick failed (non-fatal):', e?.message ?? e); }
   };
   setTimeout(tick, 3 * 60_000).unref?.();

@@ -1,4 +1,6 @@
 import { sessionForHour, sameSession } from '../utils/session';
+import { loopTick } from '../crash-heartbeat';
+import { recordProcessError } from '../process-guards';
 import { trailBrainOn, trailBrainConsult, trailBrainDecide, noteTrailBrainFxGoverned, logTrailBrainDecision } from './trail-brain';
 import { lookupPairKnowledge } from '../utils/pair-key';
 import { marketDataService } from '../market-data/service';
@@ -2299,7 +2301,11 @@ async function scanMarkets(userId: number): Promise<void> {
     // triggered follow-up scan. scanMarkets() already has its own guard
     // at the top, so the setTimeout is safe to schedule unconditionally.
     if (triggerPairs.length > 0) {
-      setTimeout(() => scanMarkets(userId), 12000);
+      // Crash-hunt hardening: was a bare fire-and-forget — a rejection here
+      // surfaced only as an anonymous unhandled rejection.
+      setTimeout(() => {
+        scanMarkets(userId).catch((err) => recordProcessError('guardedJob', err, 'fx-engine-scan-triggered'));
+      }, 12000);
     }
 
     const analyzedPairs = Object.keys(marketAnalysis);
@@ -8444,9 +8450,20 @@ function scheduleScan(userId: number): void {
   const state = engineStates[userId];
   if (!state || state.status !== 'running') return;
   const interval = getAdaptiveScanInterval(state.config);
+  // Crash-hunt hardening (2026-11-16): the re-arm used to sit AFTER the
+  // await with no catch — one rejection out of scanMarkets ended this
+  // user's scan chain permanently (and, if it wedged currentlyScanning,
+  // silently). The re-arm now lives in `finally`; an escaping error is
+  // recorded by name on /api/health (processErrors).
   engineTimers[userId] = setTimeout(async () => {
-    await scanMarkets(userId);
-    scheduleScan(userId); // reschedule after scan completes
+    try {
+      await scanMarkets(userId);
+      loopTick('fx-engine-scan', `user ${userId}`);
+    } catch (err) {
+      recordProcessError('guardedJob', err, 'fx-engine-scan');
+    } finally {
+      scheduleScan(userId); // reschedule after scan completes — even on failure
+    }
   }, interval);
 }
 
@@ -8473,8 +8490,16 @@ function scheduleGapScanner(userId: number): void {
   setTimeout(async () => {
     const latestState = engineStates[userId];
     if (!latestState || latestState.status !== 'running') return;
-    await runSundayGapScanner(userId);
-    scheduleGapScanner(userId); // reschedule weekly
+    // Crash-hunt hardening: re-arm in `finally` + record escaping errors,
+    // same pattern as scheduleScan above.
+    try {
+      await runSundayGapScanner(userId);
+      loopTick('fx-gap-scanner', `user ${userId}`);
+    } catch (err) {
+      recordProcessError('guardedJob', err, 'fx-gap-scanner');
+    } finally {
+      scheduleGapScanner(userId); // reschedule weekly — even on failure
+    }
   }, msUntilScan);
 
   addActivity(userId, {
@@ -9368,13 +9393,25 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     Promise.race([
       _dayStateRestore,
       new Promise(r => setTimeout(r, 10000)), // never block startup indefinitely
-    ]).then(() => scanMarkets(userId)).then(() => scheduleScan(userId));
+    ]).then(() => scanMarkets(userId)).then(() => scheduleScan(userId))
+      // Crash-hunt hardening: was an unguarded chain — if the first scan
+      // rejected, scheduleScan never ran and the engine silently never
+      // scanned again for this user. Record it and start the chain anyway.
+      .catch((err) => {
+        recordProcessError('guardedJob', err, 'fx-engine-start');
+        scheduleScan(userId);
+      });
   }, 2000);
 
   // Fast position monitor — trailing + reversal exits every 25s (protects open
-  // positions between the slower full market scans).
+  // positions between the slower full market scans). Crash-hunt hardening:
+  // the bare interval returned monitorPositions' promise unhandled.
   if (positionMonitorIntervals[userId]) clearInterval(positionMonitorIntervals[userId]);
-  positionMonitorIntervals[userId] = setInterval(() => monitorPositions(userId), 25 * 1000);
+  positionMonitorIntervals[userId] = setInterval(() => {
+    monitorPositions(userId)
+      .then(() => loopTick('fx-position-monitor', `user ${userId}`))
+      .catch((err) => recordProcessError('guardedJob', err, 'fx-position-monitor'));
+  }, 25 * 1000);
 
   scheduleGapScanner(userId);
 
@@ -9908,7 +9945,13 @@ export function updateLiveEngineConfig(userId: number, updates: Partial<LiveEngi
 
   if (updates.scanIntervalMs && engineIntervals[userId]) {
     clearInterval(engineIntervals[userId]);
-    engineIntervals[userId] = setInterval(() => scanMarkets(userId), state.config.scanIntervalMs);
+    // Crash-hunt hardening: bare interval returned the scan promise
+    // unhandled; a rejection now records by name (interval itself survives).
+    engineIntervals[userId] = setInterval(() => {
+      scanMarkets(userId)
+        .then(() => loopTick('fx-engine-scan', `user ${userId}`))
+        .catch((err) => recordProcessError('guardedJob', err, 'fx-engine-scan'));
+    }, state.config.scanIntervalMs);
   }
 
   addActivity(userId, {

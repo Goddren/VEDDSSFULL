@@ -61,6 +61,7 @@
 // persisted) → entries halt until the next UTC day.
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
+import { loopTick } from '../crash-heartbeat';
 import { ensureKalshiPerpLiveTables } from './ensure-kalshi-perp-live-tables';
 import { trailBrainConsult, trailBrainStopPrice, stampTrailBrainTrade } from './trail-brain';
 import { ensureKalshiPerpShadowTables } from './ensure-kalshi-perp-shadow-tables';
@@ -1070,6 +1071,7 @@ export function startKalshiPerpLive(): void {
     try {
       const uid = await resolveOwnerUserId();
       if (uid) await runKalshiPerpLiveCycle(uid);
+      loopTick('kalshi-perp-live');
     } catch (e: any) { console.error('[kalshi-perp-live] tick failed (non-fatal):', e?.message ?? e); }
   };
   setTimeout(tick, 4 * 60_000).unref?.();

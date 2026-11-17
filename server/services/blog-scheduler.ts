@@ -7,6 +7,8 @@
 import { generateVeddBlogPost } from '../openai';
 import { storage } from '../storage';
 import { persistRemoteAsset } from './content-asset-store';
+import { loopTick } from '../crash-heartbeat';
+import { recordProcessError } from '../process-guards';
 
 const TARGET_UTC_DAYS = [3, 5]; // Wednesday, Friday (Date#getUTCDay())
 const RUN_HOUR_UTC = 13; // 13:00 UTC — after the 09:00 UTC ambassador-prime run
@@ -53,9 +55,19 @@ export function startBlogPostScheduler() {
     }
     const delay = next.getTime() - now.getTime();
     console.log(`[blog-scheduler] Next auto blog post at ${next.toISOString()} (in ${Math.round(delay / 60000)} min)`);
+    // Crash-hunt hardening (2026-11-16): the re-arm used to sit after the
+    // await with no guard — any escape from runScheduledBlogPost (whose own
+    // catch ends in console.error, so a throw inside that path counts)
+    // killed the scheduler permanently. Re-arm now lives in `finally`.
     setTimeout(async () => {
-      await runScheduledBlogPost();
-      scheduleNext();
+      try {
+        await runScheduledBlogPost();
+        loopTick('blog-scheduler');
+      } catch (err) {
+        recordProcessError('guardedJob', err, 'blog-scheduler');
+      } finally {
+        scheduleNext();
+      }
     }, delay);
   }
   scheduleNext();

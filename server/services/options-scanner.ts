@@ -8,6 +8,8 @@
 // the *reasoning* the engine gives, not yet a live order.
 
 import { storage } from '../storage';
+import { loopTick } from '../crash-heartbeat';
+import { recordProcessError } from '../process-guards';
 import { AlpacaService, decryptApiSecret, parseOccSymbol, type AlpacaOptionContract, type AlpacaMultiLegLeg } from '../alpaca';
 import type { OptionsEngineConfig, AlpacaConnection } from '../../shared/schema';
 import { getOrRefreshOptionsBrain } from './options-brain';
@@ -1732,6 +1734,11 @@ export function startOptionsEngineScanner(): void {
   if (started) return;
   started = true;
   const LOOP_INTERVAL_MS = 60000;
-  setInterval(() => { runOptionsEngineScan().catch(() => {}); }, LOOP_INTERVAL_MS);
+  // Crash-hunt hardening: silent catch → named recording + registry tick.
+  setInterval(() => {
+    runOptionsEngineScan()
+      .then(() => loopTick('options-scanner'))
+      .catch((e) => recordProcessError('guardedJob', e, 'options-scanner'));
+  }, LOOP_INTERVAL_MS);
   console.log('[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/order_flow/auto).');
 }

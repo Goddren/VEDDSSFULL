@@ -14,6 +14,8 @@
  */
 
 import { getKalshiCryptoEvent, getKalshiMarketStatus, isKalshiBrokerTradeable, KALSHI_SERIES_MAP, type KalshiBTCBracket, type KalshiCryptoCoin } from './kalshi';
+import { loopTick } from '../crash-heartbeat';
+import { recordProcessError } from '../process-guards';
 import {
   placeKalshiOrder, getKalshiBalance, loadKalshiCredentials, getKalshiPositions,
   getKalshiOrders, cancelKalshiOrder,
@@ -436,8 +438,16 @@ export function startKalshiEngine(userId: number): void {
   if (s.isRunning) return;
   s.isRunning = true;
   _persistKalshiRunState(userId, true, s.isPaperMode);
-  _runKalshiScan(userId).catch(console.error);
-  const iv = setInterval(() => _runKalshiScan(userId).catch(console.error), 5 * 60 * 1000);
+  // Crash-hunt hardening: .catch(console.error) left failures in the log
+  // stream only — they now record by name on /api/health + registry ticks.
+  _runKalshiScan(userId)
+    .then(() => loopTick('kalshi-engine', `user ${userId}`))
+    .catch((e) => recordProcessError('guardedJob', e, 'kalshi-engine'));
+  const iv = setInterval(() => {
+    _runKalshiScan(userId)
+      .then(() => loopTick('kalshi-engine', `user ${userId}`))
+      .catch((e) => recordProcessError('guardedJob', e, 'kalshi-engine'));
+  }, 5 * 60 * 1000);
   _timers.set(userId, iv);
   const pv = setInterval(() => {
     const st = getKalshiEngineState(userId);

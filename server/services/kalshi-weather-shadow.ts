@@ -34,6 +34,7 @@
 // stock-perp shadow lane.
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
+import { loopTick } from '../crash-heartbeat';
 import { ensureKalshiWeatherShadowTables } from './ensure-kalshi-weather-shadow-tables';
 import {
   WEATHER_CITIES, fetchEnsembleDailyMax, bucketProbFromMembers, type WeatherCity,
@@ -528,6 +529,7 @@ export function startKalshiWeatherShadow(): void {
     try {
       const uid = await resolveOwnerUserId();
       if (uid) await runKalshiWeatherShadowCycle(uid);
+      loopTick('kalshi-weather-shadow');
     } catch (e: any) { console.error('[kalshi-weather-shadow] tick failed (non-fatal):', e?.message ?? e); }
   };
   setTimeout(tick, 4 * 60_000).unref?.();

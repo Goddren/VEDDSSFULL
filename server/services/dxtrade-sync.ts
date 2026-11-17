@@ -21,6 +21,8 @@
  * never fabricated from a miss (see getClosedTradesWithPnl).
  */
 import { pool } from '../db';
+import { loopTick } from '../crash-heartbeat';
+import { recordProcessError } from '../process-guards';
 import { storage } from '../storage';
 
 const SYNC_INTERVAL_MS = 90_000;
@@ -119,6 +121,11 @@ async function syncUserDxtradeOutcomes(userId: number): Promise<number> {
 export function startDxtradeSync(): void {
   if (started) return;
   started = true;
-  setInterval(() => { syncAllDxtradeOutcomes().catch(() => {}); }, SYNC_INTERVAL_MS);
+  // Crash-hunt hardening: silent catch → named recording + registry tick.
+  setInterval(() => {
+    syncAllDxtradeOutcomes()
+      .then(() => loopTick('dxtrade-sync'))
+      .catch((e) => recordProcessError('guardedJob', e, 'dxtrade-sync'));
+  }, SYNC_INTERVAL_MS);
   console.log('[DX Sync] Background DXtrade outcome sync started (90s interval).');
 }

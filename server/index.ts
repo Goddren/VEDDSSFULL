@@ -6,7 +6,8 @@
 // uncaughtException handlers (log + record + persist, never exit) and prints
 // the [boot] marker before any other module's side effects run. See
 // server/process-guards.ts for the rationale and the deliberate tradeoff.
-import "./process-guards";
+import { safeInterval } from "./process-guards";
+import { loopTick, startCrashHeartbeat } from "./crash-heartbeat";
 import express, { type Request, Response, NextFunction } from "express";
 import { createServer } from "http";
 import { registerRoutes } from "./routes";
@@ -407,15 +408,19 @@ async function withRetry<T>(
   // kept running on a frozen snapshot with no visible symptom. /api/health
   // exposes this on request; this interval logs it into Render's log stream
   // on its own, every 30 minutes, so a stall is loud even if nobody polls it.
-  setInterval(async () => {
+  // safeInterval (crash-hardening): same 30-min period and first-fire
+  // timing; an escape from the outer frame is recorded under this job's
+  // name on /api/health instead of surfacing as an anonymous rejection.
+  safeInterval('fx-brain-health', 30 * 60 * 1000, async () => {
     try {
       const { checkFxBrainHealth } = await import('./services/fx-brain');
       const h = await checkFxBrainHealth();
       if (h.stalled) console.error(`[fx-brain-watchdog] ${h.message}`);
+      loopTick('fx-brain-health');
     } catch (err: any) {
       console.error(`[fx-brain-watchdog] health check itself failed (non-fatal):`, err?.message ?? err);
     }
-  }, 30 * 60 * 1000);
+  });
 
   try {
     const { ensureSolBrainTable } = await import('./services/ensure-sol-brain-table');
@@ -1588,6 +1593,12 @@ async function withRetry<T>(
     // Start Persona Content Engine — Don Chism founder-brand, 3x/week (Mon/Wed/Fri 10:00 UTC)
     const { startPersonaContentScheduler } = await import('./services/persona-content-engine');
     startPersonaContentScheduler();
+
+    // Crash-cause hunt (2026-11-16): loop registry + 30s heartbeat +
+    // worker-thread witness, so the NEXT silent death leaves evidence —
+    // which loop ticked last, and whether the event loop was blocked or
+    // the process died. Kill switch CRASH_HEARTBEAT=off. Never throws.
+    startCrashHeartbeat();
 
     // Start auto blog post generation (runs Wed + Fri at 13:00 UTC)
     const { startBlogPostScheduler } = await import('./services/blog-scheduler');

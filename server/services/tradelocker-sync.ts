@@ -7,6 +7,7 @@
 // global.tlAccountData, plus on-demand sync hooks fired when trades open/close.
 
 import { storage } from '../storage';
+import { loopTick } from '../crash-heartbeat';
 import { computePips } from '../utils/pipUtils';
 import { getOrCreateService as tlGetOrCreateService } from '../tradelocker';
 import { recordRealizedPnl } from './prop-firm-consistency';
@@ -1003,6 +1004,7 @@ export function startTradeLockerSync(): void {
   // (clock + map iteration) was not — an escape there now gets recorded under
   // this job's name on /api/health instead of an anonymous rejection.
   safeInterval('tradelocker-sync', SYNC_INTERVAL_MS, async () => {
+    loopTick('tradelocker-sync');
     const now = Date.now();
     for (const [userId, seenAt] of Array.from(activeUsers.entries())) {
       if (now - seenAt > ACTIVE_WINDOW_MS) {
