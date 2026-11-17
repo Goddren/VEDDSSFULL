@@ -161,7 +161,7 @@ const { parentPort, workerData } = require('node:worker_threads');
 const fs = require('node:fs');
 let lastMainMessageAt = null;
 if (parentPort) {
-  parentPort.on('message', () => { lastMainMessageAt = new Date().toISOString(); });
+  parentPort.on('message', () => { lastMainMessageAt = new Date().toISOString(); beat(); });
 }
 function beat() {
   try {
