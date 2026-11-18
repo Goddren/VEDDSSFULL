@@ -517,18 +517,25 @@ export function calculateVolumeProfile(candles: CandleData[]): AdvancedIndicator
 export function computeTrueVolumeProfile(candles: CandleData[]): { poc: number; vah: number; val: number; pocStrength: number } | undefined {
   if (candles.length < 10) return undefined;
 
-  const NUM_BUCKETS = 50;
-  const priceHigh = Math.max(...candles.map(c => c.h));
-  const priceLow  = Math.min(...candles.map(c => c.l));
-  const priceRange = priceHigh - priceLow;
-  const totalVol   = candles.reduce((s, c) => s + (c.v || 0), 0);
+  // Skip candles with non-finite h/l/c/v — a single NaN/Infinity poisons the
+  // price range (Math.max/min propagate NaN) and the volume total.
+  const usable = candles.filter(c =>
+    Number.isFinite(c.h) && Number.isFinite(c.l) && Number.isFinite(c.c) &&
+    (c.v === undefined || Number.isFinite(c.v)));
+  if (usable.length < 10) return undefined;
 
-  if (priceRange <= 0 || totalVol === 0) return undefined;
+  const NUM_BUCKETS = 50;
+  const priceHigh = Math.max(...usable.map(c => c.h));
+  const priceLow  = Math.min(...usable.map(c => c.l));
+  const priceRange = priceHigh - priceLow;
+  const totalVol   = usable.reduce((s, c) => s + (c.v || 0), 0);
+
+  if (!Number.isFinite(priceRange) || !Number.isFinite(totalVol) || priceRange <= 0 || totalVol === 0) return undefined;
 
   const bucketSize = priceRange / NUM_BUCKETS;
   const buckets: number[] = new Array(NUM_BUCKETS).fill(0);
 
-  for (const candle of candles) {
+  for (const candle of usable) {
     const vol = candle.v || 0;
     if (vol === 0) continue;
     const candleRange = candle.h - candle.l;
@@ -554,17 +561,33 @@ export function computeTrueVolumeProfile(candles: CandleData[]): { poc: number; 
   const poc     = priceLow + (pocIdx + 0.5) * bucketSize;
   const pocStrength = Math.round((maxVol / totalVol) * 100);
 
-  // Value Area = 70% of total volume, expanded outward from POC
+  // Value Area = 70% of total volume, expanded outward from POC.
+  // Termination is STRUCTURAL, not data-dependent: every iteration strictly
+  // moves loIdx down or hiIdx up (an exhausted side is never re-selected),
+  // and the loop is hard-capped at NUM_BUCKETS iterations — expanding from
+  // any POC to both edges takes at most NUM_BUCKETS - 1 moves. The previous
+  // version compared neighbor volumes with an exhausted side counting as 0:
+  // with the POC at bucket 0 and bucket 1 empty it picked the low side
+  // (0 >= 0), loIdx stayed 0 and vaVol grew by 0 — an infinite loop that
+  // froze the whole process (production stall capture, 2026-11-18T00:13:34Z).
   let vaVol = maxVol;
   let loIdx = pocIdx, hiIdx = pocIdx;
-  while (vaVol < totalVol * 0.70 && (loIdx > 0 || hiIdx < NUM_BUCKETS - 1)) {
-    const loNext = loIdx > 0             ? buckets[loIdx - 1]     : 0;
-    const hiNext = hiIdx < NUM_BUCKETS-1 ? buckets[hiIdx + 1]     : 0;
-    if (loNext >= hiNext) {
-      loIdx = Math.max(0, loIdx - 1);
+  const vaTarget = totalVol * 0.70;
+  for (let iter = 0; iter < NUM_BUCKETS && vaVol < vaTarget; iter++) {
+    const canLo = loIdx > 0;
+    const canHi = hiIdx < NUM_BUCKETS - 1;
+    if (!canLo && !canHi) break;
+    const loNext = canLo ? buckets[loIdx - 1] : 0;
+    const hiNext = canHi ? buckets[hiIdx + 1] : 0;
+    if (canLo && (!canHi || loNext >= hiNext)) {
+      // Larger neighbor wins; ties prefer the low side. When the low side is
+      // the only side left it expands even into empty buckets.
+      loIdx--;
       vaVol += loNext;
     } else {
-      hiIdx = Math.min(NUM_BUCKETS - 1, hiIdx + 1);
+      // High side is larger, or the low side is exhausted — expand up, even
+      // across empty buckets, toward the volume above.
+      hiIdx++;
       vaVol += hiNext;
     }
   }
