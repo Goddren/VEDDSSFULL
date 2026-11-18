@@ -7770,15 +7770,17 @@ function calculateVolumeProfile(candles) {
 }
 function computeTrueVolumeProfile(candles) {
   if (candles.length < 10) return void 0;
+  const usable = candles.filter((c) => Number.isFinite(c.h) && Number.isFinite(c.l) && Number.isFinite(c.c) && (c.v === void 0 || Number.isFinite(c.v)));
+  if (usable.length < 10) return void 0;
   const NUM_BUCKETS = 50;
-  const priceHigh = Math.max(...candles.map((c) => c.h));
-  const priceLow = Math.min(...candles.map((c) => c.l));
+  const priceHigh = Math.max(...usable.map((c) => c.h));
+  const priceLow = Math.min(...usable.map((c) => c.l));
   const priceRange = priceHigh - priceLow;
-  const totalVol = candles.reduce((s, c) => s + (c.v || 0), 0);
-  if (priceRange <= 0 || totalVol === 0) return void 0;
+  const totalVol = usable.reduce((s, c) => s + (c.v || 0), 0);
+  if (!Number.isFinite(priceRange) || !Number.isFinite(totalVol) || priceRange <= 0 || totalVol === 0) return void 0;
   const bucketSize = priceRange / NUM_BUCKETS;
   const buckets = new Array(NUM_BUCKETS).fill(0);
-  for (const candle of candles) {
+  for (const candle of usable) {
     const vol = candle.v || 0;
     if (vol === 0) continue;
     const candleRange = candle.h - candle.l;
@@ -7801,14 +7803,18 @@ function computeTrueVolumeProfile(candles) {
   const pocStrength = Math.round(maxVol / totalVol * 100);
   let vaVol = maxVol;
   let loIdx = pocIdx, hiIdx = pocIdx;
-  while (vaVol < totalVol * 0.7 && (loIdx > 0 || hiIdx < NUM_BUCKETS - 1)) {
-    const loNext = loIdx > 0 ? buckets[loIdx - 1] : 0;
-    const hiNext = hiIdx < NUM_BUCKETS - 1 ? buckets[hiIdx + 1] : 0;
-    if (loNext >= hiNext) {
-      loIdx = Math.max(0, loIdx - 1);
+  const vaTarget = totalVol * 0.7;
+  for (let iter = 0; iter < NUM_BUCKETS && vaVol < vaTarget; iter++) {
+    const canLo = loIdx > 0;
+    const canHi = hiIdx < NUM_BUCKETS - 1;
+    if (!canLo && !canHi) break;
+    const loNext = canLo ? buckets[loIdx - 1] : 0;
+    const hiNext = canHi ? buckets[hiIdx + 1] : 0;
+    if (canLo && (!canHi || loNext >= hiNext)) {
+      loIdx--;
       vaVol += loNext;
     } else {
-      hiIdx = Math.min(NUM_BUCKETS - 1, hiIdx + 1);
+      hiIdx++;
       vaVol += hiNext;
     }
   }
