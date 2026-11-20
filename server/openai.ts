@@ -2116,6 +2116,21 @@ Return your analysis as JSON:
   };
 }
 
+// ── AI cost discipline: retry caps for CONFIRMATION clients ───────────────
+// Mirrors the kill switch in services/ai-engine-budget.ts (a local env read,
+// to keep this module decoupled from the budget store). While discipline is
+// ON (the default), clients built for trade confirmations retry at most once
+// and getAiVisionConfirmation does not fail over to a second PAID provider —
+// a failed confirmation already fails closed (the engine refuses the
+// unverified trade, exactly as it does on a 402), so retry storms and
+// cross-provider re-buys only multiplied the OpenRouter burn. With
+// AI_COST_DISCIPLINE=off every value below returns what it was before.
+// User-facing surfaces (ABBA, content, chart analysis) never call this —
+// they keep their existing retry/failover behavior.
+function confirmationMaxRetries(today: number): number {
+  return process.env.AI_COST_DISCIPLINE === 'off' ? today : 1;
+}
+
 async function callOpenAIConfirmation(prompt: { system: string; user: string }, model: string, userId?: number): Promise<string> {
   // Critical: this is the FX EA confirmation — a live trade-decision call.
   const openaiInstance = userId ? await getUniversalAIClientForUser(userId, { critical: true }) : getOpenAIInstance();
@@ -2153,7 +2168,7 @@ export function hasHiddenReasoningOverhead(modelId: string): boolean {
 
 async function callAnthropicConfirmation(prompt: { system: string; user: string }, model: string, apiKey: string): Promise<string> {
   const Anthropic = (await import('@anthropic-ai/sdk')).default;
-  const client = new Anthropic({ apiKey });
+  const client = new Anthropic({ apiKey, maxRetries: confirmationMaxRetries(2) });
   const response = await client.messages.create({
     model,
     max_tokens: 1000,
@@ -2178,7 +2193,7 @@ async function callGoogleConfirmation(prompt: { system: string; user: string }, 
 
 async function callGroqConfirmation(prompt: { system: string; user: string }, model: string, apiKey: string): Promise<string> {
   const Groq = (await import('groq-sdk')).default;
-  const client = new Groq({ apiKey });
+  const client = new Groq({ apiKey, maxRetries: confirmationMaxRetries(2) });
   const response = await client.chat.completions.create({
     model,
     messages: [
@@ -2229,7 +2244,7 @@ function extractThinkingTrace(content: string): { thinking: string | null; rest:
 // Falls back to the platform-wide key so free-tier reasoning models work
 // without every user needing their own OpenRouter account.
 async function callOpenRouterConfirmation(prompt: { system: string; user: string }, model: string, apiKey: string): Promise<{ content: string; thinking: string | null }> {
-  const client = buildOpenAICompatClient('openrouter', apiKey);
+  const client = buildOpenAICompatClient('openrouter', apiKey, { maxRetries: confirmationMaxRetries(4) });
   const reasoning = isReasoningModel(model); // true chain-of-thought models (o1/o3/R1) need temperature=1
   const response = await (client as any).chat.completions.create({
     model,
@@ -2516,7 +2531,7 @@ export async function getAiVisionConfirmation(
             confluenceGrade: confluenceResult.grade,
           };
         }
-        const visionClient = new OpenAI({ apiKey: openaiKey, maxRetries: 3, timeout: 90000 });
+        const visionClient = new OpenAI({ apiKey: openaiKey, maxRetries: confirmationMaxRetries(3), timeout: 90000 });
         const resp = await visionClient.chat.completions.create({
           model: selectedModel,
           messages: [{ role: 'system', content: prompt.system }, { role: 'user', content: prompt.user }],
@@ -2593,6 +2608,13 @@ export async function getAiVisionConfirmation(
       // hard-fail the confirmation (confirmed:false → trade blocked with no
       // recovery). On a failover-eligible error, retry ONCE on the platform
       // OpenAI vision model before giving up.
+      // AI COST DISCIPLINE: while AI_COST_DISCIPLINE is on (the default) this
+      // paid cross-provider re-buy is skipped — the failed confirmation fails
+      // closed instead, exactly as a 402 does. =off restores the failover.
+      if (process.env.AI_COST_DISCIPLINE !== 'off' && isFailoverError(branchErr)) {
+        console.warn(`[AI Vision] ${provider} failed (${branchErr?.status ?? branchErr?.message}); AI cost discipline on — no paid cross-provider failover for a confirmation, failing closed`);
+        throw branchErr;
+      }
       if (isFailoverError(branchErr) && process.env.OPENAI_API_KEY) {
         console.warn(`[AI Vision] ${provider} failed (${branchErr?.status ?? branchErr?.message}); failing over to platform OpenAI gpt-4o-mini`);
         const vc = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 3, timeout: 90000 });
@@ -3010,7 +3032,7 @@ class AnthropicAsOpenAI implements UniversalAIClient {
 }
 
 // Build an OpenAI-SDK-compatible client for Groq / Google / Mistral (all OpenAI-compatible APIs)
-function buildOpenAICompatClient(provider: string, apiKey: string): UniversalAIClient {
+function buildOpenAICompatClient(provider: string, apiKey: string, opts?: { maxRetries?: number }): UniversalAIClient {
   const baseURLs: Record<string, string> = {
     groq: 'https://api.groq.com/openai/v1',
     google: 'https://generativelanguage.googleapis.com/v1beta/openai/',
@@ -3021,10 +3043,12 @@ function buildOpenAICompatClient(provider: string, apiKey: string): UniversalAIC
   // connection drops (the SDK retries APIConnectionError); timeout caps hangs.
   // OpenRouter recommends (and some free models require) HTTP-Referer + X-Title
   // attribution headers — without them certain models reject with 400.
+  // opts.maxRetries lets CONFIRMATION callers cap retries (see
+  // confirmationMaxRetries below); everyone else keeps the default of 4.
   const defaultHeaders = provider === 'openrouter'
     ? { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' }
     : undefined;
-  const client = new OpenAI({ apiKey, baseURL: baseURLs[provider], maxRetries: 4, timeout: 90000, defaultHeaders });
+  const client = new OpenAI({ apiKey, baseURL: baseURLs[provider], maxRetries: opts?.maxRetries ?? 4, timeout: 90000, defaultHeaders });
   const wrapper = client as any;
   wrapper.defaultModel = PROVIDER_MODELS[provider];
   wrapper.provider = provider;
