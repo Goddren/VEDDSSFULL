@@ -99,8 +99,17 @@ export function createConfirmationCache(): ConfirmationCache {
     const last = lastCallAt.get(sk) ?? 0;
     if (now - last < FLOOR_MS) {
       let best: CachedVerdict | null = null;
+      const prefix = `${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ''}:`;
       for (const [ck, v] of Array.from(cache.entries())) {
-        if (!ck.startsWith(`${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ''}:`)) continue;
+        if (!ck.startsWith(prefix)) continue;
+        // The remainder after the prefix must be JUST the confidence band.
+        // Routes fold a question suffix into the direction ('BUY:breakout',
+        // 'BUY:fallback') so different confirmation types get different keys —
+        // but a plain 'BUY' prefix also matches 'BUY:breakout:16', whose
+        // remainder is 'breakout:16', not a band. Without this guard the
+        // throttle path could serve one question type's verdict for another
+        // (the exact cross-serving the suffixes exist to prevent).
+        if (!/^\d+$/.test(ck.slice(prefix.length))) continue;
         if (now - v.at > STALE_USABLE_MS) continue;
         if (!best || v.at > best.at) best = v;
       }
