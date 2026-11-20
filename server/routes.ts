@@ -10762,6 +10762,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         _cdiag.gatePassed = true;
         try {
           const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, getBreakoutConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled, isSMCStrategyEnabled, isPropFirmModeEnabled, getPropFirmContext, isBreakoutModeEnabled, isTrailingStopEnabled, setTrailingStopEnabled, hydrateBreakoutModeMap, hydrateAiVisionMap, getAiMinConfidence: _getAiMinConf } = await import('./openai');
+          // AI cost discipline (services/ai-engine-budget.ts): per-user daily
+          // spend cap for the confirmations bought below + the kill switch.
+          const _costDiscipline = await import('./services/ai-engine-budget');
+          const _logBudgetBlock = () => {
+            if (!_costDiscipline.shouldLogBudgetBlock(token.userId)) return;
+            void import('./services/guard-events').then(({ logGuard }) => logGuard(
+              token.userId, 'ai_call_failed', sanitizedSymbol,
+              `daily AI budget reached — engine AI confirmations paused until 00:00 UTC (cap $${(_costDiscipline.engineAiBudgetCents() / 100).toFixed(2)}/day, AI_ENGINE_DAILY_BUDGET_CENTS)`,
+              { reason: 'daily_ai_budget' }, 'ai',
+            )).catch(() => { /* logging only */ });
+          };
 
           // Hydrate AI Vision + breakout settings from DB BEFORE checking isAiVisionConfirmationEnabled
           // This ensures in-memory maps are warm after a server restart (cold-start fix)
@@ -10934,18 +10945,29 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 aiConfirmation = _bcHit.verdict;
                 _cdiag.stage = 'breakout_cached';
                 console.log(`[Breakout Confirmation] ${sanitizedSymbol}: reused verdict — ${_bcHit.reason}`);
-              } else {
+              } else if (await _costDiscipline.engineAiBudgetAllows(token.userId)) {
               _cdiag.stage = 'breakout_called';
               aiConfirmation = await getBreakoutConfirmation(
                 candles, analysis.indicators, analysis.signal, analysis.confidence,
                 analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
                 token.userId, multiTFCandles, propFirmCtx
               );
+              if (aiConfirmation) {
+                _costDiscipline.meterEngineAiConfirmation(token.userId, 1);
+              }
               if (aiConfirmation && Number((aiConfirmation as any).aiConfidence) > 0) {
                 _putBC(token.userId, sanitizedSymbol, sanitizedTimeframe, _bcDir, analysis.confidence, _bcPrice, aiConfirmation);
               }
+              } else {
+                // Daily AI budget reached: same fail-closed verdict shape as a
+                // 402, distinguished by aiErrorStatus 'budget' (see
+                // ai-engine-budget.ts). No call is bought.
+                aiConfirmation = _costDiscipline.engineAiBudgetVerdict();
+                _cdiag.stage = 'ai_budget_blocked';
+                _logBudgetBlock();
+                console.warn(`[AI Cost] ${sanitizedSymbol}: breakout confirmation blocked — daily AI budget reached for user ${token.userId}`);
               }
-              _cdiag.stage = _cdiag.stage === 'breakout_cached' ? 'breakout_cached' : 'breakout_returned';
+              _cdiag.stage = _cdiag.stage === 'breakout_cached' ? 'breakout_cached' : _cdiag.stage === 'ai_budget_blocked' ? 'ai_budget_blocked' : 'breakout_returned';
               _cdiag.decision = aiConfirmation ? (aiConfirmation.confirmed ? 'CONFIRMED' : 'REJECTED') : 'NULL';
               _cdiag.model = (aiConfirmation as any)?.modelUsed || (aiConfirmation as any)?.breakoutGrade || 'breakout-engine';
               // Enforce fixed TP targets in breakout mode — remove trailing stop fields entirely
@@ -10970,13 +10992,44 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   const { getLiveEngineState: _fbGetLES } = await import('./services/live-trading-engine');
                   const _fbState = _fbGetLES(token.userId);
                   const _fbStrat = _fbState?.config?.strategyMode || 'aggressive';
-                  const _visionFallback = await getAiVisionConfirmation(
-                    candles, analysis.indicators, analysis.signal, analysis.confidence,
-                    analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
-                    token.userId, undefined, undefined, undefined,
-                    htfLevels.length > 0 ? htfLevels : undefined, propFirmCtx,
-                    undefined, undefined, _fbStrat, !!_fbState?.config?.deepReasoningMode
-                  );
+                  // AI COST DISCIPLINE: this fallback used to call the vision
+                  // model directly — the one confirmation on this route with
+                  // no verdict cache and no metering. It now goes through the
+                  // same verdict cache (direction suffix ':fallback' — it
+                  // answers a leaner question than the main vision path: no
+                  // news/ICT/SMC/perf context — so the two never serve each
+                  // other's verdicts) and the same daily budget gate. With
+                  // AI_COST_DISCIPLINE=off it is exactly the old uncached,
+                  // ungated direct call.
+                  let _visionFallback: any = null;
+                  const _fbDir = `${analysis.signal}:fallback`;
+                  const _fbPrice = Number(analysis.tradePlan?.entry ?? candles?.[0]?.c ?? 0);
+                  const _fbHit = _costDiscipline.aiCostDisciplineEnabled()
+                    ? _getBC(token.userId, sanitizedSymbol, sanitizedTimeframe, _fbDir, analysis.confidence, _fbPrice)
+                    : null;
+                  if (_fbHit) {
+                    _visionFallback = _fbHit.verdict;
+                    console.log(`[Breakout Master] ${sanitizedSymbol}: vision fallback verdict reused — ${_fbHit.reason}`);
+                  } else if (await _costDiscipline.engineAiBudgetAllows(token.userId)) {
+                    _visionFallback = await getAiVisionConfirmation(
+                      candles, analysis.indicators, analysis.signal, analysis.confidence,
+                      analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
+                      token.userId, undefined, undefined, undefined,
+                      htfLevels.length > 0 ? htfLevels : undefined, propFirmCtx,
+                      undefined, undefined, _fbStrat, !!_fbState?.config?.deepReasoningMode
+                    );
+                    if (_visionFallback && !(_visionFallback as any).aiError) {
+                      _costDiscipline.meterEngineAiConfirmation(token.userId, (_visionFallback as any).deepReasoningUsed ? 2 : 1);
+                    }
+                    if (_visionFallback && Number((_visionFallback as any).aiConfidence) > 0) {
+                      _putBC(token.userId, sanitizedSymbol, sanitizedTimeframe, _fbDir, analysis.confidence, _fbPrice, _visionFallback);
+                    }
+                  } else {
+                    // Budget exhausted: keep the breakout verdict — the same
+                    // outcome as a failed fallback today.
+                    _logBudgetBlock();
+                    console.warn(`[AI Cost] ${sanitizedSymbol}: vision fallback skipped — daily AI budget reached for user ${token.userId}; keeping the breakout verdict`);
+                  }
                   if (_visionFallback) {
                     aiConfirmation = _visionFallback;
                     _cdiag.stage = 'breakout_vision_fallback';
@@ -11090,7 +11143,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 aiConfirmation = _ccHit.verdict;
                 _cdiag.stage = 'ai_cached';
                 console.log(`[AI Confirmation] ${sanitizedSymbol}: reused verdict — ${_ccHit.reason}`);
-              } else {
+              } else if (await _costDiscipline.engineAiBudgetAllows(token.userId)) {
               _cdiag.stage = 'ai_called';
               aiConfirmation = await getAiVisionConfirmation(
                 candles, analysis.indicators, analysis.signal, analysis.confidence,
@@ -11100,14 +11153,28 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 symbolPerfStats, learnedInsights, resolvedStrategyMode,
                 !!_stratEngineState?.config?.deepReasoningMode
               );
+              // Meter the answered call against the daily engine AI budget
+              // (aiError verdicts are not billed and are not metered;
+              // deep-reasoning answers cost two passes, so they meter 2).
+              if (aiConfirmation && !((aiConfirmation as any).aiError)) {
+                _costDiscipline.meterEngineAiConfirmation(token.userId, (aiConfirmation as any).deepReasoningUsed ? 2 : 1);
+              }
               // Only a REAL answer is cached. An error result (aiConfidence 0 —
               // e.g. a 402, a timeout) must never be reused: that would pin a
               // failure in place for the whole TTL instead of retrying.
               if (aiConfirmation && Number((aiConfirmation as any).aiConfidence) > 0) {
                 _putCC(token.userId, sanitizedSymbol, sanitizedTimeframe, analysis.signal, analysis.confidence, _ccPrice, aiConfirmation);
               }
+              } else {
+                // Daily AI budget reached: same fail-closed verdict shape as
+                // a 402, distinguished by aiErrorStatus 'budget' (see
+                // ai-engine-budget.ts). No call is bought, nothing is cached.
+                aiConfirmation = _costDiscipline.engineAiBudgetVerdict();
+                _cdiag.stage = 'ai_budget_blocked';
+                _logBudgetBlock();
+                console.warn(`[AI Cost] ${sanitizedSymbol}: vision confirmation blocked — daily AI budget reached for user ${token.userId}`);
               }
-              _cdiag.stage = _cdiag.stage === 'ai_cached' ? 'ai_cached' : 'ai_returned';
+              _cdiag.stage = _cdiag.stage === 'ai_cached' ? 'ai_cached' : _cdiag.stage === 'ai_budget_blocked' ? 'ai_budget_blocked' : 'ai_returned';
               if ((_cdiag as any)._candleKey) { const _ck = (_cdiag as any)._candleKey; ((globalThis as any).__chartAiCandle as Map<string, number>)?.set(_ck.k, _ck.c); }
               _cdiag.decision = aiConfirmation ? (aiConfirmation.confirmed ? 'CONFIRMED' : 'REJECTED') : 'NULL';
               _cdiag.model = (aiConfirmation as any)?.modelUsed || getUserModelPreference(token.userId);
