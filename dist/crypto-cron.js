@@ -35630,6 +35630,9 @@ Return your analysis as JSON:
 }`
   };
 }
+function confirmationMaxRetries(today) {
+  return process.env.AI_COST_DISCIPLINE === "off" ? today : 1;
+}
 async function callOpenAIConfirmation(prompt, model, userId) {
   const openaiInstance = userId ? await getUniversalAIClientForUser(userId, { critical: true }) : getOpenAIInstance();
   const resolvedModel = openaiInstance.defaultModel || model;
@@ -35654,7 +35657,7 @@ function hasHiddenReasoningOverhead(modelId) {
 }
 async function callAnthropicConfirmation(prompt, model, apiKey) {
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
-  const client2 = new Anthropic({ apiKey });
+  const client2 = new Anthropic({ apiKey, maxRetries: confirmationMaxRetries(2) });
   const response = await client2.messages.create({
     model,
     max_tokens: 1e3,
@@ -35677,7 +35680,7 @@ async function callGoogleConfirmation(prompt, model, apiKey) {
 }
 async function callGroqConfirmation(prompt, model, apiKey) {
   const Groq = (await import("groq-sdk")).default;
-  const client2 = new Groq({ apiKey });
+  const client2 = new Groq({ apiKey, maxRetries: confirmationMaxRetries(2) });
   const response = await client2.chat.completions.create({
     model,
     messages: [
@@ -35718,7 +35721,7 @@ function extractThinkingTrace(content) {
   return { thinking: match[1].trim(), rest: content.slice(match.index + match[0].length) };
 }
 async function callOpenRouterConfirmation(prompt, model, apiKey) {
-  const client2 = buildOpenAICompatClient("openrouter", apiKey);
+  const client2 = buildOpenAICompatClient("openrouter", apiKey, { maxRetries: confirmationMaxRetries(4) });
   const reasoning = isReasoningModel(model);
   const response = await client2.chat.completions.create({
     model,
@@ -35939,7 +35942,7 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
               confluenceGrade: confluenceResult.grade
             };
           }
-          const visionClient = new OpenAI3({ apiKey: openaiKey, maxRetries: 3, timeout: 9e4 });
+          const visionClient = new OpenAI3({ apiKey: openaiKey, maxRetries: confirmationMaxRetries(3), timeout: 9e4 });
           const resp = await visionClient.chat.completions.create({
             model: selectedModel,
             messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }],
@@ -36005,6 +36008,10 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
         content = await callOpenAIConfirmation(prompt, "gpt-4o-mini");
       }
     } catch (branchErr) {
+      if (process.env.AI_COST_DISCIPLINE !== "off" && isFailoverError(branchErr)) {
+        console.warn(`[AI Vision] ${provider} failed (${branchErr?.status ?? branchErr?.message}); AI cost discipline on \u2014 no paid cross-provider failover for a confirmation, failing closed`);
+        throw branchErr;
+      }
       if (isFailoverError(branchErr) && process.env.OPENAI_API_KEY) {
         console.warn(`[AI Vision] ${provider} failed (${branchErr?.status ?? branchErr?.message}); failing over to platform OpenAI gpt-4o-mini`);
         const vc = new OpenAI3({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 3, timeout: 9e4 });
@@ -36271,7 +36278,7 @@ function getOpenAIInstance(userApiKey) {
   }
   return openai;
 }
-function buildOpenAICompatClient(provider, apiKey) {
+function buildOpenAICompatClient(provider, apiKey, opts) {
   const baseURLs = {
     groq: "https://api.groq.com/openai/v1",
     google: "https://generativelanguage.googleapis.com/v1beta/openai/",
@@ -36279,7 +36286,7 @@ function buildOpenAICompatClient(provider, apiKey) {
     openrouter: "https://openrouter.ai/api/v1"
   };
   const defaultHeaders = provider === "openrouter" ? { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } : void 0;
-  const client2 = new OpenAI3({ apiKey, baseURL: baseURLs[provider], maxRetries: 4, timeout: 9e4, defaultHeaders });
+  const client2 = new OpenAI3({ apiKey, baseURL: baseURLs[provider], maxRetries: opts?.maxRetries ?? 4, timeout: 9e4, defaultHeaders });
   const wrapper = client2;
   wrapper.defaultModel = PROVIDER_MODELS[provider];
   wrapper.provider = provider;
@@ -38455,8 +38462,10 @@ function createConfirmationCache() {
     const last2 = lastCallAt2.get(sk) ?? 0;
     if (now - last2 < FLOOR_MS) {
       let best = null;
+      const prefix = `${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ""}:`;
       for (const [ck, v] of Array.from(cache7.entries())) {
-        if (!ck.startsWith(`${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ""}:`)) continue;
+        if (!ck.startsWith(prefix)) continue;
+        if (!/^\d+$/.test(ck.slice(prefix.length))) continue;
         if (now - v.at > STALE_USABLE_MS) continue;
         if (!best || v.at > best.at) best = v;
       }

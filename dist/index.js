@@ -26930,13 +26930,13 @@ function selectStrategyForPair(symbol, data, htfBias, asiaHigh, asiaLow, utcHour
   const isXau2 = symbol.includes("XAU");
   const symUpper = symbol.toUpperCase();
   const isCrypto = symUpper.includes("BTC") || symUpper.includes("XBT") || symUpper.includes("ETH") || symUpper.includes("LTC") || symUpper.includes("XRP") || symUpper.includes("ADA") || symUpper.includes("SOL") || symUpper.includes("BNB") || symUpper.includes("DOT");
-  const utcDay2 = (/* @__PURE__ */ new Date()).getUTCDay();
-  const isWeekend = utcDay2 === 0 || utcDay2 === 6;
+  const utcDay3 = (/* @__PURE__ */ new Date()).getUTCDay();
+  const isWeekend = utcDay3 === 0 || utcDay3 === 6;
   const pricePct = (a, b) => Math.abs(a - b) / Math.max(b, 1e-5) * 100;
   const hasPattern = (...names) => patterns.some((p2) => names.some((n) => p2.toLowerCase().includes(n.toLowerCase())));
   if (isCrypto && isWeekend) {
     const isVolumeOk = volTrend === "surging" || volTrend === "above_average" || volTrend === "average";
-    const dayLabel = utcDay2 === 6 ? "Saturday" : "Sunday";
+    const dayLabel = utcDay3 === 6 ? "Saturday" : "Sunday";
     if (adxVal >= 22 && trend !== "NEUTRAL" && diSep >= 8 && isVolumeOk) {
       return {
         strategy: "btc_weekend_momentum",
@@ -36006,6 +36006,9 @@ Return your analysis as JSON:
 }`
   };
 }
+function confirmationMaxRetries(today) {
+  return process.env.AI_COST_DISCIPLINE === "off" ? today : 1;
+}
 async function callOpenAIConfirmation(prompt, model, userId) {
   const openaiInstance = userId ? await getUniversalAIClientForUser(userId, { critical: true }) : getOpenAIInstance();
   const resolvedModel = openaiInstance.defaultModel || model;
@@ -36030,7 +36033,7 @@ function hasHiddenReasoningOverhead(modelId) {
 }
 async function callAnthropicConfirmation(prompt, model, apiKey) {
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
-  const client2 = new Anthropic({ apiKey });
+  const client2 = new Anthropic({ apiKey, maxRetries: confirmationMaxRetries(2) });
   const response = await client2.messages.create({
     model,
     max_tokens: 1e3,
@@ -36053,7 +36056,7 @@ async function callGoogleConfirmation(prompt, model, apiKey) {
 }
 async function callGroqConfirmation(prompt, model, apiKey) {
   const Groq = (await import("groq-sdk")).default;
-  const client2 = new Groq({ apiKey });
+  const client2 = new Groq({ apiKey, maxRetries: confirmationMaxRetries(2) });
   const response = await client2.chat.completions.create({
     model,
     messages: [
@@ -36094,7 +36097,7 @@ function extractThinkingTrace(content) {
   return { thinking: match[1].trim(), rest: content.slice(match.index + match[0].length) };
 }
 async function callOpenRouterConfirmation(prompt, model, apiKey) {
-  const client2 = buildOpenAICompatClient("openrouter", apiKey);
+  const client2 = buildOpenAICompatClient("openrouter", apiKey, { maxRetries: confirmationMaxRetries(4) });
   const reasoning = isReasoningModel(model);
   const response = await client2.chat.completions.create({
     model,
@@ -36315,7 +36318,7 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
               confluenceGrade: confluenceResult.grade
             };
           }
-          const visionClient = new OpenAI3({ apiKey: openaiKey, maxRetries: 3, timeout: 9e4 });
+          const visionClient = new OpenAI3({ apiKey: openaiKey, maxRetries: confirmationMaxRetries(3), timeout: 9e4 });
           const resp = await visionClient.chat.completions.create({
             model: selectedModel,
             messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }],
@@ -36381,6 +36384,10 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
         content = await callOpenAIConfirmation(prompt, "gpt-4o-mini");
       }
     } catch (branchErr) {
+      if (process.env.AI_COST_DISCIPLINE !== "off" && isFailoverError(branchErr)) {
+        console.warn(`[AI Vision] ${provider} failed (${branchErr?.status ?? branchErr?.message}); AI cost discipline on \u2014 no paid cross-provider failover for a confirmation, failing closed`);
+        throw branchErr;
+      }
       if (isFailoverError(branchErr) && process.env.OPENAI_API_KEY) {
         console.warn(`[AI Vision] ${provider} failed (${branchErr?.status ?? branchErr?.message}); failing over to platform OpenAI gpt-4o-mini`);
         const vc = new OpenAI3({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 3, timeout: 9e4 });
@@ -36647,7 +36654,7 @@ function getOpenAIInstance(userApiKey) {
   }
   return openai;
 }
-function buildOpenAICompatClient(provider, apiKey) {
+function buildOpenAICompatClient(provider, apiKey, opts) {
   const baseURLs = {
     groq: "https://api.groq.com/openai/v1",
     google: "https://generativelanguage.googleapis.com/v1beta/openai/",
@@ -36655,7 +36662,7 @@ function buildOpenAICompatClient(provider, apiKey) {
     openrouter: "https://openrouter.ai/api/v1"
   };
   const defaultHeaders = provider === "openrouter" ? { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } : void 0;
-  const client2 = new OpenAI3({ apiKey, baseURL: baseURLs[provider], maxRetries: 4, timeout: 9e4, defaultHeaders });
+  const client2 = new OpenAI3({ apiKey, baseURL: baseURLs[provider], maxRetries: opts?.maxRetries ?? 4, timeout: 9e4, defaultHeaders });
   const wrapper = client2;
   wrapper.defaultModel = PROVIDER_MODELS[provider];
   wrapper.provider = provider;
@@ -54885,14 +54892,14 @@ async function assembleFuturesConsensus(userId, symbol, strategy, direction, dat
 }
 function isHighImpactNewsWindow() {
   const now = /* @__PURE__ */ new Date();
-  const utcDay2 = now.getUTCDay();
+  const utcDay3 = now.getUTCDay();
   const utcHour = now.getUTCHours();
   const utcMin = now.getUTCMinutes();
   const totalMin = utcHour * 60 + utcMin;
-  if (utcDay2 === 5 && now.getUTCDate() <= 7 && totalMin >= 795 && totalMin <= 825) return true;
-  if (utcDay2 === 3 && totalMin >= 915 && totalMin <= 945) return true;
-  if (utcDay2 >= 1 && utcDay2 <= 5 && totalMin >= 795 && totalMin <= 825) return true;
-  if (utcDay2 === 3 && (utcHour === 18 && utcMin >= 50 || utcHour === 19 && utcMin <= 10)) return true;
+  if (utcDay3 === 5 && now.getUTCDate() <= 7 && totalMin >= 795 && totalMin <= 825) return true;
+  if (utcDay3 === 3 && totalMin >= 915 && totalMin <= 945) return true;
+  if (utcDay3 >= 1 && utcDay3 <= 5 && totalMin >= 795 && totalMin <= 825) return true;
+  if (utcDay3 === 3 && (utcHour === 18 && utcMin >= 50 || utcHour === 19 && utcMin <= 10)) return true;
   return false;
 }
 function computeSmartMoney(candles) {
@@ -58585,8 +58592,10 @@ function createConfirmationCache() {
     const last2 = lastCallAt2.get(sk) ?? 0;
     if (now - last2 < FLOOR_MS) {
       let best = null;
+      const prefix = `${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ""}:`;
       for (const [ck, v] of Array.from(cache11.entries())) {
-        if (!ck.startsWith(`${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ""}:`)) continue;
+        if (!ck.startsWith(prefix)) continue;
+        if (!/^\d+$/.test(ck.slice(prefix.length))) continue;
         if (now - v.at > STALE_USABLE_MS) continue;
         if (!best || v.at > best.at) best = v;
       }
@@ -61589,6 +61598,123 @@ var init_ambassador_market_briefing = __esm({
     init_db();
     init_schema();
     MAX_CONFIDENCE_BOOST = 5;
+  }
+});
+
+// server/services/ai-engine-budget.ts
+var ai_engine_budget_exports = {};
+__export(ai_engine_budget_exports, {
+  aiCostDisciplineEnabled: () => aiCostDisciplineEnabled,
+  engineAiBudgetAllows: () => engineAiBudgetAllows,
+  engineAiBudgetCents: () => engineAiBudgetCents,
+  engineAiBudgetVerdict: () => engineAiBudgetVerdict,
+  engineAiEstCentsPerCall: () => engineAiEstCentsPerCall,
+  engineAiSpendToday: () => engineAiSpendToday,
+  meterEngineAiConfirmation: () => meterEngineAiConfirmation,
+  shouldLogBudgetBlock: () => shouldLogBudgetBlock
+});
+function aiCostDisciplineEnabled() {
+  return process.env.AI_COST_DISCIPLINE !== "off";
+}
+function engineAiBudgetCents() {
+  const raw = process.env.AI_ENGINE_DAILY_BUDGET_CENTS;
+  if (raw === void 0) return 200;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 200;
+}
+function engineAiEstCentsPerCall() {
+  const n = Number(process.env.AI_ENGINE_CONFIRM_EST_CENTS ?? 0.15);
+  return Number.isFinite(n) && n > 0 ? n : 0.15;
+}
+function utcDay2() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+}
+function currentSpend(userId) {
+  const day = utcDay2();
+  let s = spendByUser.get(userId);
+  if (!s || s.day !== day) {
+    s = { day, cents: 0, calls: 0 };
+    spendByUser.set(userId, s);
+  }
+  return s;
+}
+async function ensureLoaded(userId) {
+  if (loadStarted.has(userId)) return;
+  loadStarted.add(userId);
+  try {
+    const saved = await getRuntimeStateStrict("ai_engine_budget", String(userId));
+    if (saved && saved.day === utcDay2()) {
+      const s = currentSpend(userId);
+      s.cents = Math.max(s.cents, Number(saved.cents) || 0);
+      s.calls = Math.max(s.calls, Number(saved.calls) || 0);
+    }
+  } catch {
+  }
+}
+function persistSoon(userId) {
+  if (persistTimers.has(userId)) return;
+  const t = setTimeout(() => {
+    persistTimers.delete(userId);
+    try {
+      const s = spendByUser.get(userId);
+      if (s) saveRuntimeState("ai_engine_budget", String(userId), { ...s });
+    } catch {
+    }
+  }, 5e3);
+  if (typeof t.unref === "function") t.unref();
+  persistTimers.set(userId, t);
+}
+async function engineAiBudgetAllows(userId) {
+  if (!aiCostDisciplineEnabled()) return true;
+  try {
+    const cap = engineAiBudgetCents();
+    if (cap <= 0) return false;
+    await ensureLoaded(userId);
+    return currentSpend(userId).cents < cap;
+  } catch {
+    return true;
+  }
+}
+function meterEngineAiConfirmation(userId, units = 1) {
+  if (!aiCostDisciplineEnabled()) return;
+  const u = Math.max(1, Math.floor(Number(units) || 1));
+  const s = currentSpend(userId);
+  s.cents += engineAiEstCentsPerCall() * u;
+  s.calls += u;
+  persistSoon(userId);
+}
+function engineAiSpendToday(userId) {
+  const s = currentSpend(userId);
+  return { cents: Math.round(s.cents * 1e3) / 1e3, calls: s.calls, capCents: engineAiBudgetCents() };
+}
+function engineAiBudgetVerdict() {
+  return {
+    confirmed: false,
+    aiDirection: "NEUTRAL",
+    aiConfidence: 0,
+    reasoning: `AI confirmation unavailable \u2014 daily AI budget reached (engine confirmation spend cap of $${(engineAiBudgetCents() / 100).toFixed(2)}/day). Confirmations resume at 00:00 UTC; no trade will be taken on an unverified signal.`,
+    aiError: true,
+    aiErrorStatus: "budget",
+    modelUsed: "ai-budget-gate",
+    providerUsed: "budget"
+  };
+}
+function shouldLogBudgetBlock(userId) {
+  const now = Date.now();
+  const last2 = lastBlockLogAt.get(userId) || 0;
+  if (now - last2 < 36e5) return false;
+  lastBlockLogAt.set(userId, now);
+  return true;
+}
+var spendByUser, loadStarted, persistTimers, lastBlockLogAt;
+var init_ai_engine_budget = __esm({
+  "server/services/ai-engine-budget.ts"() {
+    "use strict";
+    init_runtime_state();
+    spendByUser = /* @__PURE__ */ new Map();
+    loadStarted = /* @__PURE__ */ new Set();
+    persistTimers = /* @__PURE__ */ new Map();
+    lastBlockLogAt = /* @__PURE__ */ new Map();
   }
 });
 
@@ -87896,9 +88022,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "5e501217";
-var BUILD_BRANCH = "feat/vp-infinite-loop-fix";
-var BUILT_AT = "2026-11-18T00:32:23.786Z";
+var BUILD_COMMIT = "20a511b3";
+var BUILD_BRANCH = "feat/ai-cost-discipline";
+var BUILT_AT = "2026-11-20T19:24:32.111Z";
 
 // server/stripe.ts
 init_db();
@@ -100033,6 +100159,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         _cdiag.gatePassed = true;
         try {
           const { isAiVisionConfirmationEnabled: isAiVisionConfirmationEnabled2, getAiVisionConfirmation: getAiVisionConfirmation2, getBreakoutConfirmation: getBreakoutConfirmation2, addAiConfirmationLog: addAiConfirmationLog2, getUserModelPreference: getUserModelPreference2, AVAILABLE_VISION_MODELS: AVAILABLE_VISION_MODELS2, isICTStrategyEnabled: isICTStrategyEnabled2, isSMCStrategyEnabled: isSMCStrategyEnabled2, isPropFirmModeEnabled: isPropFirmModeEnabled2, getPropFirmContext: getPropFirmContext2, isBreakoutModeEnabled: isBreakoutModeEnabled2, isTrailingStopEnabled: isTrailingStopEnabled2, setTrailingStopEnabled: setTrailingStopEnabled2, hydrateBreakoutModeMap: hydrateBreakoutModeMap2, hydrateAiVisionMap: hydrateAiVisionMap2, getAiMinConfidence: _getAiMinConf } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+          const _costDiscipline = await Promise.resolve().then(() => (init_ai_engine_budget(), ai_engine_budget_exports));
+          const _logBudgetBlock = () => {
+            if (!_costDiscipline.shouldLogBudgetBlock(token.userId)) return;
+            void Promise.resolve().then(() => (init_guard_events(), guard_events_exports)).then(({ logGuard: logGuard2 }) => logGuard2(
+              token.userId,
+              "ai_call_failed",
+              sanitizedSymbol,
+              `daily AI budget reached \u2014 engine AI confirmations paused until 00:00 UTC (cap $${(_costDiscipline.engineAiBudgetCents() / 100).toFixed(2)}/day, AI_ENGINE_DAILY_BUDGET_CENTS)`,
+              { reason: "daily_ai_budget" },
+              "ai"
+            )).catch(() => {
+            });
+          };
           try {
             const _userForVision = await storage.getUser(token.userId);
             if (_userForVision) {
@@ -100211,7 +100350,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 aiConfirmation = _bcHit.verdict;
                 _cdiag.stage = "breakout_cached";
                 console.log(`[Breakout Confirmation] ${sanitizedSymbol}: reused verdict \u2014 ${_bcHit.reason}`);
-              } else {
+              } else if (await _costDiscipline.engineAiBudgetAllows(token.userId)) {
                 _cdiag.stage = "breakout_called";
                 aiConfirmation = await getBreakoutConfirmation2(
                   candles,
@@ -100225,11 +100364,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   multiTFCandles,
                   propFirmCtx
                 );
+                if (aiConfirmation) {
+                  _costDiscipline.meterEngineAiConfirmation(token.userId, 1);
+                }
                 if (aiConfirmation && Number(aiConfirmation.aiConfidence) > 0) {
                   _putBC(token.userId, sanitizedSymbol, sanitizedTimeframe, _bcDir, analysis.confidence, _bcPrice, aiConfirmation);
                 }
+              } else {
+                aiConfirmation = _costDiscipline.engineAiBudgetVerdict();
+                _cdiag.stage = "ai_budget_blocked";
+                _logBudgetBlock();
+                console.warn(`[AI Cost] ${sanitizedSymbol}: breakout confirmation blocked \u2014 daily AI budget reached for user ${token.userId}`);
               }
-              _cdiag.stage = _cdiag.stage === "breakout_cached" ? "breakout_cached" : "breakout_returned";
+              _cdiag.stage = _cdiag.stage === "breakout_cached" ? "breakout_cached" : _cdiag.stage === "ai_budget_blocked" ? "ai_budget_blocked" : "breakout_returned";
               _cdiag.decision = aiConfirmation ? aiConfirmation.confirmed ? "CONFIRMED" : "REJECTED" : "NULL";
               _cdiag.model = aiConfirmation?.modelUsed || aiConfirmation?.breakoutGrade || "breakout-engine";
               if (analysis.tradePlan) {
@@ -100246,25 +100393,43 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   const { getLiveEngineState: _fbGetLES } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
                   const _fbState = _fbGetLES(token.userId);
                   const _fbStrat = _fbState?.config?.strategyMode || "aggressive";
-                  const _visionFallback = await getAiVisionConfirmation2(
-                    candles,
-                    analysis.indicators,
-                    analysis.signal,
-                    analysis.confidence,
-                    analysis.tradePlan,
-                    sanitizedSymbol,
-                    sanitizedTimeframe,
-                    token.userId,
-                    void 0,
-                    void 0,
-                    void 0,
-                    htfLevels.length > 0 ? htfLevels : void 0,
-                    propFirmCtx,
-                    void 0,
-                    void 0,
-                    _fbStrat,
-                    !!_fbState?.config?.deepReasoningMode
-                  );
+                  let _visionFallback = null;
+                  const _fbDir = `${analysis.signal}:fallback`;
+                  const _fbPrice = Number(analysis.tradePlan?.entry ?? candles?.[0]?.c ?? 0);
+                  const _fbHit = _costDiscipline.aiCostDisciplineEnabled() ? _getBC(token.userId, sanitizedSymbol, sanitizedTimeframe, _fbDir, analysis.confidence, _fbPrice) : null;
+                  if (_fbHit) {
+                    _visionFallback = _fbHit.verdict;
+                    console.log(`[Breakout Master] ${sanitizedSymbol}: vision fallback verdict reused \u2014 ${_fbHit.reason}`);
+                  } else if (await _costDiscipline.engineAiBudgetAllows(token.userId)) {
+                    _visionFallback = await getAiVisionConfirmation2(
+                      candles,
+                      analysis.indicators,
+                      analysis.signal,
+                      analysis.confidence,
+                      analysis.tradePlan,
+                      sanitizedSymbol,
+                      sanitizedTimeframe,
+                      token.userId,
+                      void 0,
+                      void 0,
+                      void 0,
+                      htfLevels.length > 0 ? htfLevels : void 0,
+                      propFirmCtx,
+                      void 0,
+                      void 0,
+                      _fbStrat,
+                      !!_fbState?.config?.deepReasoningMode
+                    );
+                    if (_visionFallback && !_visionFallback.aiError) {
+                      _costDiscipline.meterEngineAiConfirmation(token.userId, _visionFallback.deepReasoningUsed ? 2 : 1);
+                    }
+                    if (_visionFallback && Number(_visionFallback.aiConfidence) > 0) {
+                      _putBC(token.userId, sanitizedSymbol, sanitizedTimeframe, _fbDir, analysis.confidence, _fbPrice, _visionFallback);
+                    }
+                  } else {
+                    _logBudgetBlock();
+                    console.warn(`[AI Cost] ${sanitizedSymbol}: vision fallback skipped \u2014 daily AI budget reached for user ${token.userId}; keeping the breakout verdict`);
+                  }
                   if (_visionFallback) {
                     aiConfirmation = _visionFallback;
                     _cdiag.stage = "breakout_vision_fallback";
@@ -100358,7 +100523,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 aiConfirmation = _ccHit.verdict;
                 _cdiag.stage = "ai_cached";
                 console.log(`[AI Confirmation] ${sanitizedSymbol}: reused verdict \u2014 ${_ccHit.reason}`);
-              } else {
+              } else if (await _costDiscipline.engineAiBudgetAllows(token.userId)) {
                 _cdiag.stage = "ai_called";
                 aiConfirmation = await getAiVisionConfirmation2(
                   candles,
@@ -100379,11 +100544,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   resolvedStrategyMode,
                   !!_stratEngineState?.config?.deepReasoningMode
                 );
+                if (aiConfirmation && !aiConfirmation.aiError) {
+                  _costDiscipline.meterEngineAiConfirmation(token.userId, aiConfirmation.deepReasoningUsed ? 2 : 1);
+                }
                 if (aiConfirmation && Number(aiConfirmation.aiConfidence) > 0) {
                   _putCC(token.userId, sanitizedSymbol, sanitizedTimeframe, analysis.signal, analysis.confidence, _ccPrice, aiConfirmation);
                 }
+              } else {
+                aiConfirmation = _costDiscipline.engineAiBudgetVerdict();
+                _cdiag.stage = "ai_budget_blocked";
+                _logBudgetBlock();
+                console.warn(`[AI Cost] ${sanitizedSymbol}: vision confirmation blocked \u2014 daily AI budget reached for user ${token.userId}`);
               }
-              _cdiag.stage = _cdiag.stage === "ai_cached" ? "ai_cached" : "ai_returned";
+              _cdiag.stage = _cdiag.stage === "ai_cached" ? "ai_cached" : _cdiag.stage === "ai_budget_blocked" ? "ai_budget_blocked" : "ai_returned";
               if (_cdiag._candleKey) {
                 const _ck = _cdiag._candleKey;
                 globalThis.__chartAiCandle?.set(_ck.k, _ck.c);
