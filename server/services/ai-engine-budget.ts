@@ -18,11 +18,22 @@
 // stop is never confused with empty provider credits in the decision feed or
 // the safeguards panel.
 //
-// SCOPE: only the chart-data (MT5 EA) confirmation path meters against this
-// budget. ABBA, content, chart analysis and every other user-facing surface
-// are untouched, as are the autonomous engine's own scan-analysis calls in
-// live-trading-engine.ts (whole-market decision generation — a different
-// question shape, already response-cached there).
+// SCOPE (extended 2026-11-21, "AI budget on all engines"): PR #101 metered
+// only the chart-data (MT5 EA) confirmation path. Chris directed the same
+// $2/day discipline on ALL engines, so the universal failover client in
+// openai.ts now consults THIS SAME per-user daily pool for every call made
+// through an engine-marked client (opts.engine on the client builders, or
+// wrapEngineAiClient for the engines' raw economy-Groq overrides). One
+// counter, one cap: engine calls and chart-data confirmations draw from the
+// same pool — it is NOT $2 per engine. User-initiated interactive AI (ABBA
+// chat/TTS, Content Studio, chart analysis, and every other user-facing
+// surface) is NOT engine-marked and stays outside this pool, under the
+// platform caps in ai-usage.ts only. AI_BUDGET_ALL_ENGINES=off reverts to
+// the PR #101 FX-only scope (engine marking becomes inert; the chart-data
+// route keeps its own gate). The chart-data route remains the ONLY meter
+// for confirmations: getAiVisionConfirmation / getBreakoutConfirmation
+// build their clients inside openai.ts WITHOUT engine marking, so nothing
+// on that path can double-meter (see the PR body for the full audit).
 //
 // METERING IS AN ESTIMATE, deliberately. The confirmation functions do not
 // return token usage, and ai_usage_log never sees this path (recordAiUsage
@@ -61,6 +72,13 @@ export function aiCostDisciplineEnabled(): boolean {
   return process.env.AI_COST_DISCIPLINE !== 'off';
 }
 
+/** Scope switch for the all-engines extension: when off, engine-marked
+ *  clients are inert (no gate, no metering) and the budget applies only to
+ *  the chart-data confirmation route, exactly as in PR #101. Default ON. */
+export function aiBudgetAllEnginesEnabled(): boolean {
+  return aiCostDisciplineEnabled() && process.env.AI_BUDGET_ALL_ENGINES !== 'off';
+}
+
 /** Daily per-user cap for engine confirmations, in cents. Default $2.00/day.
  *  An explicit 0 is honored (hard stop). A non-numeric value falls back to
  *  the default rather than silently disabling or zeroing the cap. */
@@ -77,7 +95,7 @@ export function engineAiEstCentsPerCall(): number {
   return Number.isFinite(n) && n > 0 ? n : 0.15;
 }
 
-interface EngineAiSpend { day: string; cents: number; calls: number }
+interface EngineAiSpend { day: string; cents: number; calls: number; blocked: number }
 
 const spendByUser = new Map<number, EngineAiSpend>();
 const loadStarted = new Set<number>();
@@ -92,7 +110,7 @@ function currentSpend(userId: number): EngineAiSpend {
   const day = utcDay();
   let s = spendByUser.get(userId);
   if (!s || s.day !== day) {
-    s = { day, cents: 0, calls: 0 };
+    s = { day, cents: 0, calls: 0, blocked: 0 };
     spendByUser.set(userId, s);
   }
   return s;
@@ -108,6 +126,7 @@ async function ensureLoaded(userId: number): Promise<void> {
       // Take the max so spend metered while the load was in flight is kept.
       s.cents = Math.max(s.cents, Number(saved.cents) || 0);
       s.calls = Math.max(s.calls, Number(saved.calls) || 0);
+      s.blocked = Math.max(s.blocked, Number(saved.blocked) || 0);
     }
   } catch { /* best-effort: in-process counter still bounds this process */ }
 }
@@ -154,9 +173,67 @@ export function meterEngineAiConfirmation(userId: number, units = 1): void {
 }
 
 /** Today's metered spend for observability (health/checks). */
-export function engineAiSpendToday(userId: number): { cents: number; calls: number; capCents: number } {
+export function engineAiSpendToday(userId: number): { cents: number; calls: number; blocked: number; capCents: number } {
   const s = currentSpend(userId);
-  return { cents: Math.round(s.cents * 1000) / 1000, calls: s.calls, capCents: engineAiBudgetCents() };
+  return { cents: Math.round(s.cents * 1000) / 1000, calls: s.calls, blocked: s.blocked, capCents: engineAiBudgetCents() };
+}
+
+/** Record one budget-blocked engine call (the gate refused to buy it).
+ *  Counted separately from metered spend — a blocked call costs nothing —
+ *  and surfaced on /api/health so a capped engine is visible at a glance
+ *  instead of looking like a provider outage. */
+export function noteEngineAiBudgetBlock(userId: number): void {
+  if (!aiCostDisciplineEnabled()) return;
+  const s = currentSpend(userId);
+  s.blocked += 1;
+  persistSoon(userId);
+}
+
+/** The error thrown by the shared AI client layer when an engine-marked
+ *  call is budget-blocked. Deliberately shaped like the provider failure
+ *  callers already handle — an Error with a numeric `status` (402, the
+ *  exhausted-credits failure mode this cap exists to prevent) thrown out of
+ *  chat.completions.create — so every engine's existing try/catch,
+ *  fail-open, and fail-closed behavior applies unchanged. The marker
+ *  properties (aiErrorStatus 'budget', budgetBlocked) are for logs and
+ *  telemetry only; they do not change caller control flow. */
+export function engineAiBudgetError(): Error & { status: number; aiErrorStatus: string; budgetBlocked: boolean } {
+  const err: any = new Error(
+    `402 Insufficient credits — daily AI budget reached (engine AI spend cap of $${(engineAiBudgetCents() / 100).toFixed(2)}/day across all engines). Engine AI calls resume at 00:00 UTC.`,
+  );
+  err.status = 402;
+  err.aiErrorStatus = 'budget';
+  err.budgetBlocked = true;
+  return err;
+}
+
+/** Platform-wide view of today's engine-budget counters for /api/health:
+ *  aggregates the same in-process per-user counters the gate consults (no
+ *  parallel surface). Spend is per-user capped; the totals show how much
+ *  of the pool the whole platform's engines have drawn today. */
+export function engineAiBudgetSummary(): {
+  enabled: boolean; allEngines: boolean; capCentsPerUser: number; estCentsPerCall: number;
+  usersTracked: number; spendCentsToday: number; callsToday: number; blockedToday: number;
+} {
+  const day = utcDay();
+  let users = 0, cents = 0, calls = 0, blocked = 0;
+  for (const s of spendByUser.values()) {
+    if (s.day !== day) continue;
+    users++;
+    cents += s.cents;
+    calls += s.calls;
+    blocked += s.blocked;
+  }
+  return {
+    enabled: aiCostDisciplineEnabled(),
+    allEngines: aiBudgetAllEnginesEnabled(),
+    capCentsPerUser: engineAiBudgetCents(),
+    estCentsPerCall: engineAiEstCentsPerCall(),
+    usersTracked: users,
+    spendCentsToday: Math.round(cents * 1000) / 1000,
+    callsToday: calls,
+    blockedToday: blocked,
+  };
 }
 
 /** The fail-closed verdict returned when the budget is exhausted. Same shape
