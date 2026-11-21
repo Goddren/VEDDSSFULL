@@ -327,16 +327,14 @@ export async function runMultiModelAnalysis(
   const { storage } = await import('../storage');
 
   // All-engines AI budget (2026-11-21): this ensemble is an autonomous
-  // engine caller (live-trading-engine). Refuse BEFORE buying any provider
-  // call when the shared per-user daily pool is exhausted — the thrown
-  // budget error is shaped like a provider failure, so the caller's
-  // ensemble-failure handling applies unchanged. Fails OPEN if the budget
-  // module itself cannot load (same rule as the budget gate).
+  // engine caller (live-trading-engine). The gate itself sits inside the
+  // try below, alongside the mode switch: refusing there throws the
+  // provider-shaped budget error BEFORE any provider call is bought, and
+  // this function's own failure handling converts it to the standard
+  // empty-result shape a total provider outage produces — so the caller
+  // falls back exactly as it does on provider failure. Fails OPEN if the
+  // budget module itself cannot load (same rule as the budget gate).
   const budgetMod = await import('./ai-engine-budget').catch(() => null);
-  if (budgetMod?.aiBudgetAllEnginesEnabled() && !(await budgetMod.engineAiBudgetAllows(userId))) {
-    budgetMod.noteEngineAiBudgetBlock(userId);
-    throw budgetMod.engineAiBudgetError();
-  }
 
   async function getApiKeyForModel(modelDef: AIModelProvider): Promise<string | null> {
     if (modelDef.provider === 'openai') return null;
@@ -418,6 +416,12 @@ export async function runMultiModelAnalysis(
   let capturedCommentary: EnsembleResult['commentary'] = undefined;
 
   try {
+    // All-engines AI budget gate (see budgetMod above): refuse before
+    // buying any model call when the shared daily pool is exhausted.
+    if (budgetMod?.aiBudgetAllEnginesEnabled() && !(await budgetMod.engineAiBudgetAllows(userId))) {
+      budgetMod.noteEngineAiBudgetBlock(userId);
+      throw budgetMod.engineAiBudgetError();
+    }
     switch (routingConfig.mode) {
       case 'single': {
         const decisions = await callModel(routingConfig.primaryModelId);
