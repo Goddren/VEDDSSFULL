@@ -48,6 +48,7 @@ import {
   type StrategyDeployment,
 } from './strategy-deployments';
 import { studioShadowLessonsOn, studioDeploymentProvenLosing, logShadowLessonBlock } from './shadow-lesson-gate';
+import { improvementThrottleBlocks, logImprovementBlock, getStudioImprovementKey } from './improvement-loop';
 import { evaluateSpecSignals, type BacktestBar } from './strategy-backtest';
 import { evaluateShadowBar, type ShadowPositionState } from './strategy-shadow';
 import { specWarmupBars, type StrategySpec } from './strategy-spec';
@@ -305,6 +306,21 @@ async function runShadowDeployment(dep: StrategyDeployment, spec: StrategySpec, 
         return;
       }
       if (dep.lessonPaused) await setDeploymentLessonPause(dep.id, null).catch(() => {});
+    }
+
+    // Improvement-loop throttle (improvement-loop.ts) — FLAT
+    // deployments only, same as the lesson gate above: the shared
+    // cross-engine evaluation pauses NEW shadow entries for a strategy
+    // whose last-14-days trend is DEGRADING vs the prior 14, until
+    // recovery or 7 days. The ledger keys Studio strategies by wizard
+    // strategy name, so the consult key is built the same way. The
+    // deployment stays 'running'; entries simply do not open. Fails
+    // open on any error.
+    const impKey = await getStudioImprovementKey(dep.strategyId).catch(() => `strategy ${dep.strategyId}`);
+    if (await improvementThrottleBlocks(dep.userId, 'studio', impKey).catch(() => false)) {
+      logImprovementBlock(dep.userId, 'studio', impKey, spec.symbol ?? null);
+      await touchDeployment(dep.id, { error: null });
+      return;
     }
   }
 

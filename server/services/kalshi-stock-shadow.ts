@@ -99,6 +99,7 @@ import { pool } from '../db';
 import { loopTick } from '../crash-heartbeat';
 import { ensureKalshiPerpShadowTables } from './ensure-kalshi-perp-shadow-tables';
 import { trailBrainConsult, trailBrainStopPrice, stampTrailBrainTrade } from './trail-brain';
+import { improvementThrottleBlocks, logImprovementBlock } from './improvement-loop';
 import {
   getLiquidStockPerps, getPerpCandles, getPerpTouch, getPerpFundingHistory, getPerpFundingEstimate,
   getPerpCorporateActions, getPerpBars, aggregateBars, type PerpBar, type PerpMarket,
@@ -1329,6 +1330,16 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
           continue;
         }
         if (gate.favor.length) tags.push('brain_favor');
+      }
+      // ── Improvement-loop throttle (improvement-loop.ts): the shared
+      // cross-engine evaluation (6h cadence) pauses NEW shadow entries
+      // for a strategy whose last-14-days trend is DEGRADING vs the
+      // prior 14, until recovery or 7 days. Complements — never
+      // replaces — the perp brain's own bucket gate above; the consult
+      // fails open, and open positions are never affected.
+      if (await improvementThrottleBlocks(userId, 'kalshi_perp', sig.strategy)) {
+        logImprovementBlock(userId, 'kalshi_perp', sig.strategy, mkt.ticker);
+        continue;
       }
       // ── Volume-profile value-edge veto (ONE conservative rule): no long
       // pressing into VAH from inside value, no short pressing into VAL.

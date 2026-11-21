@@ -2063,7 +2063,17 @@ async function evaluateShadowEntries(userId: number, state: SolEngineState, scan
   const lessonVerdicts = gateMod.solShadowLessonsOn()
     ? await gateMod.getSolShadowLessonVerdicts(userId).catch(() => null)
     : null;
+  // Improvement-loop throttle (improvement-loop.ts): the shared
+  // cross-engine evaluation pauses NEW shadow entries for a strategy
+  // whose last-14-days trend is DEGRADING vs the prior 14. A different
+  // signal from the lesson gate above (trend, not level) — both must
+  // pass. The consult fails open.
+  const impMod = await import('./improvement-loop');
   for (const strat of strategies) {
+    if (await impMod.improvementThrottleBlocks(userId, 'sol', strat.id).catch(() => false)) {
+      impMod.logImprovementBlock(userId, 'sol', strat.id, null);
+      continue;
+    }
     const lv = lessonVerdicts?.get(strat.id);
     if (lv?.blocked) {
       void gateMod.logShadowLessonBlock({

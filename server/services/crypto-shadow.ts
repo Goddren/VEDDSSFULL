@@ -31,6 +31,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
 import { cryptoShadowLessonsOn, logShadowLessonBlock, matchingAvoidBucket } from './shadow-lesson-gate';
+import { improvementThrottleBlocks, logImprovementBlock } from './improvement-loop';
 import { trailBrainConsult, trailBrainDecide, stampTrailBrainTrade } from './trail-brain';
 
 type Bar = { t: number; o: number; h: number; l: number; c: number; v: number };
@@ -319,6 +320,15 @@ export async function runCryptoShadowAll(userId: number, cfg: any, symbols: stri
           });
           continue;
         }
+      }
+      // Improvement-loop throttle (improvement-loop.ts): the shared
+      // cross-engine evaluation pauses NEW shadow entries for a
+      // strategy whose last-14-days trend is DEGRADING vs the prior 14,
+      // until recovery or 7 days. Trend signal, distinct from the
+      // bucket gate above; the consult fails open.
+      if (await improvementThrottleBlocks(userId, 'crypto', strat)) {
+        logImprovementBlock(userId, 'crypto', strat, symbol);
+        continue;
       }
       const tags: string[] = [];
       if (ch1 != null && Math.abs(ch1) >= 3) tags.push(ch1 > 0 ? 'hot_hour' : 'dump_hour');

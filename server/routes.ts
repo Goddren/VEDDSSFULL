@@ -1353,6 +1353,18 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
           return await getEngineWatchdogStatus();
         } catch { return null; }
       })(),
+      // Continuous improvement loop (2026-11-21): is each strategy getting
+      // better or worse? Latest 14d-vs-prior-14d evaluation summary —
+      // per-engine improving/degrading/flat counts + the shadow
+      // strategies currently throttled for degrading. Null only if the
+      // module itself fails to load; an empty summary (no evaluation
+      // yet) is reported as lastEvaluationAt: null, never hidden.
+      improvementLoop: await (async () => {
+        try {
+          const { getImprovementLoopHealth } = await import('./services/improvement-loop');
+          return await getImprovementLoopHealth();
+        } catch { return null; }
+      })(),
       // Crypto engine health (2026-11-08): the crypto engine is a standalone
       // cron outside this process — this is its pulse (heartbeat + artifacts),
       // so a stopped timer is visible instead of silent (see crypto-health.ts).
