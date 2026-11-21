@@ -217,13 +217,13 @@ export function engineAiBudgetSummary(): {
 } {
   const day = utcDay();
   let users = 0, cents = 0, calls = 0, blocked = 0;
-  for (const s of spendByUser.values()) {
-    if (s.day !== day) continue;
+  spendByUser.forEach((s) => {
+    if (s.day !== day) return;
     users++;
     cents += s.cents;
     calls += s.calls;
     blocked += s.blocked;
-  }
+  });
   return {
     enabled: aiCostDisciplineEnabled(),
     allEngines: aiBudgetAllEnginesEnabled(),
