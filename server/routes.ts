@@ -1,4 +1,7 @@
 ﻿import { livePlanRulesText } from './services/engine-plan-rules';
+import { effectiveStreakView } from './services/streak-view';
+import { summarizeClosed } from './services/closed-trade-stats';
+import { humanizeExecError } from './services/exec-error-text';
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { getRequestCookie } from "./utils/cookies";
@@ -4188,8 +4191,11 @@ Respond ONLY in valid JSON format with these exact keys:
       }
 
       const userId = (req.user as Express.User).id;
-      const streak = await storage.getUserStreak(userId);
-      
+      const streakRow = await storage.getUserStreak(userId);
+      // Single display source: derive tier/progress from XP and the effective
+      // (not stale) current streak at read time — see services/streak-view.ts.
+      const streak = streakRow ? effectiveStreakView(streakRow as any) : streakRow;
+
       if (!streak) {
         // Return default streak data for new users
         return res.json({
@@ -13684,23 +13690,20 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
     const unrealizedPnL = mt5UnrealizedPnL + tlUnrealizedPnL;
 
-    const todayClosedProfit =
-      todayDb.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) +
-      todayCache.reduce((s: number, t: any) => s + (t.profit || 0), 0) +
-      tlTodayClosedPnL;
+    // One shared counting definition (services/closed-trade-stats.ts) — the
+    // weekly-strategy update-progress endpoint uses the same helper over the
+    // same sets, so every surface shows the same day/week numbers.
+    const todaySum = summarizeClosed(todayDb, todayCache);
+    const weekSum = summarizeClosed(weekDb, weekCache);
 
-    const weekClosedProfit =
-      weekDb.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) +
-      weekCache.reduce((s: number, t: any) => s + (t.profit || 0), 0) +
-      tlWeekClosedPnL;
+    const todayClosedProfit = todaySum.pnl + tlTodayClosedPnL;
+    const weekClosedProfit = weekSum.pnl + tlWeekClosedPnL;
 
-    const todayTrades = todayDb.length + todayCache.length;
-    const todayWins = todayDb.filter((t: any) => t.result === 'WIN').length +
-                      todayCache.filter((t: any) => (t.profit || 0) > 0).length;
+    const todayTrades = todaySum.trades;
+    const todayWins = todaySum.wins;
 
-    const weekTrades = weekDb.length + weekCache.length;
-    const weekWins = weekDb.filter((t: any) => t.result === 'WIN').length +
-                     weekCache.filter((t: any) => (t.profit || 0) > 0).length;
+    const weekTrades = weekSum.trades;
+    const weekWins = weekSum.wins;
 
     // Pull weekly profit target from active strategy (if any)
     const dbStrat = await storage.getActiveWeeklyStrategy(userId);
@@ -13733,14 +13736,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                           + allTimeCacheExtra.reduce((s: number, t: any) => s + (t.profit || 0), 0);
     const allTimeWinRate  = allTimeTrades > 0 ? Math.round((allTimeWins / allTimeTrades) * 100) : 0;
 
-    // Week wins/losses for breakdown display
-    const weekWinCount  = weekDb.filter((t: any) => t.result === 'WIN').length
-                        + weekCache.filter((t: any) => (t.profit || 0) > 0).length;
-    const weekLossCount = weekDb.filter((t: any) => t.result === 'LOSS').length
-                        + weekCache.filter((t: any) => (t.profit || 0) < 0).length;
+    // Week wins/losses for breakdown display (same shared summary as above)
+    const weekWinCount  = weekSum.wins;
+    const weekLossCount = weekSum.losses;
     // Today wins/losses
-    const todayLosses = todayDb.filter((t: any) => t.result === 'LOSS').length
-                      + todayCache.filter((t: any) => (t.profit || 0) < 0).length;
+    const todayLosses = todaySum.losses;
 
     // Largest single win and loss this week (for context)
     const weekAllPnL = [
@@ -13756,12 +13756,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       todayTrades,
       todayWins,
       todayLosses,
+      // Residual so wins + losses + flat = trades everywhere (breakeven and
+      // $0 cache closes) — previously invisible, which made the counts look
+      // like they didn't add up.
+      todayFlat:          todaySum.flat,
       todayWinRate:       todayTrades > 0 ? Math.round((todayWins / todayTrades) * 100) : 0,
       weekClosedProfit:   Math.round(weekClosedProfit * 100) / 100,
       weekTotalProfit:    Math.round((weekClosedProfit + unrealizedPnL) * 100) / 100,
       weekTrades,
       weekWins:           weekWinCount,
       weekLosses:         weekLossCount,
+      weekFlat:           weekSum.flat,
       weekWinRate:        weekTrades > 0 ? Math.round((weekWins / weekTrades) * 100) : 0,
       bestTrade:          Math.round(bestTrade * 100) / 100,
       worstTrade:         Math.round(worstTrade * 100) / 100,
@@ -13917,11 +13922,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     // Get current MT5 account balance as the anchor point
     const currentBalance: number = getFreshestMt5Account(userId)?.balance || 0;
 
-    // Build the history points — work forward from (currentBalance - totalPnL) as start
+    // Build the history points — work forward from (currentBalance - totalPnL) as start.
+    // Drop epoch/invalid timestamps: a row with a null-ish stored date parsed
+    // to 1970-01-20 and rendered as a real point on the dashboard chart.
     const allPoints = [
       ...closed.map((t: any) => ({ pnl: t.profitLoss || 0, date: t.closedAt || t.createdAt })),
       ...cacheExtra.map((t: any) => ({ pnl: t.profitLoss || 0, date: t.closedAt })),
-    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    ].filter((p) => {
+      const ts = new Date(p.date).getTime();
+      return Number.isFinite(ts) && ts >= Date.UTC(2000, 0, 1);
+    }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     const totalPnL = allPoints.reduce((s, p) => s + p.pnl, 0);
     const startBalance = currentBalance > 0 ? currentBalance - totalPnL : 0;
@@ -13974,7 +13984,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       .filter((t: any) => t.source === 'tradelocker' || t.source === 'tradelocker_auto')
       .sort((a: any, b: any) => new Date(a.closedAt || a.createdAt).getTime() - new Date(b.closedAt || b.createdAt).getTime());
 
-    const allPoints = closed.map((t: any) => ({ pnl: t.profitLoss || 0, date: t.closedAt || t.createdAt }));
+    // Same epoch/invalid-date guard as the MT5 history above.
+    const allPoints = closed
+      .map((t: any) => ({ pnl: t.profitLoss || 0, date: t.closedAt || t.createdAt }))
+      .filter((p) => {
+        const ts = new Date(p.date).getTime();
+        return Number.isFinite(ts) && ts >= Date.UTC(2000, 0, 1);
+      });
 
     const { getTlAccountData } = await import('./services/tradelocker-sync');
     const tlLive = getTlAccountData(userId);
@@ -15058,12 +15074,15 @@ Respond with ONLY valid JSON:
     if (!strategy) {
       const dbStrat = await storage.getActiveWeeklyStrategy(userId);
       if (!dbStrat) {
-        // No active strategy — still compute live profit so dashboard isn't dead
-        const dbTradesFallback = await storage.getAiTradeResults(userId, 500);
+        // No active strategy — still compute live profit so dashboard isn't dead.
+        // Same sources and boundaries as /api/mt5/daily-summary (limit 5000,
+        // LOCAL day start) so the fallback can't disagree with it.
+        const dbTradesFallback = await storage.getAiTradeResults(userId, 5000);
         const weekStartFallback = tradingWeekStartUTC();
-        const todayStartFallback = new Date(); todayStartFallback.setUTCHours(0,0,0,0);
-        const weekTradesFallback = dbTradesFallback.filter((t: any) => { const d = new Date(t.closedAt || t.createdAt); return d >= weekStartFallback && t.result !== 'PENDING'; });
-        const todayTradesFallback = dbTradesFallback.filter((t: any) => { const d = new Date(t.closedAt || t.createdAt); return d >= todayStartFallback && t.result !== 'PENDING'; });
+        const _fbNow = new Date();
+        const todayStartFallback = new Date(_fbNow.getFullYear(), _fbNow.getMonth(), _fbNow.getDate());
+        const weekTradesFallback = dbTradesFallback.filter((t: any) => { const d = new Date(t.closedAt || t.createdAt); return d >= weekStartFallback && t.result && t.result !== 'PENDING'; });
+        const todayTradesFallback = dbTradesFallback.filter((t: any) => { const d = new Date(t.closedAt || t.createdAt); return d >= todayStartFallback && t.result && t.result !== 'PENDING'; });
         const weekProfitFallback = weekTradesFallback.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0);
         const todayProfitFallback = todayTradesFallback.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0);
         const openPositionsFallback: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
@@ -15115,7 +15134,9 @@ Respond with ONLY valid JSON:
 
     // ── Primary source: ai_trade_results DB (persists across deploys) ──
     // Includes ALL trades this week (plan pairs + manual entries + any pair traded)
-    const dbTrades = await storage.getAiTradeResults(userId, 500);
+    // Limit matches /api/mt5/daily-summary (5000) — at 500 this endpoint saw a
+    // truncated history and its week/day totals diverged from daily-summary's.
+    const dbTrades = await storage.getAiTradeResults(userId, 5000);
     const dbWeekTrades = dbTrades.filter((t: any) => {
       const tradeDate = new Date(t.closedAt || t.createdAt);
       return tradeDate >= weekStart
@@ -15134,14 +15155,13 @@ Respond with ONLY valid JSON:
       // No planPairs filter — all MT5 trades count
     });
 
-    // Merge both sources
-    const dbProfit = dbWeekTrades.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0);
-    const cacheProfit = cacheWeekTrades.reduce((s: number, t: any) => s + (t.profit || 0), 0);
-    const closedProfit = dbProfit + cacheProfit;
+    // Merge both sources — counted with the SAME shared helper daily-summary
+    // uses (services/closed-trade-stats.ts) over the same week set.
+    const weekSummary = summarizeClosed(dbWeekTrades, cacheWeekTrades);
+    const closedProfit = weekSummary.pnl;
 
-    const tradeCount = dbWeekTrades.length + cacheWeekTrades.length;
-    const wins = dbWeekTrades.filter((t: any) => t.result === 'WIN').length
-               + cacheWeekTrades.filter((t: any) => (t.profit || 0) > 0).length;
+    const tradeCount = weekSummary.trades;
+    const wins = weekSummary.wins;
     const winRate = tradeCount > 0 ? Math.round((wins / tradeCount) * 100) : 0;
 
     const openPosData = (global as any).mt5OpenPositions?.[userId];
@@ -15189,7 +15209,10 @@ Respond with ONLY valid JSON:
     });
 
     // ── Per-pair daily stats ──────────────────────────────────────────
-    const todayStart = new Date(); todayStart.setUTCHours(0,0,0,0);
+    // LOCAL day start — daily-summary uses local midnight; this used UTC
+    // midnight, which is why "today" here disagreed with the dashboard.
+    const _nowLocal = new Date();
+    const todayStart = new Date(_nowLocal.getFullYear(), _nowLocal.getMonth(), _nowLocal.getDate());
     const pairDailyStats: Record<string, {
       tradesToday: number; winsToday: number; lossesToday: number;
       profitToday: number; winRateToday: number;
@@ -15275,9 +15298,9 @@ Respond with ONLY valid JSON:
       const ticket = t.ticket?.toString();
       return !ticket || !todayDbTickets.has(ticket);
     });
-    const todayClosedProfit =
-      todayAllDbTrades.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) +
-      todayCacheDeduped.reduce((s: number, t: any) => s + (t.profit || 0), 0);
+    // Same shared summary as daily-summary → identical today figures.
+    const todaySummary = summarizeClosed(todayAllDbTrades, todayCacheDeduped);
+    const todayClosedProfit = todaySummary.pnl;
     const todayTotalProfit = Math.round((todayClosedProfit + unrealizedPnL) * 100) / 100;
 
     // Daily target = weekly target / 5 trading days (Mon–Fri)
@@ -15296,10 +15319,9 @@ Respond with ONLY valid JSON:
       ? Math.min(100, Math.max(0, Math.round((todayTotalProfit / dailyTarget) * 100)))
       : 0;
 
-    // Today's win/loss counts across all pairs
-    const todayWinsAll = todayAllDbTrades.filter((t: any) => t.result === 'WIN').length
-      + todayCacheDeduped.filter((t: any) => (t.profit || 0) > 0).length;
-    const todayTradesAll = todayAllDbTrades.length + todayCacheDeduped.length;
+    // Today's win/loss counts across all pairs (from the shared summary)
+    const todayWinsAll = todaySummary.wins;
+    const todayTradesAll = todaySummary.trades;
     const todayWinRateAll = todayTradesAll > 0 ? Math.round((todayWinsAll / todayTradesAll) * 100) : 0;
 
     try {
@@ -16394,7 +16416,9 @@ Rules:
       const blockedReasons: string[] = [];
       if (!c.isActive)    blockedReasons.push('isActive = false — toggle ON in TradeLocker settings');
       if (!c.autoExecute) blockedReasons.push('autoExecute = false — enable Auto-Execute in TradeLocker settings');
-      if (c.lastError)    blockedReasons.push(`Last error: ${c.lastError}`);
+      // Humanized: raw stored errors can embed internal call chains, which
+      // must never render on a status card (see services/exec-error-text.ts).
+      if (c.lastError)    blockedReasons.push(`Last error: ${humanizeExecError(c.lastError)}`);
 
       return {
         id: c.id,
@@ -16412,11 +16436,11 @@ Rules:
           symbol: lastTrade.symbol,
           direction: lastTrade.direction,
           status: lastTrade.status,
-          error: lastTrade.errorMessage,
+          error: humanizeExecError(lastTrade.errorMessage),
           time: lastTrade.createdAt,
           volume: lastTrade.volume,
         } : null,
-        lastError: c.lastError,
+        lastError: humanizeExecError(c.lastError),
         lastConnectedAt: c.lastConnectedAt,
       };
     });
@@ -19548,7 +19572,12 @@ Format each recommendation as a clear, concise action item.`;
         const be = rows.filter(r => r.result === 'BREAKEVEN').length;
         const pnl = Math.round(rows.reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100;
         const decided = wins + losses;
-        return { trades: rows.length, wins, losses, breakeven: be, winRate: decided > 0 ? Math.round((wins / decided) * 100) : 0, totalPnl: pnl };
+        // `other` = closed rows whose result is none of WIN/LOSS/BREAKEVEN
+        // (e.g. CLOSED_UNKNOWN — closed at the broker, outcome unrecoverable).
+        // Naming the residual makes wins + losses + breakeven + other = trades
+        // on every surface instead of the counts silently not adding up.
+        const other = rows.length - wins - losses - be;
+        return { trades: rows.length, wins, losses, breakeven: be, other, winRate: decided > 0 ? Math.round((wins / decided) * 100) : 0, totalPnl: pnl };
       };
 
       // Source classification. TradeLocker auto-executed trades use source
@@ -19608,8 +19637,10 @@ Format each recommendation as a clear, concise action item.`;
         else break;
       }
 
-      // Today's P&L
-      const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
+      // Today's P&L — LOCAL day start, matching /api/mt5/daily-summary (this
+      // used UTC midnight, one more reason "today" differed between pages).
+      const _tpNow = new Date();
+      const dayStart = new Date(_tpNow.getFullYear(), _tpNow.getMonth(), _tpNow.getDate());
       const todayRows = closed.filter((t: any) => new Date(t.closedAt) >= dayStart);
 
       // Cumulative P&L curve (chronological) for the dashboard header chart.
@@ -19697,7 +19728,7 @@ Format each recommendation as a clear, concise action item.`;
           label: a.brokerName + (a.accountId ? ` · ${a.accountId}` : ''),
           platform: 'TradeLocker', isPropFirm: a.isPropFirm, propFirmName: a.propFirmName,
           balance: a.balance, equity: a.equity, isConnected: a.isConnected,
-          trades: a.trades, wins: a.wins, losses: a.losses, winRate: a.winRate, totalPnl: a.totalPnl,
+          trades: a.trades, wins: a.wins, losses: a.losses, breakeven: a.breakeven, other: a.other, winRate: a.winRate, totalPnl: a.totalPnl,
           openCount: a.openCount, unrealizedPnl: a.unrealizedPnl,
           realizedTodayPnl: realizedTodayOf('tradelocker', a.connectionId, rows),
           todayPnl: liveToday(realizedTodayOf('tradelocker', a.connectionId, rows), a.unrealizedPnl),
@@ -29303,7 +29334,22 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const cfg = state.config;
     const today = new Date().toISOString().split('T')[0];
     const todayPnL = state.pnlToday ?? 0;
-    const balance = cfg.accountBalance || 0;
+    // Balance: prefer the SAME TradeLocker background-sync snapshot /webhooks
+    // and the engine-stopped branch above read. cfg.accountBalance is a
+    // config-time snapshot — the two disagreed by $441 in the Nov 16 survey.
+    // Falls back to the config snapshot only when the sync cache is empty.
+    let balance = cfg.accountBalance || 0;
+    try {
+      const { getTlAccountData } = await import('./services/tradelocker-sync');
+      const tlLive = getTlAccountData(userId);
+      if (tlLive.accounts.length > 0) {
+        const tlConns = await storage.getUserTradelockerConnections(userId).catch(() => []);
+        const propConn = tlConns.find((c: any) => c.isActive && (c as any).isPropFirmAccount);
+        const propLive = propConn ? tlLive.accounts.find(a => a.connectionId === propConn.id) : null;
+        const liveBal = propLive?.balance ?? tlLive.accounts[0]?.balance;
+        if (typeof liveBal === 'number' && liveBal > 0) balance = liveBal;
+      }
+    } catch { /* keep the config snapshot */ }
     const challengePnLHistory: Record<string, number> = (state as any).challengeDailyPnL ?? {};
     challengePnLHistory[today] = todayPnL;
     const periodKeys = Object.keys(challengePnLHistory).sort().slice(-(cfg.consistencyPeriodDays || 15));

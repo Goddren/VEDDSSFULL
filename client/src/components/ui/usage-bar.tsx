@@ -17,16 +17,19 @@ interface UsageBarProps {
   className?: string;
 }
 
-export function UsageBar({ 
-  current, 
-  limit, 
+export function UsageBar({
+  current,
+  limit,
   type,
   planName,
   compact = false,
-  className = '' 
+  className = ''
 }: UsageBarProps) {
+  // Plans encode "unlimited" as a huge limit (99999 in the seed data) — never
+  // render the raw placeholder number; show ∞ / "unlimited" instead.
+  const unlimited = limit >= 99999;
   // Calculate percentage
-  const percentage = Math.min(Math.round((current / (limit || 1)) * 100), 100);
+  const percentage = unlimited ? 0 : Math.min(Math.round((current / (limit || 1)) * 100), 100);
   
   // Determine bar color based on usage percentage
   const getBarColor = () => {
@@ -43,7 +46,7 @@ export function UsageBar({
             {type === 'analysis' ? 'Analysis' : 'Social Shares'}
           </span>
           <span className="text-muted-foreground">
-            ({current}/{limit === 999999 ? '∞' : limit})
+            ({current}/{unlimited ? '∞' : limit})
           </span>
           {!compact && (
             <TooltipProvider>
@@ -54,9 +57,9 @@ export function UsageBar({
                 <TooltipContent side="top" align="center" className="max-w-xs">
                   <div className="text-sm">
                     <p>
-                      {type === 'analysis' 
-                        ? `Your ${planName || ''} plan allows ${limit === 999999 ? 'unlimited' : limit} chart analyses per month.` 
-                        : `Your ${planName || ''} plan allows ${limit === 999999 ? 'unlimited' : limit} social shares per month.`
+                      {type === 'analysis'
+                        ? `Your ${planName || ''} plan allows ${unlimited ? 'unlimited' : limit} chart analyses per month.`
+                        : `Your ${planName || ''} plan allows ${unlimited ? 'unlimited' : limit} social shares per month.`
                       }
                     </p>
                     {percentage >= 90 && (

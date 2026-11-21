@@ -87,8 +87,10 @@ export function SubscriptionUsageHeader({ compact = false }: SubscriptionUsageHe
             <span className="font-medium hidden sm:inline">{planName}</span>
           </div>
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <span className={isLow ? 'text-amber-500' : ''}>{monthlyAnalysisCount}/{analysisLimit}</span>
-            <span className="hidden md:inline">analyses</span>
+            {/* Unlimited plans encode the limit as 99999 — show plan + used
+                count only, never the placeholder number. */}
+            <span className={isLow ? 'text-amber-500' : ''}>{analysisLimit >= 99999 ? monthlyAnalysisCount : `${monthlyAnalysisCount}/${analysisLimit}`}</span>
+            <span className="hidden md:inline">analyses{analysisLimit >= 99999 ? ' · unlimited' : ''}</span>
           </div>
         </Link>
         {(status === 'none' || planId === 1) && (

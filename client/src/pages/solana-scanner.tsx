@@ -4978,7 +4978,6 @@ export default function SolanaScanner() {
       </Card>
       
       <div className="text-center py-8 border-t border-border/50 mt-8">
-        <VeddLogo height={32} className="mx-auto mb-4" />
         <p className="text-sm text-muted-foreground mb-4">Part of the VEDD AI Trading Vault ecosystem</p>
         <div className="flex items-center justify-center gap-4">
           <Link href="/">

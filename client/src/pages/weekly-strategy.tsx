@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { countGuardActions, countAiFailures } from "@/lib/guard-kinds";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -880,7 +881,12 @@ function GuardsTrailsSummaryCard({ className = "" }: { className?: string }) {
     queryKey: ["/api/engine/trail-guards"],
     refetchInterval: 60000,
   });
-  const guardActions = (guardFeed?.summary || []).reduce((sum, s) => sum + (s.n || 0), 0);
+  // ONE counting definition (lib/guard-kinds.ts, shared with Guards &
+  // Trails): AI-call failures are NOT guard actions and are never summed
+  // into this count — they get their own labeled figure below.
+  const summaryMap = Object.fromEntries((guardFeed?.summary || []).map((s) => [s.kind, s.n || 0]));
+  const guardActions = countGuardActions(summaryMap);
+  const aiFailures = countAiFailures(summaryMap);
   const activeLessons = (promoted?.rules || []).filter((r) => r.active).length;
   const activeTrails = (trailGuardData?.guards || []).filter((g) => g.active).length;
   return (
@@ -890,7 +896,7 @@ function GuardsTrailsSummaryCard({ className = "" }: { className?: string }) {
         <div className="min-w-0 flex-1">
           <div className="text-sm font-bold text-gray-100 leading-tight">Engine Guards &amp; Trails</div>
           <div className="text-[10px] leading-snug text-gray-500 mt-0.5 tabular-nums">
-            {guardActions} guard action{guardActions === 1 ? "" : "s"} in the last 7 days · {activeLessons} lesson guard{activeLessons === 1 ? "" : "s"} on · {activeTrails} trail guard{activeTrails === 1 ? "" : "s"} on
+            {guardActions} guard action{guardActions === 1 ? "" : "s"} in the last 7 days{aiFailures > 0 ? <> · <span className="text-red-300/90">{aiFailures} AI calls failed</span> (AI health, not guard actions)</> : null} · {activeLessons} lesson guard{activeLessons === 1 ? "" : "s"} on · {activeTrails} trail guard{activeTrails === 1 ? "" : "s"} on
           </div>
         </div>
         <Link href="/guards-trails">
