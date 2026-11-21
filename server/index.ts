@@ -1677,6 +1677,15 @@ async function withRetry<T>(
     const { startTrailBrainLearning } = await import('./services/trail-brain-learning');
     startTrailBrainLearning();
 
+    // Continuous improvement loop — every 6h, per-strategy 14d vs
+    // prior-14d trend snapshots from the shadow ledger + FX brain
+    // outcomes; a DEGRADING shadow strategy (Kalshi perp / Sol / crypto
+    // / Studio) pauses its NEW shadow entries until recovery or 7 days.
+    // Measurement + shadow-only response; never touches live paths.
+    // Kill switch IMPROVEMENT_LOOP=off (improvement-loop.ts).
+    const { startImprovementLoop } = await import('./services/improvement-loop');
+    startImprovementLoop();
+
     // Kalshi stock-perp SHADOW lane — virtual positions on public Kalshi
     // margin market data for the owner account. No credentials, no orders;
     // kill switch KALSHI_STOCK_SHADOW=off.
