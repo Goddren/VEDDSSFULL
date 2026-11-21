@@ -12411,6 +12411,167 @@ var init_ai_usage = __esm({
   }
 });
 
+// server/services/ai-engine-budget.ts
+var ai_engine_budget_exports = {};
+__export(ai_engine_budget_exports, {
+  aiBudgetAllEnginesEnabled: () => aiBudgetAllEnginesEnabled,
+  aiCostDisciplineEnabled: () => aiCostDisciplineEnabled,
+  engineAiBudgetAllows: () => engineAiBudgetAllows,
+  engineAiBudgetCents: () => engineAiBudgetCents,
+  engineAiBudgetError: () => engineAiBudgetError,
+  engineAiBudgetSummary: () => engineAiBudgetSummary,
+  engineAiBudgetVerdict: () => engineAiBudgetVerdict,
+  engineAiEstCentsPerCall: () => engineAiEstCentsPerCall,
+  engineAiSpendToday: () => engineAiSpendToday,
+  meterEngineAiConfirmation: () => meterEngineAiConfirmation,
+  noteEngineAiBudgetBlock: () => noteEngineAiBudgetBlock,
+  shouldLogBudgetBlock: () => shouldLogBudgetBlock
+});
+function aiCostDisciplineEnabled() {
+  return process.env.AI_COST_DISCIPLINE !== "off";
+}
+function aiBudgetAllEnginesEnabled() {
+  return aiCostDisciplineEnabled() && process.env.AI_BUDGET_ALL_ENGINES !== "off";
+}
+function engineAiBudgetCents() {
+  const raw = process.env.AI_ENGINE_DAILY_BUDGET_CENTS;
+  if (raw === void 0) return 200;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 200;
+}
+function engineAiEstCentsPerCall() {
+  const n = Number(process.env.AI_ENGINE_CONFIRM_EST_CENTS ?? 0.15);
+  return Number.isFinite(n) && n > 0 ? n : 0.15;
+}
+function utcDay() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+}
+function currentSpend(userId) {
+  const day = utcDay();
+  let s = spendByUser.get(userId);
+  if (!s || s.day !== day) {
+    s = { day, cents: 0, calls: 0, blocked: 0 };
+    spendByUser.set(userId, s);
+  }
+  return s;
+}
+async function ensureLoaded(userId) {
+  if (loadStarted.has(userId)) return;
+  loadStarted.add(userId);
+  try {
+    const saved = await getRuntimeStateStrict("ai_engine_budget", String(userId));
+    if (saved && saved.day === utcDay()) {
+      const s = currentSpend(userId);
+      s.cents = Math.max(s.cents, Number(saved.cents) || 0);
+      s.calls = Math.max(s.calls, Number(saved.calls) || 0);
+      s.blocked = Math.max(s.blocked, Number(saved.blocked) || 0);
+    }
+  } catch {
+  }
+}
+function persistSoon(userId) {
+  if (persistTimers.has(userId)) return;
+  const t = setTimeout(() => {
+    persistTimers.delete(userId);
+    try {
+      const s = spendByUser.get(userId);
+      if (s) saveRuntimeState("ai_engine_budget", String(userId), { ...s });
+    } catch {
+    }
+  }, 5e3);
+  if (typeof t.unref === "function") t.unref();
+  persistTimers.set(userId, t);
+}
+async function engineAiBudgetAllows(userId) {
+  if (!aiCostDisciplineEnabled()) return true;
+  try {
+    const cap = engineAiBudgetCents();
+    if (cap <= 0) return false;
+    await ensureLoaded(userId);
+    return currentSpend(userId).cents < cap;
+  } catch {
+    return true;
+  }
+}
+function meterEngineAiConfirmation(userId, units = 1) {
+  if (!aiCostDisciplineEnabled()) return;
+  const u = Math.max(1, Math.floor(Number(units) || 1));
+  const s = currentSpend(userId);
+  s.cents += engineAiEstCentsPerCall() * u;
+  s.calls += u;
+  persistSoon(userId);
+}
+function engineAiSpendToday(userId) {
+  const s = currentSpend(userId);
+  return { cents: Math.round(s.cents * 1e3) / 1e3, calls: s.calls, blocked: s.blocked, capCents: engineAiBudgetCents() };
+}
+function noteEngineAiBudgetBlock(userId) {
+  if (!aiCostDisciplineEnabled()) return;
+  const s = currentSpend(userId);
+  s.blocked += 1;
+  persistSoon(userId);
+}
+function engineAiBudgetError() {
+  const err = new Error(
+    `402 Insufficient credits \u2014 daily AI budget reached (engine AI spend cap of $${(engineAiBudgetCents() / 100).toFixed(2)}/day across all engines). Engine AI calls resume at 00:00 UTC.`
+  );
+  err.status = 402;
+  err.aiErrorStatus = "budget";
+  err.budgetBlocked = true;
+  return err;
+}
+function engineAiBudgetSummary() {
+  const day = utcDay();
+  let users2 = 0, cents = 0, calls = 0, blocked = 0;
+  spendByUser.forEach((s) => {
+    if (s.day !== day) return;
+    users2++;
+    cents += s.cents;
+    calls += s.calls;
+    blocked += s.blocked;
+  });
+  return {
+    enabled: aiCostDisciplineEnabled(),
+    allEngines: aiBudgetAllEnginesEnabled(),
+    capCentsPerUser: engineAiBudgetCents(),
+    estCentsPerCall: engineAiEstCentsPerCall(),
+    usersTracked: users2,
+    spendCentsToday: Math.round(cents * 1e3) / 1e3,
+    callsToday: calls,
+    blockedToday: blocked
+  };
+}
+function engineAiBudgetVerdict() {
+  return {
+    confirmed: false,
+    aiDirection: "NEUTRAL",
+    aiConfidence: 0,
+    reasoning: `AI confirmation unavailable \u2014 daily AI budget reached (engine confirmation spend cap of $${(engineAiBudgetCents() / 100).toFixed(2)}/day). Confirmations resume at 00:00 UTC; no trade will be taken on an unverified signal.`,
+    aiError: true,
+    aiErrorStatus: "budget",
+    modelUsed: "ai-budget-gate",
+    providerUsed: "budget"
+  };
+}
+function shouldLogBudgetBlock(userId) {
+  const now = Date.now();
+  const last2 = lastBlockLogAt.get(userId) || 0;
+  if (now - last2 < 36e5) return false;
+  lastBlockLogAt.set(userId, now);
+  return true;
+}
+var spendByUser, loadStarted, persistTimers, lastBlockLogAt;
+var init_ai_engine_budget = __esm({
+  "server/services/ai-engine-budget.ts"() {
+    "use strict";
+    init_runtime_state();
+    spendByUser = /* @__PURE__ */ new Map();
+    loadStarted = /* @__PURE__ */ new Set();
+    persistTimers = /* @__PURE__ */ new Map();
+    lastBlockLogAt = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/utils/pipUtils.ts
 function matchesAny(symbol, patterns) {
   const s = symbol.toUpperCase();
@@ -13094,7 +13255,7 @@ async function pairDailyStopVerdict(userId, symbol) {
   if (process.env.PAIR_DAILY_STOP_ENABLED === "false") return null;
   const sym = norm(symbol);
   if (!sym) return null;
-  const today = utcDay();
+  const today = utcDay2();
   let entry = cache2.get(userId);
   try {
     if (!entry || entry.day !== today || Date.now() - entry.at > TTL_MS2) {
@@ -13172,13 +13333,13 @@ async function pairDailyStopTable(userId) {
     stats = cache2.get(userId)?.stats ?? /* @__PURE__ */ new Map();
   }
   return {
-    day: utcDay(),
+    day: utcDay2(),
     limit: MAX_LOSING_SIGNALS,
     maxLoss: MAX_DAILY_LOSS,
     pairs: Array.from(stats.values()).sort((a, b) => a.netPnl - b.netPnl)
   };
 }
-var MAX_LOSING_SIGNALS, MAX_DAILY_LOSS, GROUP_MS, TTL_MS2, cache2, norm, utcDay;
+var MAX_LOSING_SIGNALS, MAX_DAILY_LOSS, GROUP_MS, TTL_MS2, cache2, norm, utcDay2;
 var init_pair_daily_stop = __esm({
   "server/services/pair-daily-stop.ts"() {
     "use strict";
@@ -13188,7 +13349,7 @@ var init_pair_daily_stop = __esm({
     TTL_MS2 = Number(process.env.PAIR_DAILY_TTL_MS ?? 6e4);
     cache2 = /* @__PURE__ */ new Map();
     norm = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    utcDay = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    utcDay2 = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   }
 });
 
@@ -22573,6 +22734,7 @@ function buildEnsembleConsensus(allDecisions, minAgreementPercent) {
 }
 async function runMultiModelAnalysis(userId, systemPrompt, userPrompt, routingConfig, openaiInstance) {
   const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+  const budgetMod = await Promise.resolve().then(() => (init_ai_engine_budget(), ai_engine_budget_exports)).catch(() => null);
   async function getApiKeyForModel(modelDef) {
     if (modelDef.provider === "openai") return null;
     try {
@@ -22599,6 +22761,12 @@ async function runMultiModelAnalysis(userId, systemPrompt, userPrompt, routingCo
       apiKey,
       modelDef.provider === "openai" ? openaiInstance : void 0
     );
+    if (budgetMod?.aiBudgetAllEnginesEnabled() && !(modelDef.provider === "openai" && openaiInstance)) {
+      try {
+        budgetMod.meterEngineAiConfirmation(userId, 1);
+      } catch {
+      }
+    }
     const elapsed = Date.now() - startTime;
     console.log(`[Multi-Model] ${modelDef.name} responded in ${elapsed}ms`);
     const parsed = parseTradeResponse(content);
@@ -22631,6 +22799,10 @@ async function runMultiModelAnalysis(userId, systemPrompt, userPrompt, routingCo
   };
   let capturedCommentary = void 0;
   try {
+    if (budgetMod?.aiBudgetAllEnginesEnabled() && !await budgetMod.engineAiBudgetAllows(userId)) {
+      budgetMod.noteEngineAiBudgetBlock(userId);
+      throw budgetMod.engineAiBudgetError();
+    }
     switch (routingConfig.mode) {
       case "single": {
         const decisions = await callModel(routingConfig.primaryModelId);
@@ -23853,7 +24025,7 @@ async function autoGenerateBrainSignals(userId, brain) {
     if (!brain?.pairKnowledge || Object.keys(brain.pairKnowledge).length === 0) return;
     const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
     try {
-      openai2 = await getUniversalAIClientForUser2(userId);
+      openai2 = await getUniversalAIClientForUser2(userId, { engine: true });
     } catch {
       return;
     }
@@ -26462,13 +26634,13 @@ function selectStrategyForPair(symbol, data, htfBias, asiaHigh, asiaLow, utcHour
   const isXau2 = symbol.includes("XAU");
   const symUpper = symbol.toUpperCase();
   const isCrypto = symUpper.includes("BTC") || symUpper.includes("XBT") || symUpper.includes("ETH") || symUpper.includes("LTC") || symUpper.includes("XRP") || symUpper.includes("ADA") || symUpper.includes("SOL") || symUpper.includes("BNB") || symUpper.includes("DOT");
-  const utcDay2 = (/* @__PURE__ */ new Date()).getUTCDay();
-  const isWeekend = utcDay2 === 0 || utcDay2 === 6;
+  const utcDay3 = (/* @__PURE__ */ new Date()).getUTCDay();
+  const isWeekend = utcDay3 === 0 || utcDay3 === 6;
   const pricePct = (a, b) => Math.abs(a - b) / Math.max(b, 1e-5) * 100;
   const hasPattern = (...names) => patterns.some((p) => names.some((n) => p.toLowerCase().includes(n.toLowerCase())));
   if (isCrypto && isWeekend) {
     const isVolumeOk = volTrend === "surging" || volTrend === "above_average" || volTrend === "average";
-    const dayLabel = utcDay2 === 6 ? "Saturday" : "Sunday";
+    const dayLabel = utcDay3 === 6 ? "Saturday" : "Sunday";
     if (adxVal >= 22 && trend !== "NEUTRAL" && diSep >= 8 && isVolumeOk) {
       return {
         strategy: "btc_weekend_momentum",
@@ -26736,7 +26908,7 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
   try {
     const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
     try {
-      openai2 = await getUniversalAIClientForUser2(userId, { critical: true });
+      openai2 = await getUniversalAIClientForUser2(userId, { critical: true, engine: true });
     } catch {
       addActivity(userId, { type: "error", message: "No AI API key configured. Cannot analyze." });
       if (_fxMode !== "ai" || _fxShadow) await _aiFailed("failed:no_client");
@@ -26755,7 +26927,9 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
           timeout: 9e4
         });
         groqClient.defaultModel = "openai/gpt-oss-120b";
-        openai2 = groqClient;
+        groqClient.provider = "groq";
+        const { wrapEngineAiClient: wrapEngineAiClient2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+        openai2 = wrapEngineAiClient2(groqClient, userId);
         _usingGroq = true;
         addActivity(userId, { type: "info", message: "\u{1F49A} Economy mode: routing to Groq Llama 3.3-70b (free tier) \u2014 cost reduced" });
       } catch {
@@ -32763,7 +32937,7 @@ async function decideModelIdeas(userId, session2, pairs, engine, deps) {
   let ai;
   try {
     const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    ai = await getUniversalAIClientForUser2(userId);
+    ai = await getUniversalAIClientForUser2(userId, { engine: true });
   } catch {
     out.failed = true;
     return out;
@@ -33982,7 +34156,8 @@ __export(openai_exports, {
   setSMCStrategyEnabled: () => setSMCStrategyEnabled,
   setTrailingStopEnabled: () => setTrailingStopEnabled,
   setUserModelPreference: () => setUserModelPreference,
-  testOpenAIApiKey: () => testOpenAIApiKey
+  testOpenAIApiKey: () => testOpenAIApiKey,
+  wrapEngineAiClient: () => wrapEngineAiClient
 });
 import OpenAI3 from "openai";
 function getRelevantStrategies(symbol) {
@@ -36208,7 +36383,7 @@ function logAiFailure(userId, c, model, e, fellBackTo) {
   )).catch(() => {
   });
 }
-function makeFailoverClient(clients, userId) {
+function makeFailoverClient(clients, userId, opts) {
   const primary = clients[0];
   return {
     defaultModel: primary.defaultModel,
@@ -36216,6 +36391,24 @@ function makeFailoverClient(clients, userId) {
     chat: {
       completions: {
         create: async (params) => {
+          const engineBudget = !!opts?.engine && !!userId && aiBudgetAllEnginesEnabled();
+          if (engineBudget) {
+            if (!await engineAiBudgetAllows(userId)) {
+              noteEngineAiBudgetBlock(userId);
+              if (shouldLogBudgetBlock(userId)) {
+                void Promise.resolve().then(() => (init_guard_events(), guard_events_exports)).then(({ logGuard: logGuard2 }) => logGuard2(
+                  userId,
+                  "ai_call_failed",
+                  null,
+                  `daily AI budget reached \u2014 engine AI calls paused until 00:00 UTC (cap $${(engineAiBudgetCents() / 100).toFixed(2)}/day, AI_ENGINE_DAILY_BUDGET_CENTS)`,
+                  { reason: "daily_ai_budget", scope: "all_engines" },
+                  "ai"
+                )).catch(() => {
+                });
+              }
+              throw engineAiBudgetError();
+            }
+          }
           let lastErr;
           const attempts = [];
           for (let i = 0; i < clients.length; i++) {
@@ -36245,6 +36438,12 @@ function makeFailoverClient(clients, userId) {
                 }).catch(() => {
                 });
               }
+              if (engineBudget) {
+                try {
+                  meterEngineAiConfirmation(userId, 1);
+                } catch {
+                }
+              }
               return result;
             } catch (e) {
               lastErr = e;
@@ -36267,6 +36466,9 @@ function makeFailoverClient(clients, userId) {
       }
     }
   };
+}
+function wrapEngineAiClient(client2, userId) {
+  return makeFailoverClient([client2], userId, { engine: true });
 }
 async function buildGroqEconomyClient(userGroqKey) {
   const apiKey = userGroqKey || process.env.GROQ_API_KEY;
@@ -36377,7 +36579,7 @@ async function getUniversalAIClientForUser(userId, opts) {
       storage2.updateUserApiKeyUsage(userId, clients[0].provider).catch(() => {
       });
       console.log(`[AI] user ${userId} client chain: ${clients.map((c) => c.provider).join(" \u2192 ")} (primary model ${clients[0].defaultModel})`);
-      return makeFailoverClient(clients, userId);
+      return makeFailoverClient(clients, userId, { engine: !!opts?.engine });
     }
     if (!canUsePlatformKey) {
       throw new Error("AI_COST_CAP_EXCEEDED: Monthly AI usage cap reached for your membership tier. Add your own AI provider key in AI API Keys settings to continue.");
@@ -36390,6 +36592,7 @@ async function getUniversalAIClientForUser(userId, opts) {
   platformClient.defaultModel = "gpt-4o-mini";
   platformClient.provider = "openai";
   platformClient.usedPlatformKey = true;
+  if (opts?.engine) return makeFailoverClient([platformClient], userId, { engine: true });
   return platformClient;
 }
 async function getUniversalVisionClientForUser(userId, opts) {
@@ -36488,7 +36691,7 @@ async function getUniversalVisionClientForUser(userId, opts) {
       storage2.updateUserApiKeyUsage(userId, clients[0].provider).catch(() => {
       });
       console.log(`[AI Vision] user ${userId} client chain: ${clients.map((c) => c.provider).join(" \u2192 ")}`);
-      return makeFailoverClient(clients, userId);
+      return makeFailoverClient(clients, userId, { engine: !!opts?.engine });
     }
     if (!canUsePlatformKey) {
       throw new Error("AI_COST_CAP_EXCEEDED: Monthly AI usage cap reached for your membership tier. Add your own AI provider key in AI API Keys settings to continue.");
@@ -36501,6 +36704,7 @@ async function getUniversalVisionClientForUser(userId, opts) {
   platformClient.defaultModel = "gpt-4o-mini";
   platformClient.provider = "openai";
   platformClient.usedPlatformKey = true;
+  if (opts?.engine) return makeFailoverClient([platformClient], userId, { engine: true });
   return platformClient;
 }
 async function getOpenAIInstanceForUser(userId) {
@@ -38073,6 +38277,7 @@ var init_openai = __esm({
     init_github_strategy_context();
     init_confirmation_learning();
     init_ai_usage();
+    init_ai_engine_budget();
     init_pipUtils();
     init_symbolAliases();
     TOP_PROFITABLE_STRATEGIES = [
@@ -38410,7 +38615,7 @@ async function getCryptoAiConfirmation(opts) {
       console.log(`[crypto-ai-confirmation] ${opts.symbol} ${opts.direction}: verdict reused \u2014 ${cached.reason}`);
       return cached.verdict;
     }
-    const client2 = await getUniversalAIClientForUser(opts.userId);
+    const client2 = await getUniversalAIClientForUser(opts.userId, { engine: true });
     const recent = opts.candles.slice(-20);
     const candleSummary = recent.map((c) => {
       const tNum = Number(c.t);
@@ -40147,7 +40352,7 @@ function quantVerdictFromScore(score) {
 async function getCryptocomAiConfirmationLite(userId, symbol, result) {
   try {
     const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const client2 = await getUniversalAIClientForUser2(userId);
+    const client2 = await getUniversalAIClientForUser2(userId, { engine: true });
     const system = 'You are a disciplined crypto perpetual futures second opinion. Given a rules-based signal, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string}.';
     const user = `Symbol: ${symbol}
 Strategy: ${result.strategy}
