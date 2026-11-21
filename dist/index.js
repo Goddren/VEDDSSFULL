@@ -12818,6 +12818,464 @@ var init_crypto_paper = __esm({
   }
 });
 
+// server/services/improvement-loop.ts
+var improvement_loop_exports = {};
+__export(improvement_loop_exports, {
+  accumToStat: () => accumToStat,
+  addToAccum: () => addToAccum,
+  appendSnapshot: () => appendSnapshot,
+  buildSnapshot: () => buildSnapshot2,
+  classifyTrend: () => classifyTrend,
+  defaultClassifyThresholds: () => defaultClassifyThresholds,
+  emptyAccum: () => emptyAccum,
+  emptyWindowStat: () => emptyWindowStat,
+  getImprovementLoopHealth: () => getImprovementLoopHealth,
+  getStudioImprovementKey: () => getStudioImprovementKey,
+  improvementDegradingDeltaPct: () => improvementDegradingDeltaPct,
+  improvementDegradingDeltaR: () => improvementDegradingDeltaR,
+  improvementImprovingDeltaPct: () => improvementImprovingDeltaPct,
+  improvementImprovingDeltaR: () => improvementImprovingDeltaR,
+  improvementIntervalMs: () => improvementIntervalMs,
+  improvementLoopOn: () => improvementLoopOn,
+  improvementMinTrades: () => improvementMinTrades,
+  improvementPauseDays: () => improvementPauseDays,
+  improvementPriorMinTrades: () => improvementPriorMinTrades,
+  improvementSnapshotCap: () => improvementSnapshotCap,
+  improvementThrottleBlocks: () => improvementThrottleBlocks,
+  improvementWindowDays: () => improvementWindowDays,
+  logImprovementBlock: () => logImprovementBlock,
+  nextThrottleState: () => nextThrottleState,
+  runImprovementEvaluation: () => runImprovementEvaluation,
+  startImprovementLoop: () => startImprovementLoop,
+  throttleKey: () => throttleKey,
+  windowBounds: () => windowBounds
+});
+function improvementLoopOn() {
+  return process.env.IMPROVEMENT_LOOP !== "off";
+}
+function emptyWindowStat() {
+  return { trades: 0, wins: 0, winRate: null, rTrades: 0, avgR: null, totalR: null, pctTrades: 0, avgPct: null, totalPct: null };
+}
+function emptyAccum() {
+  return { trades: 0, wins: 0, rTrades: 0, sumR: 0, pctTrades: 0, sumPct: 0 };
+}
+function addToAccum(a, r) {
+  a.trades += Number(r.trades) || 0;
+  a.wins += Number(r.wins) || 0;
+  a.rTrades += Number(r.rTrades) || 0;
+  a.sumR += Number(r.sumR) || 0;
+  a.pctTrades += Number(r.pctTrades) || 0;
+  a.sumPct += Number(r.sumPct) || 0;
+}
+function accumToStat(a) {
+  return {
+    trades: a.trades,
+    wins: a.wins,
+    winRate: a.trades > 0 ? a.wins / a.trades : null,
+    rTrades: a.rTrades,
+    avgR: a.rTrades > 0 ? a.sumR / a.rTrades : null,
+    totalR: a.rTrades > 0 ? a.sumR : null,
+    pctTrades: a.pctTrades,
+    avgPct: a.pctTrades > 0 ? a.sumPct / a.pctTrades : null,
+    totalPct: a.pctTrades > 0 ? a.sumPct : null
+  };
+}
+function windowBounds(nowMs, windowDays) {
+  const w = windowDays * 24 * 36e5;
+  return { priorStart: nowMs - 2 * w, curStart: nowMs - w, curEnd: nowMs };
+}
+function defaultClassifyThresholds() {
+  return {
+    minTrades: improvementMinTrades(),
+    priorMinTrades: improvementPriorMinTrades(),
+    improvingDeltaR: improvementImprovingDeltaR(),
+    degradingDeltaR: improvementDegradingDeltaR(),
+    improvingDeltaPct: improvementImprovingDeltaPct(),
+    degradingDeltaPct: improvementDegradingDeltaPct()
+  };
+}
+function classifyTrend(cur, prior, th = defaultClassifyThresholds()) {
+  let metric = null;
+  if (cur.avgR != null && prior.avgR != null) metric = "R";
+  else if (cur.avgPct != null && prior.avgPct != null) metric = "pct";
+  if (!metric) return { classification: "insufficient", metric: null, delta: null };
+  const curN = metric === "R" ? cur.rTrades : cur.pctTrades;
+  const priorN = metric === "R" ? prior.rTrades : prior.pctTrades;
+  if (curN < th.minTrades || priorN < th.priorMinTrades) {
+    return { classification: "insufficient", metric, delta: null };
+  }
+  const curAvg = metric === "R" ? cur.avgR : cur.avgPct;
+  const priorAvg = metric === "R" ? prior.avgR : prior.avgPct;
+  const delta = curAvg - priorAvg;
+  const improvingDelta = metric === "R" ? th.improvingDeltaR : th.improvingDeltaPct;
+  const degradingDelta = metric === "R" ? th.degradingDeltaR : th.degradingDeltaPct;
+  const EPS = 1e-9;
+  if (delta >= improvingDelta - EPS) return { classification: "improving", metric, delta };
+  const winRateImproved = cur.winRate != null && prior.winRate != null && cur.winRate > prior.winRate;
+  if (delta <= -degradingDelta + EPS && !winRateImproved) return { classification: "degrading", metric, delta };
+  return { classification: "flat", metric, delta };
+}
+function nextThrottleState(existing, trends, nowMs, pauseDays, windowDays = 14) {
+  const transitions = [];
+  const trendByKey = /* @__PURE__ */ new Map();
+  for (const t of trends) trendByKey.set(throttleKey(t.userId, t.engine, t.strategy), t);
+  const kept = /* @__PURE__ */ new Map();
+  for (const e of existing) {
+    const k2 = throttleKey(e.userId, e.engine, e.strategy);
+    const trend = trendByKey.get(k2);
+    const expired = nowMs >= Date.parse(e.pausedUntil);
+    if (trend && trend.classification !== "degrading" && trend.classification !== "insufficient") {
+      transitions.push({ type: "resume_recovery", entry: e, trend });
+      continue;
+    }
+    if (expired) {
+      transitions.push({ type: "resume_expired", entry: e, trend });
+      continue;
+    }
+    kept.set(k2, e);
+  }
+  for (const t of trends) {
+    if (!t.throttleLane || t.classification !== "degrading") continue;
+    const k2 = throttleKey(t.userId, t.engine, t.strategy);
+    if (kept.has(k2)) continue;
+    const fmt = (v, u) => v == null ? "?" : `${v >= 0 ? "+" : ""}${v.toFixed(2)}${u}`;
+    const entry = {
+      userId: t.userId,
+      engine: t.engine,
+      strategy: t.strategy,
+      pausedAt: new Date(nowMs).toISOString(),
+      pausedUntil: new Date(nowMs + pauseDays * 24 * 36e5).toISOString(),
+      reason: `degrading trend: avg ${t.metric === "pct" ? "net %" : "R"} ${fmt(t.metric === "pct" ? t.prior.avgPct : t.prior.avgR, t.metric === "pct" ? "%" : "R")} \u2192 ${fmt(t.metric === "pct" ? t.cur.avgPct : t.cur.avgR, t.metric === "pct" ? "%" : "R")} over the last ${windowDays} days vs the prior ${windowDays}, win rate ${t.cur.winRate != null ? Math.round(t.cur.winRate * 100) : "?"}% \u2014 new shadow entries paused`
+    };
+    kept.set(k2, entry);
+    transitions.push({ type: "pause", entry, trend: t });
+  }
+  return { entries: Array.from(kept.values()), transitions };
+}
+function appendSnapshot(history, snap, cap) {
+  const next = [...history, snap];
+  return next.length > cap ? next.slice(next.length - cap) : next;
+}
+function buildSnapshot2(atMs, bounds, trends, throttled) {
+  const iso = (ms) => new Date(ms).toISOString();
+  return {
+    at: iso(atMs),
+    curStart: iso(bounds.curStart),
+    curEnd: iso(bounds.curEnd),
+    priorStart: iso(bounds.priorStart),
+    priorEnd: iso(bounds.curStart),
+    strategies: trends,
+    throttled
+  };
+}
+async function loadSnapshots() {
+  try {
+    const v = await getRuntimeStateStrict(SNAPSHOT_SCOPE, STORE_KEY);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+async function loadThrottleEntries() {
+  try {
+    const v = await getRuntimeStateStrict(THROTTLE_SCOPE, STORE_KEY);
+    if (v && typeof v === "object" && Array.isArray(v.entries)) return v.entries;
+    return [];
+  } catch {
+    return [];
+  }
+}
+function persistThrottles(entries) {
+  _throttleCache = { at: Date.now(), entries };
+  saveRuntimeState(THROTTLE_SCOPE, STORE_KEY, { entries });
+}
+async function currentThrottles() {
+  if (_throttleCache && Date.now() - _throttleCache.at < THROTTLE_CACHE_MS) return _throttleCache.entries;
+  const entries = await loadThrottleEntries();
+  _throttleCache = { at: Date.now(), entries };
+  return entries;
+}
+async function improvementThrottleBlocks(userId, engine, strategy) {
+  if (!improvementLoopOn()) return false;
+  try {
+    const entries = await currentThrottles();
+    const hit = entries.find((e) => e.userId === userId && e.engine === engine && e.strategy === strategy);
+    if (!hit) return false;
+    return Date.now() < Date.parse(hit.pausedUntil);
+  } catch {
+    return false;
+  }
+}
+function logImprovementBlock(userId, engine, strategy, symbol) {
+  const k2 = throttleKey(userId, engine, strategy);
+  const now = Date.now();
+  if (now - (_blockLogAt.get(k2) || 0) < 36e5) return;
+  _blockLogAt.set(k2, now);
+  logGuard(
+    userId,
+    "improvement_throttle",
+    symbol,
+    `Improvement loop: new ${engine} shadow entries for "${strategy}" are paused \u2014 its last-14-days trend is degrading vs the prior 14 days. Open shadow positions are unaffected.`,
+    { engine, strategy },
+    guardEngineFor(engine)
+  );
+}
+async function getStudioImprovementKey(strategyId) {
+  const hit = _studioKeyCache.get(strategyId);
+  if (hit && Date.now() - hit.at < 15 * 6e4) return hit.key;
+  let key = `strategy ${strategyId}`;
+  try {
+    const { rows } = await pool.query(`SELECT name FROM wizard_strategies WHERE id = $1`, [strategyId]);
+    const name = rows[0]?.name;
+    if (name) key = String(name);
+  } catch {
+  }
+  _studioKeyCache.set(strategyId, { at: Date.now(), key });
+  return key;
+}
+async function readLedgerTrends(bounds, th) {
+  const { ensureShadowLedger: ensureShadowLedger2 } = await Promise.resolve().then(() => (init_shadow_ledger(), shadow_ledger_exports));
+  await ensureShadowLedger2();
+  const sources = Object.keys(LEDGER_SOURCES);
+  const iso = (ms) => new Date(ms).toISOString();
+  const { rows } = await pool.query(
+    `SELECT user_id, source, strategy,
+            CASE WHEN closed_at >= $3::timestamptz THEN 'cur' ELSE 'prior' END AS win,
+            count(*)::int AS trades,
+            count(*) FILTER (WHERE result = 'WIN')::int AS wins,
+            count(r_multiple)::int AS r_trades, COALESCE(sum(r_multiple), 0)::float AS sum_r,
+            count(return_pct)::int AS pct_trades, COALESCE(sum(return_pct), 0)::float AS sum_pct
+       FROM shadow_ledger
+      WHERE closed_at >= $1::timestamptz AND closed_at < $2::timestamptz
+        AND source = ANY($4::text[])
+      GROUP BY user_id, source, strategy, win`,
+    [iso(bounds.priorStart), iso(bounds.curEnd), iso(bounds.curStart), sources]
+  );
+  const acc = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const map = LEDGER_SOURCES[String(r.source)];
+    if (!map) continue;
+    const userId = Number(r.user_id);
+    const strategy = String(r.strategy);
+    const k2 = `${userId}|${map.engine}|${strategy}`;
+    let slot = acc.get(k2);
+    if (!slot) {
+      slot = { userId, engine: map.engine, strategy, throttleLane: map.throttleLane, cur: emptyAccum(), prior: emptyAccum() };
+      acc.set(k2, slot);
+    }
+    addToAccum(r.win === "cur" ? slot.cur : slot.prior, {
+      trades: r.trades,
+      wins: r.wins,
+      rTrades: r.r_trades,
+      sumR: r.sum_r,
+      pctTrades: r.pct_trades,
+      sumPct: r.sum_pct
+    });
+  }
+  const trends = [];
+  acc.forEach((slot) => {
+    const cur = accumToStat(slot.cur);
+    const prior = accumToStat(slot.prior);
+    const c = classifyTrend(cur, prior, th);
+    trends.push({
+      userId: slot.userId,
+      engine: slot.engine,
+      strategy: slot.strategy,
+      throttleLane: slot.throttleLane,
+      classification: c.classification,
+      metric: c.metric,
+      delta: c.delta,
+      cur,
+      prior
+    });
+  });
+  return trends;
+}
+async function readFxLiveTrends(bounds, th) {
+  const iso = (ms) => new Date(ms).toISOString();
+  const { rows } = await pool.query(
+    `SELECT user_id, COALESCE(strategy_mode, 'unknown') AS strategy,
+            CASE WHEN closed_at >= $3::timestamptz THEN 'cur' ELSE 'prior' END AS win,
+            count(*)::int AS trades,
+            count(*) FILTER (WHERE realised_rr > 0)::int AS wins,
+            count(realised_rr)::int AS r_trades, COALESCE(sum(realised_rr), 0)::float AS sum_r
+       FROM fx_brain_outcomes
+      WHERE closed_at >= $1::timestamptz AND closed_at < $2::timestamptz AND realised_rr IS NOT NULL
+      GROUP BY user_id, strategy, win`,
+    [iso(bounds.priorStart), iso(bounds.curEnd), iso(bounds.curStart)]
+  );
+  const acc = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const userId = Number(r.user_id);
+    const strategy = String(r.strategy);
+    const k2 = `${userId}|${strategy}`;
+    let slot = acc.get(k2);
+    if (!slot) {
+      slot = { userId, strategy, cur: emptyAccum(), prior: emptyAccum() };
+      acc.set(k2, slot);
+    }
+    addToAccum(r.win === "cur" ? slot.cur : slot.prior, { trades: r.trades, wins: r.wins, rTrades: r.r_trades, sumR: r.sum_r });
+  }
+  const trends = [];
+  acc.forEach((slot) => {
+    const cur = accumToStat(slot.cur);
+    const prior = accumToStat(slot.prior);
+    const c = classifyTrend(cur, prior, th);
+    trends.push({
+      userId: slot.userId,
+      engine: "fx_live",
+      strategy: slot.strategy,
+      throttleLane: false,
+      classification: c.classification,
+      metric: c.metric,
+      delta: c.delta,
+      cur,
+      prior
+    });
+  });
+  return trends;
+}
+async function runImprovementEvaluation(nowMs = Date.now()) {
+  if (!improvementLoopOn()) return null;
+  if (_evaluating) return _lastSnapshot;
+  _evaluating = true;
+  try {
+    const th = defaultClassifyThresholds();
+    const bounds = windowBounds(nowMs, improvementWindowDays());
+    const ledgerTrends = await readLedgerTrends(bounds, th);
+    const fxTrends = await readFxLiveTrends(bounds, th).catch((e) => {
+      console.error("[improvement-loop] fx_brain_outcomes read failed (non-fatal):", e?.message || e);
+      return [];
+    });
+    const trends = [...ledgerTrends, ...fxTrends].sort((a, b) => a.engine.localeCompare(b.engine) || a.strategy.localeCompare(b.strategy) || a.userId - b.userId);
+    const existing = await loadThrottleEntries();
+    const { entries, transitions } = nextThrottleState(existing, trends, nowMs, improvementPauseDays(), improvementWindowDays());
+    persistThrottles(entries);
+    for (const tr of transitions) {
+      if (tr.type === "pause") {
+        logGuard(
+          tr.entry.userId,
+          "improvement_throttle_pause",
+          null,
+          `Improvement loop paused new ${tr.entry.engine} shadow entries for "${tr.entry.strategy}" \u2014 ${tr.entry.reason}`,
+          { engine: tr.entry.engine, strategy: tr.entry.strategy, pausedUntil: tr.entry.pausedUntil },
+          guardEngineFor(tr.entry.engine)
+        );
+      } else {
+        logGuard(
+          tr.entry.userId,
+          "improvement_throttle_resume",
+          null,
+          `Improvement loop resumed ${tr.entry.engine} shadow entries for "${tr.entry.strategy}" \u2014 ${tr.type === "resume_recovery" ? "the latest 14-day trend is no longer degrading" : "the pause window elapsed"}.`,
+          { engine: tr.entry.engine, strategy: tr.entry.strategy, resumeType: tr.type },
+          guardEngineFor(tr.entry.engine)
+        );
+      }
+    }
+    const snap = buildSnapshot2(nowMs, bounds, trends, entries);
+    const history = await loadSnapshots();
+    saveRuntimeState(SNAPSHOT_SCOPE, STORE_KEY, appendSnapshot(history, snap, improvementSnapshotCap()));
+    _lastSnapshot = snap;
+    loopTick("improvement-loop", `evaluated ${trends.length} strategies, ${transitions.length} throttle transitions`);
+    return snap;
+  } catch (e) {
+    console.error("[improvement-loop] evaluation failed (non-fatal):", e?.message || e);
+    return null;
+  } finally {
+    _evaluating = false;
+  }
+}
+async function getImprovementLoopHealth() {
+  const enabled = improvementLoopOn();
+  let snap = _lastSnapshot;
+  if (!snap) {
+    const history = await loadSnapshots().catch(() => []);
+    snap = history.length ? history[history.length - 1] : null;
+    if (snap) _lastSnapshot = snap;
+  }
+  const engines = {};
+  if (snap) {
+    for (const s of snap.strategies) {
+      const e = engines[s.engine] ??= { improving: 0, degrading: 0, flat: 0, insufficient: 0 };
+      e[s.classification]++;
+    }
+  }
+  let throttled = [];
+  try {
+    throttled = await currentThrottles();
+  } catch {
+    throttled = [];
+  }
+  const active = throttled.filter((e) => Date.now() < Date.parse(e.pausedUntil));
+  return {
+    enabled,
+    lastEvaluationAt: snap?.at ?? null,
+    engines,
+    throttled: active.map((e) => ({ userId: e.userId, engine: e.engine, strategy: e.strategy, pausedUntil: e.pausedUntil })),
+    throttleCount: active.length
+  };
+}
+function startImprovementLoop() {
+  if (_started) return;
+  _started = true;
+  const firstDelay = Math.floor(num3("IMPROVEMENT_LOOP_FIRST_DELAY_MS", 10 * 6e4, 5e3, 36e5));
+  const t0 = setTimeout(() => {
+    void runImprovementEvaluation();
+  }, firstDelay);
+  t0.unref?.();
+  const iv = setInterval(() => {
+    void runImprovementEvaluation();
+  }, improvementIntervalMs());
+  iv.unref?.();
+  console.log("[improvement-loop] started \u2014 per-strategy 14d-vs-prior-14d trend evaluation every 6h; degrading shadow strategies pause new entries (kill switch IMPROVEMENT_LOOP=off).");
+}
+var SNAPSHOT_SCOPE, THROTTLE_SCOPE, STORE_KEY, num3, improvementWindowDays, improvementMinTrades, improvementPriorMinTrades, improvementImprovingDeltaR, improvementDegradingDeltaR, improvementImprovingDeltaPct, improvementDegradingDeltaPct, improvementPauseDays, improvementIntervalMs, improvementSnapshotCap, throttleKey, LEDGER_SOURCES, guardEngineFor, _throttleCache, THROTTLE_CACHE_MS, _blockLogAt, _studioKeyCache, _lastSnapshot, _evaluating, _started;
+var init_improvement_loop = __esm({
+  "server/services/improvement-loop.ts"() {
+    "use strict";
+    init_db();
+    init_runtime_state();
+    init_guard_events();
+    init_crash_heartbeat();
+    SNAPSHOT_SCOPE = "improvement_snapshots";
+    THROTTLE_SCOPE = "improvement_throttles";
+    STORE_KEY = "global";
+    num3 = (name, dflt, min, max) => {
+      const n = Number(process.env[name]);
+      return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : dflt;
+    };
+    improvementWindowDays = () => Math.floor(num3("IMPROVEMENT_LOOP_WINDOW_DAYS", 14, 3, 60));
+    improvementMinTrades = () => Math.floor(num3("IMPROVEMENT_LOOP_MIN_TRADES", 20, 3, 500));
+    improvementPriorMinTrades = () => Math.floor(num3("IMPROVEMENT_LOOP_PRIOR_MIN_TRADES", 5, 1, 500));
+    improvementImprovingDeltaR = () => num3("IMPROVEMENT_LOOP_IMPROVING_DELTA_R", 0.1, 0.01, 5);
+    improvementDegradingDeltaR = () => num3("IMPROVEMENT_LOOP_DEGRADING_DELTA_R", 0.15, 0.01, 5);
+    improvementImprovingDeltaPct = () => num3("IMPROVEMENT_LOOP_IMPROVING_DELTA_PCT", 0.5, 0.05, 50);
+    improvementDegradingDeltaPct = () => num3("IMPROVEMENT_LOOP_DEGRADING_DELTA_PCT", 0.75, 0.05, 50);
+    improvementPauseDays = () => num3("IMPROVEMENT_LOOP_PAUSE_DAYS", 7, 0.25, 60);
+    improvementIntervalMs = () => Math.floor(num3("IMPROVEMENT_LOOP_INTERVAL_MS", 6 * 36e5, 6e4, 7 * 24 * 36e5));
+    improvementSnapshotCap = () => Math.floor(num3("IMPROVEMENT_LOOP_SNAPSHOT_CAP", 200, 10, 2e3));
+    throttleKey = (userId, engine, strategy) => `${userId}|${engine}|${strategy}`;
+    LEDGER_SOURCES = {
+      kalshi_stock_shadow: { engine: "kalshi_perp", throttleLane: true },
+      sol_shadow: { engine: "sol", throttleLane: true },
+      crypto_shadow_all: { engine: "crypto", throttleLane: true },
+      crypto_shadow_short: { engine: "crypto", throttleLane: true },
+      strategy_studio_shadow: { engine: "studio", throttleLane: true },
+      fx_shadow: { engine: "fx", throttleLane: false },
+      kalshi_weather_shadow: { engine: "kalshi", throttleLane: false },
+      kalshi_sports_shadow: { engine: "kalshi", throttleLane: false }
+    };
+    guardEngineFor = (engine) => engine === "kalshi_perp" ? "kalshi" : engine;
+    _throttleCache = null;
+    THROTTLE_CACHE_MS = 6e4;
+    _blockLogAt = /* @__PURE__ */ new Map();
+    _studioKeyCache = /* @__PURE__ */ new Map();
+    _lastSnapshot = null;
+    _evaluating = false;
+    _started = false;
+  }
+});
+
 // server/services/trail-brain.ts
 var trail_brain_exports = {};
 __export(trail_brain_exports, {
@@ -13548,7 +14006,7 @@ function aggregate(rows) {
       (g.get(k2) ?? g.set(k2, []).get(k2)).push(v);
     }
   }
-  const minN = num3("CRYPTO_SHADOW_STATS_MIN_N", 15), fav = num3("CRYPTO_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num3("CRYPTO_SHADOW_AVOID_MEDIAN_PCT", 1);
+  const minN = num4("CRYPTO_SHADOW_STATS_MIN_N", 15), fav = num4("CRYPTO_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num4("CRYPTO_SHADOW_AVOID_MEDIAN_PCT", 1);
   return Array.from(g.entries()).map(([k2, v]) => {
     const [strategy, dim, bucket] = k2.split("|");
     const s = v.slice().sort((a, b) => a - b);
@@ -13670,7 +14128,7 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
   );
   const btc = deps.universe("CBBTC") ? await deps.h1("CBBTC").catch(() => null) : null;
   const btcChange = btc ? pctChange(oldestFirst(btc.bars), 24) : null;
-  const lo2 = num3("CRYPTO_PAPER_SL_MIN", 1.5), hi2 = num3("CRYPTO_PAPER_SL_MAX", 12), atrMult = num3("CRYPTO_SL_ATR_MULT", 1.5), rr = num3("CRYPTO_MIN_RR", 2);
+  const lo2 = num4("CRYPTO_PAPER_SL_MIN", 1.5), hi2 = num4("CRYPTO_PAPER_SL_MAX", 12), atrMult = num4("CRYPTO_SL_ATR_MULT", 1.5), rr = num4("CRYPTO_MIN_RR", 2);
   const floorMult = Number(process.env.CRYPTO_PAPER_COST_FLOOR_MULT ?? 3);
   let opened = 0;
   const shadowCfg = { ...cfg, directionFilter: "both" };
@@ -13751,6 +14209,10 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
           continue;
         }
       }
+      if (await improvementThrottleBlocks(userId, "crypto", strat)) {
+        logImprovementBlock(userId, "crypto", strat, symbol);
+        continue;
+      }
       const tags = [];
       if (ch1 != null && Math.abs(ch1) >= 3) tags.push(ch1 > 0 ? "hot_hour" : "dump_hour");
       if (ch24 != null && ch24 >= 20) tags.push("extended_24h");
@@ -13812,23 +14274,24 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
   }
   return { opened, closed };
 }
-var num3, shadowAllEnabled, MAX_OPEN, MAX_PER_STRAT, COOLDOWN_MS, EVERY_MS, NOTIONAL, _ensured2, _statsCache, _lastRun;
+var num4, shadowAllEnabled, MAX_OPEN, MAX_PER_STRAT, COOLDOWN_MS, EVERY_MS, NOTIONAL, _ensured2, _statsCache, _lastRun;
 var init_crypto_shadow = __esm({
   "server/services/crypto-shadow.ts"() {
     "use strict";
     init_db();
     init_shadow_lesson_gate();
+    init_improvement_loop();
     init_trail_brain();
-    num3 = (n, d) => {
+    num4 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
     shadowAllEnabled = () => process.env.CRYPTO_SHADOW_ALL !== "off";
-    MAX_OPEN = () => Math.floor(num3("CRYPTO_SHADOW_MAX_OPEN", 30));
-    MAX_PER_STRAT = () => Math.floor(num3("CRYPTO_SHADOW_MAX_PER_STRATEGY", 3));
-    COOLDOWN_MS = () => num3("CRYPTO_SHADOW_COOLDOWN_MIN", 60) * 6e4;
-    EVERY_MS = () => num3("CRYPTO_SHADOW_EVERY_MIN", 10) * 6e4;
-    NOTIONAL = () => num3("CRYPTO_SHADOW_NOTIONAL_USD", 20);
+    MAX_OPEN = () => Math.floor(num4("CRYPTO_SHADOW_MAX_OPEN", 30));
+    MAX_PER_STRAT = () => Math.floor(num4("CRYPTO_SHADOW_MAX_PER_STRATEGY", 3));
+    COOLDOWN_MS = () => num4("CRYPTO_SHADOW_COOLDOWN_MIN", 60) * 6e4;
+    EVERY_MS = () => num4("CRYPTO_SHADOW_EVERY_MIN", 10) * 6e4;
+    NOTIONAL = () => num4("CRYPTO_SHADOW_NOTIONAL_USD", 20);
     _ensured2 = null;
     _statsCache = /* @__PURE__ */ new Map();
     _lastRun = /* @__PURE__ */ new Map();
@@ -14500,8 +14963,8 @@ function startSolFollowerShadow() {
     console.log("[sol-follower] SOL_FOLLOWER_SHADOW=off \u2014 lane disabled");
     return;
   }
-  if (_started) return;
-  _started = true;
+  if (_started2) return;
+  _started2 = true;
   console.log(`[sol-follower] shadow lane started (poll ${Math.round(FOLLOWER_POLL_MS / 1e3)}s, size ${FOLLOWER_SIZE_SOL} SOL, max event age ${FOLLOWER_MAX_EVENT_AGE_SEC}s)`);
   setTimeout(() => {
     void followerTick();
@@ -14563,7 +15026,7 @@ async function getSolFollowerReport(userId) {
     recentClosed: recent
   };
 }
-var _envInt, _envNum, solFollowerShadowOn, FOLLOWER_POLL_MS, FOLLOWER_MAX_EVENT_AGE_SEC, FOLLOWER_SIZE_SOL, FOLLOWER_MAX_OPEN, FOLLOWER_MAX_PER_WALLET, FOLLOWER_TP_PCT, FOLLOWER_SL_PCT, FOLLOWER_MAX_HOLD_MIN, PUMP_FUN_PROGRAM_ID, WSOL_MINT, B58_ALPHABET, B58_MAP, keyStr, FOLLOWER_LIVE_BAR, _ensured6, _solUsdCache, _backoff, _started, _tickRunning;
+var _envInt, _envNum, solFollowerShadowOn, FOLLOWER_POLL_MS, FOLLOWER_MAX_EVENT_AGE_SEC, FOLLOWER_SIZE_SOL, FOLLOWER_MAX_OPEN, FOLLOWER_MAX_PER_WALLET, FOLLOWER_TP_PCT, FOLLOWER_SL_PCT, FOLLOWER_MAX_HOLD_MIN, PUMP_FUN_PROGRAM_ID, WSOL_MINT, B58_ALPHABET, B58_MAP, keyStr, FOLLOWER_LIVE_BAR, _ensured6, _solUsdCache, _backoff, _started2, _tickRunning;
 var init_sol_follower = __esm({
   "server/services/sol-follower.ts"() {
     "use strict";
@@ -14597,7 +15060,7 @@ var init_sol_follower = __esm({
     _ensured6 = null;
     _solUsdCache = null;
     _backoff = /* @__PURE__ */ new Map();
-    _started = false;
+    _started2 = false;
     _tickRunning = false;
   }
 });
@@ -21422,7 +21885,7 @@ function logDecisionShadow(r) {
     _seen.set(k2, Date.now());
     if (_seen.size > 5e3) _seen.clear();
   }
-  const num17 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  const num18 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
   void ensureDecisionShadowTable().then(() => pool.query(
     `INSERT INTO fx_decision_shadow (user_id, scan_id, symbol, session, hour_utc, lane, mode, acted, picked, ai_status,
        direction, score, terms, entry, sl, tp, gate_result)
@@ -21439,11 +21902,11 @@ function logDecisionShadow(r) {
       !!r.picked,
       r.aiStatus ?? null,
       r.direction ?? null,
-      num17(r.score),
+      num18(r.score),
       r.terms == null ? null : JSON.stringify(r.terms),
-      num17(r.entry),
-      num17(r.sl),
-      num17(r.tp),
+      num18(r.entry),
+      num18(r.sl),
+      num18(r.tp),
       r.gateResult ?? null
     ]
   )).catch(() => {
@@ -32951,7 +33414,7 @@ async function runFxModelsCycle(userId, ctx) {
          ON CONFLICT (user_id, symbol, day, hour_utc) DO UPDATE SET day_type=EXCLUDED.day_type, auto_model=EXCLUDED.auto_model,
            trend_score=EXCLUDED.trend_score, adx_m15=EXCLUDED.adx_m15, rel_volume=EXCLUDED.rel_volume, atr=EXCLUDED.atr,
            h1_trend=EXCLUDED.h1_trend, h4_trend=EXCLUDED.h4_trend, features=EXCLUDED.features`,
-        [userId, symbol, day, hour, session3, cls.dayType, cls.autoModel, cls.score, num4(snap.adx), num4(snap.relativeVolume), num4(snap.atr), h1?.trend ?? null, h4?.trend ?? null, JSON.stringify(features)]
+        [userId, symbol, day, hour, session3, cls.dayType, cls.autoModel, cls.score, num5(snap.adx), num5(snap.relativeVolume), num5(snap.atr), h1?.trend ?? null, h4?.trend ?? null, JSON.stringify(features)]
       ).catch(() => {
       });
       const candle = Math.floor(now.getTime() / 36e5);
@@ -32975,7 +33438,7 @@ async function runFxModelsCycle(userId, ctx) {
     console.error("[fx-models] cycle failed (non-fatal):", e?.message || e);
   }
 }
-function num4(x) {
+function num5(x) {
   const n = Number(x);
   return Number.isFinite(n) ? n : null;
 }
@@ -33971,7 +34434,7 @@ async function runCryptoModelsCycle(userId, symbols) {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11,$12,$13::jsonb,'crypto')
          ON CONFLICT (user_id, symbol, day, hour_utc) DO UPDATE SET day_type=EXCLUDED.day_type, auto_model=EXCLUDED.auto_model, trend_score=EXCLUDED.trend_score,
            adx_m15=EXCLUDED.adx_m15, rel_volume=EXCLUDED.rel_volume, h1_trend=EXCLUDED.h1_trend, h4_trend=EXCLUDED.h4_trend, features=EXCLUDED.features, engine='crypto'`,
-        [userId, symbol, day, hour, session3, cls.dayType, cls.autoModel, cls.score, num4(adx), num4(relVolume), t1, t4, JSON.stringify(features)]
+        [userId, symbol, day, hour, session3, cls.dayType, cls.autoModel, cls.score, num5(adx), num5(relVolume), t1, t4, JSON.stringify(features)]
       ).catch(() => {
       });
       lastShadowCandle.set(key, candle);
@@ -45611,18 +46074,18 @@ async function getSolShadowStatsText(userId, max = 12) {
     return "";
   }
 }
-var num5, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured10, _trailColsEnsured, _cache6;
+var num6, MIN_N, FAVOR_PCT, AVOID_PCT, _ensured10, _trailColsEnsured, _cache6;
 var init_sol_shadow_stats = __esm({
   "server/services/sol-shadow-stats.ts"() {
     "use strict";
     init_db();
-    num5 = (name, dflt) => {
+    num6 = (name, dflt) => {
       const v = Number(process.env[name]);
       return Number.isFinite(v) && v > 0 ? v : dflt;
     };
-    MIN_N = () => num5("SOL_SHADOW_STATS_MIN_N", 15);
-    FAVOR_PCT = () => num5("SOL_SHADOW_FAVOR_MEDIAN_PCT", 1);
-    AVOID_PCT = () => num5("SOL_SHADOW_AVOID_MEDIAN_PCT", 2);
+    MIN_N = () => num6("SOL_SHADOW_STATS_MIN_N", 15);
+    FAVOR_PCT = () => num6("SOL_SHADOW_FAVOR_MEDIAN_PCT", 1);
+    AVOID_PCT = () => num6("SOL_SHADOW_AVOID_MEDIAN_PCT", 2);
     _ensured10 = null;
     _trailColsEnsured = null;
     _cache6 = /* @__PURE__ */ new Map();
@@ -46946,7 +47409,12 @@ async function evaluateShadowEntries(userId, state, scanResult) {
   const stats = await statsMod.computeSolShadowStats(userId).catch(() => []);
   const gateMod = await Promise.resolve().then(() => (init_shadow_lesson_gate(), shadow_lesson_gate_exports));
   const lessonVerdicts = gateMod.solShadowLessonsOn() ? await gateMod.getSolShadowLessonVerdicts(userId).catch(() => null) : null;
+  const impMod = await Promise.resolve().then(() => (init_improvement_loop(), improvement_loop_exports));
   for (const strat of strategies) {
+    if (await impMod.improvementThrottleBlocks(userId, "sol", strat.id).catch(() => false)) {
+      impMod.logImprovementBlock(userId, "sol", strat.id, null);
+      continue;
+    }
     const lv = lessonVerdicts?.get(strat.id);
     if (lv?.blocked) {
       void gateMod.logShadowLessonBlock({
@@ -49969,17 +50437,17 @@ async function getPerpMarkets() {
         underlying: underlyingOfPerpTicker(String(m.ticker || "")) || "",
         title: String(m.title || ""),
         status: String(m.status || ""),
-        bid: num6(m.bid),
-        ask: num6(m.ask),
-        price: num6(m.price),
-        contractSize: num6(m.contract_size),
-        leverageEstimate: num6(m.leverage_estimate),
-        volume24hContracts: num6(m.volume_24h),
-        volume24hNotionalUsd: num6(m.volume_24h_notional_value_dollars),
-        openInterest: num6(m.open_interest),
-        openInterestNotionalUsd: num6(m.open_interest_notional_value_dollars),
-        tickSize: num6(m.tick_size),
-        fundingCap: num6(m.funding_cap),
+        bid: num7(m.bid),
+        ask: num7(m.ask),
+        price: num7(m.price),
+        contractSize: num7(m.contract_size),
+        leverageEstimate: num7(m.leverage_estimate),
+        volume24hContracts: num7(m.volume_24h),
+        volume24hNotionalUsd: num7(m.volume_24h_notional_value_dollars),
+        openInterest: num7(m.open_interest),
+        openInterestNotionalUsd: num7(m.open_interest_notional_value_dollars),
+        tickSize: num7(m.tick_size),
+        fundingCap: num7(m.funding_cap),
         scheduleOpen: m.schedule?.is_open !== false,
         haltSources: Array.isArray(m.halt_sources) ? m.halt_sources.map(String) : []
       });
@@ -50005,22 +50473,22 @@ async function getPerpRiskParams() {
   const src = data?.risk_parameters ?? data ?? {};
   for (const [ticker, v] of Object.entries(src)) {
     map.set(ticker, {
-      initialMarginMultiplier: v?.initial_margin_multiplier != null ? num6(v.initial_margin_multiplier) : null,
-      liquidationThreshold: v?.liquidation_margin_ratio_threshold != null ? num6(v.liquidation_margin_ratio_threshold) : null
+      initialMarginMultiplier: v?.initial_margin_multiplier != null ? num7(v.initial_margin_multiplier) : null,
+      liquidationThreshold: v?.liquidation_margin_ratio_threshold != null ? num7(v.liquidation_margin_ratio_threshold) : null
     });
   }
   _riskCache = { at: Date.now(), map };
   return map;
 }
 function dist(d) {
-  const f = (x) => x == null || x === "" ? null : num6(x);
+  const f = (x) => x == null || x === "" ? null : num7(x);
   return { o: f(d?.open), h: f(d?.high), l: f(d?.low), c: f(d?.close) };
 }
 function toBar(raw, intervalMin) {
   const endTs = Number(raw?.end_period_ts);
   if (!Number.isFinite(endTs) || endTs <= 0) return null;
   const bid = dist(raw.bid), ask = dist(raw.ask), px = dist(raw.price);
-  const prev = raw.price?.previous != null && raw.price.previous !== "" ? num6(raw.price.previous) : null;
+  const prev = raw.price?.previous != null && raw.price.previous !== "" ? num7(raw.price.previous) : null;
   const mid = bid.c != null && ask.c != null ? (bid.c + ask.c) / 2 : bid.c ?? ask.c;
   const c = px.c ?? prev ?? mid;
   if (c == null || !(c > 0)) return null;
@@ -50034,10 +50502,10 @@ function toBar(raw, intervalMin) {
     h,
     l,
     c,
-    v: num6(raw.volume),
+    v: num7(raw.volume),
     bid: { o: bid.o ?? c, h: bid.h ?? c, l: bid.l ?? c, c: bid.c ?? c },
     ask: { o: ask.o ?? c, h: ask.h ?? c, l: ask.l ?? c, c: ask.c ?? c },
-    openInterest: num6(raw.open_interest)
+    openInterest: num7(raw.open_interest)
   };
 }
 async function getPerpCandles(ticker, intervalMin, minutesBack) {
@@ -50105,9 +50573,9 @@ async function getPerpTouch(ticker) {
     const data = await getJson(`/margin/markets/${encodeURIComponent(ticker)}/orderbook`);
     const bids = data?.orderbook?.bids ?? [];
     const asks = data?.orderbook?.asks ?? [];
-    const bid = bids.reduce((mx, lvl2) => Math.max(mx, num6(lvl2?.[0])), 0);
+    const bid = bids.reduce((mx, lvl2) => Math.max(mx, num7(lvl2?.[0])), 0);
     const ask = asks.reduce((mn, lvl2) => {
-      const p2 = num6(lvl2?.[0]);
+      const p2 = num7(lvl2?.[0]);
       return p2 > 0 && (mn === 0 || p2 < mn) ? p2 : mn;
     }, 0);
     return bid > 0 && ask > bid ? { bid, ask } : null;
@@ -50117,13 +50585,13 @@ async function getPerpTouch(ticker) {
 }
 async function getPerpFundingHistory(ticker) {
   const data = await getJson(`/margin/funding_rates/historical?ticker=${encodeURIComponent(ticker)}`);
-  return (data?.funding_rates ?? []).map((r) => ({ fundingTimeMs: new Date(r.funding_time).getTime(), rate: num6(r.funding_rate), markPrice: num6(r.mark_price) })).filter((r) => Number.isFinite(r.fundingTimeMs) && r.fundingTimeMs > 0).sort((a, b) => a.fundingTimeMs - b.fundingTimeMs);
+  return (data?.funding_rates ?? []).map((r) => ({ fundingTimeMs: new Date(r.funding_time).getTime(), rate: num7(r.funding_rate), markPrice: num7(r.mark_price) })).filter((r) => Number.isFinite(r.fundingTimeMs) && r.fundingTimeMs > 0).sort((a, b) => a.fundingTimeMs - b.fundingTimeMs);
 }
 async function getPerpFundingEstimate(ticker) {
   try {
     const data = await getJson(`/margin/funding_rates/estimate?ticker=${encodeURIComponent(ticker)}`);
     const next = new Date(data?.next_funding_time).getTime();
-    return { rate: num6(data?.funding_rate), nextFundingTimeMs: Number.isFinite(next) ? next : 0 };
+    return { rate: num7(data?.funding_rate), nextFundingTimeMs: Number.isFinite(next) ? next : 0 };
   } catch {
     return null;
   }
@@ -50146,13 +50614,13 @@ async function getPerpCorporateActions() {
   _caCache = { at: Date.now(), actions };
   return actions;
 }
-var PROD_HOST, DEMO_HOST, num6, DEFAULT_INDEX_EXCLUDE, _marketsCache, MARKETS_TTL_MS, _riskCache, _candleCache, CANDLE_TTL_MS, TF_MINUTES2, _caCache;
+var PROD_HOST, DEMO_HOST, num7, DEFAULT_INDEX_EXCLUDE, _marketsCache, MARKETS_TTL_MS, _riskCache, _candleCache, CANDLE_TTL_MS, TF_MINUTES2, _caCache;
 var init_kalshi_perps = __esm({
   "server/services/kalshi-perps.ts"() {
     "use strict";
     PROD_HOST = "https://external-api.kalshi.com/trade-api/v2";
     DEMO_HOST = "https://external-api.demo.kalshi.co/trade-api/v2";
-    num6 = (v) => {
+    num7 = (v) => {
       const n = typeof v === "string" ? parseFloat(v) : Number(v);
       return Number.isFinite(n) ? n : 0;
     };
@@ -51598,8 +52066,8 @@ The watchdog only observes \u2014 it never starts or reconfigures an engine. If 
   }
 }
 function startEngineWatchdog() {
-  if (_started2) return;
-  _started2 = true;
+  if (_started3) return;
+  _started3 = true;
   const tick3 = async () => {
     try {
       const status = await computeStatus();
@@ -51617,7 +52085,7 @@ function startEngineWatchdog() {
   setInterval(tick3, TICK_MS).unref?.();
   console.log("[engine-watchdog] started \u2014 FX 24h / Sol 48h silence checks every 30 min.");
 }
-var TICK_MS, FX_STALE_HOURS, SOL_STALE_HOURS, MAX_ALERTS_PER_EPISODE, REALERT_MS, REPORT_EMAIL, _lastStatus, _lastStatusAt, _started2;
+var TICK_MS, FX_STALE_HOURS, SOL_STALE_HOURS, MAX_ALERTS_PER_EPISODE, REALERT_MS, REPORT_EMAIL, _lastStatus, _lastStatusAt, _started3;
 var init_engine_watchdog = __esm({
   "server/services/engine-watchdog.ts"() {
     "use strict";
@@ -51631,7 +52099,7 @@ var init_engine_watchdog = __esm({
     REPORT_EMAIL = process.env.REPORT_EMAIL || "donchismkos@gmail.com";
     _lastStatus = null;
     _lastStatusAt = 0;
-    _started2 = false;
+    _started3 = false;
   }
 });
 
@@ -52237,12 +52705,12 @@ function linregSlope(values) {
   const xs = values.map((_, i) => i);
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = values.reduce((a, b) => a + b, 0) / n;
-  let num17 = 0, den = 0;
+  let num18 = 0, den = 0;
   for (let i = 0; i < n; i++) {
-    num17 += (xs[i] - mx) * (values[i] - my);
+    num18 += (xs[i] - mx) * (values[i] - my);
     den += (xs[i] - mx) ** 2;
   }
-  return den === 0 ? 0 : num17 / den;
+  return den === 0 ? 0 : num18 / den;
 }
 function ensembleSignal(candles) {
   const price = candles[candles.length - 1].close;
@@ -58409,8 +58877,8 @@ async function addTradeSetupAnnotations(originalImagePath, analysis, outputFilen
         analysis.takeProfit,
         ...supportResistanceLevels
       ].map((p2) => {
-        const num17 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
-        return isNaN(num17) ? 0 : num17;
+        const num18 = parseFloat(p2.replace(/[^0-9.-]/g, ""));
+        return isNaN(num18) ? 0 : num18;
       }).filter((p2) => p2 > 0);
       if (prices.length === 0) return chartArea.top + chartArea.height * 0.5;
       const minPrice = Math.min(...prices);
@@ -63030,7 +63498,7 @@ async function guardedStats(userId, guard) {
         [userId, guard.id, String(WINDOW_DAYS), guard.promotedAt]
       );
       const r3 = rows2[0] ?? {};
-      return { trades: Number(r3.trades) || 0, wins: Number(r3.wins) || 0, avgFinal: num7(r3.avg_final), avgGiveback: num7(r3.avg_giveback) };
+      return { trades: Number(r3.trades) || 0, wins: Number(r3.wins) || 0, avgFinal: num8(r3.avg_final), avgGiveback: num8(r3.avg_giveback) };
     }
     await ensureSolTrailGuardColumns();
     const { rows } = await pool.query(
@@ -63044,7 +63512,7 @@ async function guardedStats(userId, guard) {
       [userId, guard.id, String(WINDOW_DAYS), guard.promotedAt]
     );
     const r = rows[0] ?? {};
-    return { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgFinal: num7(r.avg_final), avgGiveback: num7(r.avg_giveback) };
+    return { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgFinal: num8(r.avg_final), avgGiveback: num8(r.avg_giveback) };
   } catch (e) {
     console.error(`[trail-guard-learning] guarded stats failed for guard ${guard.id} (non-fatal):`, e?.message || e);
     return null;
@@ -63067,7 +63535,7 @@ async function computedBaseline(userId, guard) {
       );
       const r3 = rows2[0] ?? {};
       if ((Number(r3.trades) || 0) < 5) return null;
-      return { trades: Number(r3.trades) || 0, wins: Number(r3.wins) || 0, avgFinal: num7(r3.avg_final), avgGiveback: num7(r3.avg_giveback) };
+      return { trades: Number(r3.trades) || 0, wins: Number(r3.wins) || 0, avgFinal: num8(r3.avg_final), avgGiveback: num8(r3.avg_giveback) };
     }
     await ensureSolTrailGuardColumns();
     const { rows } = await pool.query(
@@ -63082,7 +63550,7 @@ async function computedBaseline(userId, guard) {
     );
     const r = rows[0] ?? {};
     if ((Number(r.trades) || 0) < 5) return null;
-    return { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgFinal: num7(r.avg_final), avgGiveback: num7(r.avg_giveback) };
+    return { trades: Number(r.trades) || 0, wins: Number(r.wins) || 0, avgFinal: num8(r.avg_final), avgGiveback: num8(r.avg_giveback) };
   } catch (e) {
     console.error(`[trail-guard-learning] baseline stats failed for guard ${guard.id} (non-fatal):`, e?.message || e);
     return null;
@@ -63165,8 +63633,8 @@ async function evaluateTrailGuardsForUser(userId, force = false) {
   }
 }
 function startTrailGuardLearning() {
-  if (_started3) return;
-  _started3 = true;
+  if (_started4) return;
+  _started4 = true;
   void ensureTrailGuardStampColumns();
   void ensureSolTrailGuardColumns();
   const sweep = async () => {
@@ -63192,7 +63660,7 @@ function startTrailGuardLearning() {
   }, THROTTLE_MS).unref?.();
   console.log("[trail-guard-learning] started \u2014 trail guards judged against their own record every 30 min.");
 }
-var MIN_GUARDED, WINDOW_DAYS, EVAL_SCOPE, THROTTLE_MS, FINAL_R2, num7, _lastEval, _started3;
+var MIN_GUARDED, WINDOW_DAYS, EVAL_SCOPE, THROTTLE_MS, FINAL_R2, num8, _lastEval, _started4;
 var init_trail_guard_learning = __esm({
   "server/services/trail-guard-learning.ts"() {
     "use strict";
@@ -63212,9 +63680,9 @@ var init_trail_guard_learning = __esm({
        WHEN lower(t.direction) IN ('short','sell') AND t.stop_loss > t.entry_price
          THEN (t.entry_price - t.exit_price) / (t.stop_loss - t.entry_price)
        ELSE NULL END`;
-    num7 = (v) => v == null || isNaN(Number(v)) ? null : Math.round(Number(v) * 100) / 100;
+    num8 = (v) => v == null || isNaN(Number(v)) ? null : Math.round(Number(v) * 100) / 100;
     _lastEval = /* @__PURE__ */ new Map();
-    _started3 = false;
+    _started4 = false;
   }
 });
 
@@ -63245,8 +63713,8 @@ async function trailBrainGroupEvidence(userId, g) {
       });
       const merge = (a, b) => ({
         trades: a.trades + b.trades,
-        avgFinal: a.nFinal + b.nFinal > 0 ? num8((a.sumFinal + b.sumFinal) / (a.nFinal + b.nFinal)) : null,
-        avgGiveback: a.nGb + b.nGb > 0 ? num8((a.sumGb + b.sumGb) / (a.nGb + b.nGb)) : null
+        avgFinal: a.nFinal + b.nFinal > 0 ? num9((a.sumFinal + b.sumFinal) / (a.nFinal + b.nFinal)) : null,
+        avgGiveback: a.nGb + b.nGb > 0 ? num9((a.sumGb + b.sumGb) / (a.nGb + b.nGb)) : null
       });
       const liveBrain = await pool.query(
         `SELECT COUNT(*)::int AS trades, SUM(${CRYPTO_FINAL_R}) AS sum_final, COUNT(${CRYPTO_FINAL_R})::int AS n_final,
@@ -63299,7 +63767,7 @@ async function trailBrainGroupEvidence(userId, g) {
           params
         );
         const r = rows[0] ?? {};
-        return { trades: Number(r.trades) || 0, avgFinal: num8(r.avg_final), avgGiveback: num8(r.avg_giveback) };
+        return { trades: Number(r.trades) || 0, avgFinal: num9(r.avg_final), avgGiveback: num9(r.avg_giveback) };
       };
       brain = await q(
         `user_id = $1 AND trail_brain_group = $2 AND closed_at >= now() - ($3 || ' days')::interval`,
@@ -63320,7 +63788,7 @@ async function trailBrainGroupEvidence(userId, g) {
           params
         );
         const r = rows[0] ?? {};
-        return { trades: Number(r.trades) || 0, avgFinal: num8(r.avg_final), avgGiveback: num8(r.avg_giveback) };
+        return { trades: Number(r.trades) || 0, avgFinal: num9(r.avg_final), avgGiveback: num9(r.avg_giveback) };
       };
       brain = await q(
         `user_id = $1 AND trail_brain_group = $2 AND status = 'closed' AND closed_at >= now() - ($3 || ' days')::interval`,
@@ -63340,7 +63808,7 @@ async function trailBrainGroupEvidence(userId, g) {
           params
         );
         const r = rows[0] ?? {};
-        return { trades: Number(r.trades) || 0, avgFinal: num8(r.avg_final), avgGiveback: num8(r.avg_giveback) };
+        return { trades: Number(r.trades) || 0, avgFinal: num9(r.avg_final), avgGiveback: num9(r.avg_giveback) };
       };
       brain = await q(
         `user_id = $1 AND trail_brain_group = $2 AND closed_at IS NOT NULL AND closed_at >= now() - ($3 || ' days')::interval`,
@@ -63361,7 +63829,7 @@ async function trailBrainGroupEvidence(userId, g) {
           params
         );
         const r = rows[0] ?? {};
-        return { trades: Number(r.trades) || 0, avgFinal: num8(r.avg_final), avgGiveback: num8(r.avg_giveback) };
+        return { trades: Number(r.trades) || 0, avgFinal: num9(r.avg_final), avgGiveback: num9(r.avg_giveback) };
       };
       brain = await q(
         `user_id = $1 AND trail_brain_group = $2 AND status = 'closed' AND closed_at >= now() - ($3 || ' days')::interval`,
@@ -63474,8 +63942,8 @@ async function runTrailBrainLearningForUser(userId, force = false) {
   }
 }
 function startTrailBrainLearning() {
-  if (_started4) return;
-  _started4 = true;
+  if (_started5) return;
+  _started5 = true;
   for (const t of ["cryptocom_engine_trades", "fx_brain_outcomes", "sol_shadow_context", "kalshi_perp_shadow_trades", "kalshi_perp_live_trades", "crypto_shadow_trades", "sol_follower_positions"]) {
     void ensureTrailBrainColumns(t);
   }
@@ -63501,7 +63969,7 @@ function startTrailBrainLearning() {
   }, THROTTLE_MS2).unref?.();
   console.log("[trail-brain] learning started \u2014 trail parameters re-scored every 30 min.");
 }
-var WINDOW_DAYS2, THROTTLE_MS2, num8, EMPTY, CRYPTO_FINAL_R, _lastRun2, _started4;
+var WINDOW_DAYS2, THROTTLE_MS2, num9, EMPTY, CRYPTO_FINAL_R, _lastRun2, _started5;
 var init_trail_brain_learning = __esm({
   "server/services/trail-brain-learning.ts"() {
     "use strict";
@@ -63511,7 +63979,7 @@ var init_trail_brain_learning = __esm({
     init_trail_brain();
     WINDOW_DAYS2 = 90;
     THROTTLE_MS2 = 30 * 6e4;
-    num8 = (v) => v == null || isNaN(Number(v)) ? null : Math.round(Number(v) * 100) / 100;
+    num9 = (v) => v == null || isNaN(Number(v)) ? null : Math.round(Number(v) * 100) / 100;
     EMPTY = { trades: 0, avgFinal: null, avgGiveback: null };
     CRYPTO_FINAL_R = `
   CASE WHEN t.stop_loss IS NULL OR t.exit_price IS NULL THEN NULL
@@ -63521,7 +63989,7 @@ var init_trail_brain_learning = __esm({
          THEN (t.entry_price - t.exit_price) / (t.stop_loss - t.entry_price)
        ELSE NULL END`;
     _lastRun2 = /* @__PURE__ */ new Map();
-    _started4 = false;
+    _started5 = false;
   }
 });
 
@@ -64300,17 +64768,17 @@ async function getEarningsInfo(symbol, universe, nowMs = Date.now(), fetcher = f
   const snap = await ensureEarningsSnapshot(universe, nowMs, fetcher).catch(() => null);
   return lookupInSnapshot(snap, symbol);
 }
-var perpEarningsEnabled, num9, earningsWindowH, FETCH_DAYS, NASDAQ_URL, STATE_SCOPE, STATE_KEY, etPartsFmt2, UNKNOWN_LOOKUP, fetchNasdaqEarningsDay, _snap, _loaded, _refreshing;
+var perpEarningsEnabled, num10, earningsWindowH, FETCH_DAYS, NASDAQ_URL, STATE_SCOPE, STATE_KEY, etPartsFmt2, UNKNOWN_LOOKUP, fetchNasdaqEarningsDay, _snap, _loaded, _refreshing;
 var init_kalshi_earnings_calendar = __esm({
   "server/services/kalshi-earnings-calendar.ts"() {
     "use strict";
     init_runtime_state();
     perpEarningsEnabled = () => process.env.KALSHI_PERP_EARNINGS !== "off";
-    num9 = (n, d) => {
+    num10 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
-    earningsWindowH = () => num9("KALSHI_PERP_EARNINGS_WINDOW_H", 48);
+    earningsWindowH = () => num10("KALSHI_PERP_EARNINGS_WINDOW_H", 48);
     FETCH_DAYS = 4;
     NASDAQ_URL = "https://api.nasdaq.com/api/calendar/earnings";
     STATE_SCOPE = "kalshi_earnings_calendar";
@@ -64402,18 +64870,18 @@ function fundingFadeForTicker(ticker, book, minHistory = fundingFadeMinHistory()
   }
   return decideFundingFade(t.latestRate, book.pool, "lane", minHistory);
 }
-var fundingFadeEnabled, num10, fundingFadeMinHistory, fundingFadeWindowDays, BOOK_TTL_MS, _bookCache;
+var fundingFadeEnabled, num11, fundingFadeMinHistory, fundingFadeWindowDays, BOOK_TTL_MS, _bookCache;
 var init_kalshi_funding_fade = __esm({
   "server/services/kalshi-funding-fade.ts"() {
     "use strict";
     init_kalshi_perps();
     fundingFadeEnabled = () => process.env.KALSHI_FUNDING_FADE !== "off";
-    num10 = (n, d) => {
+    num11 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
-    fundingFadeMinHistory = () => Math.floor(num10("KALSHI_FUNDING_FADE_MIN_HISTORY", 30));
-    fundingFadeWindowDays = () => num10("KALSHI_FUNDING_FADE_WINDOW_DAYS", 90);
+    fundingFadeMinHistory = () => Math.floor(num11("KALSHI_FUNDING_FADE_MIN_HISTORY", 30));
+    fundingFadeWindowDays = () => num11("KALSHI_FUNDING_FADE_WINDOW_DAYS", 90);
     BOOK_TTL_MS = 30 * 6e4;
     _bookCache = null;
   }
@@ -70757,7 +71225,7 @@ function aggregateKalshiStats(rows) {
       (g.get(k2) ?? g.set(k2, []).get(k2)).push(v);
     }
   }
-  const minN = num11("KALSHI_STOCK_SHADOW_STATS_MIN_N", 15), fav = num11("KALSHI_STOCK_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num11("KALSHI_STOCK_SHADOW_AVOID_MEDIAN_PCT", 1);
+  const minN = num12("KALSHI_STOCK_SHADOW_STATS_MIN_N", 15), fav = num12("KALSHI_STOCK_SHADOW_FAVOR_MEDIAN_PCT", 0.5), avd = num12("KALSHI_STOCK_SHADOW_AVOID_MEDIAN_PCT", 1);
   return Array.from(g.entries()).map(([k2, v]) => {
     const [strategy, dim, bucket] = k2.split("|");
     const s = v.slice().sort((a, b) => a - b);
@@ -71438,6 +71906,10 @@ async function runKalshiStockShadowCycle(userId) {
         }
         if (gate.favor.length) tags.push("brain_favor");
       }
+      if (await improvementThrottleBlocks(userId, "kalshi_perp", sig.strategy)) {
+        logImprovementBlock(userId, "kalshi_perp", sig.strategy, mkt.ticker);
+        continue;
+      }
       if (perpVpEnabled() && vpProfile && vpValueEdgeBlock(sig.direction, entry, vpProfile, atr3)) {
         await logPerpBrainBlocks(userId, [{
           strategy: sig.strategy,
@@ -71520,8 +71992,8 @@ async function resolveOwnerUserId() {
   return _ownerId;
 }
 function startKalshiStockShadow() {
-  if (_started5) return;
-  _started5 = true;
+  if (_started6) return;
+  _started6 = true;
   if (!stockShadowEnabled()) {
     console.log("[kalshi-stock-shadow] disabled (KALSHI_STOCK_SHADOW=off).");
     return;
@@ -71539,7 +72011,7 @@ function startKalshiStockShadow() {
   setInterval(tick3, 5 * 6e4).unref?.();
   console.log("[kalshi-stock-shadow] started \u2014 SHADOW lane on public Kalshi perp data (no credentials, no orders).");
 }
-var stockOrbEnabled, num11, stockShadowEnabled, accountSimEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, maxValidReturnPct, maxValidEntryUsd, statsRepairEnabled, STATS_REPAIR_REASON, _statsRepair, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started5;
+var stockOrbEnabled, num12, stockShadowEnabled, accountSimEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, maxValidReturnPct, maxValidEntryUsd, statsRepairEnabled, STATS_REPAIR_REASON, _statsRepair, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started6;
 var init_kalshi_stock_shadow = __esm({
   "server/services/kalshi-stock-shadow.ts"() {
     "use strict";
@@ -71547,6 +72019,7 @@ var init_kalshi_stock_shadow = __esm({
     init_crash_heartbeat();
     init_ensure_kalshi_perp_shadow_tables();
     init_trail_brain();
+    init_improvement_loop();
     init_kalshi_perps();
     init_kalshi_orb();
     init_kalshi_perp_brain();
@@ -71554,25 +72027,25 @@ var init_kalshi_stock_shadow = __esm({
     init_kalshi_funding_fade();
     init_kalshi_perp_costs();
     stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== "off";
-    num11 = (n, d) => {
+    num12 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
     stockShadowEnabled = () => process.env.KALSHI_STOCK_SHADOW !== "off";
     accountSimEnabled = () => process.env.KALSHI_ACCOUNT_SIM !== "off";
-    MAX_OPEN2 = () => Math.floor(num11("KALSHI_STOCK_SHADOW_MAX_OPEN", 30));
-    MAX_PER_STRAT2 = () => Math.floor(num11("KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY", 3));
-    COOLDOWN_MS2 = () => num11("KALSHI_STOCK_SHADOW_COOLDOWN_MIN", 60) * 6e4;
-    EVERY_MS2 = () => num11("KALSHI_STOCK_SHADOW_EVERY_MIN", 10) * 6e4;
-    NOTIONAL2 = () => num11("KALSHI_STOCK_SHADOW_NOTIONAL_USD", 250);
-    MIN_CONF = () => num11("KALSHI_STOCK_SHADOW_MIN_CONFIDENCE", 70);
-    FEE_BPS = () => num11("KALSHI_STOCK_SHADOW_FEE_BPS", 20);
-    SL_LO = () => num11("KALSHI_STOCK_SHADOW_SL_MIN_PCT", 0.8);
-    SL_HI = () => num11("KALSHI_STOCK_SHADOW_SL_MAX_PCT", 4);
-    ATR_MULT2 = () => num11("KALSHI_STOCK_SHADOW_SL_ATR_MULT", 1.5);
-    RR = () => num11("KALSHI_STOCK_SHADOW_RR", 2);
-    maxValidReturnPct = () => num11("KALSHI_STOCK_SHADOW_MAX_VALID_RETURN_PCT", 100);
-    maxValidEntryUsd = () => num11("KALSHI_STOCK_SHADOW_MAX_VALID_ENTRY_USD", 1e6);
+    MAX_OPEN2 = () => Math.floor(num12("KALSHI_STOCK_SHADOW_MAX_OPEN", 30));
+    MAX_PER_STRAT2 = () => Math.floor(num12("KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY", 3));
+    COOLDOWN_MS2 = () => num12("KALSHI_STOCK_SHADOW_COOLDOWN_MIN", 60) * 6e4;
+    EVERY_MS2 = () => num12("KALSHI_STOCK_SHADOW_EVERY_MIN", 10) * 6e4;
+    NOTIONAL2 = () => num12("KALSHI_STOCK_SHADOW_NOTIONAL_USD", 250);
+    MIN_CONF = () => num12("KALSHI_STOCK_SHADOW_MIN_CONFIDENCE", 70);
+    FEE_BPS = () => num12("KALSHI_STOCK_SHADOW_FEE_BPS", 20);
+    SL_LO = () => num12("KALSHI_STOCK_SHADOW_SL_MIN_PCT", 0.8);
+    SL_HI = () => num12("KALSHI_STOCK_SHADOW_SL_MAX_PCT", 4);
+    ATR_MULT2 = () => num12("KALSHI_STOCK_SHADOW_SL_ATR_MULT", 1.5);
+    RR = () => num12("KALSHI_STOCK_SHADOW_RR", 2);
+    maxValidReturnPct = () => num12("KALSHI_STOCK_SHADOW_MAX_VALID_RETURN_PCT", 100);
+    maxValidEntryUsd = () => num12("KALSHI_STOCK_SHADOW_MAX_VALID_ENTRY_USD", 1e6);
     statsRepairEnabled = () => process.env.KALSHI_PERP_STATS_REPAIR !== "off";
     STATS_REPAIR_REASON = "auto-repair: invalid close geometry";
     _statsRepair = null;
@@ -71615,7 +72088,7 @@ var init_kalshi_stock_shadow = __esm({
     };
     _lastEntryRun = /* @__PURE__ */ new Map();
     _ownerId = null;
-    _started5 = false;
+    _started6 = false;
   }
 });
 
@@ -72505,8 +72978,8 @@ async function resolveOwnerUserId2() {
   return _ownerId2;
 }
 function startKalshiPerpLive() {
-  if (_started6) return;
-  _started6 = true;
+  if (_started7) return;
+  _started7 = true;
   const tick3 = async () => {
     try {
       const uid2 = await resolveOwnerUserId2();
@@ -72520,7 +72993,7 @@ function startKalshiPerpLive() {
   setInterval(tick3, 6e4).unref?.();
   console.log(perpLiveEnabled() ? "[kalshi-perp-live] started \u2014 LIVE perp lane: entries require arm + promotion bar + margin-enabled, re-verified every cycle." : "[kalshi-perp-live] started with KALSHI_PERP_LIVE=off \u2014 entries disabled; exit monitoring + reconciliation active.");
 }
-var num12, perpLiveEnabled, NOTIONAL3, MAX_OPEN3, MAX_PER_STRAT3, MAX_ORDERS_DAY, MAX_EQUITY_PCT, DAILY_LOSS_PCT, SIGNAL_MAX_AGE_MIN, EXIT_SLIPPAGE_PCT, ERROR_STORM_LIMIT, ERROR_PAUSE_MS, AMBIGUOUS_ABANDON_MS, ARM_SCOPES, STATE_SCOPE2, defaultState, utcDayKey, _exitWatermark, _livePeakEnsured, _ownerId2, _started6;
+var num13, perpLiveEnabled, NOTIONAL3, MAX_OPEN3, MAX_PER_STRAT3, MAX_ORDERS_DAY, MAX_EQUITY_PCT, DAILY_LOSS_PCT, SIGNAL_MAX_AGE_MIN, EXIT_SLIPPAGE_PCT, ERROR_STORM_LIMIT, ERROR_PAUSE_MS, AMBIGUOUS_ABANDON_MS, ARM_SCOPES, STATE_SCOPE2, defaultState, utcDayKey, _exitWatermark, _livePeakEnsured, _ownerId2, _started7;
 var init_kalshi_perp_live = __esm({
   "server/services/kalshi-perp-live.ts"() {
     "use strict";
@@ -72534,19 +73007,19 @@ var init_kalshi_perp_live = __esm({
     init_kalshi_trading();
     init_kalshi_stock_shadow();
     init_kalshi_perp_costs();
-    num12 = (n, d) => {
+    num13 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
     perpLiveEnabled = () => process.env.KALSHI_PERP_LIVE !== "off";
-    NOTIONAL3 = () => num12("KALSHI_PERP_LIVE_NOTIONAL_USD", 250);
-    MAX_OPEN3 = () => Math.max(1, Math.floor(num12("KALSHI_PERP_LIVE_MAX_OPEN", 3)));
-    MAX_PER_STRAT3 = () => Math.max(1, Math.floor(num12("KALSHI_PERP_LIVE_MAX_PER_STRATEGY", 2)));
-    MAX_ORDERS_DAY = () => Math.max(1, Math.floor(num12("KALSHI_PERP_LIVE_MAX_ORDERS_PER_DAY", 10)));
-    MAX_EQUITY_PCT = () => num12("KALSHI_PERP_LIVE_MAX_EQUITY_PCT_PER_TRADE", 25);
-    DAILY_LOSS_PCT = () => num12("KALSHI_PERP_LIVE_DAILY_LOSS_PCT", 5);
-    SIGNAL_MAX_AGE_MIN = () => num12("KALSHI_PERP_LIVE_SIGNAL_MAX_AGE_MIN", 10);
-    EXIT_SLIPPAGE_PCT = () => num12("KALSHI_PERP_LIVE_EXIT_SLIPPAGE_PCT", 0.5);
+    NOTIONAL3 = () => num13("KALSHI_PERP_LIVE_NOTIONAL_USD", 250);
+    MAX_OPEN3 = () => Math.max(1, Math.floor(num13("KALSHI_PERP_LIVE_MAX_OPEN", 3)));
+    MAX_PER_STRAT3 = () => Math.max(1, Math.floor(num13("KALSHI_PERP_LIVE_MAX_PER_STRATEGY", 2)));
+    MAX_ORDERS_DAY = () => Math.max(1, Math.floor(num13("KALSHI_PERP_LIVE_MAX_ORDERS_PER_DAY", 10)));
+    MAX_EQUITY_PCT = () => num13("KALSHI_PERP_LIVE_MAX_EQUITY_PCT_PER_TRADE", 25);
+    DAILY_LOSS_PCT = () => num13("KALSHI_PERP_LIVE_DAILY_LOSS_PCT", 5);
+    SIGNAL_MAX_AGE_MIN = () => num13("KALSHI_PERP_LIVE_SIGNAL_MAX_AGE_MIN", 10);
+    EXIT_SLIPPAGE_PCT = () => num13("KALSHI_PERP_LIVE_EXIT_SLIPPAGE_PCT", 0.5);
     ERROR_STORM_LIMIT = 3;
     ERROR_PAUSE_MS = 30 * 6e4;
     AMBIGUOUS_ABANDON_MS = 15 * 6e4;
@@ -72566,7 +73039,7 @@ var init_kalshi_perp_live = __esm({
     _exitWatermark = /* @__PURE__ */ new Map();
     _livePeakEnsured = null;
     _ownerId2 = null;
-    _started6 = false;
+    _started7 = false;
   }
 });
 
@@ -73139,8 +73612,8 @@ async function resolveOwnerUserId3() {
   return _ownerId3;
 }
 function startKalshiWeatherShadow() {
-  if (_started7) return;
-  _started7 = true;
+  if (_started8) return;
+  _started8 = true;
   if (!weatherEnsembleShadowEnabled()) {
     console.log("[kalshi-weather-shadow] disabled (KALSHI_WEATHER_ENSEMBLE=off).");
     return;
@@ -73158,7 +73631,7 @@ function startKalshiWeatherShadow() {
   setInterval(tick3, EVERY_MS3()).unref?.();
   console.log("[kalshi-weather-shadow] started \u2014 SHADOW lane on Open-Meteo ensembles + public Kalshi data (no credentials, no orders).");
 }
-var LANE, STRATEGY, weatherEnsembleShadowEnabled, num13, MIN_EDGE_CENTS, MIN_ENTRY_CENTS, MAX_ENTRY_CENTS, SPREAD_MAX_CENTS, MAX_BIAS_DEGREES, MAX_OPEN4, MAX_PER_EVENT, NOTIONAL_USD, EVERY_MS3, ALL_CITY_KEYS, defaultFetcher, _ecmwfCache, _nwsCache, _lastCycle, _ownerId3, _started7;
+var LANE, STRATEGY, weatherEnsembleShadowEnabled, num14, MIN_EDGE_CENTS, MIN_ENTRY_CENTS, MAX_ENTRY_CENTS, SPREAD_MAX_CENTS, MAX_BIAS_DEGREES, MAX_OPEN4, MAX_PER_EVENT, NOTIONAL_USD, EVERY_MS3, ALL_CITY_KEYS, defaultFetcher, _ecmwfCache, _nwsCache, _lastCycle, _ownerId3, _started8;
 var init_kalshi_weather_shadow = __esm({
   "server/services/kalshi-weather-shadow.ts"() {
     "use strict";
@@ -73172,19 +73645,19 @@ var init_kalshi_weather_shadow = __esm({
     LANE = "kalshi_weather_shadow";
     STRATEGY = "weather_ensemble";
     weatherEnsembleShadowEnabled = () => process.env.KALSHI_WEATHER_ENSEMBLE !== "off";
-    num13 = (n, d) => {
+    num14 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
-    MIN_EDGE_CENTS = () => num13("KALSHI_WEATHER_SHADOW_MIN_EDGE_CENTS", 8);
-    MIN_ENTRY_CENTS = () => Math.floor(num13("KALSHI_WEATHER_SHADOW_MIN_ENTRY_CENTS", 15));
-    MAX_ENTRY_CENTS = () => Math.floor(num13("KALSHI_WEATHER_SHADOW_MAX_ENTRY_CENTS", 96));
-    SPREAD_MAX_CENTS = () => Math.floor(num13("KALSHI_WEATHER_SHADOW_SPREAD_MAX_CENTS", 12));
-    MAX_BIAS_DEGREES = () => num13("KALSHI_WEATHER_SHADOW_MAX_BIAS_DEGREES", 3);
-    MAX_OPEN4 = () => Math.floor(num13("KALSHI_WEATHER_SHADOW_MAX_OPEN", 30));
-    MAX_PER_EVENT = () => Math.floor(num13("KALSHI_WEATHER_SHADOW_MAX_PER_EVENT", 3));
-    NOTIONAL_USD = () => num13("KALSHI_WEATHER_SHADOW_NOTIONAL_USD", 100);
-    EVERY_MS3 = () => num13("KALSHI_WEATHER_SHADOW_EVERY_MIN", 30) * 6e4;
+    MIN_EDGE_CENTS = () => num14("KALSHI_WEATHER_SHADOW_MIN_EDGE_CENTS", 8);
+    MIN_ENTRY_CENTS = () => Math.floor(num14("KALSHI_WEATHER_SHADOW_MIN_ENTRY_CENTS", 15));
+    MAX_ENTRY_CENTS = () => Math.floor(num14("KALSHI_WEATHER_SHADOW_MAX_ENTRY_CENTS", 96));
+    SPREAD_MAX_CENTS = () => Math.floor(num14("KALSHI_WEATHER_SHADOW_SPREAD_MAX_CENTS", 12));
+    MAX_BIAS_DEGREES = () => num14("KALSHI_WEATHER_SHADOW_MAX_BIAS_DEGREES", 3);
+    MAX_OPEN4 = () => Math.floor(num14("KALSHI_WEATHER_SHADOW_MAX_OPEN", 30));
+    MAX_PER_EVENT = () => Math.floor(num14("KALSHI_WEATHER_SHADOW_MAX_PER_EVENT", 3));
+    NOTIONAL_USD = () => num14("KALSHI_WEATHER_SHADOW_NOTIONAL_USD", 100);
+    EVERY_MS3 = () => num14("KALSHI_WEATHER_SHADOW_EVERY_MIN", 30) * 6e4;
     ALL_CITY_KEYS = Object.keys(WEATHER_CITIES);
     defaultFetcher = async (url2) => {
       const res2 = await fetch(url2, { headers: { "User-Agent": "VEDD-Trading-AI/1.0" }, signal: AbortSignal.timeout(1e4) });
@@ -73195,7 +73668,7 @@ var init_kalshi_weather_shadow = __esm({
     _nwsCache = /* @__PURE__ */ new Map();
     _lastCycle = null;
     _ownerId3 = null;
-    _started7 = false;
+    _started8 = false;
   }
 });
 
@@ -73851,8 +74324,8 @@ async function resolveOwnerUserId4() {
   return _ownerId4;
 }
 function startKalshiSportsShadow() {
-  if (_started8) return;
-  _started8 = true;
+  if (_started9) return;
+  _started9 = true;
   if (!sportsOddsShadowEnabled()) {
     console.log("[kalshi-sports-shadow] disabled (KALSHI_SPORTS_ODDS=off).");
     return;
@@ -73874,7 +74347,7 @@ function startKalshiSportsShadow() {
   setInterval(tick3, EVERY_MS4()).unref?.();
   console.log("[kalshi-sports-shadow] started \u2014 SHADOW lane on de-vigged book odds vs public Kalshi prices (no Kalshi credentials, no orders).");
 }
-var LANE2, STRATEGY2, sportsOddsShadowEnabled, num14, MIN_DIVERGENCE_PTS, MIN_ENTRY_CENTS2, MAX_ENTRY_CENTS2, SPREAD_MAX_CENTS2, MAX_OPEN5, MAX_PER_CYCLE, ODDSPAPI_ODDS_CALL_CAP, NOTIONAL_USD2, EVERY_MS4, LEAGUES, BOOK_PREFERENCE, defaultFetcher2, KALSHI_BASE3, dollarsToCents, _papiSportsCache, _papiCatalogCache, _lastCycle2, _ownerId4, _started8, _idleLogged;
+var LANE2, STRATEGY2, sportsOddsShadowEnabled, num15, MIN_DIVERGENCE_PTS, MIN_ENTRY_CENTS2, MAX_ENTRY_CENTS2, SPREAD_MAX_CENTS2, MAX_OPEN5, MAX_PER_CYCLE, ODDSPAPI_ODDS_CALL_CAP, NOTIONAL_USD2, EVERY_MS4, LEAGUES, BOOK_PREFERENCE, defaultFetcher2, KALSHI_BASE3, dollarsToCents, _papiSportsCache, _papiCatalogCache, _lastCycle2, _ownerId4, _started9, _idleLogged;
 var init_kalshi_sports_shadow = __esm({
   "server/services/kalshi-sports-shadow.ts"() {
     "use strict";
@@ -73887,19 +74360,19 @@ var init_kalshi_sports_shadow = __esm({
     LANE2 = "kalshi_sports_shadow";
     STRATEGY2 = "sports_odds_benchmark";
     sportsOddsShadowEnabled = () => process.env.KALSHI_SPORTS_ODDS !== "off";
-    num14 = (n, d) => {
+    num15 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
-    MIN_DIVERGENCE_PTS = () => num14("KALSHI_SPORTS_SHADOW_MIN_DIVERGENCE_PTS", 4);
-    MIN_ENTRY_CENTS2 = () => Math.floor(num14("KALSHI_SPORTS_SHADOW_MIN_ENTRY_CENTS", 5));
-    MAX_ENTRY_CENTS2 = () => Math.floor(num14("KALSHI_SPORTS_SHADOW_MAX_ENTRY_CENTS", 96));
-    SPREAD_MAX_CENTS2 = () => Math.floor(num14("KALSHI_SPORTS_SHADOW_SPREAD_MAX_CENTS", 10));
-    MAX_OPEN5 = () => Math.floor(num14("KALSHI_SPORTS_SHADOW_MAX_OPEN", 40));
-    MAX_PER_CYCLE = () => Math.floor(num14("KALSHI_SPORTS_SHADOW_MAX_PER_CYCLE", 10));
-    ODDSPAPI_ODDS_CALL_CAP = () => Math.floor(num14("KALSHI_SPORTS_ODDSPAPI_CALL_CAP", 8));
-    NOTIONAL_USD2 = () => num14("KALSHI_SPORTS_SHADOW_NOTIONAL_USD", 100);
-    EVERY_MS4 = () => num14("KALSHI_SPORTS_SHADOW_EVERY_MIN", 360) * 6e4;
+    MIN_DIVERGENCE_PTS = () => num15("KALSHI_SPORTS_SHADOW_MIN_DIVERGENCE_PTS", 4);
+    MIN_ENTRY_CENTS2 = () => Math.floor(num15("KALSHI_SPORTS_SHADOW_MIN_ENTRY_CENTS", 5));
+    MAX_ENTRY_CENTS2 = () => Math.floor(num15("KALSHI_SPORTS_SHADOW_MAX_ENTRY_CENTS", 96));
+    SPREAD_MAX_CENTS2 = () => Math.floor(num15("KALSHI_SPORTS_SHADOW_SPREAD_MAX_CENTS", 10));
+    MAX_OPEN5 = () => Math.floor(num15("KALSHI_SPORTS_SHADOW_MAX_OPEN", 40));
+    MAX_PER_CYCLE = () => Math.floor(num15("KALSHI_SPORTS_SHADOW_MAX_PER_CYCLE", 10));
+    ODDSPAPI_ODDS_CALL_CAP = () => Math.floor(num15("KALSHI_SPORTS_ODDSPAPI_CALL_CAP", 8));
+    NOTIONAL_USD2 = () => num15("KALSHI_SPORTS_SHADOW_NOTIONAL_USD", 100);
+    EVERY_MS4 = () => num15("KALSHI_SPORTS_SHADOW_EVERY_MIN", 360) * 6e4;
     LEAGUES = [
       { key: "NFL", kalshiSeries: "KXNFLGAME", oddsApiSportKey: "americanfootball_nfl", oddspapiSportSlug: "american-football" },
       { key: "NBA", kalshiSeries: "KXNBAGAME", oddsApiSportKey: "basketball_nba", oddspapiSportSlug: "basketball" },
@@ -73923,7 +74396,7 @@ var init_kalshi_sports_shadow = __esm({
     _papiCatalogCache = /* @__PURE__ */ new Map();
     _lastCycle2 = null;
     _ownerId4 = null;
-    _started8 = false;
+    _started9 = false;
     _idleLogged = false;
   }
 });
@@ -75113,12 +75586,12 @@ async function getSettingsOverview(userId) {
   }
   return { engines };
 }
-var num15, bool, text2, secs, ENGINES;
+var num16, bool, text2, secs, ENGINES;
 var init_settings_overview = __esm({
   "server/services/settings-overview.ts"() {
     "use strict";
     init_db();
-    num15 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
+    num16 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "num" });
     bool = (key, label, standard, from) => ({ key, from, label, standard, fmt: "bool" });
     text2 = (key, label, standard, from) => ({ key, from, label, standard, fmt: "text" });
     secs = (key, label, standard, from) => ({ key, from, label, standard, fmt: "secs" });
@@ -75128,24 +75601,24 @@ var init_settings_overview = __esm({
         name: "FX Engine",
         // Standards: getDefaultConfig() literal in live-trading-engine.ts.
         fields: [
-          num15("minConfidence", "Minimum confidence to trade", 70),
+          num16("minConfidence", "Minimum confidence to trade", 70),
           text2("strategyMode", "Strategy mode", "aggressive"),
-          num15("maxOpenTrades", "Max open trades at once", 5),
-          num15("riskPerTrade", "Risk per trade (%)", 1),
-          num15("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
-          num15("maxDailyLossPct", "Daily loss breaker (%)", 4),
-          num15("dailyLossLimit", "Daily loss limit (%)", 5),
-          num15("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
-          num15("drawdownShieldThreshold", "Drawdown shield (%)", 3),
-          num15("maxLotSize", "Max lot size", 0.1),
-          num15("maxLot", "Absolute lot ceiling (0 = none)", 0),
-          num15("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num15("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
+          num16("maxOpenTrades", "Max open trades at once", 5),
+          num16("riskPerTrade", "Risk per trade (%)", 1),
+          num16("maxRiskPerTradePct", "Hard cap: risk per trade (%)", 2),
+          num16("maxDailyLossPct", "Daily loss breaker (%)", 4),
+          num16("dailyLossLimit", "Daily loss limit (%)", 5),
+          num16("maxDrawdownPct", "Drawdown breaker below peak (%)", 8),
+          num16("drawdownShieldThreshold", "Drawdown shield (%)", 3),
+          num16("maxLotSize", "Max lot size", 0.1),
+          num16("maxLot", "Absolute lot ceiling (0 = none)", 0),
+          num16("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num16("maxTradesPerPairPerDay", "Max trades per pair per day", 2),
           bool("trailingStopEnabled", "Trailing stops", true),
           bool("profitLockEnabled", "Profit lock from +1R", true),
-          num15("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
+          num16("stopHoldUntilR", "Stop cannot tighten before (R)", 1),
           bool("propFirmMode", "Prop firm mode", false),
-          num15("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
+          num16("propFirmDailyDrawdownLimit", "Prop firm daily drawdown (%)", 4),
           bool("autoFlattenOnBreach", "Close trades when a breaker trips", false),
           bool("brainLearningMode", "Brain learning", true),
           bool("brainShadowEnabled", "Practice results feed the brain", true),
@@ -75162,12 +75635,12 @@ var init_settings_overview = __esm({
         name: "Sol Engine",
         // Standards: DEFAULT_CONFIG in sol-engine.ts.
         fields: [
-          num15("minConfidence", "Minimum confidence to trade", 65),
-          num15("riskPerTradePct", "Risk per trade (%)", 1),
-          num15("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
-          num15("maxTokens", "Max tokens tracked at once", 10),
+          num16("minConfidence", "Minimum confidence to trade", 65),
+          num16("riskPerTradePct", "Risk per trade (%)", 1),
+          num16("maxDailyTrades", "Max trades per day (0 = unlimited)", 0),
+          num16("maxTokens", "Max tokens tracked at once", 10),
           bool("shieldEnabled", "Loss shield", true),
-          num15("shieldThreshold", "Shield trips at drawdown (%)", 10),
+          num16("shieldThreshold", "Shield trips at drawdown (%)", 10),
           bool("useKelly", "Kelly position sizing", false),
           text2("directionFilter", "Direction filter", "buy_only"),
           bool("stopOrdersEnabled", "Stop orders", false),
@@ -75186,22 +75659,22 @@ var init_settings_overview = __esm({
         name: "Kalshi Engine",
         // Standards: DEFAULT_CONFIG in kalshi-engine.ts.
         fields: [
-          num15("minConfidence", "Minimum confidence to trade", 70),
-          num15("maxOpenTrades", "Max open trades at once", 3),
-          num15("maxTradesPerDay", "Max trades per day", 10),
-          num15("contractsPerTrade", "Contracts per trade", 5),
-          num15("riskPctPerTrade", "Risk per trade (%)", 5),
-          num15("takeProfitCents", "Take profit (%)", 50),
-          num15("stopLossCents", "Stop loss (%)", 40),
-          num15("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
+          num16("minConfidence", "Minimum confidence to trade", 70),
+          num16("maxOpenTrades", "Max open trades at once", 3),
+          num16("maxTradesPerDay", "Max trades per day", 10),
+          num16("contractsPerTrade", "Contracts per trade", 5),
+          num16("riskPctPerTrade", "Risk per trade (%)", 5),
+          num16("takeProfitCents", "Take profit (%)", 50),
+          num16("stopLossCents", "Stop loss (%)", 40),
+          num16("minEntryPriceCents", "Cheapest entry allowed (cents)", 30),
           bool("requireConfluence", "Requires confluence", true),
           bool("ruinGuardEnabled", "Ruin guard (bad-day halt)", true),
-          num15("dailyLossLimitPct", "Daily loss limit (%)", 5),
-          num15("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
+          num16("dailyLossLimitPct", "Daily loss limit (%)", 5),
+          num16("maxDrawdownLimitPct", "Max drawdown limit (%)", 10),
           bool("kalshiBrainGating", "Brain can hard-block setups", true),
           bool("brainLearningMode", "Brain learning", true),
           bool("weatherEnabled", "Weather engine", false),
-          num15("cooldownMinutes", "Cooldown between trades (min)", 20)
+          num16("cooldownMinutes", "Cooldown between trades (min)", 20)
         ],
         load: async (userId) => {
           const { getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
@@ -75213,17 +75686,17 @@ var init_settings_overview = __esm({
         name: "Crypto Engine",
         // Standards: column defaults in ensure-cryptocom-engine-tables.ts.
         fields: [
-          num15("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
-          num15("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
-          num15("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
-          num15("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
-          num15("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
-          num15("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
-          num15("leverage", "Leverage", 3, "leverage"),
+          num16("minConfidence", "Minimum confidence to trade", 70, "min_confidence"),
+          num16("maxOpenTrades", "Max open trades at once", 3, "max_open_trades"),
+          num16("riskPerTrade", "Risk per trade (%)", 1, "risk_per_trade"),
+          num16("dailyLossLimit", "Daily loss limit (%)", 5, "daily_loss_limit"),
+          num16("maxDailyTrades", "Max trades per day (0 = unlimited)", 0, "max_daily_trades"),
+          num16("drawdownShield", "Drawdown shield (%)", 3, "drawdown_shield_threshold"),
+          num16("leverage", "Leverage", 3, "leverage"),
           text2("directionFilter", "Direction filter", "both", "direction_filter"),
           bool("brainLearning", "Brain learning", true, "brain_learning_mode"),
           bool("cryptoBrain", "Crypto brain", true, "crypto_brain_enabled"),
-          num15("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
+          num16("compositeScore", "Composite entry score needed", 72, "composite_min_edge_score"),
           bool("autoExecution", "Auto execution", false, "enable_auto_execution"),
           bool("kelly", "Kelly position sizing", false, "use_kelly_criterion"),
           secs("scanInterval", "Scan interval", 12e4, "scan_interval_ms"),
@@ -75251,13 +75724,13 @@ __export(practice_costs_report_exports, {
 });
 function costModelConstants() {
   return {
-    cryptoFeeBps: num16("CRYPTO_PAPER_FEE_BPS", 30),
-    cryptoFeeDeepBps: num16("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
-    cryptoFloorMult: num16("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
-    solSlippagePct: num16("SOL_PAPER_SLIPPAGE_PCT", 0.5),
-    solFeePumpfunPct: num16("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
-    solFeeDefaultPct: num16("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
-    solImpactFallbackPct: num16("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
+    cryptoFeeBps: num17("CRYPTO_PAPER_FEE_BPS", 30),
+    cryptoFeeDeepBps: num17("CRYPTO_PAPER_FEE_DEEP_BPS", 5),
+    cryptoFloorMult: num17("CRYPTO_PAPER_COST_FLOOR_MULT", 3),
+    solSlippagePct: num17("SOL_PAPER_SLIPPAGE_PCT", 0.5),
+    solFeePumpfunPct: num17("SOL_PAPER_FEE_PUMPFUN_PCT", 1),
+    solFeeDefaultPct: num17("SOL_PAPER_FEE_DEFAULT_PCT", 0.3),
+    solImpactFallbackPct: num17("SOL_PAPER_IMPACT_FALLBACK_PCT", 1)
   };
 }
 async function practiceCostReport(userId, days = 90) {
@@ -75291,12 +75764,12 @@ async function practiceCostReport(userId, days = 90) {
   }
   return out;
 }
-var num16, BANDS;
+var num17, BANDS;
 var init_practice_costs_report = __esm({
   "server/services/practice-costs-report.ts"() {
     "use strict";
     init_db();
-    num16 = (name, dflt) => {
+    num17 = (name, dflt) => {
       const v = Number(process.env[name]);
       return Number.isFinite(v) && v >= 0 ? v : dflt;
     };
@@ -86777,6 +87250,12 @@ async function runShadowDeployment(dep, spec, sig, bars) {
       if (dep.lessonPaused) await setDeploymentLessonPause(dep.id, null).catch(() => {
       });
     }
+    const impKey = await getStudioImprovementKey(dep.strategyId).catch(() => `strategy ${dep.strategyId}`);
+    if (await improvementThrottleBlocks(dep.userId, "studio", impKey).catch(() => false)) {
+      logImprovementBlock(dep.userId, "studio", impKey, spec.symbol ?? null);
+      await touchDeployment(dep.id, { error: null });
+      return;
+    }
   }
   let entriesAllowed = true;
   if (!open2 && spec.risk.maxTradesPerDay && spec.risk.maxTradesPerDay > 0) {
@@ -87100,6 +87579,7 @@ var init_strategy_runner = __esm({
     init_process_guards();
     init_strategy_deployments();
     init_shadow_lesson_gate();
+    init_improvement_loop();
     init_strategy_backtest();
     init_strategy_shadow();
     init_strategy_spec();
@@ -88022,9 +88502,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "20a511b3";
-var BUILD_BRANCH = "feat/ai-cost-discipline";
-var BUILT_AT = "2026-11-20T19:24:32.111Z";
+var BUILD_COMMIT = "98ac5b89";
+var BUILD_BRANCH = "feat/continuous-improvement-loop";
+var BUILT_AT = "2026-11-21T21:36:32.663Z";
 
 // server/stripe.ts
 init_db();
@@ -92378,6 +92858,20 @@ async function registerRoutes(app2, existingServer) {
         try {
           const { getEngineWatchdogStatus: getEngineWatchdogStatus2 } = await Promise.resolve().then(() => (init_engine_watchdog(), engine_watchdog_exports));
           return await getEngineWatchdogStatus2();
+        } catch {
+          return null;
+        }
+      })(),
+      // Continuous improvement loop (2026-11-21): is each strategy getting
+      // better or worse? Latest 14d-vs-prior-14d evaluation summary —
+      // per-engine improving/degrading/flat counts + the shadow
+      // strategies currently throttled for degrading. Null only if the
+      // module itself fails to load; an empty summary (no evaluation
+      // yet) is reported as lastEvaluationAt: null, never hidden.
+      improvementLoop: await (async () => {
+        try {
+          const { getImprovementLoopHealth: getImprovementLoopHealth2 } = await Promise.resolve().then(() => (init_improvement_loop(), improvement_loop_exports));
+          return await getImprovementLoopHealth2();
         } catch {
           return null;
         }
@@ -110865,16 +111359,16 @@ Respond with ONLY valid JSON:
     try {
       const { runRuinConeSimulation: runRuinConeSimulation2 } = await Promise.resolve().then(() => (init_ruin_cone(), ruin_cone_exports));
       const q = req.query;
-      const num17 = (v) => v != null && v !== "" ? Number(v) : void 0;
+      const num18 = (v) => v != null && v !== "" ? Number(v) : void 0;
       const result = await runRuinConeSimulation2(userId, {
-        numSimulations: num17(q.numSimulations),
-        numTrades: num17(q.numTrades),
-        startingEquity: num17(q.startingEquity),
-        dailyLossLimit: num17(q.dailyLossLimit),
-        maxDrawdownLimit: num17(q.maxDrawdownLimit),
-        consistencyRuleThreshold: num17(q.consistencyRuleThreshold),
-        profitTarget: num17(q.profitTarget),
-        sourceLimit: num17(q.sourceLimit),
+        numSimulations: num18(q.numSimulations),
+        numTrades: num18(q.numTrades),
+        startingEquity: num18(q.startingEquity),
+        dailyLossLimit: num18(q.dailyLossLimit),
+        maxDrawdownLimit: num18(q.maxDrawdownLimit),
+        consistencyRuleThreshold: num18(q.consistencyRuleThreshold),
+        profitTarget: num18(q.profitTarget),
+        sourceLimit: num18(q.sourceLimit),
         source: q.source ? String(q.source) : void 0,
         noCache: q.nocache === "1" || q.noCache === "true"
       });
@@ -123751,6 +124245,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startTrailGuardLearning2();
     const { startTrailBrainLearning: startTrailBrainLearning2 } = await Promise.resolve().then(() => (init_trail_brain_learning(), trail_brain_learning_exports));
     startTrailBrainLearning2();
+    const { startImprovementLoop: startImprovementLoop2 } = await Promise.resolve().then(() => (init_improvement_loop(), improvement_loop_exports));
+    startImprovementLoop2();
     const { startKalshiStockShadow: startKalshiStockShadow2 } = await Promise.resolve().then(() => (init_kalshi_stock_shadow(), kalshi_stock_shadow_exports));
     startKalshiStockShadow2();
     const { startKalshiPerpLive: startKalshiPerpLive2 } = await Promise.resolve().then(() => (init_kalshi_perp_live(), kalshi_perp_live_exports));

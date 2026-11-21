@@ -14394,6 +14394,68 @@ var init_markov_chain = __esm({
   }
 });
 
+// server/services/improvement-loop.ts
+function improvementLoopOn() {
+  return process.env.IMPROVEMENT_LOOP !== "off";
+}
+async function loadThrottleEntries() {
+  try {
+    const v = await getRuntimeStateStrict(THROTTLE_SCOPE, STORE_KEY);
+    if (v && typeof v === "object" && Array.isArray(v.entries)) return v.entries;
+    return [];
+  } catch {
+    return [];
+  }
+}
+async function currentThrottles() {
+  if (_throttleCache && Date.now() - _throttleCache.at < THROTTLE_CACHE_MS) return _throttleCache.entries;
+  const entries = await loadThrottleEntries();
+  _throttleCache = { at: Date.now(), entries };
+  return entries;
+}
+async function improvementThrottleBlocks(userId, engine, strategy) {
+  if (!improvementLoopOn()) return false;
+  try {
+    const entries = await currentThrottles();
+    const hit = entries.find((e) => e.userId === userId && e.engine === engine && e.strategy === strategy);
+    if (!hit) return false;
+    return Date.now() < Date.parse(hit.pausedUntil);
+  } catch {
+    return false;
+  }
+}
+function logImprovementBlock(userId, engine, strategy, symbol) {
+  const k = throttleKey(userId, engine, strategy);
+  const now = Date.now();
+  if (now - (_blockLogAt.get(k) || 0) < 36e5) return;
+  _blockLogAt.set(k, now);
+  logGuard(
+    userId,
+    "improvement_throttle",
+    symbol,
+    `Improvement loop: new ${engine} shadow entries for "${strategy}" are paused \u2014 its last-14-days trend is degrading vs the prior 14 days. Open shadow positions are unaffected.`,
+    { engine, strategy },
+    guardEngineFor(engine)
+  );
+}
+var THROTTLE_SCOPE, STORE_KEY, throttleKey, guardEngineFor, _throttleCache, THROTTLE_CACHE_MS, _blockLogAt;
+var init_improvement_loop = __esm({
+  "server/services/improvement-loop.ts"() {
+    "use strict";
+    init_db();
+    init_runtime_state();
+    init_guard_events();
+    init_crash_heartbeat();
+    THROTTLE_SCOPE = "improvement_throttles";
+    STORE_KEY = "global";
+    throttleKey = (userId, engine, strategy) => `${userId}|${engine}|${strategy}`;
+    guardEngineFor = (engine) => engine === "kalshi_perp" ? "kalshi" : engine;
+    _throttleCache = null;
+    THROTTLE_CACHE_MS = 6e4;
+    _blockLogAt = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/services/crypto-ports.ts
 var crypto_ports_exports = {};
 __export(crypto_ports_exports, {
@@ -14979,6 +15041,10 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
           continue;
         }
       }
+      if (await improvementThrottleBlocks(userId, "crypto", strat)) {
+        logImprovementBlock(userId, "crypto", strat, symbol);
+        continue;
+      }
       const tags = [];
       if (ch1 != null && Math.abs(ch1) >= 3) tags.push(ch1 > 0 ? "hot_hour" : "dump_hour");
       if (ch24 != null && ch24 >= 20) tags.push("extended_24h");
@@ -15046,6 +15112,7 @@ var init_crypto_shadow = __esm({
     "use strict";
     init_db();
     init_shadow_lesson_gate();
+    init_improvement_loop();
     init_trail_brain();
     num3 = (n, d) => {
       const v = Number(process.env[n]);
