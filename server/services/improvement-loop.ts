@@ -449,7 +449,7 @@ async function readLedgerTrends(bounds: { priorStart: number; curStart: number; 
     });
   }
   const trends: StrategyTrend[] = [];
-  for (const slot of acc.values()) {
+  acc.forEach((slot) => {
     const cur = accumToStat(slot.cur);
     const prior = accumToStat(slot.prior);
     const c = classifyTrend(cur, prior, th);
@@ -457,7 +457,7 @@ async function readLedgerTrends(bounds: { priorStart: number; curStart: number; 
       userId: slot.userId, engine: slot.engine, strategy: slot.strategy,
       throttleLane: slot.throttleLane, classification: c.classification, metric: c.metric, delta: c.delta, cur, prior,
     });
-  }
+  });
   return trends;
 }
 
@@ -485,7 +485,7 @@ async function readFxLiveTrends(bounds: { priorStart: number; curStart: number; 
     addToAccum(r.win === 'cur' ? slot.cur : slot.prior, { trades: r.trades, wins: r.wins, rTrades: r.r_trades, sumR: r.sum_r });
   }
   const trends: StrategyTrend[] = [];
-  for (const slot of acc.values()) {
+  acc.forEach((slot) => {
     const cur = accumToStat(slot.cur);
     const prior = accumToStat(slot.prior);
     const c = classifyTrend(cur, prior, th);
@@ -493,7 +493,7 @@ async function readFxLiveTrends(bounds: { priorStart: number; curStart: number; 
       userId: slot.userId, engine: 'fx_live', strategy: slot.strategy,
       throttleLane: false, classification: c.classification, metric: c.metric, delta: c.delta, cur, prior,
     });
-  }
+  });
   return trends;
 }
 
