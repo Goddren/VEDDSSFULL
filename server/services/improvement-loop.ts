@@ -226,9 +226,12 @@ export function classifyTrend(
   const delta = curAvg - priorAvg;
   const improvingDelta = metric === 'R' ? th.improvingDeltaR : th.improvingDeltaPct;
   const degradingDelta = metric === 'R' ? th.degradingDeltaR : th.degradingDeltaPct;
-  if (delta >= improvingDelta) return { classification: 'improving', metric, delta };
+  // EPS: a delta that IS the threshold (0.3 − 0.2) must not fall a float
+  // ULP short of it — thresholds are policy, not float trivia.
+  const EPS = 1e-9;
+  if (delta >= improvingDelta - EPS) return { classification: 'improving', metric, delta };
   const winRateImproved = cur.winRate != null && prior.winRate != null && cur.winRate > prior.winRate;
-  if (delta <= -degradingDelta && !winRateImproved) return { classification: 'degrading', metric, delta };
+  if (delta <= -degradingDelta + EPS && !winRateImproved) return { classification: 'degrading', metric, delta };
   return { classification: 'flat', metric, delta };
 }
 
