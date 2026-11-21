@@ -326,6 +326,18 @@ export async function runMultiModelAnalysis(
 ): Promise<EnsembleResult> {
   const { storage } = await import('../storage');
 
+  // All-engines AI budget (2026-11-21): this ensemble is an autonomous
+  // engine caller (live-trading-engine). Refuse BEFORE buying any provider
+  // call when the shared per-user daily pool is exhausted — the thrown
+  // budget error is shaped like a provider failure, so the caller's
+  // ensemble-failure handling applies unchanged. Fails OPEN if the budget
+  // module itself cannot load (same rule as the budget gate).
+  const budgetMod = await import('./ai-engine-budget').catch(() => null);
+  if (budgetMod?.aiBudgetAllEnginesEnabled() && !(await budgetMod.engineAiBudgetAllows(userId))) {
+    budgetMod.noteEngineAiBudgetBlock(userId);
+    throw budgetMod.engineAiBudgetError();
+  }
+
   async function getApiKeyForModel(modelDef: AIModelProvider): Promise<string | null> {
     if (modelDef.provider === 'openai') return null;
     try {
@@ -356,6 +368,17 @@ export async function runMultiModelAnalysis(
       apiKey,
       modelDef.provider === 'openai' ? openaiInstance : undefined
     );
+
+    // Meter the answered model call against the shared daily pool —
+    // EXCEPT the openai provider when an instance was supplied: that
+    // instance is the engine-marked universal client, which meters the
+    // call itself in its failover wrapper (metering here too would
+    // double-count). The direct-provider calls (anthropic/google/groq/
+    // mistral/deepseek SDKs) bypass the universal client, so they meter
+    // here. One answered model call = 1 unit, same as everywhere else.
+    if (budgetMod?.aiBudgetAllEnginesEnabled() && !(modelDef.provider === 'openai' && openaiInstance)) {
+      try { budgetMod.meterEngineAiConfirmation(userId, 1); } catch { /* metering never breaks a call */ }
+    }
 
     const elapsed = Date.now() - startTime;
     console.log(`[Multi-Model] ${modelDef.name} responded in ${elapsed}ms`);

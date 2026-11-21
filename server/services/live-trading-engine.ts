@@ -909,7 +909,7 @@ async function autoGenerateBrainSignals(userId: number, brain: any): Promise<voi
   try {
     if (!brain?.pairKnowledge || Object.keys(brain.pairKnowledge).length === 0) return;
     const { getUniversalAIClientForUser } = await import('../openai');
-    try { openai = await getUniversalAIClientForUser(userId); } catch { return; }
+    try { openai = await getUniversalAIClientForUser(userId, { engine: true }); } catch { return; }
 
     const connectedPairs = (global as any).mt5ConnectedPairs?.[userId] || {};
     const lastChartData = (global as any).mt5LastChartData?.[userId] || {};
@@ -4497,7 +4497,8 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
     const { getUniversalAIClientForUser } = await import('../openai');
     try {
       // Critical: runAILiveAnalysis is the FX engine's live decision call.
-      openai = await getUniversalAIClientForUser(userId, { critical: true });
+      // Engine: gated + metered against the shared daily AI budget.
+      openai = await getUniversalAIClientForUser(userId, { critical: true, engine: true });
     } catch {
       addActivity(userId, { type: 'error', message: 'No AI API key configured. Cannot analyze.' });
       if (_fxMode !== 'ai' || _fxShadow) await _aiFailed('failed:no_client');
@@ -4518,7 +4519,11 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
           timeout: 90000,
         });
         (groqClient as any).defaultModel = 'openai/gpt-oss-120b';
-        openai = groqClient;
+        (groqClient as any).provider = 'groq';
+        // The raw Groq override bypasses the universal builders — wrap it
+        // so its calls stay inside the shared budget gate + telemetry.
+        const { wrapEngineAiClient } = await import('../openai');
+        openai = wrapEngineAiClient(groqClient as any, userId);
         _usingGroq = true;
         addActivity(userId, { type: 'info', message: '💚 Economy mode: routing to Groq Llama 3.3-70b (free tier) — cost reduced' });
       } catch {

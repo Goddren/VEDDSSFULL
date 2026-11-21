@@ -1319,6 +1319,17 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
       // savedPct with high misses means the key is still churning, which is a
       // different fix from a low savedPct with high throttles.
       aiCache: aiConfirmationCacheStats(),
+      // All-engines AI budget (PR #101 pool, extended to every engine
+      // 2026-11-21): today's metered engine AI spend, answered calls, and
+      // budget-blocked calls across all users, aggregated from the same
+      // counters the budget gate consults. blockedToday rising while
+      // spend sits at the cap = engines are budget-paused, not broken.
+      aiEngineBudget: await (async () => {
+        try {
+          const { engineAiBudgetSummary } = await import('./services/ai-engine-budget');
+          return engineAiBudgetSummary();
+        } catch { return null; }
+      })(),
       // Which instance owns the FX engines (Postgres advisory lock). Hitting
       // /api/health repeatedly should show exactly one instance with true.
       fxLeader: await import('./services/live-trading-engine').then(m => m.isFxLeader()).catch(() => null),

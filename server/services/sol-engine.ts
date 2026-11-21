@@ -1585,7 +1585,7 @@ async function runSolAIReview(
     // if the engine was started with the default 'full' config.
     let openai: any;
     let modelLabel = 'GPT-4o';
-    const userClient = await getUniversalAIClientForUser(userId);
+    const userClient = await getUniversalAIClientForUser(userId, { engine: true });
     const useEconomy = state.config.aiMode === 'economy'
       || (userClient as any).provider === 'groq'; // user's profile resolved to Groq
 
@@ -1595,6 +1595,11 @@ async function runSolAIReview(
         const OpenAI = (await import('openai')).default;
         openai = new OpenAI({ apiKey: groqKey, baseURL: 'https://api.groq.com/openai/v1', maxRetries: 4, timeout: 90000 });
         (openai as any).defaultModel = 'openai/gpt-oss-120b';
+        (openai as any).provider = 'groq';
+        // The raw Groq override bypasses the universal builders — wrap it
+        // so its calls stay inside the shared budget gate + telemetry.
+        const { wrapEngineAiClient } = await import('../openai');
+        openai = wrapEngineAiClient(openai, userId);
         modelLabel = 'Groq Llama';
         addActivity(state, {
           type: 'info',
@@ -2500,7 +2505,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
     const shieldFilter = state.config.shieldEnabled && state.shieldActive;
 
     const { getUniversalAIClientForUser } = await import('../openai');
-    const userOpenai = await getUniversalAIClientForUser(userId).catch(() => null);
+    const userOpenai = await getUniversalAIClientForUser(userId, { engine: true }).catch(() => null);
 
     const scanResult = await scanAndAnalyzeTokens(
       state.config.maxTokens,
