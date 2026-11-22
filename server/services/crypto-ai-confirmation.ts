@@ -69,12 +69,19 @@ export async function getCryptoAiConfirmation(opts: {
   quantReasoning: string;
   indicators: any;
   candles: CandleData[];
+  /** Cache namespace (2026-11-22): the crypto shadow AI judge passes
+   *  'shadow-h1' so its verdicts — asked on the shadow lane's H1 bars —
+   *  can never be served to, or throttle, the live gate's 5m lookups, and
+   *  vice versa. Absent (every live caller), keys are byte-identical to
+   *  before. Prompt and metering are unaffected either way. */
+  cacheScope?: string;
 }): Promise<CryptoAiConfirmation> {
   try {
+    const cacheTimeframe = opts.cacheScope ? `${CONFIRM_TIMEFRAME}:${opts.cacheScope}` : CONFIRM_TIMEFRAME;
     // Same question asked within the cache window → reuse the verdict, spend
     // nothing. quantScore plays the EA-confidence role in the key (banded).
     const cached = cryptoConfirmationCache.get(
-      opts.userId, opts.symbol, CONFIRM_TIMEFRAME, opts.direction, opts.quantScore, opts.price, opts.strategy,
+      opts.userId, opts.symbol, cacheTimeframe, opts.direction, opts.quantScore, opts.price, opts.strategy,
     );
     if (cached) {
       console.log(`[crypto-ai-confirmation] ${opts.symbol} ${opts.direction}: verdict reused — ${cached.reason}`);
@@ -223,7 +230,7 @@ Would you independently confirm this ${opts.direction} setup on its own merits a
     // Only genuine model verdicts are cached — provider errors fall through
     // to the catch below and are never stored.
     cryptoConfirmationCache.put(
-      opts.userId, opts.symbol, CONFIRM_TIMEFRAME, opts.direction, opts.quantScore, opts.price, verdict, opts.strategy,
+      opts.userId, opts.symbol, cacheTimeframe, opts.direction, opts.quantScore, opts.price, verdict, opts.strategy,
     );
     return verdict;
   } catch (err: any) {

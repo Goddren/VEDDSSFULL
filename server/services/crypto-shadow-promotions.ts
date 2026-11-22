@@ -39,7 +39,7 @@
 // error means no block — a broken store must never silence the engine.
 
 import { getRuntimeStateStrict, saveRuntimeState } from './runtime-state';
-import { computeCryptoShadowStats, type BucketStat } from './crypto-shadow';
+import { computeCryptoShadowStats, computeCryptoShadowAiJudge, type BucketStat, type AiJudgeStat } from './crypto-shadow';
 
 export interface CryptoShadowPromotion {
   id: string;
@@ -91,14 +91,20 @@ async function storePromotions(userId: number, promotions: CryptoShadowPromotion
 // ── Candidates ──────────────────────────────────────────────────────────────
 /** The lane's 'avoid' verdicts (its own bar — see header), flagged when a
  *  promotion already covers them, plus the stored promotions themselves. */
-export async function getCryptoPromotionPanel(userId: number): Promise<{ candidates: CryptoPromotionCandidate[]; promotions: CryptoShadowPromotion[] }> {
-  const [stats, promotions] = await Promise.all([computeCryptoShadowStats(userId), getCryptoPromotions(userId)]);
+export async function getCryptoPromotionPanel(userId: number): Promise<{ candidates: CryptoPromotionCandidate[]; promotions: CryptoShadowPromotion[]; aiJudge: AiJudgeStat[] }> {
+  const [stats, promotions, aiJudge] = await Promise.all([
+    computeCryptoShadowStats(userId), getCryptoPromotions(userId),
+    // The AI judge scoreboard rides this panel payload (its section sits
+    // directly under this one on Guards & Trails). Evidence only — a
+    // judge read failure must never take the promotions panel down.
+    computeCryptoShadowAiJudge(userId).catch(() => [] as AiJudgeStat[]),
+  ]);
   const activeKeys = new Set(promotions.filter((p) => p.active).map((p) => `${p.strategy}|${p.dim}|${p.bucket}`));
   const candidates = stats
     .filter((s) => s.verdict === 'avoid')
     .map((s) => ({ ...s, alreadyGuarded: activeKeys.has(`${s.strategy}|${s.dim}|${s.bucket}`) }))
     .sort((a, b) => b.n - a.n);
-  return { candidates, promotions };
+  return { candidates, promotions, aiJudge };
 }
 
 // ── Promote / retire (tap-only; eligibility re-verified at promote time) ────
