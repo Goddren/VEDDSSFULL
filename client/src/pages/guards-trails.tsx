@@ -2,6 +2,7 @@ import { ShieldCheck } from "lucide-react";
 import { InfoExplainer } from "@/components/info-explainer";
 import {
   CryptoLiveTogglesPanel,
+  CryptoShadowAiJudgePanel,
   CryptoShadowPromotionsPanel,
   EngineSafeguardsPanel,
   GateCalibrationPanel,
@@ -49,6 +50,7 @@ export default function GuardsTrailsPage() {
       <PromotedRulesPanel />
       <CryptoLiveTogglesPanel />
       <CryptoShadowPromotionsPanel />
+      <CryptoShadowAiJudgePanel />
       <GateCalibrationPanel />
       <TrailStudyPanel />
     </div>

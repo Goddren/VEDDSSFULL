@@ -126,7 +126,7 @@ const seg = (s: string, from: string, to: string) => s.slice(s.indexOf(from), s.
   delete process.env.VIDEO_RETRY_REUSE;
   check('F4 helper defaults to on', videoRetryReuseEnabled() === true);
   if (prev !== undefined) process.env.VIDEO_RETRY_REUSE = prev;
-  check('F5 sw bumped for the client change', sw.includes("CACHE_VERSION = 'vedd-v287'"));
+  check('F5 sw bumped for the client change', sw.includes("CACHE_VERSION = 'vedd-v288'"));
 }
 
 console.log(`\n${total - failures}/${total} checks passed`);
