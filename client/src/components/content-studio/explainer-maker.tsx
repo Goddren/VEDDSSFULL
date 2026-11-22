@@ -19,6 +19,8 @@ export interface ExplainerJob {
   audio?: { narration: string; musicBed: string; reason?: string } | null;
   /** Set when the video finished but its Saved-library record failed. */
   libraryError?: string | null;
+  /** The real (scrubbed) failure reason behind the friendly headline. */
+  errorDetail?: string | null;
 }
 
 export function useExplainerJob(jobId: number | null, onDone?: (job: ExplainerJob) => void) {
@@ -85,7 +87,13 @@ export function useContentJob(
 
 export function JobProgress({ job }: { job: ExplainerJob | null }) {
   if (!job || job.status === 'done') return null;
-  if (job.status === 'failed') return <p className="text-sm text-red-400">{job.error || 'The video could not be made.'}</p>;
+  if (job.status === 'failed') return (
+    <div className="space-y-1">
+      <p className="text-sm text-red-400">{job.error || 'The video could not be made.'}</p>
+      {job.errorDetail ? <p className="text-xs text-gray-400">Detail: {job.errorDetail}</p> : null}
+      <p className="text-xs text-gray-400">Retrying resumes this job and reuses the scenes already rendered — you won't be charged for them twice.</p>
+    </div>
+  );
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" />{job.step || 'Starting'}…</div>

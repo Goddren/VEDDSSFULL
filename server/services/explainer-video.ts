@@ -197,12 +197,84 @@ export async function rendersToday(userId: number): Promise<number> {
 
 /** Jobs of one kind started by this user in the last 24h (cost guard).
  *  Kind-filtered: clips/reels/explainers share the jobs table but each
- *  carries its own daily cap. */
+ *  carries its own daily cap. A job RESUMED from a failure (retryResume)
+ *  never counts: the user already paid for that render once, so a retry
+ *  must not eat a second daily-limit slot. */
 export async function jobsToday(userId: number, kind: string): Promise<number> {
   await ensureJobTable();
   const { rows } = await pool.query(
-    `SELECT count(*)::int n FROM content_video_jobs WHERE user_id=$1 AND kind=$2 AND created_at > now() - interval '24 hours' AND status <> 'failed'`, [userId, kind]);
+    `SELECT count(*)::int n FROM content_video_jobs WHERE user_id=$1 AND kind=$2 AND created_at > now() - interval '24 hours' AND status <> 'failed' AND NOT COALESCE((meta->>'retryResume')::boolean, false)`, [userId, kind]);
   return rows[0]?.n ?? 0;
+}
+
+// ─── Manual retry: reuse the scenes a failed job already paid for ──────────
+// A render charges per scene as it goes. Before this, a manual retry from
+// the UI inserted a brand-new job and paid for EVERY scene again, even
+// though the failed job's row already holds its script and every finished
+// scene URL. Now a retry of a FAILED job resumes that same row through the
+// exact machinery the watchdog uses (RunResume: script + sceneUrls), so
+// only the scenes that never finished are rendered. A failure during
+// assembly/voiceover — after all scenes rendered — resumes with zero
+// renderScene calls. Kill switch: VIDEO_RETRY_REUSE=off (always fresh job).
+export function videoRetryReuseEnabled(): boolean {
+  return process.env.VIDEO_RETRY_REUSE !== 'off';
+}
+
+/** The latest FAILED explainer job for this user that still holds paid
+ *  work worth reusing (a saved script and/or at least one finished scene),
+ *  matched by ambassador post when postId is given, else by exact input.
+ *  Returns null when the kill switch is off or nothing resumable exists. */
+export async function findResumableFailedExplainerJob(
+  userId: number, match: { postId?: number | null; input?: string },
+): Promise<any | null> {
+  if (!videoRetryReuseEnabled()) return null;
+  await ensureJobTable();
+  const byPost = match.postId != null && Number.isFinite(Number(match.postId));
+  const { rows } = await pool.query(
+    `SELECT * FROM content_video_jobs
+      WHERE user_id=$1 AND kind='explainer' AND status='failed'
+        AND ${byPost ? `meta->>'postId' = $2` : `input = $2`}
+        AND (script IS NOT NULL OR EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(COALESCE(meta->'sceneUrls', '[]'::jsonb)) v
+          WHERE v IS NOT NULL AND v <> ''))
+      ORDER BY id DESC LIMIT 1`,
+    [userId, byPost ? String(Number(match.postId)) : String(match.input ?? '')]);
+  return rows[0] ?? null;
+}
+
+/** Reset a failed job to running and relaunch it with its stored resume
+ *  state. Same job id, same row — no INSERT, no second daily-limit slot. */
+export async function resumeFailedExplainerJob(job: any): Promise<number> {
+  const meta = (job.meta || {}) as Record<string, any>;
+  const sceneUrls: (string | null)[] = Array.isArray(meta.sceneUrls) ? meta.sceneUrls : [];
+  const doneScenes = sceneUrls.filter(Boolean).length;
+  const totalScenes = (job.script?.scenes?.length as number) || sceneUrls.length;
+  await update(job.id, {
+    status: 'running', error: null,
+    step: 'Resuming — reusing scenes already rendered',
+    progress: totalScenes ? 10 + Math.round((doneScenes / totalScenes) * 70) : 10,
+    meta: { resumeCount: Number(meta.resumeCount || 0) + 1, retryResume: true },
+  });
+  launchExplainerJob(job.id, job.user_id, job.input, job.aspect as ExplainerAspect, {
+    postId: meta.postId ?? undefined,
+    dailyAd: !!meta.dailyAd,
+    presenterImage: meta.presenterImage || undefined,
+    backgroundScene: meta.backgroundScene || undefined,
+  }, { script: job.script ?? undefined, sceneUrls: Array.isArray(meta.sceneUrls) ? meta.sceneUrls : undefined });
+  return job.id as number;
+}
+
+/** Owner-facing failure detail: the raw provider error, truncated and
+ *  scrubbed of anything that looks like a credential before it can reach
+ *  a poll response. The friendly headline stays the headline. */
+export function scrubErrorDetail(raw: unknown): string {
+  return String(raw ?? '')
+    .replace(/sk-[A-Za-z0-9_-]{8,}/g, '[redacted]')
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, '$1[redacted]')
+    .replace(/((?:api[_-]?key|access[_-]?token|token|secret|password)\s*[:=]\s*)\S+/gi, '$1[redacted]')
+    .replace(/[A-Za-z0-9_-]{40,}/g, '[redacted]')
+    .slice(0, 300)
+    .trim();
 }
 
 /** Shared job-row updater for the other content job runners. */
@@ -245,6 +317,12 @@ export async function startExplainerJob(
   opts: ExplainerJobOpts = {},
 ): Promise<number> {
   await ensureJobTable();
+  // Manual retry of a FAILED job resumes that job (reusing its paid
+  // scenes/script) instead of inserting — and charging for — a new one.
+  if (videoRetryReuseEnabled()) {
+    const failed = await findResumableFailedExplainerJob(userId, { postId: opts.postId ?? null, input });
+    if (failed) return resumeFailedExplainerJob(failed);
+  }
   // The resume state lives in the row from the first second, so a restart
   // at ANY point leaves the watchdog everything it needs.
   const meta = {

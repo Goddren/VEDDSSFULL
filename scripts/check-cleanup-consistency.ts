@@ -108,7 +108,7 @@ const src = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
   check('F tally names the residual', routes.includes('const other = rows.length - wins - losses - be'));
   check('G /api/streak derives the display view', routes.includes('effectiveStreakView(streakRow as any)'));
   const sw = src('../client/public/sw.js');
-  check('H sw bumped for the client changes', sw.includes("CACHE_VERSION = 'vedd-v286'"));
+  check('H sw bumped for the client changes', sw.includes("CACHE_VERSION = 'vedd-v287'"));
   const kinds = src('../client/src/lib/guard-kinds.ts');
   check('G2 guard counting definition separates AI health', kinds.includes('ai_call_failed') && kinds.includes('countGuardActions'));
 }

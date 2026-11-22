@@ -217,7 +217,7 @@ console.log('K. Source pins');
   check('K11 client share panel honest', maker.includes('One-tap share') && maker.includes('share-targets') && maker.includes('nothing is ever posted without you pressing Post'));
   check('K12 input caps stated', clipper.includes('CLIPPER_MAX_MINUTES') && clipper.includes('CLIPPER_MAX_SOURCE_MB'));
   const sw = readFileSync('client/public/sw.js', 'utf8');
-  check('K13 sw bumped for the client change', sw.includes("CACHE_VERSION = 'vedd-v286'"));
+  check('K13 sw bumped for the client change', sw.includes("CACHE_VERSION = 'vedd-v287'"));
 }
 
 // ─── L. yt-dlp ingestion + upload fallback ──────────────────────────────────
