@@ -14484,7 +14484,7 @@ function ensureKalshiPerpShadowTables() {
       funding_rate_at_entry double precision, session_et text, hour_utc int, hour_et int, day_of_week int,
       earnings_within_48h boolean, corporate_action_pending boolean, live_gate_blocked boolean,
       leverage_estimate double precision, tags text[], advice_at_entry text,
-      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision, funding_paid_usd double precision)`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_poc double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_vah double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_val double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_position text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_model text NOT NULL DEFAULT 'legacy'`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_estimate_usd double precision NOT NULL DEFAULT 0`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS stats_invalid_reason text`)).then(() => void 0).catch((e) => {
+      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision, funding_paid_usd double precision)`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_poc double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_vah double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_val double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_position text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_verdict text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_confidence double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_reason text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_model text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_failure text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_metered boolean`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_model text NOT NULL DEFAULT 'legacy'`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_estimate_usd double precision NOT NULL DEFAULT 0`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS stats_invalid_reason text`)).then(() => void 0).catch((e) => {
       _ensured3 = null;
       throw e;
     });
@@ -64980,6 +64980,239 @@ var init_kalshi_funding_fade = __esm({
   }
 });
 
+// server/services/kalshi-perp-ai-judge.ts
+function summarizeJudgeRows(rows) {
+  const nets = [];
+  const rs = [];
+  let wins = 0;
+  for (const r of rows) {
+    const net = Number(r.netPct);
+    if (!Number.isFinite(net)) continue;
+    nets.push(net);
+    if (net > 0) wins++;
+    const rMul = r.rMultiple == null ? NaN : Number(r.rMultiple);
+    if (Number.isFinite(rMul)) rs.push(rMul);
+  }
+  return {
+    n: nets.length,
+    winRate: nets.length ? wins / nets.length : null,
+    avgR: rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : null,
+    medianNetPct: medianOf(nets)
+  };
+}
+function strategyRecordFromRows(rows, nowMs) {
+  const DAY = 864e5;
+  const last2 = [];
+  const prior = [];
+  for (const r of rows) {
+    const t = Number(r.closedAtMs);
+    if (!Number.isFinite(t)) continue;
+    if (t > nowMs - 14 * DAY && t <= nowMs) last2.push(r);
+    else if (t > nowMs - 28 * DAY && t <= nowMs - 14 * DAY) prior.push(r);
+  }
+  return {
+    overall: summarizeJudgeRows(rows),
+    last14d: last2.length ? summarizeJudgeRows(last2) : null,
+    prior14d: prior.length ? summarizeJudgeRows(prior) : null
+  };
+}
+function bucketEvidenceFor(stats, strategy, buckets, cap = 8) {
+  const rank = (v) => v === "avoid" ? 0 : v === "favor" ? 1 : 2;
+  return (stats || []).filter((s) => s.strategy === strategy && buckets[s.dim] === s.bucket).map((s) => ({ dim: s.dim, bucket: s.bucket, verdict: s.verdict, n: s.n, medianNet: s.medianNet })).sort((a, b) => rank(a.verdict) - rank(b.verdict) || b.n - a.n).slice(0, Math.max(1, cap));
+}
+function classifyJudgeFailure(e) {
+  const msg = String(e?.message || e || "");
+  if (e?.budgetBlocked === true || e?.aiErrorStatus === "budget") return "budget";
+  if (Number(e?.status ?? e?.statusCode) === 402 || /\b402\b/.test(msg)) return "budget";
+  if (/timed?\s?out|timeout|aborted|ETIMEDOUT/i.test(msg) || e?.name === "AbortError") return "timeout";
+  return "provider";
+}
+function parseJudgeResponse(content) {
+  if (!content) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    const m = content.match(/\{[\s\S]*\}/);
+    if (!m) return null;
+    try {
+      parsed = JSON.parse(m[0]);
+    } catch {
+      return null;
+    }
+  }
+  const verdict = String(parsed?.verdict || "").toLowerCase();
+  if (verdict !== "approve" && verdict !== "reject" && verdict !== "unsure") return null;
+  let confidence = Number(parsed?.confidence);
+  if (!Number.isFinite(confidence)) confidence = 0;
+  if (confidence > 1 && confidence <= 100) confidence = confidence / 100;
+  confidence = Math.min(1, Math.max(0, confidence));
+  const reason = String(parsed?.reason || "").replace(/\s+/g, " ").trim().slice(0, 300) || "no reason given";
+  return { verdict, confidence, reason };
+}
+function buildJudgePrompt(c) {
+  const system = `You are a disciplined stock perpetual-futures trader acting as an independent judge on a shadow-trading lane. A mechanical strategy has already produced this candidate and every risk gate has passed. Weigh the candidate against the evidence below: this ticker's history in this lane, the strategy's record and recent form, and the bucket evidence \u2014 the lane's own track record on setups like this one. A setup the history supports deserves approval; one the history keeps punishing deserves rejection even if the chart alone looks fine. You are scoring, not trading: your verdict is recorded and graded against the outcome later. Respond ONLY with JSON: {"verdict": "approve"|"reject"|"unsure", "confidence": number (0 to 1), "reason": "one short line"}.`;
+  const closes = (c.recentCloses || []).filter((n) => Number.isFinite(n)).slice(-12);
+  let pattern = null;
+  if (closes.length >= 2) {
+    const first = closes[0], lastC = closes[closes.length - 1];
+    const movePct = first > 0 ? (lastC - first) / first * 100 : 0;
+    let ups = 0;
+    for (let i = 1; i < closes.length; i++) if (closes[i] > closes[i - 1]) ups++;
+    pattern = `Recent H1 closes (oldest to newest): ${closes.join(", ")} \u2014 net ${movePct >= 0 ? "+" : ""}${movePct.toFixed(2)}% over the window, ${ups} of ${closes.length - 1} hourly moves up`;
+  }
+  const hist = c.tickerHistory;
+  const recentLines = (hist?.recent || []).slice(0, 10).map((r) => `${r.strategy} ${r.direction} ${r.netPct >= 0 ? "+" : ""}${r.netPct.toFixed(2)}%${r.rMultiple != null ? ` (${r.rMultiple >= 0 ? "+" : ""}${r.rMultiple.toFixed(1)}R)` : ""}`);
+  const rec = c.strategyRecord;
+  const formLine = rec && (rec.last14d || rec.prior14d) ? `Strategy recent form: last 14d ${fmtRec(rec.last14d)} vs prior 14d ${fmtRec(rec.prior14d)}` : null;
+  const evidenceLines = (c.bucketEvidence || []).slice(0, 8).map((b) => `${b.dim}=${b.bucket}: ${b.verdict} (n=${b.n}, median net ${b.medianNet >= 0 ? "+" : ""}${b.medianNet.toFixed(2)}%)`);
+  const user = [
+    `CANDIDATE: ${c.strategy} \u2014 ${c.direction.toUpperCase()} ${c.underlying} (${c.ticker}) @ ${c.entryPrice}`,
+    c.score != null ? `Strategy score: ${c.score}` : null,
+    `MARKET CONTEXT: session (ET) ${c.sessionEt ?? "unknown"} \xB7 spread ${c.spreadBps != null ? `${c.spreadBps.toFixed(1)} bps` : "n/a"} \xB7 ATR ${c.atrPct != null ? `${c.atrPct.toFixed(2)}%` : "n/a"} \xB7 H1 trend ${c.h1Trend ?? "n/a"}, H4 trend ${c.h4Trend ?? "n/a"} \u2014 entry is ${c.htfAligned == null ? "HTF-neutral" : c.htfAligned ? "WITH the higher-timeframe trend" : "AGAINST the higher-timeframe trend"} \xB7 funding at entry ${c.fundingRateAtEntry == null ? "n/a" : c.fundingRateAtEntry} \xB7 volume-profile position ${c.vpPosition ?? "n/a"} \xB7 earnings within 48h: ${c.earningsWithin48h == null ? "unknown" : c.earningsWithin48h ? "YES" : "no"}`,
+    `TICKER HISTORY (${c.underlying} in this lane): ${fmtRec(hist?.summary)}`,
+    recentLines.length ? `Last closes on ${c.underlying} (newest first): ${recentLines.join("; ")}` : null,
+    `STRATEGY RECORD (${c.strategy} overall): ${fmtRec(rec?.overall)}`,
+    formLine,
+    `BUCKET EVIDENCE (the lane's record on setups like this): ${evidenceLines.length ? "" : "no bucket has enough history yet"}`,
+    ...evidenceLines.map((l) => `  ${l}`),
+    `Lane advice stamp for this candidate: ${c.adviceAtEntry || "no verdict yet (still learning)"}`,
+    pattern,
+    `Weigh this ${c.direction} entry against that history and pattern evidence \u2014 approve, reject, or unsure?`
+  ].filter(Boolean).join("\n");
+  return { system, user };
+}
+function judgeCandidateKey(c) {
+  return `${c.userId}|${c.strategy}|${c.ticker}|${c.direction}|${c.entryPrice}`;
+}
+async function realJudgeCall(c) {
+  const client2 = await getUniversalAIClientForUser(c.userId, { engine: true });
+  const { system, user } = buildJudgePrompt(c);
+  const modelId = client2.defaultModel || "gpt-4o-mini";
+  const call = client2.chat.completions.create({
+    model: modelId,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user }
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0.3,
+    max_tokens: 300
+  });
+  const timeout = new Promise((_, reject) => {
+    const t = setTimeout(() => reject(new Error(`judge call timed out after ${judgeTimeoutMs()}ms`)), judgeTimeoutMs());
+    t.unref?.();
+  });
+  const r = await Promise.race([call, timeout]);
+  return { content: r?.choices?.[0]?.message?.content || "", model: modelId };
+}
+async function judgeKalshiPerpCandidate(c, deps = {}) {
+  if (!kalshiPerpAiJudgeEnabled()) return null;
+  const key = judgeCandidateKey(c);
+  const hit = _judged.get(key);
+  if (hit && Date.now() - hit.at < DEDUPE_TTL_MS) {
+    return { ...hit.result, metered: false, deduped: true };
+  }
+  let result;
+  try {
+    const callAi = deps.callAi ?? realJudgeCall;
+    const { content, model } = await callAi(c);
+    const parsed = parseJudgeResponse(content);
+    result = parsed ? { verdict: parsed.verdict, confidence: parsed.confidence, reason: parsed.reason, model, failure: null, metered: true } : { ...noVerdict("bad_json", "judge reply was not parseable JSON"), model };
+  } catch (e) {
+    const failure = classifyJudgeFailure(e);
+    result = noVerdict(failure, failure === "budget" ? "judge unavailable \u2014 daily AI budget reached or provider credits exhausted" : `judge call failed (${failure})`);
+    if (failure !== "budget") {
+      console.warn(`[kalshi-perp-ai-judge] ${c.ticker} ${c.strategy}: ${String(e?.message || e).slice(0, 160)}`);
+    }
+  }
+  _judged.set(key, { at: Date.now(), result });
+  if (_judged.size > 500) {
+    const cutoff = Date.now() - DEDUPE_TTL_MS;
+    _judged.forEach((v, k2) => {
+      if (v.at < cutoff) _judged.delete(k2);
+    });
+  }
+  return result;
+}
+function aggregateAiJudgeScoreboard(rows) {
+  const acc = {
+    approve: { ...emptyBucket(), rSum: 0, rN: 0, pctSum: 0 },
+    reject: { ...emptyBucket(), rSum: 0, rN: 0, pctSum: 0 },
+    unsure: { ...emptyBucket(), rSum: 0, rN: 0, pctSum: 0 },
+    noVerdict: { ...emptyBucket(), rSum: 0, rN: 0, pctSum: 0 }
+  };
+  const pick3 = (v) => v === "approve" ? acc.approve : v === "reject" ? acc.reject : v === "unsure" ? acc.unsure : acc.noVerdict;
+  let judgedCloses = 0;
+  for (const r of rows) {
+    const pct3 = Number(r.returnPct);
+    if (!Number.isFinite(pct3)) continue;
+    const b = pick3(String(r.verdict || "no_verdict"));
+    b.n++;
+    judgedCloses++;
+    if (pct3 > 0) b.wins++;
+    b.pctSum += pct3;
+    const notional = Number(r.notionalUsd);
+    if (Number.isFinite(notional) && notional > 0) b.netUsd += pct3 / 100 * notional;
+    const rMul = r.rMultiple == null ? NaN : Number(r.rMultiple);
+    if (Number.isFinite(rMul)) {
+      b.rSum += rMul;
+      b.rN++;
+    }
+  }
+  const finish = (b) => ({
+    n: b.n,
+    wins: b.wins,
+    winRate: b.n ? b.wins / b.n : null,
+    avgR: b.rN ? b.rSum / b.rN : null,
+    avgNetPct: b.n ? b.pctSum / b.n : null,
+    netUsd: Math.round(b.netUsd * 100) / 100
+  });
+  return {
+    approve: finish(acc.approve),
+    reject: finish(acc.reject),
+    unsure: finish(acc.unsure),
+    noVerdict: finish(acc.noVerdict),
+    judgedCloses
+  };
+}
+var kalshiPerpAiJudgeEnabled, judgeTimeoutMs, medianOf, noVerdict, fmtRec, _judged, DEDUPE_TTL_MS, emptyBucket;
+var init_kalshi_perp_ai_judge = __esm({
+  "server/services/kalshi-perp-ai-judge.ts"() {
+    "use strict";
+    init_openai();
+    kalshiPerpAiJudgeEnabled = () => process.env.KALSHI_PERP_AI_JUDGE !== "off";
+    judgeTimeoutMs = () => {
+      const n = Number(process.env.KALSHI_PERP_AI_JUDGE_TIMEOUT_MS ?? 3e4);
+      return Number.isFinite(n) && n >= 1e3 ? n : 3e4;
+    };
+    medianOf = (vals) => {
+      if (!vals.length) return null;
+      const s = vals.slice().sort((a, b) => a - b);
+      const mid = Math.floor(s.length / 2);
+      return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+    };
+    noVerdict = (failure, reason) => ({
+      verdict: "no_verdict",
+      confidence: null,
+      reason,
+      model: null,
+      failure,
+      metered: false
+    });
+    fmtRec = (s) => {
+      if (!s || !s.n) return "no closed trades yet";
+      const wr = s.winRate != null ? `${Math.round(s.winRate * 100)}% WR` : "WR n/a";
+      const avgR = s.avgR != null ? `avg ${s.avgR >= 0 ? "+" : ""}${s.avgR.toFixed(2)}R` : "avg R n/a";
+      const med = s.medianNetPct != null ? `median net ${s.medianNetPct >= 0 ? "+" : ""}${s.medianNetPct.toFixed(2)}%` : "median n/a";
+      return `${s.n} trades, ${wr}, ${avgR}, ${med}`;
+    };
+    _judged = /* @__PURE__ */ new Map();
+    DEDUPE_TTL_MS = 10 * 6e4;
+    emptyBucket = () => ({ n: 0, wins: 0, winRate: null, avgR: null, avgNetPct: null, netUsd: 0 });
+  }
+});
+
 // server/services/process-fingerprint.ts
 var PROCESS_BOOT_ID;
 var init_process_fingerprint = __esm({
@@ -71385,7 +71618,7 @@ async function getKalshiStockShadowReport(userId, days = 30) {
     AND entry_price <= $5::float
     AND closed_at >= now() - ($2::int * interval '1 day')`;
   const simOn = accountSimEnabled();
-  const [summaryRes, byStrategyRes, openRes, recentClosesRes, closesRes, invalidRes] = await Promise.all([
+  const [summaryRes, byStrategyRes, openRes, recentClosesRes, closesRes, invalidRes, aiJudgeRes] = await Promise.all([
     pool.query(
       `WITH valid_closes AS (
          SELECT * FROM kalshi_perp_shadow_trades WHERE ${validCloseWhere}
@@ -71468,7 +71701,25 @@ async function getKalshiStockShadowReport(userId, days = 30) {
                        OR notional_usd > greatest($4::float, entry_price * 1.5)
                        OR entry_price > $5::float)))`,
       [userId, windowDays, returnBound, notionalCap, entryCeiling]
-    )
+    ),
+    // AI judge scoreboard rows: every valid close in the window whose
+    // context row carries a judge verdict (same validity bounds as every
+    // other statistic here, applied to the trade side of the join).
+    // Fail-soft: a lane whose context table predates the judge columns
+    // must still render its panel — the .catch at the call site turns a
+    // failed read into an empty scoreboard.
+    pool.query(
+      `SELECT c.ai_judge_verdict AS verdict, t.return_pct, t.r_multiple, t.notional_usd
+       FROM kalshi_perp_shadow_trades t
+       JOIN kalshi_perp_shadow_context c ON c.trade_id = t.id AND c.user_id = t.user_id
+       WHERE t.user_id=$1 AND t.status='closed' AND t.exclude_from_stats IS NOT TRUE
+         AND c.ai_judge_verdict IS NOT NULL
+         AND t.return_pct IS NOT NULL AND abs(t.return_pct) <= $3::float
+         AND t.notional_usd <= greatest($4::float, t.entry_price * 1.5)
+         AND t.entry_price <= $5::float
+         AND t.closed_at >= now() - ($2::int * interval '1 day')`,
+      [userId, windowDays, returnBound, notionalCap, entryCeiling]
+    ).catch(() => ({ rows: [] }))
   ]);
   const s = summaryRes.rows[0] || {};
   const openRows = openRes.rows || [];
@@ -71542,10 +71793,22 @@ async function getKalshiStockShadowReport(userId, days = 30) {
     avoidBuckets,
     topBlocks: brainBlockSummary?.topBlocks ?? []
   };
+  const aiJudge = {
+    enabled: kalshiPerpAiJudgeEnabled(),
+    judgedCloses: 0,
+    scoreboard: aggregateAiJudgeScoreboard((aiJudgeRes?.rows || []).map((r) => ({
+      verdict: r.verdict,
+      returnPct: r.return_pct,
+      rMultiple: r.r_multiple,
+      notionalUsd: r.notional_usd
+    })))
+  };
+  aiJudge.judgedCloses = aiJudge.scoreboard.judgedCloses;
   return {
     days: windowDays,
     ...accountSim ? { accountSim } : {},
     perpBrain,
+    aiJudge,
     summary: {
       openCount: Number(s.open_count) || 0,
       closedCount: Number(s.closed_count) || 0,
@@ -71812,6 +72075,24 @@ async function runKalshiStockShadowCycle(userId) {
     Promise.resolve().then(() => (init_corporateActionGuard(), corporateActionGuard_exports))
   ]);
   const stats = await computeKalshiStockShadowStats(userId).catch(() => []);
+  const judgeOn = kalshiPerpAiJudgeEnabled();
+  const judgeRowsByUnderlying = /* @__PURE__ */ new Map();
+  const judgeRowsByStrategy = /* @__PURE__ */ new Map();
+  if (judgeOn) {
+    const { rows: judgeRows } = await pool.query(
+      `SELECT underlying, strategy, direction, return_pct, r_multiple, closed_at
+         FROM kalshi_perp_shadow_trades
+        WHERE user_id=$1 AND status='closed' AND exclude_from_stats IS NOT TRUE
+          AND return_pct IS NOT NULL AND abs(return_pct) <= $2::float
+        ORDER BY closed_at DESC LIMIT 500`,
+      [userId, maxValidReturnPct()]
+    ).catch(() => ({ rows: [] }));
+    for (const r of judgeRows) {
+      const u = String(r.underlying), s = String(r.strategy);
+      (judgeRowsByUnderlying.get(u) ?? judgeRowsByUnderlying.set(u, []).get(u)).push(r);
+      (judgeRowsByStrategy.get(s) ?? judgeRowsByStrategy.set(s, []).get(s)).push(r);
+    }
+  }
   const markets = await getLiquidStockPerps().catch(() => []);
   if (!markets.length) return { opened: 0, closed };
   const earningsByUnderlying = /* @__PURE__ */ new Map();
@@ -72018,6 +72299,51 @@ async function runKalshiStockShadowCycle(userId) {
         continue;
       }
       const earnings48 = perpEarningsEnabled() && eInfo ? earningsStampValue(eInfo, now) : null;
+      let judge = null;
+      if (judgeOn) {
+        const tickerRows = judgeRowsByUnderlying.get(mkt.underlying) || [];
+        const tickerHistory = {
+          summary: summarizeJudgeRows(tickerRows.map((r) => ({ netPct: r.return_pct, rMultiple: r.r_multiple }))),
+          recent: tickerRows.slice(0, 10).map((r) => ({
+            strategy: String(r.strategy),
+            direction: String(r.direction),
+            netPct: Number(r.return_pct),
+            rMultiple: r.r_multiple == null ? null : Number(r.r_multiple)
+          }))
+        };
+        const strategyRows = judgeRowsByStrategy.get(sig.strategy) || [];
+        const strategyRecord = strategyRecordFromRows(
+          strategyRows.map((r) => ({
+            netPct: r.return_pct,
+            rMultiple: r.r_multiple,
+            closedAtMs: new Date(r.closed_at).getTime()
+          })),
+          now
+        );
+        judge = await judgeKalshiPerpCandidate({
+          userId,
+          strategy: sig.strategy,
+          ticker: mkt.ticker,
+          underlying: mkt.underlying,
+          direction: sig.direction,
+          entryPrice: entry,
+          score: sig.score,
+          sessionEt: ctx.session_et,
+          spreadBps,
+          atrPct,
+          fundingRateAtEntry: fundEst?.rate ?? null,
+          htfAligned: aligned,
+          h1Trend,
+          h4Trend,
+          vpPosition: vpPos,
+          adviceAtEntry: adviceFor3(stats, sig.strategy, ctx),
+          recentCloses: h1Bars.slice(-12).map((b) => b.c),
+          earningsWithin48h: earnings48,
+          tickerHistory,
+          strategyRecord,
+          bucketEvidence: bucketEvidenceFor(stats, sig.strategy, kalshiBucketsOf(ctx))
+        }).catch(() => null);
+      }
       const ins = await pool.query(
         `INSERT INTO kalshi_perp_shadow_trades (user_id, strategy, ticker, underlying, direction, entry_price, entry_bid, entry_ask,
            stop_loss, take_profit, sl_pct, contracts, notional_usd, cost_bps, cost_model, funding_model, score, max_hours)
@@ -72030,8 +72356,9 @@ async function runKalshiStockShadowCycle(userId) {
         `INSERT INTO kalshi_perp_shadow_context (trade_id, user_id, strategy, ticker, direction, spread_bps, volume_24h_usd, open_interest,
            atr_pct, h1_trend, h4_trend, htf_aligned, funding_rate_at_entry, session_et, hour_utc, hour_et, day_of_week,
            earnings_within_48h, corporate_action_pending, live_gate_blocked, leverage_estimate, tags, advice_at_entry,
-           vp_poc, vp_vah, vp_val, vp_position)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27) ON CONFLICT (trade_id) DO NOTHING`,
+           vp_poc, vp_vah, vp_val, vp_position,
+           ai_judge_verdict, ai_judge_confidence, ai_judge_reason, ai_judge_model, ai_judge_failure, ai_judge_metered)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33) ON CONFLICT (trade_id) DO NOTHING`,
         [
           id,
           userId,
@@ -72059,7 +72386,13 @@ async function runKalshiStockShadowCycle(userId) {
           vpProfile?.poc ?? null,
           vpProfile?.vah ?? null,
           vpProfile?.val ?? null,
-          vpPos
+          vpPos,
+          judge?.verdict ?? null,
+          judge?.confidence ?? null,
+          judge?.reason ?? null,
+          judge?.model ?? null,
+          judge?.failure ?? null,
+          judge ? judge.metered : null
         ]
       ).catch(() => {
       });
@@ -72119,6 +72452,7 @@ var init_kalshi_stock_shadow = __esm({
     init_kalshi_earnings_calendar();
     init_kalshi_funding_fade();
     init_kalshi_perp_costs();
+    init_kalshi_perp_ai_judge();
     stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== "off";
     num12 = (n, d) => {
       const v = Number(process.env[n]);
@@ -73330,7 +73664,7 @@ async function fetchNwsForecastHigh(city, targetLocalDate, fetcher = defaultFetc
 function localDateInTz2(ms, tz) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
 }
-function medianOf(vals) {
+function medianOf2(vals) {
   const s = [...vals].sort((a, b) => a - b);
   return s.length ? s[Math.floor(s.length / 2)] : 0;
 }
@@ -73393,7 +73727,7 @@ async function runKalshiWeatherShadowCycle(userId) {
         result.snapshots += await recordKalshiPriceSnapshots(snapRows);
         continue;
       }
-      const median = medianOf(members);
+      const median = medianOf2(members);
       const mean = members.reduce((a, b) => a + b, 0) / members.length;
       const guard = biasGuardBlocks(median, event.brackets, MAX_BIAS_DEGREES());
       const candidates = [];
@@ -88725,9 +89059,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "2ffd636e-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-22T11:15:46.906Z";
+var BUILD_COMMIT = "913ef7bc";
+var BUILD_BRANCH = "feat/kalshi-perp-ai-judge";
+var BUILT_AT = "2026-11-22T17:23:50.416Z";
 
 // server/stripe.ts
 init_db();
