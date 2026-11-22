@@ -79867,16 +79867,20 @@ __export(explainer_video_exports, {
   buildAdScriptPrompt: () => buildAdScriptPrompt,
   ensureJobTable: () => ensureJobTable,
   ensureJobWatchdog: () => ensureJobWatchdog,
+  findResumableFailedExplainerJob: () => findResumableFailedExplainerJob,
   getJob: () => getJob,
   isJobInFlight: () => isJobInFlight,
   jobsToday: () => jobsToday,
   rendersToday: () => rendersToday,
+  resumeFailedExplainerJob: () => resumeFailedExplainerJob,
   resumeStaleJobs: () => resumeStaleJobs,
   sceneAudioPlan: () => sceneAudioPlan,
+  scrubErrorDetail: () => scrubErrorDetail,
   startExplainerJob: () => startExplainerJob,
   trackJobEnd: () => trackJobEnd,
   trackJobStart: () => trackJobStart,
   updateContentJob: () => updateContentJob,
+  videoRetryReuseEnabled: () => videoRetryReuseEnabled,
   writeAdScript: () => writeAdScript,
   writeScript: () => writeScript
 });
@@ -79998,10 +80002,52 @@ async function rendersToday(userId) {
 async function jobsToday(userId, kind) {
   await ensureJobTable();
   const { rows } = await pool.query(
-    `SELECT count(*)::int n FROM content_video_jobs WHERE user_id=$1 AND kind=$2 AND created_at > now() - interval '24 hours' AND status <> 'failed'`,
+    `SELECT count(*)::int n FROM content_video_jobs WHERE user_id=$1 AND kind=$2 AND created_at > now() - interval '24 hours' AND status <> 'failed' AND NOT COALESCE((meta->>'retryResume')::boolean, false)`,
     [userId, kind]
   );
   return rows[0]?.n ?? 0;
+}
+function videoRetryReuseEnabled() {
+  return process.env.VIDEO_RETRY_REUSE !== "off";
+}
+async function findResumableFailedExplainerJob(userId, match) {
+  if (!videoRetryReuseEnabled()) return null;
+  await ensureJobTable();
+  const byPost = match.postId != null && Number.isFinite(Number(match.postId));
+  const { rows } = await pool.query(
+    `SELECT * FROM content_video_jobs
+      WHERE user_id=$1 AND kind='explainer' AND status='failed'
+        AND ${byPost ? `meta->>'postId' = $2` : `input = $2`}
+        AND (script IS NOT NULL OR EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(COALESCE(meta->'sceneUrls', '[]'::jsonb)) v
+          WHERE v IS NOT NULL AND v <> ''))
+      ORDER BY id DESC LIMIT 1`,
+    [userId, byPost ? String(Number(match.postId)) : String(match.input ?? "")]
+  );
+  return rows[0] ?? null;
+}
+async function resumeFailedExplainerJob(job) {
+  const meta = job.meta || {};
+  const sceneUrls = Array.isArray(meta.sceneUrls) ? meta.sceneUrls : [];
+  const doneScenes = sceneUrls.filter(Boolean).length;
+  const totalScenes = job.script?.scenes?.length || sceneUrls.length;
+  await update(job.id, {
+    status: "running",
+    error: null,
+    step: "Resuming \u2014 reusing scenes already rendered",
+    progress: totalScenes ? 10 + Math.round(doneScenes / totalScenes * 70) : 10,
+    meta: { resumeCount: Number(meta.resumeCount || 0) + 1, retryResume: true }
+  });
+  launchExplainerJob(job.id, job.user_id, job.input, job.aspect, {
+    postId: meta.postId ?? void 0,
+    dailyAd: !!meta.dailyAd,
+    presenterImage: meta.presenterImage || void 0,
+    backgroundScene: meta.backgroundScene || void 0
+  }, { script: job.script ?? void 0, sceneUrls: Array.isArray(meta.sceneUrls) ? meta.sceneUrls : void 0 });
+  return job.id;
+}
+function scrubErrorDetail(raw) {
+  return String(raw ?? "").replace(/sk-[A-Za-z0-9_-]{8,}/g, "[redacted]").replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, "$1[redacted]").replace(/((?:api[_-]?key|access[_-]?token|token|secret|password)\s*[:=]\s*)\S+/gi, "$1[redacted]").replace(/[A-Za-z0-9_-]{40,}/g, "[redacted]").slice(0, 300).trim();
 }
 async function updateContentJob(id, patch) {
   await update(id, patch);
@@ -80018,6 +80064,10 @@ function launchExplainerJob(id, userId, input, aspect, opts, resume = {}) {
 }
 async function startExplainerJob(userId, input, aspect, opts = {}) {
   await ensureJobTable();
+  if (videoRetryReuseEnabled()) {
+    const failed = await findResumableFailedExplainerJob(userId, { postId: opts.postId ?? null, input });
+    if (failed) return resumeFailedExplainerJob(failed);
+  }
   const meta = {
     postId: opts.postId ?? null,
     dailyAd: !!opts.dailyAd,
@@ -88675,9 +88725,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "fb8f087b-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-22T02:03:19.758Z";
+var BUILD_COMMIT = "b752612e";
+var BUILD_BRANCH = "feat/video-retry-reuse-scenes";
+var BUILT_AT = "2026-11-22T08:40:10.545Z";
 
 // server/stripe.ts
 init_db();
@@ -117997,7 +118047,8 @@ This request will not trigger a transaction or cost any fees.`;
       const u = req.user;
       const ex = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
       const limit = Number(process.env.EXPLAINER_DAILY_LIMIT ?? 2);
-      if (!u.isAdmin && await ex.rendersToday(u.id) >= limit) {
+      const resumable = await ex.findResumableFailedExplainerJob(u.id, { postId: Number(req.params.id) });
+      if (!u.isAdmin && !resumable && await ex.rendersToday(u.id) >= limit) {
         return res2.status(429).json({ message: `You've made ${limit} videos today. You can make more tomorrow.` });
       }
       const q = await Promise.resolve().then(() => (init_ambassador_post_queue(), ambassador_post_queue_exports));
@@ -118480,7 +118531,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const ex = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
       const { getBackgroundPreset: getBackgroundPreset2 } = await Promise.resolve().then(() => (init_backgrounds(), backgrounds_exports));
       const limit = Number(process.env.EXPLAINER_DAILY_LIMIT ?? 2);
-      if (!u.isAdmin && await ex.rendersToday(u.id) >= limit) {
+      const resumable = await ex.findResumableFailedExplainerJob(u.id, { input: prompt });
+      if (!u.isAdmin && !resumable && await ex.rendersToday(u.id) >= limit) {
         return res2.status(429).json({ error: `You've made ${limit} explainer videos today. You can make more tomorrow.` });
       }
       let presenterImage;
@@ -118502,7 +118554,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     const ex = await Promise.resolve().then(() => (init_explainer_video(), explainer_video_exports));
     const job = await ex.getJob(Number(req.params.id), req.user.id);
     if (!job) return res2.status(404).json({ error: "Not found" });
-    res2.json({ id: job.id, status: job.status, step: job.step, progress: job.progress, url: job.result_url, error: job.error, script: job.script, aspect: job.aspect, audio: job.meta?.audio ?? null, libraryError: job.meta?.libraryError ?? null });
+    res2.json({ id: job.id, status: job.status, step: job.step, progress: job.progress, url: job.result_url, error: job.error, errorDetail: job.meta?.error_detail ? ex.scrubErrorDetail(job.meta.error_detail) : null, script: job.script, aspect: job.aspect, audio: job.meta?.audio ?? null, libraryError: job.meta?.libraryError ?? null });
   });
   app2.get("/api/content-studio/presenters", async (req, res2) => {
     const u = req.user;
