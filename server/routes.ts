@@ -31140,7 +31140,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const u = req.user as any;
       const ex = await import('./services/explainer-video');
       const limit = Number(process.env.EXPLAINER_DAILY_LIMIT ?? 2);
-      if (!u.isAdmin && (await ex.rendersToday(u.id)) >= limit) {
+      // A retry that resumes a failed job reuses scenes already paid for —
+      // it must not be blocked by (or consume) a new daily-limit slot.
+      const resumable = await ex.findResumableFailedExplainerJob(u.id, { postId: Number(req.params.id) });
+      if (!u.isAdmin && !resumable && (await ex.rendersToday(u.id)) >= limit) {
         return res.status(429).json({ message: `You've made ${limit} videos today. You can make more tomorrow.` });
       }
       const q = await import('./services/ambassador-post-queue');
@@ -31718,7 +31721,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const ex = await import('./services/explainer-video');
       const { getBackgroundPreset } = await import('./services/backgrounds');
       const limit = Number(process.env.EXPLAINER_DAILY_LIMIT ?? 2);
-      if (!u.isAdmin && (await ex.rendersToday(u.id)) >= limit) {
+      // Same retry rule as the post route: resuming a failed job is free
+      // of the daily cap — its scenes were already paid for once.
+      const resumable = await ex.findResumableFailedExplainerJob(u.id, { input: prompt });
+      if (!u.isAdmin && !resumable && (await ex.rendersToday(u.id)) >= limit) {
         return res.status(429).json({ error: `You've made ${limit} explainer videos today. You can make more tomorrow.` });
       }
       let presenterImage: string | undefined;
@@ -31738,7 +31744,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const ex = await import('./services/explainer-video');
     const job = await ex.getJob(Number(req.params.id), (req.user as any).id);
     if (!job) return res.status(404).json({ error: "Not found" });
-    res.json({ id: job.id, status: job.status, step: job.step, progress: job.progress, url: job.result_url, error: job.error, script: job.script, aspect: job.aspect, audio: job.meta?.audio ?? null, libraryError: job.meta?.libraryError ?? null });
+    res.json({ id: job.id, status: job.status, step: job.step, progress: job.progress, url: job.result_url, error: job.error, errorDetail: job.meta?.error_detail ? ex.scrubErrorDetail(job.meta.error_detail) : null, script: job.script, aspect: job.aspect, audio: job.meta?.audio ?? null, libraryError: job.meta?.libraryError ?? null });
   });
 
   // ── My Presenter ──────────────────────────────────────────────────────
