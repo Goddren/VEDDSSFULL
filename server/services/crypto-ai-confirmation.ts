@@ -75,6 +75,12 @@ export async function getCryptoAiConfirmation(opts: {
    *  vice versa. Absent (every live caller), keys are byte-identical to
    *  before. Prompt and metering are unaffected either way. */
   cacheScope?: string;
+  /** Extra lane evidence (2026-11-22): the crypto shadow AI judge passes
+   *  an aggregated, token-lean summary of the lane's own record for this
+   *  pair/strategy/setup (see buildJudgeEvidence in crypto-shadow.ts).
+   *  Optional and additive: absent (every live caller), the prompt is
+   *  byte-identical to before. */
+  evidence?: string;
 }): Promise<CryptoAiConfirmation> {
   try {
     const cacheTimeframe = opts.cacheScope ? `${CONFIRM_TIMEFRAME}:${opts.cacheScope}` : CONFIRM_TIMEFRAME;
@@ -125,7 +131,7 @@ export async function getCryptoAiConfirmation(opts: {
     // Shadow lessons (shadow-lessons.ts): crypto paper + crypto shadow evidence, advice only.
     const _lessons = await import('./shadow-lessons').then((m) => m.getShadowLessonsText(opts.userId, 'crypto', 8)).catch(() => '');
     const _shadowStats = await import('./crypto-shadow').then((m) => m.getCryptoShadowStatsText(opts.userId, 12)).catch(() => '');
-    const user = `${_lessons ? `${_lessons}\n\n` : ''}${_shadowStats ? `${_shadowStats}\n\n` : ''}SYMBOL: ${opts.symbol}
+    const user = `${_lessons ? `${_lessons}\n\n` : ''}${_shadowStats ? `${_shadowStats}\n\n` : ''}${opts.evidence ? `${opts.evidence}\n\n` : ''}SYMBOL: ${opts.symbol}
 PROPOSED: ${opts.direction} @ ${opts.price}
 SCANNER STRATEGY: ${opts.strategy} (score ${opts.quantScore}/100)
 SCANNER REASONING: ${opts.quantReasoning}
