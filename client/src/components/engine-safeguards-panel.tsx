@@ -447,6 +447,62 @@ export function CryptoShadowPromotionsPanel({ className = "" }: { className?: st
   );
 }
 
+// Crypto shadow AI judge (Nov 22, 2026): every shadow entry that gets
+// recorded is also scored by the crypto AI confirmation — the same second
+// opinion the live engine uses — and the verdict is stamped on the trade.
+// The judge NEVER blocks, skips or sizes an entry; this panel is the
+// scoreboard that shows whether the trades it confirmed actually did
+// better than the ones it didn't. Longs and hypothetical shorts (Base
+// spot can't short) are always shown apart. Data rides the promotions
+// panel payload (aiJudge), rolling 60 days.
+type AiJudgeStatT = { side: "long" | "short"; verdict: "confirmed" | "not_confirmed" | "no_verdict"; n: number; winRate: number; medianNet: number; avgR: number | null };
+const JUDGE_VERDICT_LABEL: Record<AiJudgeStatT["verdict"], string> = {
+  confirmed: "AI confirmed",
+  not_confirmed: "AI didn't confirm",
+  no_verdict: "No verdict (AI unavailable)",
+};
+export function CryptoShadowAiJudgePanel({ className = "" }: { className?: string }) {
+  const { data } = useQuery<{ aiJudge?: AiJudgeStatT[] }>({
+    queryKey: ["/api/engine/crypto-shadow-promotions"],
+    refetchInterval: 60000,
+  });
+  const stats = data?.aiJudge || [];
+  const total = stats.reduce((a, s) => a + s.n, 0);
+  return (
+    <div className={`rounded-md border border-white/10 bg-white/[0.03] p-2 overflow-hidden ${className}`}>
+      <PanelHeader
+        compact
+        icon={<Brain className="w-3.5 h-3.5" />}
+        tint="bg-sky-500/15 text-sky-300"
+        title="Crypto shadow AI judge — scoreboard"
+        subtitle="Every recorded shadow entry is scored by the AI second opinion. This is the record of whether its picks actually did better."
+        explainer={<InfoExplainer title="Crypto shadow AI judge" accent="border-l-sky-300/60">
+          <p>When a crypto shadow trade is recorded, the <b>AI confirmation</b> — the same crypto-native second opinion the live engine asks — also scores the setup, and its verdict (confirmed / didn't confirm / no verdict when the AI was unavailable) is stamped on the trade.</p>
+          <p><b>The judge never blocks an entry.</b> Every trade on this scoreboard was recorded regardless of its verdict — the point is evidence: if the trades the AI confirmed keep beating the ones it didn't, that is the case for letting it gate entries later. Until the numbers say so, it only watches.</p>
+          <p>Longs and hypothetical shorts are scored apart — Base spot can't short, so short rows are paper evidence only. Rolling 60 days, net of costs, the lane's own conventions.</p>
+        </InfoExplainer>}
+      />
+      {total === 0 ? (
+        <div className="text-[10px] text-gray-500">
+          The judge is collecting evidence — no scored shadow trades have closed yet. Verdicts are stamped as new shadow entries open, and land here once those trades close.
+        </div>
+      ) : (
+        <div className="space-y-1">
+          {stats.map((s) => (
+            <div key={`${s.side}:${s.verdict}`} className="text-[10px] flex flex-wrap items-center gap-x-2 gap-y-1 rounded bg-black/20 px-2 py-1.5">
+              <span className="min-w-0 flex-1 break-words text-gray-300">
+                <b className="text-gray-100">{s.side === "long" ? "Longs" : "Hypothetical shorts"} · {JUDGE_VERDICT_LABEL[s.verdict]}</b>
+                {" "}— {s.n} closed shadow trade{s.n === 1 ? "" : "s"}, median {s.medianNet >= 0 ? "+" : ""}{s.medianNet.toFixed(2)}% net, {Math.round(s.winRate * 100)}% wins{s.avgR != null ? `, avg ${s.avgR >= 0 ? "+" : ""}${s.avgR.toFixed(2)}R` : ""}
+              </span>
+            </div>
+          ))}
+          <div className="text-[9px] text-gray-500 pt-0.5">The judge scores entries — it does not block them. Every trade above was recorded whatever its verdict said.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Crypto go-live toggles (Nov 15, 2026): each crypto strategy practices in
 // shadow mode; when its record clears the proof bar, its toggle here flips
 // it live on the DeFi hot wallet — instantly, no deploy. The server

@@ -69,12 +69,25 @@ export async function getCryptoAiConfirmation(opts: {
   quantReasoning: string;
   indicators: any;
   candles: CandleData[];
+  /** Cache namespace (2026-11-22): the crypto shadow AI judge passes
+   *  'shadow-h1' so its verdicts — asked on the shadow lane's H1 bars —
+   *  can never be served to, or throttle, the live gate's 5m lookups, and
+   *  vice versa. Absent (every live caller), keys are byte-identical to
+   *  before. Prompt and metering are unaffected either way. */
+  cacheScope?: string;
+  /** Extra lane evidence (2026-11-22): the crypto shadow AI judge passes
+   *  an aggregated, token-lean summary of the lane's own record for this
+   *  pair/strategy/setup (see buildJudgeEvidence in crypto-shadow.ts).
+   *  Optional and additive: absent (every live caller), the prompt is
+   *  byte-identical to before. */
+  evidence?: string;
 }): Promise<CryptoAiConfirmation> {
   try {
+    const cacheTimeframe = opts.cacheScope ? `${CONFIRM_TIMEFRAME}:${opts.cacheScope}` : CONFIRM_TIMEFRAME;
     // Same question asked within the cache window → reuse the verdict, spend
     // nothing. quantScore plays the EA-confidence role in the key (banded).
     const cached = cryptoConfirmationCache.get(
-      opts.userId, opts.symbol, CONFIRM_TIMEFRAME, opts.direction, opts.quantScore, opts.price, opts.strategy,
+      opts.userId, opts.symbol, cacheTimeframe, opts.direction, opts.quantScore, opts.price, opts.strategy,
     );
     if (cached) {
       console.log(`[crypto-ai-confirmation] ${opts.symbol} ${opts.direction}: verdict reused — ${cached.reason}`);
@@ -118,7 +131,7 @@ export async function getCryptoAiConfirmation(opts: {
     // Shadow lessons (shadow-lessons.ts): crypto paper + crypto shadow evidence, advice only.
     const _lessons = await import('./shadow-lessons').then((m) => m.getShadowLessonsText(opts.userId, 'crypto', 8)).catch(() => '');
     const _shadowStats = await import('./crypto-shadow').then((m) => m.getCryptoShadowStatsText(opts.userId, 12)).catch(() => '');
-    const user = `${_lessons ? `${_lessons}\n\n` : ''}${_shadowStats ? `${_shadowStats}\n\n` : ''}SYMBOL: ${opts.symbol}
+    const user = `${_lessons ? `${_lessons}\n\n` : ''}${_shadowStats ? `${_shadowStats}\n\n` : ''}${opts.evidence ? `${opts.evidence}\n\n` : ''}SYMBOL: ${opts.symbol}
 PROPOSED: ${opts.direction} @ ${opts.price}
 SCANNER STRATEGY: ${opts.strategy} (score ${opts.quantScore}/100)
 SCANNER REASONING: ${opts.quantReasoning}
@@ -223,7 +236,7 @@ Would you independently confirm this ${opts.direction} setup on its own merits a
     // Only genuine model verdicts are cached — provider errors fall through
     // to the catch below and are never stored.
     cryptoConfirmationCache.put(
-      opts.userId, opts.symbol, CONFIRM_TIMEFRAME, opts.direction, opts.quantScore, opts.price, verdict, opts.strategy,
+      opts.userId, opts.symbol, cacheTimeframe, opts.direction, opts.quantScore, opts.price, verdict, opts.strategy,
     );
     return verdict;
   } catch (err: any) {

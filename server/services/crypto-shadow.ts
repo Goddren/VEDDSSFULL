@@ -26,8 +26,16 @@
 // those verdicts — an entry whose strategy (overall) or exact context
 // bucket carries an 'avoid' verdict is skipped and the block audited in
 // shadow_lesson_blocks. Rolling 60-day stats rehabilitate on their own.
+// AI judge (2026-11-22, Chris's ask): every entry that survives the gates
+// and is recorded is also SCORED by the crypto-native AI confirmation
+// (crypto-ai-confirmation.ts) and the verdict is stamped on the context
+// row (judge_* columns). The judge is evidence only — it never blocks,
+// skips, sizes or otherwise changes an entry; the scoreboard
+// (computeCryptoShadowAiJudge) exists so a later build can decide, from
+// the lane's own numbers, whether AI-approved entries actually win more.
 // Kill switches: CRYPTO_SHADOW_ALL=off (whole lane),
-// CRYPTO_SHADOW_LESSONS=off (lesson gate only).
+// CRYPTO_SHADOW_LESSONS=off (lesson gate only),
+// CRYPTO_SHADOW_AI_JUDGE=off (judge only).
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
 import { cryptoShadowLessonsOn, logShadowLessonBlock, matchingAvoidBucket } from './shadow-lesson-gate';
@@ -78,6 +86,11 @@ export function ensureCryptoShadowTables(): Promise<void> {
         ADD COLUMN IF NOT EXISTS buyers_h1 int, ADD COLUMN IF NOT EXISTS sellers_h1 int,
         ADD COLUMN IF NOT EXISTS market_cap_usd double precision, ADD COLUMN IF NOT EXISTS token_age_hours double precision,
         ADD COLUMN IF NOT EXISTS new_token boolean`))
+      // AI judge (2026-11-22): the verdict stamped at entry, evidence only.
+      .then(() => pool.query(`ALTER TABLE crypto_shadow_context
+        ADD COLUMN IF NOT EXISTS judge_verdict text, ADD COLUMN IF NOT EXISTS judge_ai_direction text,
+        ADD COLUMN IF NOT EXISTS judge_confidence real, ADD COLUMN IF NOT EXISTS judge_reason text,
+        ADD COLUMN IF NOT EXISTS judge_failure text`))
       .then(() => undefined)
       .catch((e) => { _ensured = null; throw e; });
   }
@@ -171,6 +184,276 @@ export async function getCryptoShadowStatsText(userId: number, max = 12): Promis
     return `CRYPTO SHADOW EVIDENCE (virtual trades of every strategy, net of costs, judged by MEDIAN; advice only; 'short' rows are hypothetical — Base spot can't short):\n` +
       top.map((s) => `- ${s.strategy} ${s.verdict.toUpperCase()} when ${s.dim}=${s.bucket}: n=${s.n}, median ${s.medianNet >= 0 ? '+' : ''}${s.medianNet.toFixed(2)}%, win ${(s.winRate * 100).toFixed(0)}%`).join('\n');
   } catch { return ''; }
+}
+
+// ── AI judge (shadow-scored only, 2026-11-22) ──────────────────────────────
+// Reuses the live engine's crypto-native confirmation
+// (crypto-ai-confirmation.ts) — same prompt, same verdict cache, same
+// engine-marked budget metering — but as a JUDGE, not a gate: the stamp is
+// written on the entry's context row and the entry stands whatever the
+// verdict says. Two isolation details keep the live path untouched:
+//  • the judge passes cacheScope 'shadow-h1', so its verdicts live in a
+//    separate cache namespace and can never be served to (or throttle)
+//    the live Dual-Vote gate, and vice versa;
+//  • the candles judged are the lane's own H1 bars (deps.h1) and the only
+//    indicator supplied is the lane's own H1 trend — the confirmation
+//    prompt renders anything else as 'n/a' rather than inventing values.
+export type CryptoJudgeVerdict = 'confirmed' | 'not_confirmed' | 'no_verdict';
+export interface CryptoJudgeStamp {
+  verdict: CryptoJudgeVerdict;
+  aiDirection: 'BUY' | 'SELL' | 'NEUTRAL' | null;
+  confidence: number | null;
+  reason: string | null;
+  /** Why there is no verdict: budget | rate_limit | auth | ai_error | timeout | exception. */
+  failure: string | null;
+}
+export const cryptoShadowAiJudgeOn = () => process.env.CRYPTO_SHADOW_AI_JUDGE !== 'off';
+const JUDGE_TIMEOUT_MS = () => num('CRYPTO_SHADOW_AI_JUDGE_TIMEOUT_MS', 30_000);
+const NO_VERDICT = (failure: string): CryptoJudgeStamp => ({ verdict: 'no_verdict', aiDirection: null, confidence: null, reason: null, failure });
+
+/** Pure mapping from a confirmation result to the stamp. An AI/provider
+ *  error is NEVER a rejection — it is no_verdict with the failure class,
+ *  the same distinction the live gate makes (an outage is not "AI said
+ *  skip"). Direction agreement mirrors the live gate: the model's own
+ *  direction must not oppose the proposed side (NEUTRAL does not oppose). */
+export function judgeStampFromConfirmation(conf: {
+  confirmed: boolean; aiDirection: 'BUY' | 'SELL' | 'NEUTRAL'; aiConfidence: number; reasoning: string;
+  aiError?: boolean; aiErrorStatus?: number | null;
+} | null, proposed: 'BUY' | 'SELL'): CryptoJudgeStamp {
+  if (!conf) return NO_VERDICT('no_confirmation');
+  if (conf.aiError) {
+    const failure = conf.aiErrorStatus === 402 ? 'budget'
+      : conf.aiErrorStatus === 429 ? 'rate_limit'
+      : conf.aiErrorStatus === 401 || conf.aiErrorStatus === 403 ? 'auth' : 'ai_error';
+    return { ...NO_VERDICT(failure), reason: (conf.reasoning || '').slice(0, 300) || null };
+  }
+  const dirOk = conf.aiDirection === proposed || conf.aiDirection === 'NEUTRAL';
+  return {
+    verdict: conf.confirmed && dirOk ? 'confirmed' : 'not_confirmed',
+    aiDirection: conf.aiDirection,
+    confidence: Number.isFinite(conf.aiConfidence) ? conf.aiConfidence : null,
+    reason: (conf.reasoning || '').slice(0, 300) || null,
+    failure: null,
+  };
+}
+
+export type JudgeConfirmationFn = (opts: {
+  userId: number; symbol: string; strategy: string; direction: 'BUY' | 'SELL'; price: number;
+  quantScore: number; quantReasoning: string; indicators: any; candles: any[]; cacheScope?: string;
+  evidence?: string;
+}) => Promise<any>;
+
+/** Ask the judge about one entry that is about to be recorded. NEVER
+ *  throws and NEVER returns anything that could block the entry: every
+ *  failure mode (provider error, budget block, timeout, exception) lands
+ *  as no_verdict. The confirmation module's verdict cache makes repeat
+ *  cycles re-ask nothing for the same setup. */
+export async function judgeCryptoShadowEntry(args: {
+  userId: number; symbol: string; strategy: string; direction: 'BUY' | 'SELL';
+  price: number; score: number | null; reasoning: string; trend: string | null; candles: Bar[];
+  /** Aggregated lane evidence (buildJudgeEvidence) — the judge sees the
+   *  lane's own record for this pair/strategy/setup, not just the candle
+   *  snapshot. Optional: absent, the confirmation prompt is unchanged. */
+  evidence?: string;
+}, confirmFn?: JudgeConfirmationFn): Promise<CryptoJudgeStamp> {
+  if (!cryptoShadowAiJudgeOn()) return NO_VERDICT('judge_off');
+  const TIMEOUT = Symbol('judge-timeout');
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const fn: JudgeConfirmationFn = confirmFn
+      ?? (await import('./crypto-ai-confirmation')).getCryptoAiConfirmation as JudgeConfirmationFn;
+    const conf: any = await Promise.race([
+      fn({
+        userId: args.userId, symbol: args.symbol, strategy: args.strategy, direction: args.direction,
+        price: args.price, quantScore: Math.max(0, Math.min(100, Math.round(args.score ?? 0))),
+        quantReasoning: args.reasoning || '', indicators: { trend: args.trend ?? undefined },
+        candles: args.candles, cacheScope: 'shadow-h1', evidence: args.evidence,
+      }),
+      new Promise((resolve) => { timer = setTimeout(() => resolve(TIMEOUT), JUDGE_TIMEOUT_MS()); (timer as any).unref?.(); }),
+    ]);
+    if (conf === TIMEOUT) return NO_VERDICT('timeout');
+    return judgeStampFromConfirmation(conf, args.direction);
+  } catch {
+    return NO_VERDICT('exception');
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+// ── AI judge scoreboard ─────────────────────────────────────────────────────
+// Closed shadow trades grouped by side (long vs hypothetical short — Base
+// spot can't short, so the two are never blended) × the verdict stamped
+// at entry. Rows closed before the judge existed carry no stamp and are
+// excluded — a missing verdict is not a no_verdict.
+export interface AiJudgeStat { side: 'long' | 'short'; verdict: CryptoJudgeVerdict; n: number; winRate: number; medianNet: number; avgR: number | null }
+export function aggregateAiJudge(rows: any[]): AiJudgeStat[] {
+  const g = new Map<string, { nets: number[]; rs: number[] }>();
+  for (const r of rows) {
+    const v = String(r.judge_verdict || '');
+    if (v !== 'confirmed' && v !== 'not_confirmed' && v !== 'no_verdict') continue;
+    if (r.net_pct == null) continue; // Number(null) is 0 — a missing net is not a flat trade
+    const net = Number(r.net_pct); if (!Number.isFinite(net)) continue;
+    const k = `${r.direction === 'short' ? 'short' : 'long'}|${v}`;
+    const e = g.get(k) ?? g.set(k, { nets: [], rs: [] }).get(k)!;
+    e.nets.push(net);
+    const rv = r.r_multiple == null ? NaN : Number(r.r_multiple); if (Number.isFinite(rv)) e.rs.push(rv);
+  }
+  const out: AiJudgeStat[] = [];
+  for (const side of ['long', 'short'] as const) {
+    for (const verdict of ['confirmed', 'not_confirmed', 'no_verdict'] as const) {
+      const e = g.get(`${side}|${verdict}`); if (!e) continue;
+      const s = e.nets.slice().sort((a, b) => a - b);
+      out.push({
+        side, verdict, n: s.length,
+        winRate: s.filter((x) => x > 0).length / s.length,
+        medianNet: quantile(s, 0.5),
+        avgR: e.rs.length ? e.rs.reduce((a, b) => a + b, 0) / e.rs.length : null,
+      });
+    }
+  }
+  return out;
+}
+const _judgeStatsCache = new Map<number, { at: number; stats: AiJudgeStat[] }>();
+export async function computeCryptoShadowAiJudge(userId: number, force = false): Promise<AiJudgeStat[]> {
+  const hit = _judgeStatsCache.get(userId);
+  if (!force && hit && Date.now() - hit.at < 15 * 60_000) return hit.stats;
+  await ensureCryptoShadowTables();
+  const { rows } = await pool.query(
+    `SELECT c.direction, c.judge_verdict, c.net_pct, t.r_multiple
+       FROM crypto_shadow_context c JOIN crypto_shadow_trades t ON t.id = c.trade_id
+      WHERE c.user_id=$1 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL AND c.judge_verdict IS NOT NULL
+        AND c.closed_at >= now() - interval '60 days'`, [userId]);
+  const stats = aggregateAiJudge(rows);
+  _judgeStatsCache.set(userId, { at: Date.now(), stats });
+  return stats;
+}
+
+// ── Judge evidence (aggregated, token-lean) ─────────────────────────────────
+// The judge must see the lane's collected data, not just the single entry
+// in isolation (Chris, 2026-11-22): this pair's record in the lane, the
+// candidate strategy's record + recent form, the bucket verdicts behind
+// advice_at_entry, and the entry's market context. Aggregates and the
+// last 10 closes ONLY — never a raw table dump (the original AI cost bug
+// was thousand-token prompts), and the whole block is hard-capped.
+export interface JudgeClosesSummary { n: number; winRate: number; medianNet: number; avgR: number | null }
+export function summarizeJudgeCloses(rows: any[]): JudgeClosesSummary {
+  const nets: number[] = [], rs: number[] = [];
+  for (const r of rows) {
+    if (r.net_pct == null) continue;
+    const net = Number(r.net_pct); if (!Number.isFinite(net)) continue;
+    nets.push(net);
+    const rv = r.r_multiple == null ? NaN : Number(r.r_multiple); if (Number.isFinite(rv)) rs.push(rv);
+  }
+  const s = nets.slice().sort((a, b) => a - b);
+  return {
+    n: s.length,
+    winRate: s.length ? s.filter((x) => x > 0).length / s.length : 0,
+    medianNet: s.length ? quantile(s, 0.5) : 0,
+    avgR: rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : null,
+  };
+}
+/** Overall record + recent form: last 14 days vs the prior 14, windowed
+ *  from the rows' own closed_at (rows arrive newest-first). */
+export function strategyForm(rows: any[], now = Date.now()): { overall: JudgeClosesSummary; last14: JudgeClosesSummary | null; prior14: JudgeClosesSummary | null } {
+  const DAY = 86_400_000;
+  const inWin = (r: any, from: number, to: number) => { const t = new Date(r.closed_at).getTime(); return Number.isFinite(t) && t >= from && t < to; };
+  const last = summarizeJudgeCloses(rows.filter((r) => inWin(r, now - 14 * DAY, now + DAY)));
+  const prior = summarizeJudgeCloses(rows.filter((r) => inWin(r, now - 28 * DAY, now - 14 * DAY)));
+  return { overall: summarizeJudgeCloses(rows), last14: last.n ? last : null, prior14: prior.n ? prior : null };
+}
+export interface JudgeEvidenceInput {
+  pair: JudgeClosesSummary & { underlying: string; recent: Array<{ strategy: string; direction: string; netPct: number; rMultiple: number | null }> };
+  strategy: JudgeClosesSummary & { name: string; last14: JudgeClosesSummary | null; prior14: JudgeClosesSummary | null };
+  buckets: Array<{ verdict: string; dim: string; bucket: string; n: number; medianNet: number }>;
+  context: {
+    liquidityUsd?: number | null; buyShareH1?: number | null; buyShareH24?: number | null;
+    buyersH1?: number | null; sellersH1?: number | null; txnsH1?: number | null;
+    tokenAgeHours?: number | null; marketCapUsd?: number | null; btcChange24h?: number | null;
+    h1Trend?: string | null; h4Trend?: string | null; htfAligned?: boolean | null;
+    atrPct?: number | null; change1h?: number | null; change24h?: number | null;
+  };
+}
+const _pct = (x: number) => `${x >= 0 ? '+' : ''}${x.toFixed(2)}%`;
+const _r = (x: number | null) => (x == null ? 'n/a' : `${x >= 0 ? '+' : ''}${x.toFixed(2)}R`);
+const _usd = (x: number) => (x >= 1e9 ? `$${(x / 1e9).toFixed(1)}B` : x >= 1e6 ? `$${(x / 1e6).toFixed(1)}M` : x >= 1e3 ? `$${Math.round(x / 1e3)}k` : `$${Math.round(x)}`);
+export function buildJudgeEvidence(e: JudgeEvidenceInput): string {
+  const lines: string[] = ["LANE EVIDENCE (this trading lane's own shadow record for this setup, net of costs — aggregates and recent closes only):"];
+  if (e.pair.n > 0) {
+    lines.push(`Pair ${e.pair.underlying} in this lane: ${e.pair.n} closed, ${Math.round(e.pair.winRate * 100)}% wins, median ${_pct(e.pair.medianNet)}, avg ${_r(e.pair.avgR)}.`);
+    const recent = e.pair.recent.slice(0, 10);
+    if (recent.length) lines.push(`Last closes on ${e.pair.underlying}: ${recent.map((r) => `${r.strategy} ${r.direction} ${_pct(r.netPct)}${r.rMultiple != null ? ` (${_r(r.rMultiple)})` : ''}`).join('; ')}.`);
+  } else {
+    lines.push(`Pair ${e.pair.underlying} in this lane: no closed shadow trades yet.`);
+  }
+  if (e.strategy.n > 0) {
+    let line = `Strategy ${e.strategy.name} overall in this lane: ${e.strategy.n} closed, ${Math.round(e.strategy.winRate * 100)}% wins, median ${_pct(e.strategy.medianNet)}, avg ${_r(e.strategy.avgR)}.`;
+    if (e.strategy.last14 || e.strategy.prior14) {
+      const f = (s: JudgeClosesSummary | null) => (s ? `${s.n} closed, ${Math.round(s.winRate * 100)}% wins, median ${_pct(s.medianNet)}` : 'no closes');
+      line += ` Recent form — last 14d: ${f(e.strategy.last14)}; prior 14d: ${f(e.strategy.prior14)}.`;
+    }
+    lines.push(line);
+  } else {
+    lines.push(`Strategy ${e.strategy.name} overall in this lane: no closed shadow trades yet.`);
+  }
+  if (e.buckets.length) {
+    lines.push(`Bucket evidence for this setup: ${e.buckets.map((b) => `${b.verdict} — ${b.dim} ${b.bucket} (n=${b.n}, median ${_pct(b.medianNet)})`).join('; ')}.`);
+  }
+  const c = e.context, parts: string[] = [];
+  if (c.liquidityUsd != null && c.liquidityUsd > 0) parts.push(`liquidity ${_usd(c.liquidityUsd)}`);
+  if (c.buyShareH1 != null) parts.push(`buy share 1h ${Math.round(c.buyShareH1 * 100)}%${c.buyersH1 != null && c.sellersH1 != null ? ` (buyers ${c.buyersH1} / sellers ${c.sellersH1}${c.txnsH1 != null ? `, ${c.txnsH1} txns` : ''})` : ''}`);
+  if (c.buyShareH24 != null) parts.push(`buy share 24h ${Math.round(c.buyShareH24 * 100)}%`);
+  if (c.tokenAgeHours != null) parts.push(`token age ${c.tokenAgeHours < 72 ? `${Math.round(c.tokenAgeHours)}h` : `${Math.round(c.tokenAgeHours / 24)}d`}`);
+  if (c.marketCapUsd != null && c.marketCapUsd > 0) parts.push(`market cap ${_usd(c.marketCapUsd)}`);
+  if (c.btcChange24h != null) parts.push(`BTC 24h ${_pct(c.btcChange24h)}`);
+  if (c.h1Trend) parts.push(`H1 trend ${c.h1Trend}`);
+  if (c.h4Trend) parts.push(`H4 trend ${c.h4Trend}${c.htfAligned != null ? (c.htfAligned ? ' (HTF aligned with this side)' : ' (HTF against this side)') : ''}`);
+  if (c.atrPct != null) parts.push(`ATR ${c.atrPct.toFixed(1)}%`);
+  if (c.change1h != null) parts.push(`change 1h ${_pct(c.change1h)}`);
+  if (c.change24h != null) parts.push(`change 24h ${_pct(c.change24h)}`);
+  if (parts.length) lines.push(`Market context at entry: ${parts.join(', ')}.`);
+  return lines.join('\n').slice(0, 2000);
+}
+/** Collect the evidence for one entry from the lane's own tables + the
+ *  stats/context already computed for this cycle. Fail-soft: any read
+ *  failure returns undefined and the judge proceeds on candles alone. */
+export async function collectJudgeEvidence(userId: number, args: {
+  underlying: string; strategy: string; stats: BucketStat[];
+  ctx: Record<string, any>; h1Trend: string | null; h4Trend: string | null; aligned: boolean | null;
+  buyShareH24: number | null; buyersH1: number | null; sellersH1: number | null;
+}): Promise<string | undefined> {
+  try {
+    const pairRows = (await pool.query(
+      `SELECT c.strategy, c.direction, c.net_pct, t.r_multiple FROM crypto_shadow_context c JOIN crypto_shadow_trades t ON t.id = c.trade_id
+        WHERE c.user_id=$1 AND t.underlying=$2 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL ORDER BY c.closed_at DESC`,
+      [userId, args.underlying])).rows;
+    const stratRows = (await pool.query(
+      `SELECT c.net_pct, t.r_multiple, c.closed_at FROM crypto_shadow_context c JOIN crypto_shadow_trades t ON t.id = c.trade_id
+        WHERE c.user_id=$1 AND c.strategy=$2 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL ORDER BY c.closed_at DESC`,
+      [userId, args.strategy])).rows;
+    const form = strategyForm(stratRows);
+    const bs = bucketsOf(args.ctx as any);
+    const hits = args.stats
+      .filter((s) => s.strategy === args.strategy && s.verdict !== 'learning' && bs[s.dim] === s.bucket)
+      .map((s) => ({ verdict: s.verdict, dim: s.dim, bucket: s.bucket, n: s.n, medianNet: s.medianNet }));
+    return buildJudgeEvidence({
+      pair: {
+        underlying: args.underlying, ...summarizeJudgeCloses(pairRows),
+        recent: pairRows.slice(0, 10).map((r: any) => ({
+          strategy: String(r.strategy), direction: String(r.direction),
+          netPct: Number(r.net_pct), rMultiple: r.r_multiple == null ? null : Number(r.r_multiple),
+        })),
+      },
+      strategy: { name: args.strategy, ...form.overall, last14: form.last14, prior14: form.prior14 },
+      buckets: hits,
+      context: {
+        liquidityUsd: args.ctx.liquidity_usd, buyShareH1: args.ctx.buy_share_h1, buyShareH24: args.buyShareH24,
+        buyersH1: args.buyersH1, sellersH1: args.sellersH1, txnsH1: args.ctx.txns_h1,
+        tokenAgeHours: args.ctx.token_age_hours, marketCapUsd: args.ctx.market_cap_usd, btcChange24h: args.ctx.btc_change_24h,
+        h1Trend: args.h1Trend, h4Trend: args.h4Trend, htfAligned: args.aligned,
+        atrPct: args.ctx.atr_pct, change1h: args.ctx.change_1h, change24h: args.ctx.change_24h,
+      },
+    });
+  } catch { return undefined; }
 }
 
 // ── resolver ────────────────────────────────────────────────────────────────
@@ -347,15 +630,38 @@ export async function runCryptoShadowAll(userId: number, cfg: any, symbols: stri
         [userId, strat, symbol, und, chain, uni.address ?? null, uni.poolAddress, direction, price, stop, target, slPct, NOTIONAL(), costBps, sig.score ?? null, paperMaxHoursFor(strat)]);
       const id = ins.rows[0]?.id;
       if (!id) continue;
+      // AI judge: the trade row already exists, so the entry stands
+      // whatever the judge says — the verdict is only stamped onto the
+      // context row below as evidence. judgeCryptoShadowEntry never
+      // throws (failures land as no_verdict); the extra catch is belt and
+      // braces so a judge fault can never cost the lane an entry.
+      let judge: CryptoJudgeStamp | null = null;
+      if (cryptoShadowAiJudgeOn()) {
+        // The judge sees the lane's own record for this pair/strategy/
+        // setup (aggregates + last closes), not just the entry snapshot.
+        // Evidence collection is fail-soft — no evidence, judge proceeds.
+        const evidence = await collectJudgeEvidence(userId, {
+          underlying: und, strategy: strat, stats, ctx: { ...ctx, change_1h: ch1 },
+          h1Trend, h4Trend, aligned,
+          buyShareH24: fl ? buyShare(fl.h24) : null, buyersH1: fl?.h1.buyers ?? null, sellersH1: fl?.h1.sellers ?? null,
+        }).catch(() => undefined);
+        judge = await judgeCryptoShadowEntry({
+          userId, symbol, strategy: strat, direction: short ? 'SELL' : 'BUY',
+          price, score: sig.score ?? null, reasoning: sig.reasoning ?? '',
+          trend: h1Trend, candles: bars, evidence,
+        }).catch(() => null);
+      }
       await pool.query(
         `INSERT INTO crypto_shadow_context (trade_id, user_id, strategy, symbol, direction, liquidity_usd, change_1h, change_24h, volume_24h_usd, atr_pct,
            h1_trend, h4_trend, htf_aligned, live_gate_blocked, btc_change_24h, hour_utc, day_of_week, score, tags, advice_at_entry,
-           buy_share_h1, buy_share_h24, txns_h1, txns_h24, buyers_h1, sellers_h1, market_cap_usd, token_age_hours, new_token)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29) ON CONFLICT (trade_id) DO NOTHING`,
+           buy_share_h1, buy_share_h24, txns_h1, txns_h24, buyers_h1, sellers_h1, market_cap_usd, token_age_hours, new_token,
+           judge_verdict, judge_ai_direction, judge_confidence, judge_reason, judge_failure)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34) ON CONFLICT (trade_id) DO NOTHING`,
         [id, userId, strat, symbol, ctx.direction, uni.liquidityUsd, ch1, ch24, vol24 || null, ctx.atr_pct, h1Trend, h4Trend, aligned, gated, btcChange,
          hourUtc, new Date().getUTCDay(), sig.score ?? null, tags, advice,
          ctx.buy_share_h1, fl ? buyShare(fl.h24) : null, ctx.txns_h1, fl ? fl.h24.buys + fl.h24.sells : null,
-         fl?.h1.buyers ?? null, fl?.h1.sellers ?? null, ctx.market_cap_usd, ctx.token_age_hours, !!uni.newToken]).catch(() => {});
+         fl?.h1.buyers ?? null, fl?.h1.sellers ?? null, ctx.market_cap_usd, ctx.token_age_hours, !!uni.newToken,
+         judge?.verdict ?? null, judge?.aiDirection ?? null, judge?.confidence ?? null, judge?.reason ?? null, judge?.failure ?? null]).catch(() => {});
       open.push({ strategy: strat, underlying: und });
       opened++;
     }
