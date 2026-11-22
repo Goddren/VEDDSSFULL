@@ -14070,20 +14070,376 @@ var init_crypto_ports = __esm({
   }
 });
 
+// server/services/ai-confirmation-cache.ts
+var ai_confirmation_cache_exports = {};
+__export(ai_confirmation_cache_exports, {
+  confirmationCacheStats: () => confirmationCacheStats,
+  createConfirmationCache: () => createConfirmationCache,
+  getCachedConfirmation: () => getCachedConfirmation,
+  putCachedConfirmation: () => putCachedConfirmation
+});
+function createConfirmationCache() {
+  const cache11 = /* @__PURE__ */ new Map();
+  const lastCallAt2 = /* @__PURE__ */ new Map();
+  let hits = 0, misses = 0, throttled = 0;
+  function bandKey(userId, symbol, timeframe, direction, eaConf, _price, discriminator) {
+    const cBand = Math.round((Number(eaConf) || 0) / CONF_BAND);
+    return `${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ""}:${cBand}`;
+  }
+  function symbolKey(userId, symbol, timeframe) {
+    return `${userId}:${symbol}:${timeframe}`;
+  }
+  function get(userId, symbol, timeframe, direction, eaConfidence, price, discriminator) {
+    const now = Date.now();
+    const k2 = bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator);
+    const hit = cache11.get(k2);
+    if (hit && now - hit.at < TTL_MS3) {
+      hits++;
+      return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
+    }
+    const sk = symbolKey(userId, symbol, timeframe);
+    const last2 = lastCallAt2.get(sk) ?? 0;
+    if (now - last2 < FLOOR_MS) {
+      let best = null;
+      const prefix = `${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ""}:`;
+      for (const [ck, v] of Array.from(cache11.entries())) {
+        if (!ck.startsWith(prefix)) continue;
+        if (!/^\d+$/.test(ck.slice(prefix.length))) continue;
+        if (now - v.at > STALE_USABLE_MS) continue;
+        if (!best || v.at > best.at) best = v;
+      }
+      if (best) {
+        throttled++;
+        return { verdict: best.verdict, reason: `throttled (floor ${Math.round(FLOOR_MS / 1e3)}s) \u2014 reusing verdict from ${Math.round((now - best.at) / 1e3)}s ago` };
+      }
+    }
+    misses++;
+    return null;
+  }
+  function put(userId, symbol, timeframe, direction, eaConfidence, price, verdict, discriminator) {
+    const now = Date.now();
+    cache11.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator), { verdict, at: now, eaConfidence, price });
+    lastCallAt2.set(symbolKey(userId, symbol, timeframe), now);
+    if (cache11.size > 500) {
+      for (const [k2, v] of Array.from(cache11.entries())) if (now - v.at > STALE_USABLE_MS) cache11.delete(k2);
+    }
+  }
+  function stats() {
+    const total = hits + misses + throttled;
+    return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache11.size };
+  }
+  return { get, put, stats };
+}
+function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price) {
+  return fxConfirmationCache.get(userId, symbol, timeframe, direction, eaConfidence, price);
+}
+function putCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price, verdict) {
+  fxConfirmationCache.put(userId, symbol, timeframe, direction, eaConfidence, price, verdict);
+}
+function confirmationCacheStats() {
+  return fxConfirmationCache.stats();
+}
+var TTL_MS3, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, fxConfirmationCache;
+var init_ai_confirmation_cache = __esm({
+  "server/services/ai-confirmation-cache.ts"() {
+    "use strict";
+    TTL_MS3 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
+    FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
+    STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
+    CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
+    fxConfirmationCache = createConfirmationCache();
+  }
+});
+
+// server/services/shadow-lessons.ts
+var shadow_lessons_exports = {};
+__export(shadow_lessons_exports, {
+  computeShadowLessons: () => computeShadowLessons,
+  getShadowLessons: () => getShadowLessons,
+  getShadowLessonsText: () => getShadowLessonsText
+});
+async function computeShadowLessons(userId, days = 30) {
+  await ensureShadowLedger();
+  const dims = [
+    { dimension: "session", expr: `session` },
+    { dimension: "strategy", expr: `strategy` },
+    { dimension: "strategy+symbol", expr: `strategy || ' \xB7 ' || symbol` },
+    { dimension: "direction", expr: `direction` },
+    { dimension: "day_type", expr: `day_type`, where: `day_type IS NOT NULL` },
+    { dimension: "h4_aligned", expr: `CASE WHEN h4_aligned THEN 'with the H4 trend' ELSE 'against the H4 trend' END`, where: `context_reliable AND h4_aligned IS NOT NULL` },
+    { dimension: "strategy+direction", expr: `strategy || ' \xB7 ' || direction` }
+  ];
+  const out = [];
+  for (const d of dims) {
+    const { rows } = await pool.query(
+      `SELECT source, ${d.expr} AS key, count(*)::int AS trades, count(*) FILTER (WHERE result='WIN')::int AS wins,
+              avg(r_multiple)::float AS avg_r, sum(r_multiple)::float AS total_r
+         FROM shadow_ledger
+        WHERE user_id=$1 AND closed_at >= now() - ($2 || ' days')::interval AND r_multiple IS NOT NULL ${d.where ? `AND ${d.where}` : ""}
+        GROUP BY 1,2 HAVING count(*) >= $3`,
+      [userId, String(days), MIN_TRADES4()]
+    );
+    for (const r of rows) {
+      const avgR = Number(r.avg_r) || 0;
+      if (Math.abs(avgR) < EDGE_R() || r.key == null) continue;
+      const winRate2 = r.trades ? r.wins / r.trades : 0;
+      const verdict = avgR > 0 ? "favor" : "avoid";
+      const strength = r.trades >= 30 ? "strong" : r.trades >= 15 ? "moderate" : "early";
+      const keyLabel = String(r.key).replace(/\bM1\b/g, "Model 1 (range)").replace(/\bM2\b/g, "Model 2 (trend)");
+      const label = `${SOURCE_LABEL[r.source] || r.source} \xB7 ${d.dimension.replace("+", " + ").replace("_", " ")} ${keyLabel}`;
+      out.push({
+        source: r.source,
+        dimension: d.dimension,
+        key: String(r.key),
+        trades: r.trades,
+        wins: r.wins,
+        winRate: winRate2,
+        avgR,
+        totalR: Number(r.total_r) || 0,
+        verdict,
+        strength,
+        text: `${label}: ${r.trades} trades, ${Math.round(winRate2 * 100)}% wins, ${avgR >= 0 ? "+" : ""}${avgR.toFixed(2)}R avg \u2192 ${verdict === "favor" ? "FAVOR" : "AVOID"} (${strength} evidence)`
+      });
+    }
+  }
+  out.sort((a, b) => b.trades - a.trades || Math.abs(b.avgR) - Math.abs(a.avgR));
+  return out;
+}
+async function getShadowLessons(userId, force = false) {
+  const hit = _mem.get(userId);
+  if (!force && hit && Date.now() - hit.at < TTL_MS4()) return hit;
+  try {
+    if (!force) {
+      const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+      const stored = await getRuntimeStateStrict2("shadow_lessons", String(userId)).catch(() => null);
+      if (stored && Date.now() - Number(stored.at) < TTL_MS4() && Array.isArray(stored.lessons)) {
+        _mem.set(userId, stored);
+        return stored;
+      }
+    }
+    const fresh = { at: Date.now(), lessons: await computeShadowLessons(userId) };
+    _mem.set(userId, fresh);
+    const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    saveRuntimeState2("shadow_lessons", String(userId), fresh);
+    return fresh;
+  } catch (e) {
+    console.error("[shadow-lessons] compute failed (non-fatal):", e?.message || e);
+    return hit || { at: 0, lessons: [] };
+  }
+}
+async function getShadowLessonsText(userId, engine, max = 10) {
+  if (process.env.SHADOW_LESSONS === "off") return "";
+  try {
+    const { lessons } = await getShadowLessons(userId);
+    const mine = lessons.filter((l) => (ENGINE_SOURCES[engine] || []).includes(l.source)).slice(0, max);
+    if (!mine.length) return "";
+    return `WHAT OUR SHADOW / PAPER TRADING HAS LEARNED (last 30 days, real outcomes \u2014 weigh these; don't ignore strong ones):
+${mine.map((l) => `- ${l.text}`).join("\n")}
+Lean toward setups matching FAVOR lessons and be much more selective with setups matching AVOID lessons. "Early" evidence is a hint, "strong" evidence is reliable.`;
+  } catch {
+    return "";
+  }
+}
+var MIN_TRADES4, EDGE_R, TTL_MS4, SOURCE_LABEL, ENGINE_SOURCES, _mem;
+var init_shadow_lessons = __esm({
+  "server/services/shadow-lessons.ts"() {
+    "use strict";
+    init_db();
+    init_shadow_ledger();
+    MIN_TRADES4 = () => Number(process.env.SHADOW_LESSON_MIN_TRADES ?? 8);
+    EDGE_R = () => Number(process.env.SHADOW_LESSON_EDGE_R ?? 0.3);
+    TTL_MS4 = () => Math.max(1, Number(process.env.SHADOW_LESSONS_TTL_H ?? 6)) * 36e5;
+    SOURCE_LABEL = {
+      fx_shadow: "FX shadow models",
+      crypto_shadow: "Crypto shadow models",
+      crypto_paper: "Crypto paper engine",
+      crypto_shadow_all: "Crypto shadow (all strategies, longs)",
+      crypto_shadow_short: "Crypto shadow (hypothetical shorts)",
+      sol_paper: "Sol paper engine",
+      sol_shadow: "Sol shadow tests"
+    };
+    ENGINE_SOURCES = {
+      fx: ["fx_shadow"],
+      crypto: ["crypto_paper", "crypto_shadow", "crypto_shadow_all"],
+      sol: ["sol_paper", "sol_shadow"]
+    };
+    _mem = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/crypto-ai-confirmation.ts
+var crypto_ai_confirmation_exports = {};
+__export(crypto_ai_confirmation_exports, {
+  cryptoConfirmationCacheStats: () => cryptoConfirmationCacheStats,
+  getCryptoAiConfirmation: () => getCryptoAiConfirmation
+});
+function cryptoConfirmationCacheStats() {
+  return cryptoConfirmationCache.stats();
+}
+async function getCryptoAiConfirmation(opts) {
+  try {
+    const cacheTimeframe = opts.cacheScope ? `${CONFIRM_TIMEFRAME}:${opts.cacheScope}` : CONFIRM_TIMEFRAME;
+    const cached2 = cryptoConfirmationCache.get(
+      opts.userId,
+      opts.symbol,
+      cacheTimeframe,
+      opts.direction,
+      opts.quantScore,
+      opts.price,
+      opts.strategy
+    );
+    if (cached2) {
+      console.log(`[crypto-ai-confirmation] ${opts.symbol} ${opts.direction}: verdict reused \u2014 ${cached2.reason}`);
+      return cached2.verdict;
+    }
+    const client2 = await getUniversalAIClientForUser(opts.userId, { engine: true });
+    const recent = opts.candles.slice(-20);
+    const candleSummary = recent.map((c) => {
+      const tNum = Number(c.t);
+      const t = Number.isFinite(tNum) && tNum > 0 ? new Date(tNum * 1e3).toISOString().slice(11, 16) : "?";
+      return `${t} O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${Math.round(c.v ?? 0)}`;
+    }).join("\n");
+    const ind = opts.indicators || {};
+    const indicatorSummary = [
+      `RSI: ${ind.rsi ?? "n/a"}`,
+      `ADX: ${ind.adx ?? "n/a"}  +DI: ${ind.plusDI ?? "n/a"}  -DI: ${ind.minusDI ?? "n/a"}`,
+      `MACD histogram: ${ind.macdHistogram ?? ind.macd?.histogram ?? "n/a"}`,
+      `Trend: ${ind.trend ?? "n/a"}`,
+      `Relative volume: ${ind.relativeVolume ?? "n/a"}`,
+      `Volume trend: ${ind.volumeTrend ?? "n/a"}`
+    ].join("\n  ");
+    const system = 'You are a disciplined crypto perpetual futures trader giving a second, independent opinion on a signal a technical scanner already produced. Judge this on trend strength, momentum, volume/order-flow confirmation, and recent price structure. This is a 24/7 market with no session close or reopen -- do NOT reach for forex/ICT concepts like order blocks, liquidity sweeps, discount/premium zones, or session/macro-window timing; none of that describes how crypto perpetuals actually trade, and grading a setup down for lacking FX-specific structure it was never going to have is not a real assessment. Respond ONLY with JSON: {"confirmed": boolean, "direction": "BUY"|"SELL"|"NEUTRAL", "confidence": number (0-100), "reasoning": string}.';
+    const _lessons = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports)).then((m) => m.getShadowLessonsText(opts.userId, "crypto", 8)).catch(() => "");
+    const _shadowStats = await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports)).then((m) => m.getCryptoShadowStatsText(opts.userId, 12)).catch(() => "");
+    const user = `${_lessons ? `${_lessons}
+
+` : ""}${_shadowStats ? `${_shadowStats}
+
+` : ""}${opts.evidence ? `${opts.evidence}
+
+` : ""}SYMBOL: ${opts.symbol}
+PROPOSED: ${opts.direction} @ ${opts.price}
+SCANNER STRATEGY: ${opts.strategy} (score ${opts.quantScore}/100)
+SCANNER REASONING: ${opts.quantReasoning}
+
+INDICATORS:
+  ${indicatorSummary}
+
+RECENT CANDLES (oldest to most recent):
+${candleSummary}
+
+Would you independently confirm this ${opts.direction} setup on its own merits as a crypto perpetual trade?`;
+    const modelId = client2.defaultModel || "gpt-4o-mini";
+    const baseRequest = {
+      model: modelId,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.3
+    };
+    let r = await client2.chat.completions.create({ ...baseRequest, max_tokens: 700 });
+    let content = r.choices?.[0]?.message?.content || "";
+    if (!content && r.choices?.[0]?.finish_reason === "length") {
+      console.warn(`[crypto-ai-confirmation] ${opts.symbol}: 700-token budget produced zero content (finish_reason=length) on ${modelId} -- retrying once at 2500.`);
+      r = await client2.chat.completions.create({ ...baseRequest, max_tokens: 2500 });
+      content = r.choices?.[0]?.message?.content || "";
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      const m = content.match(/\{[\s\S]*\}/);
+      try {
+        if (!m) throw new Error("no braces found");
+        parsed = JSON.parse(m[0]);
+      } catch {
+        console.warn(
+          `[crypto-ai-confirmation] ${opts.symbol}: primary JSON parse failed. finish_reason=${r.choices?.[0]?.finish_reason ?? "unknown"} model=${client2.defaultModel ?? "unknown"} contentLength=${content.length} content=${JSON.stringify(content)}`
+        );
+        const confirmedM = content.match(/"confirmed"\s*:\s*(true|false)/i);
+        const directionM = content.match(/"direction"\s*:\s*"(BUY|SELL|NEUTRAL)"/i);
+        const confidenceM = content.match(/"confidence"\s*:\s*(-?\d+(?:\.\d+)?)/i);
+        const reasoningM = content.match(/"reasoning"\s*:\s*"([\s\S]*)$/i);
+        if (!confirmedM && !directionM && !confidenceM) {
+          throw new Error(`AI returned no parseable JSON (truncated, ${content.length} chars)`);
+        }
+        parsed = {
+          confirmed: confirmedM ? confirmedM[1].toLowerCase() === "true" : false,
+          direction: directionM ? directionM[1].toUpperCase() : "NEUTRAL",
+          confidence: confidenceM ? Number(confidenceM[1]) : 0,
+          reasoning: reasoningM ? reasoningM[1].replace(/\\"/g, '"').trim() + " [reasoning cut off \u2014 response truncated]" : "[response truncated before reasoning was written]"
+        };
+      }
+    }
+    const confidence = coerceConfidence(parsed.confidence);
+    noteConfidenceSample(confidence);
+    const direction = ["BUY", "SELL", "NEUTRAL"].includes(parsed.direction) ? parsed.direction : "NEUTRAL";
+    const verdict = {
+      confirmed: !!parsed.confirmed,
+      aiDirection: direction,
+      aiConfidence: confidence,
+      reasoning: String(parsed.reasoning || "no reasoning returned"),
+      modelUsed: client2.defaultModel
+    };
+    cryptoConfirmationCache.put(
+      opts.userId,
+      opts.symbol,
+      cacheTimeframe,
+      opts.direction,
+      opts.quantScore,
+      opts.price,
+      verdict,
+      opts.strategy
+    );
+    return verdict;
+  } catch (err) {
+    const statusCode = err?.status || err?.statusCode || err?.response?.status;
+    return {
+      confirmed: false,
+      aiDirection: "NEUTRAL",
+      aiConfidence: 0,
+      reasoning: `Crypto AI confirmation error: ${err?.message ?? err}`,
+      aiError: true,
+      aiErrorStatus: typeof statusCode === "number" ? statusCode : null
+    };
+  }
+}
+var cryptoConfirmationCache, CONFIRM_TIMEFRAME;
+var init_crypto_ai_confirmation = __esm({
+  "server/services/crypto-ai-confirmation.ts"() {
+    "use strict";
+    init_openai();
+    init_ai_confirmation_cache();
+    cryptoConfirmationCache = createConfirmationCache();
+    CONFIRM_TIMEFRAME = "5m";
+  }
+});
+
 // server/services/crypto-shadow.ts
 var crypto_shadow_exports = {};
 __export(crypto_shadow_exports, {
   adviceFor: () => adviceFor,
   aggregate: () => aggregate,
+  aggregateAiJudge: () => aggregateAiJudge,
   bucketsOf: () => bucketsOf,
+  buildJudgeEvidence: () => buildJudgeEvidence,
+  collectJudgeEvidence: () => collectJudgeEvidence,
+  computeCryptoShadowAiJudge: () => computeCryptoShadowAiJudge,
   computeCryptoShadowStats: () => computeCryptoShadowStats,
+  cryptoShadowAiJudgeOn: () => cryptoShadowAiJudgeOn,
   ensureCryptoShadowTables: () => ensureCryptoShadowTables,
   getCryptoShadowStatsText: () => getCryptoShadowStatsText,
+  judgeCryptoShadowEntry: () => judgeCryptoShadowEntry,
+  judgeStampFromConfirmation: () => judgeStampFromConfirmation,
   oldestFirst: () => oldestFirst,
   pctChange: () => pctChange,
   resolveCryptoShadowTrades: () => resolveCryptoShadowTrades,
   runCryptoShadowAll: () => runCryptoShadowAll,
   shadowAllEnabled: () => shadowAllEnabled,
+  strategyForm: () => strategyForm,
+  summarizeJudgeCloses: () => summarizeJudgeCloses,
   trendOf: () => trendOf
 });
 function ensureCryptoShadowTables() {
@@ -14106,7 +14462,10 @@ function ensureCryptoShadowTables() {
         ADD COLUMN IF NOT EXISTS txns_h1 int, ADD COLUMN IF NOT EXISTS txns_h24 int,
         ADD COLUMN IF NOT EXISTS buyers_h1 int, ADD COLUMN IF NOT EXISTS sellers_h1 int,
         ADD COLUMN IF NOT EXISTS market_cap_usd double precision, ADD COLUMN IF NOT EXISTS token_age_hours double precision,
-        ADD COLUMN IF NOT EXISTS new_token boolean`)).then(() => void 0).catch((e) => {
+        ADD COLUMN IF NOT EXISTS new_token boolean`)).then(() => pool.query(`ALTER TABLE crypto_shadow_context
+        ADD COLUMN IF NOT EXISTS judge_verdict text, ADD COLUMN IF NOT EXISTS judge_ai_direction text,
+        ADD COLUMN IF NOT EXISTS judge_confidence real, ADD COLUMN IF NOT EXISTS judge_reason text,
+        ADD COLUMN IF NOT EXISTS judge_failure text`)).then(() => void 0).catch((e) => {
       _ensured2 = null;
       throw e;
     });
@@ -14207,6 +14566,216 @@ async function getCryptoShadowStatsText(userId, max = 12) {
 ` + top.map((s) => `- ${s.strategy} ${s.verdict.toUpperCase()} when ${s.dim}=${s.bucket}: n=${s.n}, median ${s.medianNet >= 0 ? "+" : ""}${s.medianNet.toFixed(2)}%, win ${(s.winRate * 100).toFixed(0)}%`).join("\n");
   } catch {
     return "";
+  }
+}
+function judgeStampFromConfirmation(conf, proposed) {
+  if (!conf) return NO_VERDICT("no_confirmation");
+  if (conf.aiError) {
+    const failure = conf.aiErrorStatus === 402 ? "budget" : conf.aiErrorStatus === 429 ? "rate_limit" : conf.aiErrorStatus === 401 || conf.aiErrorStatus === 403 ? "auth" : "ai_error";
+    return { ...NO_VERDICT(failure), reason: (conf.reasoning || "").slice(0, 300) || null };
+  }
+  const dirOk = conf.aiDirection === proposed || conf.aiDirection === "NEUTRAL";
+  return {
+    verdict: conf.confirmed && dirOk ? "confirmed" : "not_confirmed",
+    aiDirection: conf.aiDirection,
+    confidence: Number.isFinite(conf.aiConfidence) ? conf.aiConfidence : null,
+    reason: (conf.reasoning || "").slice(0, 300) || null,
+    failure: null
+  };
+}
+async function judgeCryptoShadowEntry(args, confirmFn) {
+  if (!cryptoShadowAiJudgeOn()) return NO_VERDICT("judge_off");
+  const TIMEOUT = Symbol("judge-timeout");
+  let timer;
+  try {
+    const fn = confirmFn ?? (await Promise.resolve().then(() => (init_crypto_ai_confirmation(), crypto_ai_confirmation_exports))).getCryptoAiConfirmation;
+    const conf = await Promise.race([
+      fn({
+        userId: args.userId,
+        symbol: args.symbol,
+        strategy: args.strategy,
+        direction: args.direction,
+        price: args.price,
+        quantScore: Math.max(0, Math.min(100, Math.round(args.score ?? 0))),
+        quantReasoning: args.reasoning || "",
+        indicators: { trend: args.trend ?? void 0 },
+        candles: args.candles,
+        cacheScope: "shadow-h1",
+        evidence: args.evidence
+      }),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(TIMEOUT), JUDGE_TIMEOUT_MS());
+        timer.unref?.();
+      })
+    ]);
+    if (conf === TIMEOUT) return NO_VERDICT("timeout");
+    return judgeStampFromConfirmation(conf, args.direction);
+  } catch {
+    return NO_VERDICT("exception");
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+function aggregateAiJudge(rows) {
+  const g = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const v = String(r.judge_verdict || "");
+    if (v !== "confirmed" && v !== "not_confirmed" && v !== "no_verdict") continue;
+    if (r.net_pct == null) continue;
+    const net = Number(r.net_pct);
+    if (!Number.isFinite(net)) continue;
+    const k2 = `${r.direction === "short" ? "short" : "long"}|${v}`;
+    const e = g.get(k2) ?? g.set(k2, { nets: [], rs: [] }).get(k2);
+    e.nets.push(net);
+    const rv = r.r_multiple == null ? NaN : Number(r.r_multiple);
+    if (Number.isFinite(rv)) e.rs.push(rv);
+  }
+  const out = [];
+  for (const side of ["long", "short"]) {
+    for (const verdict of ["confirmed", "not_confirmed", "no_verdict"]) {
+      const e = g.get(`${side}|${verdict}`);
+      if (!e) continue;
+      const s = e.nets.slice().sort((a, b) => a - b);
+      out.push({
+        side,
+        verdict,
+        n: s.length,
+        winRate: s.filter((x) => x > 0).length / s.length,
+        medianNet: quantile(s, 0.5),
+        avgR: e.rs.length ? e.rs.reduce((a, b) => a + b, 0) / e.rs.length : null
+      });
+    }
+  }
+  return out;
+}
+async function computeCryptoShadowAiJudge(userId, force = false) {
+  const hit = _judgeStatsCache.get(userId);
+  if (!force && hit && Date.now() - hit.at < 15 * 6e4) return hit.stats;
+  await ensureCryptoShadowTables();
+  const { rows } = await pool.query(
+    `SELECT c.direction, c.judge_verdict, c.net_pct, t.r_multiple
+       FROM crypto_shadow_context c JOIN crypto_shadow_trades t ON t.id = c.trade_id
+      WHERE c.user_id=$1 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL AND c.judge_verdict IS NOT NULL
+        AND c.closed_at >= now() - interval '60 days'`,
+    [userId]
+  );
+  const stats = aggregateAiJudge(rows);
+  _judgeStatsCache.set(userId, { at: Date.now(), stats });
+  return stats;
+}
+function summarizeJudgeCloses(rows) {
+  const nets = [], rs = [];
+  for (const r of rows) {
+    if (r.net_pct == null) continue;
+    const net = Number(r.net_pct);
+    if (!Number.isFinite(net)) continue;
+    nets.push(net);
+    const rv = r.r_multiple == null ? NaN : Number(r.r_multiple);
+    if (Number.isFinite(rv)) rs.push(rv);
+  }
+  const s = nets.slice().sort((a, b) => a - b);
+  return {
+    n: s.length,
+    winRate: s.length ? s.filter((x) => x > 0).length / s.length : 0,
+    medianNet: s.length ? quantile(s, 0.5) : 0,
+    avgR: rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : null
+  };
+}
+function strategyForm(rows, now = Date.now()) {
+  const DAY = 864e5;
+  const inWin = (r, from, to) => {
+    const t = new Date(r.closed_at).getTime();
+    return Number.isFinite(t) && t >= from && t < to;
+  };
+  const last2 = summarizeJudgeCloses(rows.filter((r) => inWin(r, now - 14 * DAY, now + DAY)));
+  const prior = summarizeJudgeCloses(rows.filter((r) => inWin(r, now - 28 * DAY, now - 14 * DAY)));
+  return { overall: summarizeJudgeCloses(rows), last14: last2.n ? last2 : null, prior14: prior.n ? prior : null };
+}
+function buildJudgeEvidence(e) {
+  const lines = ["LANE EVIDENCE (this trading lane's own shadow record for this setup, net of costs \u2014 aggregates and recent closes only):"];
+  if (e.pair.n > 0) {
+    lines.push(`Pair ${e.pair.underlying} in this lane: ${e.pair.n} closed, ${Math.round(e.pair.winRate * 100)}% wins, median ${_pct(e.pair.medianNet)}, avg ${_r(e.pair.avgR)}.`);
+    const recent = e.pair.recent.slice(0, 10);
+    if (recent.length) lines.push(`Last closes on ${e.pair.underlying}: ${recent.map((r) => `${r.strategy} ${r.direction} ${_pct(r.netPct)}${r.rMultiple != null ? ` (${_r(r.rMultiple)})` : ""}`).join("; ")}.`);
+  } else {
+    lines.push(`Pair ${e.pair.underlying} in this lane: no closed shadow trades yet.`);
+  }
+  if (e.strategy.n > 0) {
+    let line2 = `Strategy ${e.strategy.name} overall in this lane: ${e.strategy.n} closed, ${Math.round(e.strategy.winRate * 100)}% wins, median ${_pct(e.strategy.medianNet)}, avg ${_r(e.strategy.avgR)}.`;
+    if (e.strategy.last14 || e.strategy.prior14) {
+      const f = (s) => s ? `${s.n} closed, ${Math.round(s.winRate * 100)}% wins, median ${_pct(s.medianNet)}` : "no closes";
+      line2 += ` Recent form \u2014 last 14d: ${f(e.strategy.last14)}; prior 14d: ${f(e.strategy.prior14)}.`;
+    }
+    lines.push(line2);
+  } else {
+    lines.push(`Strategy ${e.strategy.name} overall in this lane: no closed shadow trades yet.`);
+  }
+  if (e.buckets.length) {
+    lines.push(`Bucket evidence for this setup: ${e.buckets.map((b) => `${b.verdict} \u2014 ${b.dim} ${b.bucket} (n=${b.n}, median ${_pct(b.medianNet)})`).join("; ")}.`);
+  }
+  const c = e.context, parts = [];
+  if (c.liquidityUsd != null && c.liquidityUsd > 0) parts.push(`liquidity ${_usd(c.liquidityUsd)}`);
+  if (c.buyShareH1 != null) parts.push(`buy share 1h ${Math.round(c.buyShareH1 * 100)}%${c.buyersH1 != null && c.sellersH1 != null ? ` (buyers ${c.buyersH1} / sellers ${c.sellersH1}${c.txnsH1 != null ? `, ${c.txnsH1} txns` : ""})` : ""}`);
+  if (c.buyShareH24 != null) parts.push(`buy share 24h ${Math.round(c.buyShareH24 * 100)}%`);
+  if (c.tokenAgeHours != null) parts.push(`token age ${c.tokenAgeHours < 72 ? `${Math.round(c.tokenAgeHours)}h` : `${Math.round(c.tokenAgeHours / 24)}d`}`);
+  if (c.marketCapUsd != null && c.marketCapUsd > 0) parts.push(`market cap ${_usd(c.marketCapUsd)}`);
+  if (c.btcChange24h != null) parts.push(`BTC 24h ${_pct(c.btcChange24h)}`);
+  if (c.h1Trend) parts.push(`H1 trend ${c.h1Trend}`);
+  if (c.h4Trend) parts.push(`H4 trend ${c.h4Trend}${c.htfAligned != null ? c.htfAligned ? " (HTF aligned with this side)" : " (HTF against this side)" : ""}`);
+  if (c.atrPct != null) parts.push(`ATR ${c.atrPct.toFixed(1)}%`);
+  if (c.change1h != null) parts.push(`change 1h ${_pct(c.change1h)}`);
+  if (c.change24h != null) parts.push(`change 24h ${_pct(c.change24h)}`);
+  if (parts.length) lines.push(`Market context at entry: ${parts.join(", ")}.`);
+  return lines.join("\n").slice(0, 2e3);
+}
+async function collectJudgeEvidence(userId, args) {
+  try {
+    const pairRows = (await pool.query(
+      `SELECT c.strategy, c.direction, c.net_pct, t.r_multiple FROM crypto_shadow_context c JOIN crypto_shadow_trades t ON t.id = c.trade_id
+        WHERE c.user_id=$1 AND t.underlying=$2 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL ORDER BY c.closed_at DESC`,
+      [userId, args.underlying]
+    )).rows;
+    const stratRows = (await pool.query(
+      `SELECT c.net_pct, t.r_multiple, c.closed_at FROM crypto_shadow_context c JOIN crypto_shadow_trades t ON t.id = c.trade_id
+        WHERE c.user_id=$1 AND c.strategy=$2 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL ORDER BY c.closed_at DESC`,
+      [userId, args.strategy]
+    )).rows;
+    const form = strategyForm(stratRows);
+    const bs2 = bucketsOf(args.ctx);
+    const hits = args.stats.filter((s) => s.strategy === args.strategy && s.verdict !== "learning" && bs2[s.dim] === s.bucket).map((s) => ({ verdict: s.verdict, dim: s.dim, bucket: s.bucket, n: s.n, medianNet: s.medianNet }));
+    return buildJudgeEvidence({
+      pair: {
+        underlying: args.underlying,
+        ...summarizeJudgeCloses(pairRows),
+        recent: pairRows.slice(0, 10).map((r) => ({
+          strategy: String(r.strategy),
+          direction: String(r.direction),
+          netPct: Number(r.net_pct),
+          rMultiple: r.r_multiple == null ? null : Number(r.r_multiple)
+        }))
+      },
+      strategy: { name: args.strategy, ...form.overall, last14: form.last14, prior14: form.prior14 },
+      buckets: hits,
+      context: {
+        liquidityUsd: args.ctx.liquidity_usd,
+        buyShareH1: args.ctx.buy_share_h1,
+        buyShareH24: args.buyShareH24,
+        buyersH1: args.buyersH1,
+        sellersH1: args.sellersH1,
+        txnsH1: args.ctx.txns_h1,
+        tokenAgeHours: args.ctx.token_age_hours,
+        marketCapUsd: args.ctx.market_cap_usd,
+        btcChange24h: args.ctx.btc_change_24h,
+        h1Trend: args.h1Trend,
+        h4Trend: args.h4Trend,
+        htfAligned: args.aligned,
+        atrPct: args.ctx.atr_pct,
+        change1h: args.ctx.change_1h,
+        change24h: args.ctx.change_24h
+      }
+    });
+  } catch {
+    return void 0;
   }
 }
 async function resolveCryptoShadowTrades(userId) {
@@ -14391,11 +14960,39 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
       );
       const id = ins.rows[0]?.id;
       if (!id) continue;
+      let judge = null;
+      if (cryptoShadowAiJudgeOn()) {
+        const evidence = await collectJudgeEvidence(userId, {
+          underlying: und,
+          strategy: strat,
+          stats,
+          ctx: { ...ctx, change_1h: ch1 },
+          h1Trend,
+          h4Trend,
+          aligned,
+          buyShareH24: fl ? buyShare2(fl.h24) : null,
+          buyersH1: fl?.h1.buyers ?? null,
+          sellersH1: fl?.h1.sellers ?? null
+        }).catch(() => void 0);
+        judge = await judgeCryptoShadowEntry({
+          userId,
+          symbol,
+          strategy: strat,
+          direction: short ? "SELL" : "BUY",
+          price,
+          score: sig.score ?? null,
+          reasoning: sig.reasoning ?? "",
+          trend: h1Trend,
+          candles: bars,
+          evidence
+        }).catch(() => null);
+      }
       await pool.query(
         `INSERT INTO crypto_shadow_context (trade_id, user_id, strategy, symbol, direction, liquidity_usd, change_1h, change_24h, volume_24h_usd, atr_pct,
            h1_trend, h4_trend, htf_aligned, live_gate_blocked, btc_change_24h, hour_utc, day_of_week, score, tags, advice_at_entry,
-           buy_share_h1, buy_share_h24, txns_h1, txns_h24, buyers_h1, sellers_h1, market_cap_usd, token_age_hours, new_token)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29) ON CONFLICT (trade_id) DO NOTHING`,
+           buy_share_h1, buy_share_h24, txns_h1, txns_h24, buyers_h1, sellers_h1, market_cap_usd, token_age_hours, new_token,
+           judge_verdict, judge_ai_direction, judge_confidence, judge_reason, judge_failure)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34) ON CONFLICT (trade_id) DO NOTHING`,
         [
           id,
           userId,
@@ -14425,7 +15022,12 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
           fl?.h1.sellers ?? null,
           ctx.market_cap_usd,
           ctx.token_age_hours,
-          !!uni.newToken
+          !!uni.newToken,
+          judge?.verdict ?? null,
+          judge?.aiDirection ?? null,
+          judge?.confidence ?? null,
+          judge?.reason ?? null,
+          judge?.failure ?? null
         ]
       ).catch(() => {
       });
@@ -14435,7 +15037,7 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
   }
   return { opened, closed };
 }
-var num4, shadowAllEnabled, MAX_OPEN, MAX_PER_STRAT, COOLDOWN_MS, EVERY_MS, NOTIONAL, _ensured2, _statsCache, _lastRun;
+var num4, shadowAllEnabled, MAX_OPEN, MAX_PER_STRAT, COOLDOWN_MS, EVERY_MS, NOTIONAL, _ensured2, _statsCache, cryptoShadowAiJudgeOn, JUDGE_TIMEOUT_MS, NO_VERDICT, _judgeStatsCache, _pct, _r, _usd, _lastRun;
 var init_crypto_shadow = __esm({
   "server/services/crypto-shadow.ts"() {
     "use strict";
@@ -14455,6 +15057,13 @@ var init_crypto_shadow = __esm({
     NOTIONAL = () => num4("CRYPTO_SHADOW_NOTIONAL_USD", 20);
     _ensured2 = null;
     _statsCache = /* @__PURE__ */ new Map();
+    cryptoShadowAiJudgeOn = () => process.env.CRYPTO_SHADOW_AI_JUDGE !== "off";
+    JUDGE_TIMEOUT_MS = () => num4("CRYPTO_SHADOW_AI_JUDGE_TIMEOUT_MS", 3e4);
+    NO_VERDICT = (failure) => ({ verdict: "no_verdict", aiDirection: null, confidence: null, reason: null, failure });
+    _judgeStatsCache = /* @__PURE__ */ new Map();
+    _pct = (x) => `${x >= 0 ? "+" : ""}${x.toFixed(2)}%`;
+    _r = (x) => x == null ? "n/a" : `${x >= 0 ? "+" : ""}${x.toFixed(2)}R`;
+    _usd = (x) => x >= 1e9 ? `$${(x / 1e9).toFixed(1)}B` : x >= 1e6 ? `$${(x / 1e6).toFixed(1)}M` : x >= 1e3 ? `$${Math.round(x / 1e3)}k` : `$${Math.round(x)}`;
     _lastRun = /* @__PURE__ */ new Map();
   }
 });
@@ -16693,7 +17302,7 @@ async function computePacePlan(userId, cfg) {
 }
 function getPacePlan(userId, cfg) {
   const p2 = plans.get(userId);
-  if ((!p2 || Date.now() - Date.parse(p2.computedAt) > TTL_MS3) && !loading.has(userId)) {
+  if ((!p2 || Date.now() - Date.parse(p2.computedAt) > TTL_MS5) && !loading.has(userId)) {
     loading.add(userId);
     computePacePlan(userId, cfg).then((r) => plans.set(userId, r)).catch(() => {
     }).finally(() => loading.delete(userId));
@@ -16722,13 +17331,13 @@ ${later.length ? `- Best windows later: ${later.join("; ")}.
 ` : ""}- Catch up by picking BETTER windows, never by bigger size: risk per trade, daily loss limit and the consistency cap are fixed.${plan.mode === "CAPPED" ? " The goal cannot be closed inside the consistency cap this week \u2014 aim for the cap, not the full deficit." : ""}${plan.mode === "AHEAD" ? " Goal reached \u2014 only A+ setups." : ""}
 `;
 }
-var SOURCES, TTL_MS3, plans, loading;
+var SOURCES, TTL_MS5, plans, loading;
 var init_goal_pace = __esm({
   "server/services/goal-pace.ts"() {
     "use strict";
     init_session();
     SOURCES = ["tradelocker_auto", "tradelocker", "mt5_ea", "dxtrade"];
-    TTL_MS3 = 15 * 6e4;
+    TTL_MS5 = 15 * 6e4;
     plans = /* @__PURE__ */ new Map();
     loading = /* @__PURE__ */ new Set();
   }
@@ -17561,9 +18170,9 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
             const _off = _fill - _plan;
             const _dec = /^XAU/.test(_w) ? 2 : /^(XAG|BTC|ETH|LTC|XRP|SOL|ADA|DOGE)/.test(_w) ? -1 : /JPY/.test(_w) ? 3 : /^[A-Z]{6}$/.test(_w) ? 5 : -1;
             if (_dec >= 0 && _pos && _fill > 0 && Math.abs(_off) > _slDist * 0.15) {
-              const _r = (x) => Number(x.toFixed(_dec));
-              const newSl = _r(_sl + _off);
-              const newTp = _tp > 0 ? _r(_tp + _off) : void 0;
+              const _r2 = (x) => Number(x.toFixed(_dec));
+              const newSl = _r2(_sl + _off);
+              const newTp = _tp > 0 ? _r2(_tp + _off) : void 0;
               const mod = await service.modifyPosition(String(_pos.id), newSl, newTp);
               console.warn(`[TradeLocker Execute] RE-ANCHOR ${_w} ${signal.direction} on ${connection2.accountId}: fill ${_fill} vs plan ${_plan} \u2192 SL ${_sl}\u2192${newSl}, TP ${_tp}\u2192${newTp} (${mod.success ? "ok" : "FAILED: " + mod.error})`);
             }
@@ -23403,122 +24012,6 @@ var init_orderflow_strategy = __esm({
   }
 });
 
-// server/services/shadow-lessons.ts
-var shadow_lessons_exports = {};
-__export(shadow_lessons_exports, {
-  computeShadowLessons: () => computeShadowLessons,
-  getShadowLessons: () => getShadowLessons,
-  getShadowLessonsText: () => getShadowLessonsText
-});
-async function computeShadowLessons(userId, days = 30) {
-  await ensureShadowLedger();
-  const dims = [
-    { dimension: "session", expr: `session` },
-    { dimension: "strategy", expr: `strategy` },
-    { dimension: "strategy+symbol", expr: `strategy || ' \xB7 ' || symbol` },
-    { dimension: "direction", expr: `direction` },
-    { dimension: "day_type", expr: `day_type`, where: `day_type IS NOT NULL` },
-    { dimension: "h4_aligned", expr: `CASE WHEN h4_aligned THEN 'with the H4 trend' ELSE 'against the H4 trend' END`, where: `context_reliable AND h4_aligned IS NOT NULL` },
-    { dimension: "strategy+direction", expr: `strategy || ' \xB7 ' || direction` }
-  ];
-  const out = [];
-  for (const d of dims) {
-    const { rows } = await pool.query(
-      `SELECT source, ${d.expr} AS key, count(*)::int AS trades, count(*) FILTER (WHERE result='WIN')::int AS wins,
-              avg(r_multiple)::float AS avg_r, sum(r_multiple)::float AS total_r
-         FROM shadow_ledger
-        WHERE user_id=$1 AND closed_at >= now() - ($2 || ' days')::interval AND r_multiple IS NOT NULL ${d.where ? `AND ${d.where}` : ""}
-        GROUP BY 1,2 HAVING count(*) >= $3`,
-      [userId, String(days), MIN_TRADES4()]
-    );
-    for (const r of rows) {
-      const avgR = Number(r.avg_r) || 0;
-      if (Math.abs(avgR) < EDGE_R() || r.key == null) continue;
-      const winRate2 = r.trades ? r.wins / r.trades : 0;
-      const verdict = avgR > 0 ? "favor" : "avoid";
-      const strength = r.trades >= 30 ? "strong" : r.trades >= 15 ? "moderate" : "early";
-      const keyLabel = String(r.key).replace(/\bM1\b/g, "Model 1 (range)").replace(/\bM2\b/g, "Model 2 (trend)");
-      const label = `${SOURCE_LABEL[r.source] || r.source} \xB7 ${d.dimension.replace("+", " + ").replace("_", " ")} ${keyLabel}`;
-      out.push({
-        source: r.source,
-        dimension: d.dimension,
-        key: String(r.key),
-        trades: r.trades,
-        wins: r.wins,
-        winRate: winRate2,
-        avgR,
-        totalR: Number(r.total_r) || 0,
-        verdict,
-        strength,
-        text: `${label}: ${r.trades} trades, ${Math.round(winRate2 * 100)}% wins, ${avgR >= 0 ? "+" : ""}${avgR.toFixed(2)}R avg \u2192 ${verdict === "favor" ? "FAVOR" : "AVOID"} (${strength} evidence)`
-      });
-    }
-  }
-  out.sort((a, b) => b.trades - a.trades || Math.abs(b.avgR) - Math.abs(a.avgR));
-  return out;
-}
-async function getShadowLessons(userId, force = false) {
-  const hit = _mem.get(userId);
-  if (!force && hit && Date.now() - hit.at < TTL_MS4()) return hit;
-  try {
-    if (!force) {
-      const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-      const stored = await getRuntimeStateStrict2("shadow_lessons", String(userId)).catch(() => null);
-      if (stored && Date.now() - Number(stored.at) < TTL_MS4() && Array.isArray(stored.lessons)) {
-        _mem.set(userId, stored);
-        return stored;
-      }
-    }
-    const fresh = { at: Date.now(), lessons: await computeShadowLessons(userId) };
-    _mem.set(userId, fresh);
-    const { saveRuntimeState: saveRuntimeState2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-    saveRuntimeState2("shadow_lessons", String(userId), fresh);
-    return fresh;
-  } catch (e) {
-    console.error("[shadow-lessons] compute failed (non-fatal):", e?.message || e);
-    return hit || { at: 0, lessons: [] };
-  }
-}
-async function getShadowLessonsText(userId, engine, max = 10) {
-  if (process.env.SHADOW_LESSONS === "off") return "";
-  try {
-    const { lessons } = await getShadowLessons(userId);
-    const mine = lessons.filter((l) => (ENGINE_SOURCES[engine] || []).includes(l.source)).slice(0, max);
-    if (!mine.length) return "";
-    return `WHAT OUR SHADOW / PAPER TRADING HAS LEARNED (last 30 days, real outcomes \u2014 weigh these; don't ignore strong ones):
-${mine.map((l) => `- ${l.text}`).join("\n")}
-Lean toward setups matching FAVOR lessons and be much more selective with setups matching AVOID lessons. "Early" evidence is a hint, "strong" evidence is reliable.`;
-  } catch {
-    return "";
-  }
-}
-var MIN_TRADES4, EDGE_R, TTL_MS4, SOURCE_LABEL, ENGINE_SOURCES, _mem;
-var init_shadow_lessons = __esm({
-  "server/services/shadow-lessons.ts"() {
-    "use strict";
-    init_db();
-    init_shadow_ledger();
-    MIN_TRADES4 = () => Number(process.env.SHADOW_LESSON_MIN_TRADES ?? 8);
-    EDGE_R = () => Number(process.env.SHADOW_LESSON_EDGE_R ?? 0.3);
-    TTL_MS4 = () => Math.max(1, Number(process.env.SHADOW_LESSONS_TTL_H ?? 6)) * 36e5;
-    SOURCE_LABEL = {
-      fx_shadow: "FX shadow models",
-      crypto_shadow: "Crypto shadow models",
-      crypto_paper: "Crypto paper engine",
-      crypto_shadow_all: "Crypto shadow (all strategies, longs)",
-      crypto_shadow_short: "Crypto shadow (hypothetical shorts)",
-      sol_paper: "Sol paper engine",
-      sol_shadow: "Sol shadow tests"
-    };
-    ENGINE_SOURCES = {
-      fx: ["fx_shadow"],
-      crypto: ["crypto_paper", "crypto_shadow", "crypto_shadow_all"],
-      sol: ["sol_paper", "sol_shadow"]
-    };
-    _mem = /* @__PURE__ */ new Map();
-  }
-});
-
 // server/services/ai-model-service.ts
 var ai_model_service_exports = {};
 __export(ai_model_service_exports, {
@@ -24517,7 +25010,7 @@ async function hourFilterVerdict(userId, hourUtc) {
   if (process.env.HOUR_FILTER_ENABLED === "false") return null;
   try {
     let entry = cache6.get(userId);
-    if (!entry || Date.now() - entry.at > TTL_MS5) {
+    if (!entry || Date.now() - entry.at > TTL_MS6) {
       const fresh = await compute2(userId);
       entry = { at: Date.now(), ...fresh };
       cache6.set(userId, entry);
@@ -24536,13 +25029,13 @@ async function hourFilterTable(userId) {
   const { stats, blocked } = await compute2(userId);
   return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
 }
-var MIN_SAMPLE, WR_FLOOR, TTL_MS5, LOOKBACK_DAYS3, cache6;
+var MIN_SAMPLE, WR_FLOOR, TTL_MS6, LOOKBACK_DAYS3, cache6;
 var init_hour_filter = __esm({
   "server/services/hour-filter.ts"() {
     "use strict";
     MIN_SAMPLE = Number(process.env.HOUR_FILTER_MIN_TRADES ?? 15);
     WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
-    TTL_MS5 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
+    TTL_MS6 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
     LOOKBACK_DAYS3 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
     cache6 = /* @__PURE__ */ new Map();
   }
@@ -31679,18 +32172,18 @@ function startLiveEngine(userId, config) {
       st.pnlSession = st.pnlToday;
       const _bal = fullConfig.accountBalance;
       if (_bal > 0) {
-        const _pct = st.pnlToday / _bal * 100;
+        const _pct2 = st.pnlToday / _bal * 100;
         const _lossLimit = fullConfig.dailyLossLimit ?? 0;
-        if (_lossLimit > 0 && _pct <= -_lossLimit) {
+        if (_lossLimit > 0 && _pct2 <= -_lossLimit) {
           st.dailyLossHalted = true;
           st.dailyLossHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
-          addActivity(userId, { type: "error", message: `\u{1F6A8} RESTART: daily loss ${_pct.toFixed(2)}% already breaches the ${_lossLimit}% limit \u2014 engine resumed in HALTED state (it did not reset).` });
+          addActivity(userId, { type: "error", message: `\u{1F6A8} RESTART: daily loss ${_pct2.toFixed(2)}% already breaches the ${_lossLimit}% limit \u2014 engine resumed in HALTED state (it did not reset).` });
         }
         const _profitTarget = fullConfig.dailyProfitTarget ?? 0;
-        if (_profitTarget > 0 && _pct >= _profitTarget) {
+        if (_profitTarget > 0 && _pct2 >= _profitTarget) {
           st.dailyProfitHalted = true;
           st.dailyProfitHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
-          addActivity(userId, { type: "info", message: `\u{1F3C6} RESTART: daily gain +${_pct.toFixed(2)}% already meets the ${_profitTarget}% target \u2014 engine resumed HALTED to protect gains.` });
+          addActivity(userId, { type: "info", message: `\u{1F3C6} RESTART: daily gain +${_pct2.toFixed(2)}% already meets the ${_profitTarget}% target \u2014 engine resumed HALTED to protect gains.` });
         }
       }
       console.log(`[VEDD Live Engine] Restored day state for user ${userId}: ${rows.length} day(s), pnlToday=${st.pnlToday}, tradesOpenedToday=${st.tradesOpenedToday}, lossHalted=${st.dailyLossHalted}, profitHalted=${st.dailyProfitHalted}`);
@@ -50255,7 +50748,7 @@ async function cryptocomTicker(sym2) {
 async function getAggregatedQuote(symbol) {
   const sym2 = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const hit = _cache7.get(sym2);
-  if (hit && Date.now() - hit.ts < TTL_MS6) return hit.q;
+  if (hit && Date.now() - hit.ts < TTL_MS7) return hit.q;
   const venues = await Promise.all([coinbaseSpot(sym2), krakenTicker(sym2), geminiTicker(sym2), cryptocomTicker(sym2)]);
   const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
   let best = null;
@@ -50274,11 +50767,11 @@ async function getAggregatedQuotes(symbols) {
   const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
   return Promise.all(uniq.map(getAggregatedQuote));
 }
-var TTL_MS6, _cache7;
+var TTL_MS7, _cache7;
 var init_crypto_market_data = __esm({
   "server/services/crypto-market-data.ts"() {
     "use strict";
-    TTL_MS6 = 15e3;
+    TTL_MS7 = 15e3;
     _cache7 = /* @__PURE__ */ new Map();
   }
 });
@@ -59239,87 +59732,6 @@ var init_image_processor = __esm({
   }
 });
 
-// server/services/ai-confirmation-cache.ts
-var ai_confirmation_cache_exports = {};
-__export(ai_confirmation_cache_exports, {
-  confirmationCacheStats: () => confirmationCacheStats,
-  createConfirmationCache: () => createConfirmationCache,
-  getCachedConfirmation: () => getCachedConfirmation,
-  putCachedConfirmation: () => putCachedConfirmation
-});
-function createConfirmationCache() {
-  const cache11 = /* @__PURE__ */ new Map();
-  const lastCallAt2 = /* @__PURE__ */ new Map();
-  let hits = 0, misses = 0, throttled = 0;
-  function bandKey(userId, symbol, timeframe, direction, eaConf, _price, discriminator) {
-    const cBand = Math.round((Number(eaConf) || 0) / CONF_BAND);
-    return `${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ""}:${cBand}`;
-  }
-  function symbolKey(userId, symbol, timeframe) {
-    return `${userId}:${symbol}:${timeframe}`;
-  }
-  function get(userId, symbol, timeframe, direction, eaConfidence, price, discriminator) {
-    const now = Date.now();
-    const k2 = bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator);
-    const hit = cache11.get(k2);
-    if (hit && now - hit.at < TTL_MS7) {
-      hits++;
-      return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
-    }
-    const sk = symbolKey(userId, symbol, timeframe);
-    const last2 = lastCallAt2.get(sk) ?? 0;
-    if (now - last2 < FLOOR_MS) {
-      let best = null;
-      const prefix = `${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ""}:`;
-      for (const [ck, v] of Array.from(cache11.entries())) {
-        if (!ck.startsWith(prefix)) continue;
-        if (!/^\d+$/.test(ck.slice(prefix.length))) continue;
-        if (now - v.at > STALE_USABLE_MS) continue;
-        if (!best || v.at > best.at) best = v;
-      }
-      if (best) {
-        throttled++;
-        return { verdict: best.verdict, reason: `throttled (floor ${Math.round(FLOOR_MS / 1e3)}s) \u2014 reusing verdict from ${Math.round((now - best.at) / 1e3)}s ago` };
-      }
-    }
-    misses++;
-    return null;
-  }
-  function put(userId, symbol, timeframe, direction, eaConfidence, price, verdict, discriminator) {
-    const now = Date.now();
-    cache11.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator), { verdict, at: now, eaConfidence, price });
-    lastCallAt2.set(symbolKey(userId, symbol, timeframe), now);
-    if (cache11.size > 500) {
-      for (const [k2, v] of Array.from(cache11.entries())) if (now - v.at > STALE_USABLE_MS) cache11.delete(k2);
-    }
-  }
-  function stats() {
-    const total = hits + misses + throttled;
-    return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache11.size };
-  }
-  return { get, put, stats };
-}
-function getCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price) {
-  return fxConfirmationCache.get(userId, symbol, timeframe, direction, eaConfidence, price);
-}
-function putCachedConfirmation(userId, symbol, timeframe, direction, eaConfidence, price, verdict) {
-  fxConfirmationCache.put(userId, symbol, timeframe, direction, eaConfidence, price, verdict);
-}
-function confirmationCacheStats() {
-  return fxConfirmationCache.stats();
-}
-var TTL_MS7, FLOOR_MS, STALE_USABLE_MS, CONF_BAND, fxConfirmationCache;
-var init_ai_confirmation_cache = __esm({
-  "server/services/ai-confirmation-cache.ts"() {
-    "use strict";
-    TTL_MS7 = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1e3);
-    FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1e3);
-    STALE_USABLE_MS = Number(process.env.AI_CONFIRM_STALE_MS ?? 10 * 60 * 1e3);
-    CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);
-    fxConfirmationCache = createConfirmationCache();
-  }
-});
-
 // server/services/vedd-token-service.ts
 var vedd_token_service_exports = {};
 __export(vedd_token_service_exports, {
@@ -64119,10 +64531,17 @@ async function storePromotions(userId, promotions) {
   saveRuntimeState(SCOPE3, String(userId), promotions);
 }
 async function getCryptoPromotionPanel(userId) {
-  const [stats, promotions] = await Promise.all([computeCryptoShadowStats(userId), getCryptoPromotions(userId)]);
+  const [stats, promotions, aiJudge] = await Promise.all([
+    computeCryptoShadowStats(userId),
+    getCryptoPromotions(userId),
+    // The AI judge scoreboard rides this panel payload (its section sits
+    // directly under this one on Guards & Trails). Evidence only — a
+    // judge read failure must never take the promotions panel down.
+    computeCryptoShadowAiJudge(userId).catch(() => [])
+  ]);
   const activeKeys = new Set(promotions.filter((p2) => p2.active).map((p2) => `${p2.strategy}|${p2.dim}|${p2.bucket}`));
   const candidates = stats.filter((s) => s.verdict === "avoid").map((s) => ({ ...s, alreadyGuarded: activeKeys.has(`${s.strategy}|${s.dim}|${s.bucket}`) })).sort((a, b) => b.n - a.n);
-  return { candidates, promotions };
+  return { candidates, promotions, aiJudge };
 }
 async function promoteCryptoBucket(userId, sel) {
   const stats = await computeCryptoShadowStats(userId, true);
@@ -66566,153 +66985,6 @@ var init_defi_executor = __esm({
   }
 });
 
-// server/services/crypto-ai-confirmation.ts
-var crypto_ai_confirmation_exports = {};
-__export(crypto_ai_confirmation_exports, {
-  cryptoConfirmationCacheStats: () => cryptoConfirmationCacheStats,
-  getCryptoAiConfirmation: () => getCryptoAiConfirmation
-});
-function cryptoConfirmationCacheStats() {
-  return cryptoConfirmationCache.stats();
-}
-async function getCryptoAiConfirmation(opts) {
-  try {
-    const cached2 = cryptoConfirmationCache.get(
-      opts.userId,
-      opts.symbol,
-      CONFIRM_TIMEFRAME,
-      opts.direction,
-      opts.quantScore,
-      opts.price,
-      opts.strategy
-    );
-    if (cached2) {
-      console.log(`[crypto-ai-confirmation] ${opts.symbol} ${opts.direction}: verdict reused \u2014 ${cached2.reason}`);
-      return cached2.verdict;
-    }
-    const client2 = await getUniversalAIClientForUser(opts.userId, { engine: true });
-    const recent = opts.candles.slice(-20);
-    const candleSummary = recent.map((c) => {
-      const tNum = Number(c.t);
-      const t = Number.isFinite(tNum) && tNum > 0 ? new Date(tNum * 1e3).toISOString().slice(11, 16) : "?";
-      return `${t} O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${Math.round(c.v ?? 0)}`;
-    }).join("\n");
-    const ind = opts.indicators || {};
-    const indicatorSummary = [
-      `RSI: ${ind.rsi ?? "n/a"}`,
-      `ADX: ${ind.adx ?? "n/a"}  +DI: ${ind.plusDI ?? "n/a"}  -DI: ${ind.minusDI ?? "n/a"}`,
-      `MACD histogram: ${ind.macdHistogram ?? ind.macd?.histogram ?? "n/a"}`,
-      `Trend: ${ind.trend ?? "n/a"}`,
-      `Relative volume: ${ind.relativeVolume ?? "n/a"}`,
-      `Volume trend: ${ind.volumeTrend ?? "n/a"}`
-    ].join("\n  ");
-    const system = 'You are a disciplined crypto perpetual futures trader giving a second, independent opinion on a signal a technical scanner already produced. Judge this on trend strength, momentum, volume/order-flow confirmation, and recent price structure. This is a 24/7 market with no session close or reopen -- do NOT reach for forex/ICT concepts like order blocks, liquidity sweeps, discount/premium zones, or session/macro-window timing; none of that describes how crypto perpetuals actually trade, and grading a setup down for lacking FX-specific structure it was never going to have is not a real assessment. Respond ONLY with JSON: {"confirmed": boolean, "direction": "BUY"|"SELL"|"NEUTRAL", "confidence": number (0-100), "reasoning": string}.';
-    const _lessons = await Promise.resolve().then(() => (init_shadow_lessons(), shadow_lessons_exports)).then((m) => m.getShadowLessonsText(opts.userId, "crypto", 8)).catch(() => "");
-    const _shadowStats = await Promise.resolve().then(() => (init_crypto_shadow(), crypto_shadow_exports)).then((m) => m.getCryptoShadowStatsText(opts.userId, 12)).catch(() => "");
-    const user = `${_lessons ? `${_lessons}
-
-` : ""}${_shadowStats ? `${_shadowStats}
-
-` : ""}SYMBOL: ${opts.symbol}
-PROPOSED: ${opts.direction} @ ${opts.price}
-SCANNER STRATEGY: ${opts.strategy} (score ${opts.quantScore}/100)
-SCANNER REASONING: ${opts.quantReasoning}
-
-INDICATORS:
-  ${indicatorSummary}
-
-RECENT CANDLES (oldest to most recent):
-${candleSummary}
-
-Would you independently confirm this ${opts.direction} setup on its own merits as a crypto perpetual trade?`;
-    const modelId = client2.defaultModel || "gpt-4o-mini";
-    const baseRequest = {
-      model: modelId,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user }
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.3
-    };
-    let r = await client2.chat.completions.create({ ...baseRequest, max_tokens: 700 });
-    let content = r.choices?.[0]?.message?.content || "";
-    if (!content && r.choices?.[0]?.finish_reason === "length") {
-      console.warn(`[crypto-ai-confirmation] ${opts.symbol}: 700-token budget produced zero content (finish_reason=length) on ${modelId} -- retrying once at 2500.`);
-      r = await client2.chat.completions.create({ ...baseRequest, max_tokens: 2500 });
-      content = r.choices?.[0]?.message?.content || "";
-    }
-    let parsed;
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      const m = content.match(/\{[\s\S]*\}/);
-      try {
-        if (!m) throw new Error("no braces found");
-        parsed = JSON.parse(m[0]);
-      } catch {
-        console.warn(
-          `[crypto-ai-confirmation] ${opts.symbol}: primary JSON parse failed. finish_reason=${r.choices?.[0]?.finish_reason ?? "unknown"} model=${client2.defaultModel ?? "unknown"} contentLength=${content.length} content=${JSON.stringify(content)}`
-        );
-        const confirmedM = content.match(/"confirmed"\s*:\s*(true|false)/i);
-        const directionM = content.match(/"direction"\s*:\s*"(BUY|SELL|NEUTRAL)"/i);
-        const confidenceM = content.match(/"confidence"\s*:\s*(-?\d+(?:\.\d+)?)/i);
-        const reasoningM = content.match(/"reasoning"\s*:\s*"([\s\S]*)$/i);
-        if (!confirmedM && !directionM && !confidenceM) {
-          throw new Error(`AI returned no parseable JSON (truncated, ${content.length} chars)`);
-        }
-        parsed = {
-          confirmed: confirmedM ? confirmedM[1].toLowerCase() === "true" : false,
-          direction: directionM ? directionM[1].toUpperCase() : "NEUTRAL",
-          confidence: confidenceM ? Number(confidenceM[1]) : 0,
-          reasoning: reasoningM ? reasoningM[1].replace(/\\"/g, '"').trim() + " [reasoning cut off \u2014 response truncated]" : "[response truncated before reasoning was written]"
-        };
-      }
-    }
-    const confidence = coerceConfidence(parsed.confidence);
-    noteConfidenceSample(confidence);
-    const direction = ["BUY", "SELL", "NEUTRAL"].includes(parsed.direction) ? parsed.direction : "NEUTRAL";
-    const verdict = {
-      confirmed: !!parsed.confirmed,
-      aiDirection: direction,
-      aiConfidence: confidence,
-      reasoning: String(parsed.reasoning || "no reasoning returned"),
-      modelUsed: client2.defaultModel
-    };
-    cryptoConfirmationCache.put(
-      opts.userId,
-      opts.symbol,
-      CONFIRM_TIMEFRAME,
-      opts.direction,
-      opts.quantScore,
-      opts.price,
-      verdict,
-      opts.strategy
-    );
-    return verdict;
-  } catch (err) {
-    const statusCode = err?.status || err?.statusCode || err?.response?.status;
-    return {
-      confirmed: false,
-      aiDirection: "NEUTRAL",
-      aiConfidence: 0,
-      reasoning: `Crypto AI confirmation error: ${err?.message ?? err}`,
-      aiError: true,
-      aiErrorStatus: typeof statusCode === "number" ? statusCode : null
-    };
-  }
-}
-var cryptoConfirmationCache, CONFIRM_TIMEFRAME;
-var init_crypto_ai_confirmation = __esm({
-  "server/services/crypto-ai-confirmation.ts"() {
-    "use strict";
-    init_openai();
-    init_ai_confirmation_cache();
-    cryptoConfirmationCache = createConfirmationCache();
-    CONFIRM_TIMEFRAME = "5m";
-  }
-});
-
 // server/services/cryptocom-scanner.ts
 var cryptocom_scanner_exports = {};
 __export(cryptocom_scanner_exports, {
@@ -68360,13 +68632,13 @@ async function scanOneUser(userId) {
         ...Object.fromEntries(Object.entries(STRATEGY_RUNNERS).filter(([id]) => runnerEnabled2(id))),
         ...makePortRunners2(fetchBars, (sym2) => getDefiUniverseEntry(sym2, _chainS))
       };
-      const _r = await runCryptoShadowAll2(userId, config, _defiSyms, _chainS, config.defiSlippageBps ?? 100, {
+      const _r2 = await runCryptoShadowAll2(userId, config, _defiSyms, _chainS, config.defiSlippageBps ?? 100, {
         runners: _shadowRunners,
         gate: (sym2, r, c) => applySignalGates(sym2, r, c),
         universe: (sym2) => getDefiUniverseEntry(sym2, _chainS),
         h1: (sym2) => h1Atr(sym2, _chainS, getDefiUniverseEntry(sym2, _chainS)?.poolAddress)
       });
-      if (_r.opened > 0) await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "watching", strategy: "shadow_all", reasoning: `\u{1F576}\uFE0F SHADOW (all strategies): ${_r.opened} virtual entr${_r.opened > 1 ? "ies" : "y"} recorded \u2014 no wallet, not paper.`, score: null, price: null, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+      if (_r2.opened > 0) await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "watching", strategy: "shadow_all", reasoning: `\u{1F576}\uFE0F SHADOW (all strategies): ${_r2.opened} virtual entr${_r2.opened > 1 ? "ies" : "y"} recorded \u2014 no wallet, not paper.`, score: null, price: null, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
       });
     }
   } catch (e) {
@@ -88725,9 +88997,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "2ffd636e-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-22T11:15:46.906Z";
+var BUILD_COMMIT = "6f8461a0";
+var BUILD_BRANCH = "feat/crypto-shadow-ai-judge";
+var BUILT_AT = "2026-11-22T17:27:14.606Z";
 
 // server/stripe.ts
 init_db();
@@ -121659,10 +121931,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         const target = await storage.getUser(targetId);
         if (!target || target.referredBy !== u.id) return res2.status(403).json({ error: "You can only enroll traders you recruited" });
       }
-      const _pct = typeof pct3 === "number" && pct3 > 0 && pct3 <= 100 ? pct3 : 30;
+      const _pct2 = typeof pct3 === "number" && pct3 > 0 && pct3 <= 100 ? pct3 : 30;
       const { enrollProfitSplit: enrollProfitSplit2 } = await Promise.resolve().then(() => (init_profit_split(), profit_split_exports));
-      await enrollProfitSplit2(targetId, u.isAdmin ? req.body.enrolledBy ?? null : u.id, _pct);
-      res2.json({ success: true, userId: targetId, pct: _pct });
+      await enrollProfitSplit2(targetId, u.isAdmin ? req.body.enrolledBy ?? null : u.id, _pct2);
+      res2.json({ success: true, userId: targetId, pct: _pct2 });
     } catch (e) {
       res2.status(500).json({ error: e.message });
     }
