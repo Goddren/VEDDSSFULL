@@ -1266,7 +1266,7 @@ export async function decideModelIdeas(userId: number, session: string, pairs: A
   let ai: any;
   try {
     const { getUniversalAIClientForUser } = await import('../openai');
-    ai = await getUniversalAIClientForUser(userId);
+    ai = await getUniversalAIClientForUser(userId, { engine: true });
   } catch { out.failed = true; return out; }
 
   for (const p of pairs) {

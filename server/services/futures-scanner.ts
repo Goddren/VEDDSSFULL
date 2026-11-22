@@ -532,7 +532,7 @@ async function getFuturesAiConfirmation(userId: number, symbol: string, strategy
   try {
     const { getUniversalAIClientForUser } = await import('../openai');
     // Critical: this confirmation gates live futures trades.
-    const client = await getUniversalAIClientForUser(userId, { critical: true });
+    const client = await getUniversalAIClientForUser(userId, { critical: true, engine: true });
     const system = 'You are a disciplined futures-trading second opinion. Given a technical signal from a rules-based scanner, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string (1-2 sentences)}.';
     const user = `Symbol: ${symbol}\nStrategy: ${strategy}\nDirection: ${direction}\nADX: ${data.adx?.adx ?? 'n/a'}\nRSI: ${data.rsi?.value ?? 'n/a'}\nMACD histogram: ${data.macd?.histogram ?? 'n/a'}\nTrend: ${data.trend ?? 'n/a'}\n\nWould you confirm this trade?`;
     const r = await (client as any).chat.completions.create({
@@ -899,7 +899,8 @@ async function runFuturesAIAnalysis(userId: number, marketAnalysis: Record<strin
   try {
     const { getUniversalAIClientForUser } = await import('../openai');
     // Critical: runFuturesAIAnalysis is the futures engine's decision call.
-    openai = await getUniversalAIClientForUser(userId, { critical: true });
+    // Engine: gated + metered against the shared daily AI budget.
+    openai = await getUniversalAIClientForUser(userId, { critical: true, engine: true });
   } catch {
     addActivity(userId, { type: 'error', message: 'No AI API key configured — futures scanner cannot analyze.' });
     return;
@@ -913,7 +914,11 @@ async function runFuturesAIAnalysis(userId: number, marketAnalysis: Record<strin
       const OpenAI = (await import('openai')).default;
       const groq = new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1', maxRetries: 4, timeout: 90000 });
       (groq as any).defaultModel = 'openai/gpt-oss-120b';
-      openai = groq;
+      (groq as any).provider = 'groq';
+      // The raw Groq override bypasses the universal builders — wrap it
+      // so its calls stay inside the shared budget gate + telemetry.
+      const { wrapEngineAiClient } = await import('../openai');
+      openai = wrapEngineAiClient(groq as any, userId);
       _usingGroq = true;
     } catch { /* fall back to primary */ }
   }

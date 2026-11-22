@@ -326,6 +326,16 @@ export async function runMultiModelAnalysis(
 ): Promise<EnsembleResult> {
   const { storage } = await import('../storage');
 
+  // All-engines AI budget (2026-11-21): this ensemble is an autonomous
+  // engine caller (live-trading-engine). The gate itself sits inside the
+  // try below, alongside the mode switch: refusing there throws the
+  // provider-shaped budget error BEFORE any provider call is bought, and
+  // this function's own failure handling converts it to the standard
+  // empty-result shape a total provider outage produces — so the caller
+  // falls back exactly as it does on provider failure. Fails OPEN if the
+  // budget module itself cannot load (same rule as the budget gate).
+  const budgetMod = await import('./ai-engine-budget').catch(() => null);
+
   async function getApiKeyForModel(modelDef: AIModelProvider): Promise<string | null> {
     if (modelDef.provider === 'openai') return null;
     try {
@@ -356,6 +366,17 @@ export async function runMultiModelAnalysis(
       apiKey,
       modelDef.provider === 'openai' ? openaiInstance : undefined
     );
+
+    // Meter the answered model call against the shared daily pool —
+    // EXCEPT the openai provider when an instance was supplied: that
+    // instance is the engine-marked universal client, which meters the
+    // call itself in its failover wrapper (metering here too would
+    // double-count). The direct-provider calls (anthropic/google/groq/
+    // mistral/deepseek SDKs) bypass the universal client, so they meter
+    // here. One answered model call = 1 unit, same as everywhere else.
+    if (budgetMod?.aiBudgetAllEnginesEnabled() && !(modelDef.provider === 'openai' && openaiInstance)) {
+      try { budgetMod.meterEngineAiConfirmation(userId, 1); } catch { /* metering never breaks a call */ }
+    }
 
     const elapsed = Date.now() - startTime;
     console.log(`[Multi-Model] ${modelDef.name} responded in ${elapsed}ms`);
@@ -395,6 +416,12 @@ export async function runMultiModelAnalysis(
   let capturedCommentary: EnsembleResult['commentary'] = undefined;
 
   try {
+    // All-engines AI budget gate (see budgetMod above): refuse before
+    // buying any model call when the shared daily pool is exhausted.
+    if (budgetMod?.aiBudgetAllEnginesEnabled() && !(await budgetMod.engineAiBudgetAllows(userId))) {
+      budgetMod.noteEngineAiBudgetBlock(userId);
+      throw budgetMod.engineAiBudgetError();
+    }
     switch (routingConfig.mode) {
       case 'single': {
         const decisions = await callModel(routingConfig.primaryModelId);

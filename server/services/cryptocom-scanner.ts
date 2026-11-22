@@ -1167,7 +1167,7 @@ function quantVerdictFromScore(score: number | null): QuantVerdict {
 async function getCryptocomAiConfirmationLite(userId: number, symbol: string, result: StrategyResult): Promise<{ confirmed: boolean; confidence: number; reasoning: string }> {
   try {
     const { getUniversalAIClientForUser } = await import('../openai');
-    const client = await getUniversalAIClientForUser(userId);
+    const client = await getUniversalAIClientForUser(userId, { engine: true });
     const system = 'You are a disciplined crypto perpetual futures second opinion. Given a rules-based signal, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string}.';
     const user = `Symbol: ${symbol}\nStrategy: ${result.strategy}\nDirection: ${result.direction}\nQuant score: ${result.score}/100\nPrice: ${result.price}\nDaily change %: ${result.dailyChangePercent}\nReasoning: ${result.reasoning}`;
     const r = await (client as any).chat.completions.create({

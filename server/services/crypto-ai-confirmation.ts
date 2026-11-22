@@ -81,7 +81,8 @@ export async function getCryptoAiConfirmation(opts: {
       return cached.verdict as CryptoAiConfirmation;
     }
 
-    const client: any = await getUniversalAIClientForUser(opts.userId);
+    // Engine caller: gated + metered against the shared daily AI budget.
+    const client: any = await getUniversalAIClientForUser(opts.userId, { engine: true });
 
     const recent = opts.candles.slice(-20);
     const candleSummary = recent
