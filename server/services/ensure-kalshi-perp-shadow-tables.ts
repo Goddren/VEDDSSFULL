@@ -41,6 +41,21 @@ export function ensureKalshiPerpShadowTables(): Promise<void> {
       .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_vah double precision`))
       .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_val double precision`))
       .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_position text`))
+      // AI judge build (2026-11-22, kalshi-perp-ai-judge.ts): the AI
+      // judge's verdict on each opened candidate, stamped at entry and
+      // scored against the outcome by the panel scoreboard. The judge
+      // NEVER gates — these columns are a record, not a decision. Rows
+      // opened before this build (or with the judge off) carry NULLs.
+      // ai_judge_failure: 'budget' | 'timeout' | 'provider' | 'bad_json'
+      // when the verdict is 'no_verdict'. ai_judge_metered: the candidate
+      // consumed an answered engine-marked AI call (metered once by the
+      // shared failover client against the daily engine pool).
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_verdict text`))
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_confidence double precision`))
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_reason text`))
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_model text`))
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_failure text`))
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_metered boolean`))
       // Exact-cost build (2026-11-16, kalshi-perp-costs.ts): funding
       // provenance + the in-window estimate carried on each trade.
       // funding_model: 'legacy' for every row opened before this build or

@@ -94,6 +94,17 @@
 // stop, 2R target, funding + cost model as every lane strategy (kill
 // switch KALSHI_FUNDING_FADE=off). Still SHADOW ONLY, same as the rest
 // of this lane: no new data source here can place an order.
+//
+// AI judge (2026-11-22, kalshi-perp-ai-judge.ts): a candidate that has
+// passed EVERY gate above and is about to open gets one AI verdict
+// (approve / reject / unsure), stamped on its context row and scored
+// against the outcome in the panel report. The verdict NEVER blocks,
+// sizes, or otherwise affects the entry — it is a judge collecting
+// evidence, not a gate. Only opening candidates are judged (blocked
+// candidates are never judged — cost guard), AI failures record
+// 'no_verdict' and the entry proceeds, and the call meters against the
+// shared engine AI pool exactly once via the engine-marked client.
+// Kill switch: KALSHI_PERP_AI_JUDGE=off.
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
 import { loopTick } from '../crash-heartbeat';
@@ -118,6 +129,11 @@ import {
   exactCostsEnabled, COST_MODEL_EXACT, COST_MODEL_LEGACY, PUBLISHED_FEE_SCHEDULE,
   roundTripCostBps, accrueFundingFromPrints, fundingPnlUsd, fundingFallbackApplies,
 } from './kalshi-perp-costs';
+import {
+  kalshiPerpAiJudgeEnabled, judgeKalshiPerpCandidate, aggregateAiJudgeScoreboard,
+  summarizeJudgeRows, strategyRecordFromRows, bucketEvidenceFor,
+  type PerpAiJudgeResult, type AiJudgeScoreboard, type JudgeTickerHistory, type JudgeStrategyRecord,
+} from './kalshi-perp-ai-judge';
 
 export const stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== 'off';
 
@@ -477,6 +493,18 @@ export interface KalshiPerpBrainPanelReport {
   }>;
 }
 
+export interface KalshiAiJudgePanelReport {
+  enabled: boolean;
+  /** Closed, stats-valid trades in the window that carry a judge
+   *  verdict on their context row — the scoreboard's evidence base. */
+  judgedCloses: number;
+  /** Per-verdict outcomes (win rate / avg R / est. net, all net of
+   *  funding + costs as booked at close). The judge does NOT block
+   *  trades — 'reject' rows opened anyway, which is exactly what makes
+   *  the approve-vs-reject comparison honest evidence. */
+  scoreboard: AiJudgeScoreboard;
+}
+
 export interface KalshiStockShadowReport {
   days: number;
   summary: KalshiStockShadowSummary;
@@ -489,6 +517,10 @@ export interface KalshiStockShadowReport {
   // Perp-brain audit summary: what the brain blocked in the window and how
   // the current verdict map stands (kalshi-perp-brain.ts).
   perpBrain: KalshiPerpBrainPanelReport;
+  // AI judge scoreboard (kalshi-perp-ai-judge.ts): how the judge's
+  // verdicts graded out against real closes. Evidence only — the judge
+  // never gates entries in this build.
+  aiJudge: KalshiAiJudgePanelReport;
 }
 
 export interface KalshiAccountSimResult {
@@ -589,7 +621,7 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
     AND entry_price <= $5::float
     AND closed_at >= now() - ($2::int * interval '1 day')`;
   const simOn = accountSimEnabled();
-  const [summaryRes, byStrategyRes, openRes, recentClosesRes, closesRes, invalidRes] = await Promise.all([
+  const [summaryRes, byStrategyRes, openRes, recentClosesRes, closesRes, invalidRes, aiJudgeRes] = await Promise.all([
     pool.query(
       `WITH valid_closes AS (
          SELECT * FROM kalshi_perp_shadow_trades WHERE ${validCloseWhere}
@@ -669,6 +701,23 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
                        OR notional_usd > greatest($4::float, entry_price * 1.5)
                        OR entry_price > $5::float)))`,
       [userId, windowDays, returnBound, notionalCap, entryCeiling]),
+    // AI judge scoreboard rows: every valid close in the window whose
+    // context row carries a judge verdict (same validity bounds as every
+    // other statistic here, applied to the trade side of the join).
+    // Fail-soft: a lane whose context table predates the judge columns
+    // must still render its panel — the .catch at the call site turns a
+    // failed read into an empty scoreboard.
+    pool.query(
+      `SELECT c.ai_judge_verdict AS verdict, t.return_pct, t.r_multiple, t.notional_usd
+       FROM kalshi_perp_shadow_trades t
+       JOIN kalshi_perp_shadow_context c ON c.trade_id = t.id AND c.user_id = t.user_id
+       WHERE t.user_id=$1 AND t.status='closed' AND t.exclude_from_stats IS NOT TRUE
+         AND c.ai_judge_verdict IS NOT NULL
+         AND t.return_pct IS NOT NULL AND abs(t.return_pct) <= $3::float
+         AND t.notional_usd <= greatest($4::float, t.entry_price * 1.5)
+         AND t.entry_price <= $5::float
+         AND t.closed_at >= now() - ($2::int * interval '1 day')`,
+      [userId, windowDays, returnBound, notionalCap, entryCeiling]).catch(() => ({ rows: [] as any[] })),
   ]);
 
   const s = summaryRes.rows[0] || {};
@@ -768,10 +817,23 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
     topBlocks: brainBlockSummary?.topBlocks ?? [],
   };
 
+  // AI judge scoreboard: the judge's verdicts graded against the
+  // window's real closes. Pure aggregation over the joined rows — the
+  // same function the check script exercises on fixtures.
+  const aiJudge: KalshiAiJudgePanelReport = {
+    enabled: kalshiPerpAiJudgeEnabled(),
+    judgedCloses: 0,
+    scoreboard: aggregateAiJudgeScoreboard(((aiJudgeRes as any)?.rows || []).map((r: any) => ({
+      verdict: r.verdict, returnPct: r.return_pct, rMultiple: r.r_multiple, notionalUsd: r.notional_usd,
+    }))),
+  };
+  aiJudge.judgedCloses = aiJudge.scoreboard.judgedCloses;
+
   return {
     days: windowDays,
     ...(accountSim ? { accountSim } : {}),
     perpBrain,
+    aiJudge,
     summary: {
       openCount: Number(s.open_count) || 0,
       closedCount: Number(s.closed_count) || 0,
@@ -1090,6 +1152,29 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
     import('./cryptocom-scanner'), import('./options-scanner'), import('./strategy-backtest'), import('./crypto-paper'), import('../utils/corporateActionGuard'),
   ]);
   const stats = await computeKalshiStockShadowStats(userId).catch(() => [] as KalshiBucketStat[]);
+  // AI judge evidence base (2026-11-22 scope refinement): the lane's own
+  // recent closes, gathered ONCE per entry cycle and only when the judge
+  // is on — grouped by underlying (ticker history + last-10 closes) and
+  // by strategy (overall record + 14d form) in the candidate loop. One
+  // bounded read (500 newest valid closes), fail-soft: no history simply
+  // means the judge sees a thinner prompt, never a blocked entry.
+  const judgeOn = kalshiPerpAiJudgeEnabled();
+  const judgeRowsByUnderlying = new Map<string, any[]>();
+  const judgeRowsByStrategy = new Map<string, any[]>();
+  if (judgeOn) {
+    const { rows: judgeRows } = await pool.query(
+      `SELECT underlying, strategy, direction, return_pct, r_multiple, closed_at
+         FROM kalshi_perp_shadow_trades
+        WHERE user_id=$1 AND status='closed' AND exclude_from_stats IS NOT TRUE
+          AND return_pct IS NOT NULL AND abs(return_pct) <= $2::float
+        ORDER BY closed_at DESC LIMIT 500`,
+      [userId, maxValidReturnPct()]).catch(() => ({ rows: [] as any[] }));
+    for (const r of judgeRows) {
+      const u = String(r.underlying), s = String(r.strategy);
+      (judgeRowsByUnderlying.get(u) ?? judgeRowsByUnderlying.set(u, []).get(u)!).push(r);
+      (judgeRowsByStrategy.get(s) ?? judgeRowsByStrategy.set(s, []).get(s)!).push(r);
+    }
+  }
   const markets = await getLiquidStockPerps().catch(() => [] as PerpMarket[]);
   if (!markets.length) return { opened: 0, closed };
   // Earnings calendar for this cycle (build #3): one lookup per lane
@@ -1356,6 +1441,51 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
       // calendar KNOWS (see earningsStampValue); NULL when unknown or
       // the feature is off — the column's original stub semantics.
       const earnings48 = perpEarningsEnabled() && eInfo ? earningsStampValue(eInfo, now) : null;
+      // ── AI judge (kalshi-perp-ai-judge.ts): this candidate has passed
+      // EVERY gate above (earnings, brain, improvement throttle, VP
+      // veto) and is about to open — only now is it judged, so blocked
+      // candidates never spend from the shared AI pool. The verdict is
+      // stamped on the context row below and scored against the outcome
+      // later; it is NEVER consulted here — no branch below reads it,
+      // and the entry proceeds identically whatever it says (including
+      // 'no_verdict' on any AI failure: judgeKalshiPerpCandidate never
+      // throws, and the .catch is belt-and-braces).
+      let judge: PerpAiJudgeResult | null = null;
+      if (judgeOn) {
+        // The judge weighs this candidate against the lane's collected
+        // evidence: this ticker's history (aggregates + last 10 closes),
+        // this strategy's record and recent form, and the candidate's
+        // own bucket evidence — all from the per-cycle gather above and
+        // the bucket stats the brain gate already computed. Aggregates
+        // only; the prompt builder caps every section.
+        const tickerRows = judgeRowsByUnderlying.get(mkt.underlying) || [];
+        const tickerHistory: JudgeTickerHistory = {
+          summary: summarizeJudgeRows(tickerRows.map((r: any) => ({ netPct: r.return_pct, rMultiple: r.r_multiple }))),
+          recent: tickerRows.slice(0, 10).map((r: any) => ({
+            strategy: String(r.strategy), direction: String(r.direction),
+            netPct: Number(r.return_pct), rMultiple: r.r_multiple == null ? null : Number(r.r_multiple),
+          })),
+        };
+        const strategyRows = judgeRowsByStrategy.get(sig.strategy) || [];
+        const strategyRecord: JudgeStrategyRecord = strategyRecordFromRows(
+          strategyRows.map((r: any) => ({
+            netPct: r.return_pct, rMultiple: r.r_multiple,
+            closedAtMs: new Date(r.closed_at).getTime(),
+          })), now);
+        judge = await judgeKalshiPerpCandidate({
+          userId, strategy: sig.strategy, ticker: mkt.ticker, underlying: mkt.underlying,
+          direction: sig.direction, entryPrice: entry, score: sig.score,
+          sessionEt: ctx.session_et, spreadBps, atrPct,
+          fundingRateAtEntry: fundEst?.rate ?? null, htfAligned: aligned,
+          h1Trend, h4Trend, vpPosition: vpPos,
+          adviceAtEntry: adviceFor(stats, sig.strategy, ctx),
+          recentCloses: h1Bars.slice(-12).map((b) => b.c),
+          earningsWithin48h: earnings48,
+          tickerHistory,
+          strategyRecord,
+          bucketEvidence: bucketEvidenceFor(stats, sig.strategy, kalshiBucketsOf(ctx)),
+        }).catch(() => null);
+      }
       const ins = await pool.query(
         `INSERT INTO kalshi_perp_shadow_trades (user_id, strategy, ticker, underlying, direction, entry_price, entry_bid, entry_ask,
            stop_loss, take_profit, sl_pct, contracts, notional_usd, cost_bps, cost_model, funding_model, score, max_hours)
@@ -1367,12 +1497,15 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
         `INSERT INTO kalshi_perp_shadow_context (trade_id, user_id, strategy, ticker, direction, spread_bps, volume_24h_usd, open_interest,
            atr_pct, h1_trend, h4_trend, htf_aligned, funding_rate_at_entry, session_et, hour_utc, hour_et, day_of_week,
            earnings_within_48h, corporate_action_pending, live_gate_blocked, leverage_estimate, tags, advice_at_entry,
-           vp_poc, vp_vah, vp_val, vp_position)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27) ON CONFLICT (trade_id) DO NOTHING`,
+           vp_poc, vp_vah, vp_val, vp_position,
+           ai_judge_verdict, ai_judge_confidence, ai_judge_reason, ai_judge_model, ai_judge_failure, ai_judge_metered)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33) ON CONFLICT (trade_id) DO NOTHING`,
         [id, userId, sig.strategy, mkt.ticker, sig.direction, spreadBps, mkt.volume24hNotionalUsd, mkt.openInterest,
          atrPct, h1Trend, h4Trend, aligned, fundEst?.rate ?? null, ctx.session_et, new Date(now).getUTCHours(), et.hour, et.dow,
          earnings48, pendingCa.has(mkt.ticker), agreeing < 2, mkt.leverageEstimate, tags, adviceFor(stats, sig.strategy, ctx),
-         vpProfile?.poc ?? null, vpProfile?.vah ?? null, vpProfile?.val ?? null, vpPos]).catch(() => {});
+         vpProfile?.poc ?? null, vpProfile?.vah ?? null, vpProfile?.val ?? null, vpPos,
+         judge?.verdict ?? null, judge?.confidence ?? null, judge?.reason ?? null,
+         judge?.model ?? null, judge?.failure ?? null, judge ? judge.metered : null]).catch(() => {});
       open.push({ strategy: sig.strategy, underlying: mkt.underlying });
       opened++;
     }

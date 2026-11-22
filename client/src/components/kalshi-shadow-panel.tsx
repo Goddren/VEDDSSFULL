@@ -103,6 +103,27 @@ interface KalshiPerpBrain {
   topBlocks: KalshiPerpBrainTopBlock[];
 }
 
+interface KalshiAiJudgeBucket {
+  n: number;
+  wins: number;
+  winRate: number | null;
+  avgR: number | null;
+  avgNetPct: number | null;
+  netUsd: number;
+}
+
+interface KalshiAiJudge {
+  enabled: boolean;
+  judgedCloses: number;
+  scoreboard: {
+    approve: KalshiAiJudgeBucket;
+    reject: KalshiAiJudgeBucket;
+    unsure: KalshiAiJudgeBucket;
+    noVerdict: KalshiAiJudgeBucket;
+    judgedCloses: number;
+  };
+}
+
 interface KalshiShadowReport {
   days: number;
   summary: KalshiShadowSummary;
@@ -111,6 +132,7 @@ interface KalshiShadowReport {
   recentCloses: KalshiShadowRecentClose[];
   accountSim?: KalshiAccountSim;
   perpBrain?: KalshiPerpBrain;
+  aiJudge?: KalshiAiJudge;
 }
 
 const DAY_OPTIONS = [7, 30, 90] as const;
@@ -600,6 +622,45 @@ export function KalshiShadowPanel({ className = "" }: { className?: string }) {
                 </>
               ) : (
                 <p className="mt-1 text-[10px] leading-snug text-gray-500">The perp brain is off right now, so no shadow trades are being blocked by it. The lane still records its results and advice as usual.</p>
+              )}
+            </div>
+          ) : null}
+
+          {data.aiJudge ? (
+            <div className="mt-2 rounded-lg bg-black/20 px-3 py-2.5">
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <h3 className="text-[11px] font-bold text-gray-100">AI judge</h3>
+                <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">
+                  {data.aiJudge.enabled ? "scoring every trade — never blocking" : "switched off"}
+                </span>
+              </div>
+              {data.aiJudge.enabled ? (
+                <>
+                  <p className="mt-1 text-[10px] leading-snug text-gray-400">
+                    An AI judge now scores every new shadow trade at entry — approve, reject, or unsure. It does <b className="text-gray-200">not</b> block or change any trade; its verdicts are graded against the real results here, so a future decision to let it gate entries can be made on evidence.
+                  </p>
+                  {data.aiJudge.judgedCloses > 0 ? (
+                    <div className="mt-1.5 space-y-0.5">
+                      {([
+                        ["Approved", data.aiJudge.scoreboard.approve],
+                        ["Rejected", data.aiJudge.scoreboard.reject],
+                        ["Unsure", data.aiJudge.scoreboard.unsure],
+                        ["No verdict (AI unavailable)", data.aiJudge.scoreboard.noVerdict],
+                      ] as const).filter(([, b]) => b.n > 0).map(([label, b]) => (
+                        <p key={label} className="text-[10px] leading-snug tabular-nums text-gray-400">
+                          <span className="font-semibold text-gray-200">{label}</span>
+                          {" · "}{b.n} trades · {b.wins} wins · Win rate {fmtWinRate(b.winRate)}
+                          {" · "}Avg {fmtR(b.avgR)}
+                          {" · "}<span className={pnlClass(b.netUsd)}>Net {fmtMoney(b.netUsd, { signed: true })}</span>
+                        </p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-[10px] leading-snug text-gray-500">The judge is collecting evidence — no verdicts scored yet. Scores appear here as judged trades close.</p>
+                  )}
+                </>
+              ) : (
+                <p className="mt-1 text-[10px] leading-snug text-gray-500">The AI judge is off right now, so new trades are opening without a verdict. The lane's own brain still gates as usual.</p>
               )}
             </div>
           ) : null}
