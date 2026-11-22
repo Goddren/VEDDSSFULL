@@ -131,7 +131,8 @@ import {
 } from './kalshi-perp-costs';
 import {
   kalshiPerpAiJudgeEnabled, judgeKalshiPerpCandidate, aggregateAiJudgeScoreboard,
-  type PerpAiJudgeResult, type AiJudgeScoreboard,
+  summarizeJudgeRows, strategyRecordFromRows, bucketEvidenceFor,
+  type PerpAiJudgeResult, type AiJudgeScoreboard, type JudgeTickerHistory, type JudgeStrategyRecord,
 } from './kalshi-perp-ai-judge';
 
 export const stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== 'off';
@@ -1151,6 +1152,29 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
     import('./cryptocom-scanner'), import('./options-scanner'), import('./strategy-backtest'), import('./crypto-paper'), import('../utils/corporateActionGuard'),
   ]);
   const stats = await computeKalshiStockShadowStats(userId).catch(() => [] as KalshiBucketStat[]);
+  // AI judge evidence base (2026-11-22 scope refinement): the lane's own
+  // recent closes, gathered ONCE per entry cycle and only when the judge
+  // is on — grouped by underlying (ticker history + last-10 closes) and
+  // by strategy (overall record + 14d form) in the candidate loop. One
+  // bounded read (500 newest valid closes), fail-soft: no history simply
+  // means the judge sees a thinner prompt, never a blocked entry.
+  const judgeOn = kalshiPerpAiJudgeEnabled();
+  const judgeRowsByUnderlying = new Map<string, any[]>();
+  const judgeRowsByStrategy = new Map<string, any[]>();
+  if (judgeOn) {
+    const { rows: judgeRows } = await pool.query(
+      `SELECT underlying, strategy, direction, return_pct, r_multiple, closed_at
+         FROM kalshi_perp_shadow_trades
+        WHERE user_id=$1 AND status='closed' AND exclude_from_stats IS NOT TRUE
+          AND return_pct IS NOT NULL AND abs(return_pct) <= $2::float
+        ORDER BY closed_at DESC LIMIT 500`,
+      [userId, maxValidReturnPct()]).catch(() => ({ rows: [] as any[] }));
+    for (const r of judgeRows) {
+      const u = String(r.underlying), s = String(r.strategy);
+      (judgeRowsByUnderlying.get(u) ?? judgeRowsByUnderlying.set(u, []).get(u)!).push(r);
+      (judgeRowsByStrategy.get(s) ?? judgeRowsByStrategy.set(s, []).get(s)!).push(r);
+    }
+  }
   const markets = await getLiquidStockPerps().catch(() => [] as PerpMarket[]);
   if (!markets.length) return { opened: 0, closed };
   // Earnings calendar for this cycle (build #3): one lookup per lane
@@ -1427,7 +1451,27 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
       // 'no_verdict' on any AI failure: judgeKalshiPerpCandidate never
       // throws, and the .catch is belt-and-braces).
       let judge: PerpAiJudgeResult | null = null;
-      if (kalshiPerpAiJudgeEnabled()) {
+      if (judgeOn) {
+        // The judge weighs this candidate against the lane's collected
+        // evidence: this ticker's history (aggregates + last 10 closes),
+        // this strategy's record and recent form, and the candidate's
+        // own bucket evidence — all from the per-cycle gather above and
+        // the bucket stats the brain gate already computed. Aggregates
+        // only; the prompt builder caps every section.
+        const tickerRows = judgeRowsByUnderlying.get(mkt.underlying) || [];
+        const tickerHistory: JudgeTickerHistory = {
+          summary: summarizeJudgeRows(tickerRows.map((r: any) => ({ netPct: r.return_pct, rMultiple: r.r_multiple }))),
+          recent: tickerRows.slice(0, 10).map((r: any) => ({
+            strategy: String(r.strategy), direction: String(r.direction),
+            netPct: Number(r.return_pct), rMultiple: r.r_multiple == null ? null : Number(r.r_multiple),
+          })),
+        };
+        const strategyRows = judgeRowsByStrategy.get(sig.strategy) || [];
+        const strategyRecord: JudgeStrategyRecord = strategyRecordFromRows(
+          strategyRows.map((r: any) => ({
+            netPct: r.return_pct, rMultiple: r.r_multiple,
+            closedAtMs: new Date(r.closed_at).getTime(),
+          })), now);
         judge = await judgeKalshiPerpCandidate({
           userId, strategy: sig.strategy, ticker: mkt.ticker, underlying: mkt.underlying,
           direction: sig.direction, entryPrice: entry, score: sig.score,
@@ -1436,6 +1480,10 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
           h1Trend, h4Trend, vpPosition: vpPos,
           adviceAtEntry: adviceFor(stats, sig.strategy, ctx),
           recentCloses: h1Bars.slice(-12).map((b) => b.c),
+          earningsWithin48h: earnings48,
+          tickerHistory,
+          strategyRecord,
+          bucketEvidence: bucketEvidenceFor(stats, sig.strategy, kalshiBucketsOf(ctx)),
         }).catch(() => null);
       }
       const ins = await pool.query(

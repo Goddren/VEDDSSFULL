@@ -18,14 +18,20 @@
 // blocks ~21k setups/30d; judging those would drain the shared AI pool
 // for nothing).
 //
+// CONTEXT (Chris's scope refinement, 2026-11-22): the judge weighs the
+// candidate against the lane's collected data, not in isolation — the
+// ticker's own history (aggregates + last ~10 closes), the strategy's
+// overall record and last-14d-vs-prior-14d form, the candidate's bucket
+// evidence (what the deterministic brain sees), current context, and a
+// compact candle/pattern summary. Aggregates only, never raw tables.
+//
 // COST: the call goes through getUniversalAIClientForUser with
 // { engine: true } — the shared engine-marked failover client — so it is
 // gated by and metered against the SAME per-user daily AI pool as every
 // other engine (PR #103), exactly once per answered call, by that client.
-// This module never meters anything itself. The prompt is deliberately
-// lean (candidate fields + the last 12 H1 closes as numbers, no candle
-// serialization) — thousands of tokens per call was the original FX cost
-// bug this pool exists to prevent.
+// This module never meters anything itself. The prompt stays bounded
+// (check-pinned size cap) — thousands of tokens per call was the
+// original FX cost bug this pool exists to prevent.
 //
 // Kill switch: KALSHI_PERP_AI_JUDGE=off → no judge calls, no verdicts,
 // the lane behaves exactly as today. SHADOW LANE ONLY: nothing in the
@@ -70,6 +76,113 @@ export interface PerpJudgeCandidate {
   adviceAtEntry?: string | null;
   /** Compact recent-price summary: the last H1 closes, oldest → newest. */
   recentCloses?: number[];
+  /** Earnings proximity stamp (true/false when the calendar knows). */
+  earningsWithin48h?: boolean | null;
+  /** This underlying's own record in this lane (aggregates + last ~10
+   *  closes) — the judge weighs the candidate against the ticker's
+   *  history, not in isolation. */
+  tickerHistory?: JudgeTickerHistory | null;
+  /** The candidate strategy's overall lane record + recent form. */
+  strategyRecord?: JudgeStrategyRecord | null;
+  /** The candidate's own bucket evidence — what the deterministic brain
+   *  sees (verdict, n, median net per matching bucket). */
+  bucketEvidence?: JudgeBucketEvidence[] | null;
+}
+
+// ── lane-history aggregates (pure; the lane gathers, the judge weighs) ─────
+export interface JudgeRecordSummary {
+  n: number;
+  winRate: number | null;
+  avgR: number | null;
+  medianNetPct: number | null;
+}
+export interface JudgeTickerHistory {
+  summary: JudgeRecordSummary;
+  recent: Array<{ strategy: string; direction: string; netPct: number; rMultiple: number | null }>;
+}
+export interface JudgeStrategyRecord {
+  overall: JudgeRecordSummary;
+  last14d: JudgeRecordSummary | null;
+  prior14d: JudgeRecordSummary | null;
+}
+export interface JudgeBucketEvidence {
+  dim: string;
+  bucket: string;
+  verdict: string;
+  n: number;
+  medianNet: number;
+}
+
+const medianOf = (vals: number[]): number | null => {
+  if (!vals.length) return null;
+  const s = vals.slice().sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+};
+
+/** Aggregate a set of closed perp shadow trades (net_pct / r_multiple as
+ *  booked at close, already net of funding + costs) into the compact
+ *  record summary the prompt carries. Pure. */
+export function summarizeJudgeRows(rows: Array<{ netPct?: unknown; rMultiple?: unknown }>): JudgeRecordSummary {
+  const nets: number[] = [];
+  const rs: number[] = [];
+  let wins = 0;
+  for (const r of rows) {
+    const net = Number(r.netPct);
+    if (!Number.isFinite(net)) continue;
+    nets.push(net);
+    if (net > 0) wins++;
+    const rMul = r.rMultiple == null ? NaN : Number(r.rMultiple);
+    if (Number.isFinite(rMul)) rs.push(rMul);
+  }
+  return {
+    n: nets.length,
+    winRate: nets.length ? wins / nets.length : null,
+    avgR: rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : null,
+    medianNetPct: medianOf(nets),
+  };
+}
+
+/** A strategy's record with recent form: last-14d vs the prior 14d,
+ *  windowed from the lane's own closed trades. Pure. */
+export function strategyRecordFromRows(
+  rows: Array<{ netPct?: unknown; rMultiple?: unknown; closedAtMs?: unknown }>,
+  nowMs: number,
+): JudgeStrategyRecord {
+  const DAY = 86_400_000;
+  const last: typeof rows = [];
+  const prior: typeof rows = [];
+  for (const r of rows) {
+    const t = Number(r.closedAtMs);
+    if (!Number.isFinite(t)) continue;
+    if (t > nowMs - 14 * DAY && t <= nowMs) last.push(r);
+    else if (t > nowMs - 28 * DAY && t <= nowMs - 14 * DAY) prior.push(r);
+  }
+  return {
+    overall: summarizeJudgeRows(rows),
+    last14d: last.length ? summarizeJudgeRows(last) : null,
+    prior14d: prior.length ? summarizeJudgeRows(prior) : null,
+  };
+}
+
+/** The candidate's matching bucket evidence from the lane's bucket stats
+ *  — the same matching rule the perp brain gate uses (same strategy, the
+ *  candidate's bucket value for that dimension), but INCLUDING 'learning'
+ *  buckets: the judge sees the evidence, not just the verdicts that act.
+ *  Ordered avoid → favor → learning, biggest samples first, capped.
+ *  Pure. */
+export function bucketEvidenceFor(
+  stats: Array<{ strategy: string; dim: string; bucket: string; n: number; medianNet: number; verdict: string }>,
+  strategy: string,
+  buckets: Record<string, string>,
+  cap = 8,
+): JudgeBucketEvidence[] {
+  const rank = (v: string) => v === 'avoid' ? 0 : v === 'favor' ? 1 : 2;
+  return (stats || [])
+    .filter((s) => s.strategy === strategy && buckets[s.dim] === s.bucket)
+    .map((s) => ({ dim: s.dim, bucket: s.bucket, verdict: s.verdict, n: s.n, medianNet: s.medianNet }))
+    .sort((a, b) => rank(a.verdict) - rank(b.verdict) || b.n - a.n)
+    .slice(0, Math.max(1, cap));
 }
 
 export interface PerpAiJudgeResult {
@@ -128,28 +241,61 @@ export function parseJudgeResponse(content: string): { verdict: 'approve' | 'rej
   return { verdict, confidence, reason };
 }
 
-/** The lean judge prompt: candidate fields + the lane's own context + a
- *  compact recent-closes line. No candle serialization, no indicator
- *  dumps — the whole user message stays in the low hundreds of tokens.
- *  Pure — exercised by the check script. */
+const fmtRec = (s: JudgeRecordSummary | null | undefined): string => {
+  if (!s || !s.n) return 'no closed trades yet';
+  const wr = s.winRate != null ? `${Math.round(s.winRate * 100)}% WR` : 'WR n/a';
+  const avgR = s.avgR != null ? `avg ${s.avgR >= 0 ? '+' : ''}${s.avgR.toFixed(2)}R` : 'avg R n/a';
+  const med = s.medianNetPct != null ? `median net ${s.medianNetPct >= 0 ? '+' : ''}${s.medianNetPct.toFixed(2)}%` : 'median n/a';
+  return `${s.n} trades, ${wr}, ${avgR}, ${med}`;
+};
+
+/** The judge prompt: the candidate weighed against the lane's collected
+ *  evidence — this ticker's history, the strategy's record and recent
+ *  form, and the candidate's own bucket evidence (what the deterministic
+ *  brain sees) — plus current context and a compact candle/pattern
+ *  summary. Aggregates and last-10 closes only, never raw tables: the
+ *  whole user message stays bounded (check-pinned size cap) — thousands
+ *  of tokens per call was the original cost bug. Pure. */
 export function buildJudgePrompt(c: PerpJudgeCandidate): { system: string; user: string } {
   const system =
     'You are a disciplined stock perpetual-futures trader acting as an independent judge on a shadow-trading lane. ' +
-    'A mechanical strategy has already produced this candidate and every risk gate has passed. Give your honest verdict on the setup itself — ' +
-    'trend alignment, momentum, entry timing, and whether the lane\'s own track record on similar setups supports it. ' +
+    'A mechanical strategy has already produced this candidate and every risk gate has passed. ' +
+    'Weigh the candidate against the evidence below: this ticker\'s history in this lane, the strategy\'s record and recent form, ' +
+    'and the bucket evidence — the lane\'s own track record on setups like this one. A setup the history supports deserves approval; ' +
+    'one the history keeps punishing deserves rejection even if the chart alone looks fine. ' +
     'You are scoring, not trading: your verdict is recorded and graded against the outcome later. ' +
     'Respond ONLY with JSON: {"verdict": "approve"|"reject"|"unsure", "confidence": number (0 to 1), "reason": "one short line"}.';
   const closes = (c.recentCloses || []).filter((n) => Number.isFinite(n)).slice(-12);
+  let pattern: string | null = null;
+  if (closes.length >= 2) {
+    const first = closes[0], lastC = closes[closes.length - 1];
+    const movePct = first > 0 ? ((lastC - first) / first) * 100 : 0;
+    let ups = 0;
+    for (let i = 1; i < closes.length; i++) if (closes[i] > closes[i - 1]) ups++;
+    pattern = `Recent H1 closes (oldest to newest): ${closes.join(', ')} — net ${movePct >= 0 ? '+' : ''}${movePct.toFixed(2)}% over the window, ${ups} of ${closes.length - 1} hourly moves up`;
+  }
+  const hist = c.tickerHistory;
+  const recentLines = (hist?.recent || []).slice(0, 10).map((r) =>
+    `${r.strategy} ${r.direction} ${r.netPct >= 0 ? '+' : ''}${r.netPct.toFixed(2)}%${r.rMultiple != null ? ` (${r.rMultiple >= 0 ? '+' : ''}${r.rMultiple.toFixed(1)}R)` : ''}`);
+  const rec = c.strategyRecord;
+  const formLine = rec && (rec.last14d || rec.prior14d)
+    ? `Strategy recent form: last 14d ${fmtRec(rec.last14d)} vs prior 14d ${fmtRec(rec.prior14d)}`
+    : null;
+  const evidenceLines = (c.bucketEvidence || []).slice(0, 8).map((b) =>
+    `${b.dim}=${b.bucket}: ${b.verdict} (n=${b.n}, median net ${b.medianNet >= 0 ? '+' : ''}${b.medianNet.toFixed(2)}%)`);
   const user = [
     `CANDIDATE: ${c.strategy} — ${c.direction.toUpperCase()} ${c.underlying} (${c.ticker}) @ ${c.entryPrice}`,
     c.score != null ? `Strategy score: ${c.score}` : null,
-    `Session (ET): ${c.sessionEt ?? 'unknown'} · Spread: ${c.spreadBps != null ? `${c.spreadBps.toFixed(1)} bps` : 'n/a'} · ATR: ${c.atrPct != null ? `${c.atrPct.toFixed(2)}%` : 'n/a'}`,
-    `Trend: H1 ${c.h1Trend ?? 'n/a'}, H4 ${c.h4Trend ?? 'n/a'} — entry is ${c.htfAligned == null ? 'HTF-neutral' : c.htfAligned ? 'WITH the higher-timeframe trend' : 'AGAINST the higher-timeframe trend'}`,
-    `Funding at entry: ${c.fundingRateAtEntry == null ? 'n/a' : c.fundingRateAtEntry}`,
-    `Volume-profile position: ${c.vpPosition ?? 'n/a'}`,
-    `The lane's own record on similar setups: ${c.adviceAtEntry || 'no verdict yet (still learning)'}`,
-    closes.length ? `Recent H1 closes (oldest to newest): ${closes.join(', ')}` : null,
-    `Would you approve this ${c.direction} entry on its own merits?`,
+    `MARKET CONTEXT: session (ET) ${c.sessionEt ?? 'unknown'} · spread ${c.spreadBps != null ? `${c.spreadBps.toFixed(1)} bps` : 'n/a'} · ATR ${c.atrPct != null ? `${c.atrPct.toFixed(2)}%` : 'n/a'} · H1 trend ${c.h1Trend ?? 'n/a'}, H4 trend ${c.h4Trend ?? 'n/a'} — entry is ${c.htfAligned == null ? 'HTF-neutral' : c.htfAligned ? 'WITH the higher-timeframe trend' : 'AGAINST the higher-timeframe trend'} · funding at entry ${c.fundingRateAtEntry == null ? 'n/a' : c.fundingRateAtEntry} · volume-profile position ${c.vpPosition ?? 'n/a'} · earnings within 48h: ${c.earningsWithin48h == null ? 'unknown' : c.earningsWithin48h ? 'YES' : 'no'}`,
+    `TICKER HISTORY (${c.underlying} in this lane): ${fmtRec(hist?.summary)}`,
+    recentLines.length ? `Last closes on ${c.underlying} (newest first): ${recentLines.join('; ')}` : null,
+    `STRATEGY RECORD (${c.strategy} overall): ${fmtRec(rec?.overall)}`,
+    formLine,
+    `BUCKET EVIDENCE (the lane's record on setups like this): ${evidenceLines.length ? '' : 'no bucket has enough history yet'}`,
+    ...evidenceLines.map((l) => `  ${l}`),
+    `Lane advice stamp for this candidate: ${c.adviceAtEntry || 'no verdict yet (still learning)'}`,
+    pattern,
+    `Weigh this ${c.direction} entry against that history and pattern evidence — approve, reject, or unsure?`,
   ].filter(Boolean).join('\n');
   return { system, user };
 }
@@ -236,7 +382,7 @@ export async function judgeKalshiPerpCandidate(
   _judged.set(key, { at: Date.now(), result });
   if (_judged.size > 500) {
     const cutoff = Date.now() - DEDUPE_TTL_MS;
-    for (const [k, v] of _judged) if (v.at < cutoff) _judged.delete(k);
+    _judged.forEach((v, k) => { if (v.at < cutoff) _judged.delete(k); });
   }
   return result;
 }

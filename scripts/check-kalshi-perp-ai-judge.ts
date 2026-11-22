@@ -44,6 +44,7 @@ import { readFileSync } from 'node:fs';
 import {
   kalshiPerpAiJudgeEnabled, judgeKalshiPerpCandidate, parseJudgeResponse,
   classifyJudgeFailure, buildJudgePrompt, aggregateAiJudgeScoreboard,
+  summarizeJudgeRows, strategyRecordFromRows, bucketEvidenceFor,
   clearJudgeDedupe, type PerpJudgeCandidate,
 } from '../server/services/kalshi-perp-ai-judge';
 
@@ -206,8 +207,57 @@ async function main(): Promise<void> {
     check('I4 garbage → null', parseJudgeResponse('no json here') === null && parseJudgeResponse('') === null);
     check('I5 unknown verdict → null', parseJudgeResponse('{"verdict":"moon","confidence":1,"reason":"x"}') === null);
     const p = buildJudgePrompt(CAND);
-    check('I6 prompt carries candidate + lane context', p.user.includes('orb') && p.user.includes('AAPL') && p.user.includes('favor') && p.user.includes('Recent H1 closes'));
-    check('I7 prompt stays lean (< 1500 chars user message)', p.user.length < 1500, `${p.user.length} chars`);
+    check('I6 prompt carries candidate + lane context', p.user.includes('orb') && p.user.includes('AAPL') && p.user.includes('Recent H1 closes'));
+    check('I7 bare-candidate prompt stays lean (< 1500 chars user message)', p.user.length < 1500, `${p.user.length} chars`);
+  }
+
+  // K — enriched context (Chris's 2026-11-22 scope refinement): the judge
+  // weighs the candidate against the lane's collected data — ticker
+  // history, strategy record + form, bucket evidence — token-lean.
+  {
+    const nowMs = Date.UTC(2026, 10, 22, 12, 0, 0);
+    const rows = [
+      { netPct: 4, rMultiple: 2, closedAtMs: nowMs - 2 * 86_400_000 },
+      { netPct: -2, rMultiple: -1, closedAtMs: nowMs - 5 * 86_400_000 },
+      { netPct: 2, rMultiple: 1, closedAtMs: nowMs - 20 * 86_400_000 },
+      { netPct: -4, rMultiple: -2, closedAtMs: nowMs - 40 * 86_400_000 },
+    ];
+    const sum = summarizeJudgeRows(rows);
+    check('K1 ticker-history aggregate: n/WR/avgR/median', sum.n === 4 && sum.winRate === 0.5 && sum.avgR === 0 && sum.medianNetPct === 0);
+    const rec = strategyRecordFromRows(rows, nowMs);
+    check('K2 strategy form splits last-14d vs prior-14d', rec.last14d?.n === 2 && rec.prior14d?.n === 1 && rec.overall.n === 4);
+    const ev = bucketEvidenceFor([
+      { strategy: 'orb', dim: 'session', bucket: 'regular', n: 20, medianNet: 0.8, verdict: 'favor' },
+      { strategy: 'orb', dim: 'side', bucket: 'long', n: 30, medianNet: -1.9, verdict: 'avoid' },
+      { strategy: 'orb', dim: 'session', bucket: 'overnight', n: 99, medianNet: -5, verdict: 'avoid' }, // different bucket value — excluded
+      { strategy: 'breakout', dim: 'side', bucket: 'long', n: 99, medianNet: -5, verdict: 'avoid' }, // different strategy — excluded
+      { strategy: 'orb', dim: 'vp', bucket: 'above_value', n: 6, medianNet: 0.2, verdict: 'learning' },
+    ], 'orb', { session: 'regular', side: 'long', vp: 'above_value' });
+    check('K3 bucket evidence matches the brain rule (strategy + bucket value), includes learning',
+      ev.length === 3 && ev[0].verdict === 'avoid' && ev.some((e) => e.verdict === 'learning'));
+    const rich: PerpJudgeCandidate = {
+      ...CAND,
+      earningsWithin48h: false,
+      tickerHistory: {
+        summary: sum,
+        recent: Array.from({ length: 10 }, (_, i) => ({ strategy: 'orb', direction: 'long', netPct: i % 2 ? -2 : 4, rMultiple: i % 2 ? -1 : 2 })),
+      },
+      strategyRecord: rec,
+      bucketEvidence: ev,
+    };
+    const p = buildJudgePrompt(rich);
+    check('K4 prompt includes TICKER HISTORY section with aggregates + last closes',
+      p.user.includes('TICKER HISTORY') && p.user.includes('4 trades, 50% WR') && p.user.includes('Last closes on AAPL'));
+    check('K5 prompt includes STRATEGY RECORD + recent form',
+      p.user.includes('STRATEGY RECORD') && p.user.includes('last 14d') && p.user.includes('prior 14d'));
+    check('K6 prompt includes BUCKET EVIDENCE with verdict/n/median',
+      p.user.includes('BUCKET EVIDENCE') && p.user.includes('side=long: avoid (n=30, median net -1.90%)'));
+    check('K7 prompt includes current context (earnings proximity)', p.user.includes('earnings within 48h: no'));
+    check('K8 fully-enriched prompt stays under the size cap (< 2600 chars)', p.user.length < 2600, `${p.user.length} chars`);
+    check('K9 lane gathers history once per cycle, only when the judge is on',
+      lane.includes('if (judgeOn)') && lane.includes('judgeRowsByUnderlying') && lane.includes('LIMIT 500'));
+    check('K10 lane passes ticker history, strategy record and bucket evidence into the judge call',
+      lane.includes('tickerHistory,') && lane.includes('strategyRecord,') && lane.includes('bucketEvidence: bucketEvidenceFor(stats, sig.strategy, kalshiBucketsOf(ctx))'));
   }
 
   // J — isolation + sw
