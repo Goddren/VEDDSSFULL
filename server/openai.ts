@@ -857,7 +857,10 @@ export interface AiConfirmationLogEntry {
   proposedEntry?: number;
   proposedSL?: number;
   proposedTP?: number;
-  aiDecision: 'APPROVED' | 'REJECTED' | 'ADJUSTED' | 'AI_OVERRIDE' | 'ERROR';
+  // 'WATCH_PLAN' (2026-11-23): AI watch-plan lifecycle entries (created /
+  // triggered / expired / invalidated) written by services/ai-watch-plans.ts
+  // so the feed shows what the AI is watching, not just what it decided.
+  aiDecision: 'APPROVED' | 'REJECTED' | 'ADJUSTED' | 'AI_OVERRIDE' | 'ERROR' | 'WATCH_PLAN';
   aiDirection: string;
   aiConfidence: number;
   reasoning: string;
