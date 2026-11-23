@@ -325,7 +325,7 @@ export interface JudgeCallDeps {
 async function realJudgeCall(c: PerpJudgeCandidate): Promise<{ content: string; model: string | null }> {
   // Engine caller: gated + metered against the shared daily AI budget,
   // exactly once per answered call, inside the failover client.
-  const client: any = await getUniversalAIClientForUser(c.userId, { engine: true });
+  const client: any = await getUniversalAIClientForUser(c.userId, { engine: true, engineLane: 'protected' });
   const { system, user } = buildJudgePrompt(c);
   const modelId = client.defaultModel || 'gpt-4o-mini';
   const call = client.chat.completions.create({

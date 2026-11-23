@@ -418,9 +418,15 @@ export async function runMultiModelAnalysis(
   try {
     // All-engines AI budget gate (see budgetMod above): refuse before
     // buying any model call when the shared daily pool is exhausted.
-    if (budgetMod?.aiBudgetAllEnginesEnabled() && !(await budgetMod.engineAiBudgetAllows(userId))) {
-      budgetMod.noteEngineAiBudgetBlock(userId);
-      throw budgetMod.engineAiBudgetError();
+    // Pool reserve (2026-11-23): the ensemble is a GENERAL lane — it
+    // stops at cap − reserve so FX confirmations, watch plans and the
+    // shadow judges keep the protected remainder of the pool.
+    if (budgetMod?.aiBudgetAllEnginesEnabled()) {
+      const gate = await budgetMod.engineAiBudgetGate(userId, 'general');
+      if (!gate.allowed) {
+        budgetMod.noteEngineAiBudgetBlock(userId, { reserve: gate.reserveBlocked });
+        throw budgetMod.engineAiBudgetError();
+      }
     }
     switch (routingConfig.mode) {
       case 'single': {

@@ -95,7 +95,11 @@ export async function getCryptoAiConfirmation(opts: {
     }
 
     // Engine caller: gated + metered against the shared daily AI budget.
-    const client: any = await getUniversalAIClientForUser(opts.userId, { engine: true });
+    // Budget lane (2026-11-23): the crypto SHADOW judge (the only caller
+    // passing a cacheScope) is a protected lane — it may spend the pool's
+    // protected reserve; live callers are general and stop at cap −
+    // reserve so the judges and FX always have room.
+    const client: any = await getUniversalAIClientForUser(opts.userId, { engine: true, engineLane: opts.cacheScope ? 'protected' : 'general' });
 
     const recent = opts.candles.slice(-20);
     const candleSummary = recent
