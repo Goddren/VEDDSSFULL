@@ -487,17 +487,21 @@ export interface WatchPlanDeps {
   now?: () => number;
 }
 
-async function realDeepCall(input: DeepAnalysisInput): Promise<{ content: string; model: string | null }> {
-  // Budget gate first (route convention): a dry pool buys nothing and the
-  // caller falls back to today's path, which fails closed as today.
+/**
+ * The deep analysis itself, against an already-built client (exported so
+ * the check suite can drive it with a fake client and observe the shared
+ * pool's counters). Budget gate first (throws the 402-shaped budget error
+ * when the pool is dry — the resolver treats that as an abstain); on an
+ * answered call the pool is metered EXACTLY ONCE at 2 units (the
+ * deep-reasoning convention). The client is deliberately built WITHOUT
+ * engine marking: metering here is manual (like the chart-data route's
+ * own confirmations), so a deep call can never be double-counted by the
+ * failover wrapper (the double-count PR #103's audit exists to prevent).
+ */
+export async function runDeepAnalysis(input: DeepAnalysisInput, client: any): Promise<{ content: string; model: string | null }> {
   if (!(await engineAiBudgetAllows(input.userId))) {
     throw engineAiBudgetError();
   }
-  // Client WITHOUT engine marking — this module meters manually (2 units,
-  // deep-reasoning convention), exactly once per answered call. An
-  // engine-marked client would meter a second time inside the failover
-  // wrapper (the double-count PR #103's audit exists to prevent).
-  const client: any = await getUniversalAIClientForUser(input.userId);
   const { system, user } = buildWatchPlanPrompt(input);
   const modelId = client.defaultModel || getUserModelPreference(input.userId) || 'gpt-4o-mini';
   const call = client.chat.completions.create({
@@ -517,6 +521,11 @@ async function realDeepCall(input: DeepAnalysisInput): Promise<{ content: string
   // The call was ANSWERED — meter it exactly once, at the deep rate.
   meterEngineAiConfirmation(input.userId, 2);
   return { content, model: resp?.model || modelId };
+}
+
+async function realDeepCall(input: DeepAnalysisInput): Promise<{ content: string; model: string | null }> {
+  const client: any = await getUniversalAIClientForUser(input.userId);
+  return runDeepAnalysis(input, client);
 }
 
 // ── Feed logging ────────────────────────────────────────────────────────────
