@@ -1333,6 +1333,17 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
           return engineAiBudgetSummary();
         } catch { return null; }
       })(),
+      // Gray-zone gating (AI cost-cutting package): today's confirmation
+      // purchases at the gated chart-data sites vs purchases skipped because
+      // the rules had already decided (decisive pass / decisive reject).
+      // asked staying flat while skippedTotal climbs = the gate is doing
+      // the saving; both at zero with the switch on = no gated traffic yet.
+      aiGrayZone: await (async () => {
+        try {
+          const { aiGrayZoneSummary } = await import('./services/ai-gray-zone');
+          return aiGrayZoneSummary();
+        } catch { return null; }
+      })(),
       // Which instance owns the FX engines (Postgres advisory lock). Hitting
       // /api/health repeatedly should show exactly one instance with true.
       fxLeader: await import('./services/live-trading-engine').then(m => m.isFxLeader()).catch(() => null),
@@ -10794,6 +10805,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           // AI cost discipline (services/ai-engine-budget.ts): per-user daily
           // spend cap for the confirmations bought below + the kill switch.
           const _costDiscipline = await import('./services/ai-engine-budget');
+          // AI gray-zone gating (services/ai-gray-zone.ts): skip AI purchases
+          // whose verdict cannot change the trade decision (decisive-reject
+          // vision setups; the breakout rubber stamp). AI_GRAY_ZONE=off
+          // restores ask-always behavior.
+          const _grayZone = await import('./services/ai-gray-zone');
           const _logBudgetBlock = () => {
             if (!_costDiscipline.shouldLogBudgetBlock(token.userId)) return;
             void import('./services/guard-events').then(({ logGuard }) => logGuard(
@@ -10981,8 +10997,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
                 token.userId, multiTFCandles, propFirmCtx
               );
-              if (aiConfirmation) {
+              // Gray-zone: a gate-approved breakout no longer buys its
+              // rubber-stamp confirmation (grayZoneSkipped) — nothing was
+              // purchased, so nothing is metered and no "asked" is counted.
+              if (aiConfirmation && !(aiConfirmation as any).grayZoneSkipped) {
                 _costDiscipline.meterEngineAiConfirmation(token.userId, 1);
+                _grayZone.noteGrayZoneAsked(token.userId);
               }
               if (aiConfirmation && Number((aiConfirmation as any).aiConfidence) > 0) {
                 _putBC(token.userId, sanitizedSymbol, sanitizedTimeframe, _bcDir, analysis.confidence, _bcPrice, aiConfirmation);
@@ -11047,8 +11067,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                       htfLevels.length > 0 ? htfLevels : undefined, propFirmCtx,
                       undefined, undefined, _fbStrat, !!_fbState?.config?.deepReasoningMode
                     );
+                    _grayZone.noteGrayZoneAsked(token.userId);
                     if (_visionFallback && !(_visionFallback as any).aiError) {
-                      _costDiscipline.meterEngineAiConfirmation(token.userId, (_visionFallback as any).deepReasoningUsed ? 2 : 1);
+                      // Same Layer-4 metering as the main vision path:
+                      // aiCallsBought when reported, else the convention.
+                      const _fbUnits = typeof (_visionFallback as any).aiCallsBought === 'number'
+                        ? (_visionFallback as any).aiCallsBought
+                        : ((_visionFallback as any).deepReasoningUsed ? 2 : 1);
+                      if (_fbUnits > 0) _costDiscipline.meterEngineAiConfirmation(token.userId, _fbUnits);
                     }
                     if (_visionFallback && Number((_visionFallback as any).aiConfidence) > 0) {
                       _putBC(token.userId, sanitizedSymbol, sanitizedTimeframe, _fbDir, analysis.confidence, _fbPrice, _visionFallback);
@@ -11167,8 +11193,36 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               const { getCachedConfirmation: _getCC, putCachedConfirmation: _putCC } =
                 await import('./services/ai-confirmation-cache');
               const _ccPrice = Number(analysis.tradePlan?.entry ?? candles?.[0]?.c ?? 0);
-              const _ccHit = _getCC(token.userId, sanitizedSymbol, sanitizedTimeframe, analysis.signal, analysis.confidence, _ccPrice);
-              if (_ccHit) {
+              // AI GRAY-ZONE GATE (services/ai-gray-zone.ts): when the EA's
+              // confidence is below the decision block's 80% AI-gate line AND
+              // the confluence grade is below the Grade-B override floor,
+              // EVERY verdict the AI could return produces the same REJECT
+              // (see isDecisiveReject for the proof) — so the purchase is
+              // not bought. The synthesized verdict is shaped so the
+              // decision block below reaches that reject through its own
+              // unchanged logic; it is never cached (it is not a model
+              // verdict) and never metered (nothing was bought).
+              // AI_GRAY_ZONE=off restores ask-always.
+              let _gzVerdict: any = null;
+              if (_grayZone.aiGrayZoneEnabled()) {
+                const _gzConf = _grayZone.coerceEaConfidence(preConfirmConfidence);
+                if (_gzConf < _grayZone.GRAY_ZONE_EA_GATE) {
+                  const { computeConfluenceScore: _gzConfluence } = await import('./openai');
+                  const _gzC = _gzConfluence(analysis.signal, ictContext, smcContext, propFirmCtx?.accountBalance ?? 0);
+                  if (_grayZone.isDecisiveReject(_gzConf, _gzC.grade)) {
+                    _gzVerdict = _grayZone.decisiveRejectVerdict({
+                      eaConfidence: _gzConf, confluenceGrade: _gzC.grade, confluenceScore: _gzC.score,
+                    });
+                    _grayZone.noteGrayZoneSkip(token.userId, 'decisive_reject');
+                    _cdiag.stage = 'ai_gray_zone_skip';
+                    console.log(`[AI Gray Zone] ${sanitizedSymbol}: AI purchase skipped — decisive reject (EA ${_gzConf}% < ${_grayZone.GRAY_ZONE_EA_GATE}% gate, confluence grade ${_gzC.grade} below the B override floor)`);
+                  }
+                }
+              }
+              const _ccHit = _gzVerdict ? null : _getCC(token.userId, sanitizedSymbol, sanitizedTimeframe, analysis.signal, analysis.confidence, _ccPrice);
+              if (_gzVerdict) {
+                aiConfirmation = _gzVerdict;
+              } else if (_ccHit) {
                 aiConfirmation = _ccHit.verdict;
                 _cdiag.stage = 'ai_cached';
                 console.log(`[AI Confirmation] ${sanitizedSymbol}: reused verdict — ${_ccHit.reason}`);
@@ -11182,11 +11236,20 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 symbolPerfStats, learnedInsights, resolvedStrategyMode,
                 !!_stratEngineState?.config?.deepReasoningMode
               );
+              _grayZone.noteGrayZoneAsked(token.userId);
               // Meter the answered call against the daily engine AI budget
               // (aiError verdicts are not billed and are not metered;
               // deep-reasoning answers cost two passes, so they meter 2).
+              // AI cost-cutting Layer 4: when the verdict reports how many
+              // PAID calls its answer cost (aiCallsBought — 0 when the free
+              // first pass stood, 1 when it escalated), meter exactly that;
+              // a $0 answer is not metered at all (meterEngineAiConfirmation
+              // clamps units to >= 1, so 0 must skip the call, not pass 0).
               if (aiConfirmation && !((aiConfirmation as any).aiError)) {
-                _costDiscipline.meterEngineAiConfirmation(token.userId, (aiConfirmation as any).deepReasoningUsed ? 2 : 1);
+                const _units = typeof (aiConfirmation as any).aiCallsBought === 'number'
+                  ? (aiConfirmation as any).aiCallsBought
+                  : ((aiConfirmation as any).deepReasoningUsed ? 2 : 1);
+                if (_units > 0) _costDiscipline.meterEngineAiConfirmation(token.userId, _units);
               }
               // Only a REAL answer is cached. An error result (aiConfidence 0 —
               // e.g. a 402, a timeout) must never be reused: that would pin a
@@ -11203,7 +11266,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 _logBudgetBlock();
                 console.warn(`[AI Cost] ${sanitizedSymbol}: vision confirmation blocked — daily AI budget reached for user ${token.userId}`);
               }
-              _cdiag.stage = _cdiag.stage === 'ai_cached' ? 'ai_cached' : _cdiag.stage === 'ai_budget_blocked' ? 'ai_budget_blocked' : 'ai_returned';
+              _cdiag.stage = _cdiag.stage === 'ai_cached' ? 'ai_cached' : _cdiag.stage === 'ai_budget_blocked' ? 'ai_budget_blocked' : _cdiag.stage === 'ai_gray_zone_skip' ? 'ai_gray_zone_skip' : 'ai_returned';
               if ((_cdiag as any)._candleKey) { const _ck = (_cdiag as any)._candleKey; ((globalThis as any).__chartAiCandle as Map<string, number>)?.set(_ck.k, _ck.c); }
               _cdiag.decision = aiConfirmation ? (aiConfirmation.confirmed ? 'CONFIRMED' : 'REJECTED') : 'NULL';
               _cdiag.model = (aiConfirmation as any)?.modelUsed || getUserModelPreference(token.userId);
