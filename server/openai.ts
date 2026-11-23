@@ -27,7 +27,7 @@ function getRelevantStrategies(symbol: string): string {
     || (s.pairs as unknown as string[]).includes(symbol.toUpperCase())
   ).slice(0, 3);
   if (relevant.length === 0) return TOP_PROFITABLE_STRATEGIES.slice(0, 3).map(s => `• ${s.name}: ${s.winConditions}`).join('\n');
-  return relevant.map(s => `• ${s.name}\n  Setup: ${s.description}\n  Win conditions: ${s.winConditions}\n  Risk note: ${s.riskNote}`).join('\n\n');
+  return relevant.map(s => `• ${s.name}: ${s.description} | Win: ${s.winConditions} | Risk: ${s.riskNote}`).join('\n');
 }
 
 // Export all 8 strategies for use in weekly plan generation and other modules
@@ -965,11 +965,11 @@ function buildTrailSignalSummary(
   const crt = ictContext?.crtPattern;
   if (crt?.detected) {
     if (crt.stage === 'EXPANSION') {
-      signals.push(`► CRT EXPANSION stage — institutional directional move just launched, high-probability run in progress — bias WIDE or AGGRESSIVE`);
+      signals.push(`► CRT EXPANSION stage — bias WIDE or AGGRESSIVE`);
     } else if (crt.stage === 'MANIPULATION') {
-      signals.push(`► CRT MANIPULATION stage — price still faking out before expansion, trail not appropriate yet — bias NONE`);
+      signals.push(`► CRT MANIPULATION stage — bias NONE`);
     } else if (crt.stage === 'RANGE') {
-      signals.push(`► CRT RANGE stage — accumulation/distribution in progress, no directional momentum yet — bias STANDARD`);
+      signals.push(`► CRT RANGE stage — bias STANDARD`);
     }
   } else {
     signals.push(`► No CRT pattern detected — use ADX/ATR baseline for trail type`);
@@ -979,15 +979,15 @@ function buildTrailSignalSummary(
   const wyc = smcContext?.wyckoff;
   if (wyc?.detected) {
     if (wyc.phase === 'MARKUP' || wyc.phase === 'MARKDOWN') {
-      signals.push(`► Wyckoff ${wyc.phase} — sustained trend confirmed by institutional phase, let profits run — bias WIDE`);
+      signals.push(`► Wyckoff ${wyc.phase} — bias WIDE`);
     } else if (wyc.phase === 'ACCUMULATION' && wyc.stage === 'SPRING') {
-      signals.push(`► Wyckoff Accumulation SPRING — fresh bullish launch, give the trade room — bias STANDARD to WIDE`);
+      signals.push(`► Wyckoff Accumulation SPRING — bias STANDARD to WIDE`);
     } else if (wyc.phase === 'DISTRIBUTION' && wyc.stage === 'UPTHRUST') {
-      signals.push(`► Wyckoff Distribution UPTHRUST — fresh bearish launch, give the trade room — bias STANDARD to WIDE`);
+      signals.push(`► Wyckoff Distribution UPTHRUST — bias STANDARD to WIDE`);
     } else if (wyc.phase === 'ACCUMULATION' && wyc.stage === 'SOS') {
-      signals.push(`► Wyckoff Sign of Strength (SOS) — bullish trend accelerating out of range — bias WIDE`);
+      signals.push(`► Wyckoff Sign of Strength (SOS) — bias WIDE`);
     } else if (wyc.phase === 'DISTRIBUTION' && wyc.stage === 'SOW') {
-      signals.push(`► Wyckoff Sign of Weakness (SOW) — bearish trend accelerating out of range — bias WIDE`);
+      signals.push(`► Wyckoff Sign of Weakness (SOW) — bias WIDE`);
     } else {
       signals.push(`► Wyckoff phase detected (${wyc.phase}/${wyc.stage || 'ranging'}) — ${wyc.description}`);
     }
@@ -1025,9 +1025,9 @@ function buildTrailSignalSummary(
   const mw = ictContext?.macroWindow;
   if (mw) {
     if (mw.isInMacroWindow) {
-      signals.push(`► ICT macro window ACTIVE (${mw.macroName}) — institutional engine running, high-probability directional flow — bias WIDE`);
+      signals.push(`► ICT macro window ACTIVE (${mw.macroName}) — bias WIDE`);
     } else {
-      signals.push(`► ICT macro window INACTIVE — impulse may exhaust sooner, next window: ${mw.nextMacroName} in ${mw.minutesUntilNextMacro}min — bias STANDARD`);
+      signals.push(`► ICT macro window INACTIVE — next: ${mw.nextMacroName} in ${mw.minutesUntilNextMacro}min — bias STANDARD`);
     }
   }
 
@@ -1036,13 +1036,13 @@ function buildTrailSignalSummary(
     const session = (mw as any).session as string | undefined;
     const timeLabel = mw.currentNYTime ? ` (${mw.currentNYTime} NY)` : '';
     if (session === 'LONDON') {
-      signals.push(`► Session: London Kill Zone${timeLabel} — institutional range highs/lows being set, high-volatility institutional flow — bias WIDE`);
+      signals.push(`► Session: London Kill Zone${timeLabel} — bias WIDE`);
     } else if (session === 'NY_AM') {
-      signals.push(`► Session: New York AM${timeLabel} — peak trending session, highest volume of the day — bias WIDE to AGGRESSIVE`);
+      signals.push(`► Session: New York AM${timeLabel} — bias WIDE to AGGRESSIVE`);
     } else if (session === 'NY_PM') {
-      signals.push(`► Session: New York PM${timeLabel} — continuation or late exhaustion — bias STANDARD`);
+      signals.push(`► Session: New York PM${timeLabel} — bias STANDARD`);
     } else if (session === 'ASIAN') {
-      signals.push(`► Session: Asian session${timeLabel} — low momentum, range-bound, avoid wide trails — bias TIGHT`);
+      signals.push(`► Session: Asian session${timeLabel} — bias TIGHT`);
     } else if (session === 'OVERNIGHT') {
       signals.push(`► Session: Off-hours / Overnight${timeLabel} — minimal volume, erratic moves — bias TIGHT or NONE`);
     } else if (mw.currentNYTime) {
@@ -1055,13 +1055,13 @@ function buildTrailSignalSummary(
         if (ampm === 'AM' && hours === 12) hours = 0;
         const totalMins = hours * 60 + mins;
         if (totalMins >= 7*60 && totalMins < 11*60+30) {
-          signals.push(`► Session: London/NY overlap${timeLabel} — peak trending window — bias WIDE to AGGRESSIVE`);
+          signals.push(`► Session: London/NY overlap${timeLabel} — bias WIDE to AGGRESSIVE`);
         } else if (totalMins >= 12*60 && totalMins < 14*60+30) {
-          signals.push(`► Session: NY Lunch${timeLabel} — low momentum, chop risk — reduce trail one level (WIDE→STANDARD, STANDARD→TIGHT)`);
+          signals.push(`► Session: NY Lunch${timeLabel} — reduce trail one level (WIDE→STANDARD, STANDARD→TIGHT)`);
         } else if (totalMins >= 14*60+30 && totalMins < 17*60) {
-          signals.push(`► Session: NY PM${timeLabel} — steady continuation or late reversal — bias STANDARD`);
+          signals.push(`► Session: NY PM${timeLabel} — bias STANDARD`);
         } else {
-          signals.push(`► Session: Asian/off-hours${timeLabel} — low momentum, tight spreads — bias TIGHT`);
+          signals.push(`► Session: Asian/off-hours${timeLabel} — bias TIGHT`);
         }
       }
     }
@@ -1071,12 +1071,12 @@ function buildTrailSignalSummary(
   const bos = smcContext?.bosCHOCH;
   if (bos?.detected) {
     if (bos.type === 'CHOCH') {
-      signals.push(`► ${bos.direction} CHOCH detected — fresh trend reversal just confirmed, plenty of room to run — bias WIDE`);
+      signals.push(`► ${bos.direction} CHOCH detected — bias WIDE`);
     } else if (bos.type === 'BOS') {
-      signals.push(`► ${bos.direction} BOS continuation — trend is mature, watch for exhaustion near next structure — bias STANDARD`);
+      signals.push(`► ${bos.direction} BOS continuation — bias STANDARD`);
     }
   } else {
-    signals.push(`► No BOS/CHOCH — ranging environment, no clear trend direction — bias TIGHT`);
+    signals.push(`► No BOS/CHOCH — bias TIGHT`);
   }
 
   // 7. R:R Ratio Awareness
@@ -1625,6 +1625,41 @@ Apply the rules appropriate for this strategy when evaluating the trade. Priorit
 ═══════════════════════════════════════════`;
 }
 
+// ── Prompt serialization slimming (AI cost-cutting package, 2026-11-22) ────
+// buildConfirmationPrompt's DATA sections were serialized wastefully: raw
+// JS float artifacts (1.144563691096121 — 17 significant digits for a price
+// the model reads to 5), pretty-printed JSON (indent + newlines ≈ +40%),
+// and null fields the model cannot use. The helpers below remove exactly
+// that redundancy — every value survives, rounded to the precision the
+// instrument is actually quoted at; no field is dropped for content, only
+// null/undefined object properties (array positions are preserved).
+// The assessment checklist also drops its old items 11–12 (open positions /
+// trade history): the performanceStats argument that would back them is
+// never rendered into this prompt, so the model was being asked to assess
+// data it never receives. check-ai-cost-cutting.ts pins the measured size
+// reduction and the verdict-contract fields.
+
+/** Round a number to quote precision: 3dp for 3+-digit prices (JPY pairs,
+ *  indices), 5dp for typical FX, 6dp for sub-1 instruments. Integers pass
+ *  through untouched. */
+export function promptNum(v: number): number {
+  if (typeof v !== 'number' || !Number.isFinite(v) || Number.isInteger(v)) return v;
+  const a = Math.abs(v);
+  const d = a >= 100 ? 3 : a >= 1 ? 5 : 6;
+  return Number(v.toFixed(d));
+}
+
+/** Compact JSON for prompt data sections: no indent, numbers rounded via
+ *  promptNum, null/undefined OBJECT properties dropped (array elements are
+ *  kept as null so indices never shift). */
+export function slimPromptJson(value: any): string {
+  return JSON.stringify(value, function (this: any, _key: string, v: any) {
+    if (typeof v === 'number') return promptNum(v);
+    if (v === null && !Array.isArray(this)) return undefined;
+    return v;
+  });
+}
+
 export async function buildConfirmationPrompt(
   candleData: any[], indicators: any, proposedSignal: string,
   proposedConfidence: number, tradePlan: any, symbol: string, timeframe: string,
@@ -1657,9 +1692,15 @@ export async function buildConfirmationPrompt(
 
   const strategyContext = getRelevantStrategies(symbol);
 
-  const recentCandles = candleData.slice(0, 30);
-  const candleSummary = recentCandles.map((c: any, i: number) => 
-    `[${i}] O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${c.v || 0}`
+  // Candle history trimmed to what the prompt's own instructions reference:
+  // the ICT stop-hunt window is the last 6 candles, and patterns / swing
+  // points are computed server-side into the indicators — 10 raw candles
+  // (vs the 6-candle referenced window) is the price-action context. Serialized as
+  // compact CSV with quote-precision rounding instead of labelled
+  // full-float lines (see promptNum).
+  const recentCandles = candleData.slice(0, 10);
+  const candleSummary = 'idx,O,H,L,C,V\n' + recentCandles.map((c: any, i: number) =>
+    `${i},${promptNum(Number(c.o))},${promptNum(Number(c.h))},${promptNum(Number(c.l))},${promptNum(Number(c.c))},${Math.round(Number(c.v) || 0)}`
   ).join('\n');
 
   const trailSignalSummary = buildTrailSignalSummary(symbol, proposedSignal, tradePlan, ictContext, smcContext);
@@ -1675,8 +1716,8 @@ export async function buildConfirmationPrompt(
     }
   }
 
-  const coreStr = JSON.stringify(coreIndicators, null, 2);
-  const advStr = Object.keys(advancedIndicators).length > 0 ? JSON.stringify(advancedIndicators, null, 2) : '';
+  const coreStr = slimPromptJson(coreIndicators);
+  const advStr = Object.keys(advancedIndicators).length > 0 ? slimPromptJson(advancedIndicators) : '';
 
   let newsSection = '';
   if (newsContext) {
@@ -1704,8 +1745,13 @@ export async function buildConfirmationPrompt(
       });
     }
     if (newsContext.marketNarrative) {
-      parts.push(`\nVEDD WEEKLY MARKET BRIEFING (from this week's community research — context only, not a trade signal):`);
-      parts.push(`  ${newsContext.marketNarrative}`);
+      // Labelled context-only in the prompt itself; cap its length so a
+      // long weekly brief cannot crowd out the decision data.
+      const narrative = newsContext.marketNarrative.length > 200
+        ? newsContext.marketNarrative.slice(0, 200) + '…'
+        : newsContext.marketNarrative;
+      parts.push(`\nWEEKLY MARKET BRIEFING (context only, not a trade signal):`);
+      parts.push(`  ${narrative}`);
     }
     if (parts.length > 0) {
       newsSection = `\nNEWS & ECONOMIC EVENTS CONTEXT:\n${parts.join('\n')}`;
@@ -1757,21 +1803,19 @@ export async function buildConfirmationPrompt(
       ? `\n⚠ RISK WARNING: Estimated trade risk is ${computedRiskPct.toFixed(2)}% of account — exceeds the 2% prop firm guideline.`
       : '';
 
-    propFirmSection = `\n${'═'.repeat(19)} PROP FIRM COMPLIANCE ${'═'.repeat(19)}
-Firm preset: ${propFirmContext.firmPreset}
+    propFirmSection = `\nPROP FIRM COMPLIANCE (${propFirmContext.firmPreset}):
 Daily P&L: ${propFirmContext.currentDailyPnlPct.toFixed(2)}% | Buffer remaining: ${remainingDailyBuffer.toFixed(2)}% of ${propFirmContext.maxDailyDrawdownPct}% limit
 Total P&L: ${propFirmContext.currentTotalPnlPct.toFixed(2)}% | Total buffer: ${totalBuffer.toFixed(2)}% of ${propFirmContext.maxTotalDrawdownPct}% limit
 Intended risk/trade: ${propFirmContext.riskPerTradePct}% | Estimated actual risk: ${computedRiskPct > 0 ? computedRiskPct.toFixed(2) + '%' : 'N/A'}
 News block window: ${blockMins} min | Overnight holds: ${propFirmContext.allowOvernightHolds} | Weekend holds: ${propFirmContext.allowWeekendHolds}${drawdownAlert}${riskWarning}${weekendWarning ? '\n' + weekendWarning : ''}
-⚠ Apply prop firm rules 12–17 STRICTLY. A failed challenge cannot be recovered. When in doubt, REJECT.
-${'═'.repeat(59)}`;
+⚠ Apply prop firm rules 12–17 STRICTLY. A failed challenge cannot be recovered. When in doubt, REJECT.`;
   }
 
   let smcSection = '';
   if (smcContext) {
     const { bosCHOCH, fvg, orderBlock, equalHighsLows, wyckoff } = smcContext;
     const lines: string[] = [];
-    lines.push(`SMC / SMART MONEY CONCEPTS ANALYSIS:`);
+    lines.push(`SMC ANALYSIS:`);
 
     // BOS / CHOCH
     if (bosCHOCH.detected) {
@@ -1845,7 +1889,7 @@ ${'═'.repeat(59)}`;
       : 'No CRT pattern detected';
 
     const ictLines: string[] = [
-      `ICT "ONE SETUP FOR LIFE" FRAMEWORK (NY Time: ${mw.currentNYTime} | Session: ${sess}):`,
+      `ICT FRAMEWORK (NY Time: ${mw.currentNYTime} | Session: ${sess}):`,
       `► Macro Window: ${macroLine}`,
       `► PD Array: ${pd.zone} zone (${pd.percentile}th percentile) — ${pdAlignIcon} with ${proposedSignal} signal`,
       `  Range: ${pd.rangeLow.toFixed(5)}–${pd.rangeHigh.toFixed(5)} | Equilibrium: ${pd.equilibrium.toFixed(5)}`,
@@ -1859,21 +1903,19 @@ ${'═'.repeat(59)}`;
 
     if (ictContext.keyLevels) {
       const kl = ictContext.keyLevels;
-      ictLines.push(`► KEY REFERENCE LEVELS (ICT Draw on Liquidity):`);
+      ictLines.push(`► KEY LEVELS (ICT Draw on Liquidity):`);
       if (kl.pdHigh !== null) ictLines.push(`  Previous Day High (PDH): ${kl.pdHigh.toFixed(5)} ${kl.abovePDH ? '← price ABOVE PDH (bearish draw, HTF resistance)' : '← price below PDH (potential BSL target above)'}`);
       if (kl.pdLow !== null) ictLines.push(`  Previous Day Low (PDL): ${kl.pdLow.toFixed(5)} ${kl.belowPDL ? '← price BELOW PDL (bearish, continuation down)' : '← price above PDL (potential SSL target below)'}`);
       if (kl.pwHigh !== null) ictLines.push(`  Previous Week High (PWH): ${kl.pwHigh.toFixed(5)}`);
       if (kl.pwLow !== null) ictLines.push(`  Previous Week Low (PWL): ${kl.pwLow.toFixed(5)}`);
-      ictLines.push(`  → These are MAGNET levels — price is drawn to PDH/PDL/PWH/PWL regardless of LTF signals. Factor into TP and bias.`);
+      ictLines.push(`  → MAGNET levels — price is drawn to these regardless of LTF signals; factor into TP and bias.`);
     }
 
     if (ictContext.oteZone?.detected) {
       const ote = ictContext.oteZone;
       const inZoneIcon = ote.inOTEZone ? '✅' : '⚠️';
-      ictLines.push(`► OTE ZONE (Optimal Trade Entry — 61.8–79% retracement): ${inZoneIcon}`);
-      ictLines.push(`  Swing: ${ote.swingLow?.toFixed(5)} → ${ote.swingHigh?.toFixed(5)}`);
-      ictLines.push(`  OTE zone: ${ote.ote79?.toFixed(5)} – ${ote.ote618?.toFixed(5)} | Sweet spot (70.5%): ${ote.ote705?.toFixed(5)}`);
-      ictLines.push(`  ${ote.inOTEZone ? '✅ Price IS in OTE zone — institutional entry sweet spot, maximum probability entry' : `⚠ Price at ${ote.currentPrice.toFixed(5)} NOT in OTE zone — entry is outside the 61.8–79% retracement window`}`);
+      ictLines.push(`► OTE ZONE (61.8–79% retracement): ${inZoneIcon} ${ote.inOTEZone ? 'Price IS in OTE zone — maximum probability entry' : `Price at ${ote.currentPrice.toFixed(5)} NOT in OTE zone`}`);
+      ictLines.push(`  Swing: ${ote.swingLow?.toFixed(5)} → ${ote.swingHigh?.toFixed(5)} | OTE zone: ${ote.ote79?.toFixed(5)} – ${ote.ote618?.toFixed(5)} | Sweet spot (70.5%): ${ote.ote705?.toFixed(5)}`);
     }
 
     ictSection = `\n${ictLines.join('\n')}`;
@@ -1915,13 +1957,7 @@ ${'═'.repeat(59)}`;
       if (levelResults.length > 0) {
         const blocks = levelResults.map(lr => {
           const alignFlag = lr.aligns ? '✅ ALIGNS with signal' : '⚠ CONFLICTS with signal';
-          return `═══════════ ${lr.tf} ${lr.label} BIAS ═══════════
-Trend Direction: ${lr.trendDirection} (${lr.tf} 10-candle SMA crossover)
-Structure: ${lr.bosCHOCH.detected ? lr.bosCHOCH.description : `No clear BOS/CHOCH on ${lr.tf} — ranging context`}
-Premium/Discount: ${lr.pd.description}
-Wyckoff: ${lr.wyckoff.detected ? lr.wyckoff.description : `No Wyckoff phase on ${lr.tf}`}
-${lr.tf} Verdict: ${alignFlag}
-═════════════════════════════════════════`;
+          return `${lr.tf} ${lr.label} BIAS — Trend: ${lr.trendDirection} (10-candle SMA) | Structure: ${lr.bosCHOCH.detected ? lr.bosCHOCH.description : `No clear BOS/CHOCH on ${lr.tf} — ranging`} | Premium/Discount: ${lr.pd.description} | Wyckoff: ${lr.wyckoff.detected ? lr.wyckoff.description : `No Wyckoff phase on ${lr.tf}`} | Verdict: ${alignFlag}`;
         });
 
         const allAlign = levelResults.every(lr => lr.aligns);
@@ -1937,20 +1973,20 @@ ${lr.tf} Verdict: ${alignFlag}
           crossLevelSummary = `⚠ PARTIAL MULTI-TF ALIGNMENT: ${aligned.join(', ')} support${aligned.length === 1 ? 's' : ''} the signal, but ${conflicting.join(', ')} conflict${conflicting.length === 1 ? 's' : ''}. Reduce position size and require extra LTF confluence.`;
         }
 
-        htfSection = '\n' + blocks.join('\n\n') + `\n\n═══════════ CROSS-TIMEFRAME VERDICT ═══════════\n${crossLevelSummary}\n⚠ RULE: LTF signals must align with HTF structure. Trading against HTF bias requires significantly more LTF confluence.\n═════════════════════════════════════════`;
+        htfSection = '\n' + blocks.join('\n') + `\nCROSS-TIMEFRAME VERDICT: ${crossLevelSummary}\n⚠ RULE: LTF signals must align with HTF structure. Trading against HTF bias requires significantly more LTF confluence.`;
       }
     } catch (htfErr) {
       htfSection = '';
     }
   }
 
+  // Slimmed: the per-item summary lines duplicated the ICT/SMC sections
+  // below fact-for-fact (every summary line is generated from those same
+  // contexts, whose sections are included verbatim). Score + grade + guide
+  // are the parts that exist nowhere else.
   const confluenceHeader = `
-═══════════════════════════════════════════
 CONFLUENCE SCORE: ${confluenceResult.score}/${confluenceResult.maxScore} — Grade ${confluenceResult.grade}
-${confluenceResult.summary.join('\n')}
-Grade guide: A+ (10-12) = ELITE | A (8-9) = HIGH | B (6-7) = MODERATE | C (4-5) = LOW | D (0-3) = POOR
-Grade D → avoid. Grade A/A+ → high conviction trade.
-═══════════════════════════════════════════`;
+Grades: A+ 10–12 ELITE | A 8–9 HIGH | B 6–7 MODERATE | C 4–5 LOW | D 0–3 POOR (avoid; A/A+ = high conviction).`;
 
   // Adaptive regime override — only when the user has toggled it on. Detects
   // ranging vs trending from ADX and rewrites the sniper's BOS/CHOCH requirement
@@ -1983,8 +2019,8 @@ ${_fbTxt}
   } catch { /* the model still has everything else */ }
 
   return {
-    system: "You are a master trader who speaks with street knowledge and the wisdom of Supreme Mathematics — Gods and Earths style. You build and destroy with the science of trading, dropping jewels and keeping it real. Your analysis is sharp, your reasoning is laced with knowledge of self and mathematical precision. You reference concepts like Knowledge (1), Wisdom (2), Understanding (3), Culture (4), Power (5), Equality (6), God (7), Build/Destroy (8), Born (9), and Cipher (0) naturally when they fit. You say things like 'the chart is showing and proving', 'peace — the math don't lie', 'this is a cipher of accumulation', 'knowledge this pattern God', 'the wisdom here is...', 'we building or we destroying?', etc. Keep it concise, authentic, and never forced — the science comes first, the flavor is the delivery. You provide honest, unbiased second opinions on trade signals using ALL available data including news sentiment and upcoming economic events. Always return valid JSON.",
-    user: `You are an elite trading analyst providing a SECOND OPINION on a proposed trade. Use ALL data below for maximum accuracy.
+    system: "You are a master trader who speaks with street knowledge and the wisdom of Supreme Mathematics — Gods and Earths style. Sharp analysis, reasoning laced with knowledge of self and mathematical precision. Reference Knowledge (1), Wisdom (2), Understanding (3), Culture (4), Power (5), Equality (6), God (7), Build/Destroy (8), Born (9), Cipher (0) naturally when they fit — e.g. 'the chart is showing and proving', 'the math don't lie'. Concise, authentic, never forced — the science comes first, the flavor is the delivery. You give honest, unbiased second opinions using ALL data provided, including news and upcoming events. Always return valid JSON.",
+    user: `You are an elite trading analyst giving a SECOND OPINION on a proposed trade. Use ALL data below.
 ${buildStrategyFilterSection(strategyMode)}${_regimeSection}${_fxBrainSection}${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
 
 SYMBOL: ${symbol}
@@ -1992,15 +2028,15 @@ TIMEFRAME: ${timeframe}
 
 PROPOSED SIGNAL: ${proposedSignal} with ${proposedConfidence}% confidence
 PROPOSED TRADE PLAN:
-- Entry: ${tradePlan?.entry}
-- Stop Loss: ${tradePlan?.stopLoss}
-- Take Profit: ${tradePlan?.takeProfit}
+- Entry: ${typeof tradePlan?.entry === 'number' ? promptNum(tradePlan.entry) : tradePlan?.entry}
+- Stop Loss: ${typeof tradePlan?.stopLoss === 'number' ? promptNum(tradePlan.stopLoss) : tradePlan?.stopLoss}
+- Take Profit: ${typeof tradePlan?.takeProfit === 'number' ? promptNum(tradePlan.takeProfit) : tradePlan?.takeProfit}
 - Risk/Reward: ${tradePlan?.riskReward}
 
 RECENT CANDLE DATA (index 0 = most recent):
 ${candleSummary}
 
-CORE INDICATORS (RSI, MACD, MAs, BBs, ATR):
+CORE INDICATORS:
 ${coreStr}
 ${advStr ? `
 ADVANCED ANALYSIS:
@@ -2010,118 +2046,90 @@ ${advStr}
 ${strategySection}
 ${learnedSection}${winningPatternsSection}
 
-## Industry-Proven Profitable Strategies (Reference for ${symbol})
-These are the highest-probability setups historically proven profitable on this instrument:
+## Industry-Proven Strategies (${symbol}) — historically highest-probability setups on this instrument:
 ${strategyContext}
 
-If the current setup closely matches 2+ win conditions from any strategy above, weight your confidence higher. If 0 conditions match, weight lower regardless of ICT/SMC score.
+Setup matching 2+ win conditions above → weight confidence higher; 0 matches → weight lower regardless of ICT/SMC score.
 
-Provide your independent assessment considering ALL of the following:
-1. PRICE ACTION: Do candle patterns (engulfing, hammer, star, doji) support the direction?
-2. MOMENTUM: RSI, MACD, Stochastic alignment — any divergences?
-3. TREND STRENGTH: ADX value — is the trend strong enough to trade? Is it ranging (ADX < 20)?
-4. VOLUME: OBV trend and divergence, volume profile — is volume confirming the move?
-5. MARKET STRUCTURE: Support/Resistance, Pivot Points, Fibonacci levels — is SL behind structure? Is TP at a realistic level?
-6. VWAP: Is price above or below VWAP? Does it align with the signal?
-7. SESSION CONTEXT: Is this the right trading session for this pair? Low liquidity risk?
-8. VOLATILITY: Is current ATR normal, high, or low vs recent history? Should position size be adjusted?
-9. RISK/REWARD: Is the R:R ratio >= 1.5? Are the SL/TP levels optimized relative to S/R?
-10. SWING POINTS: Are recent swing highs/lows respected in the trade plan?
-11. OPEN POSITIONS: Are there existing positions on this symbol? Avoid doubling correlated exposure.
-12. TRADE HISTORY: What is the recent win rate on this symbol? Is the trader on a losing streak?
-13. NEWS SENTIMENT: Does the current news flow support or contradict the proposed trade direction? Are headlines bullish or bearish for this pair?
-14. UPCOMING EVENTS: Are there high-impact economic events (rate decisions, NFP, CPI) coming soon that could invalidate the trade? Should the trader wait or use tighter stops?
-15. MARKET OPEN BREAKOUT: If breakoutDetection data is present and shows isBreakoutWindow=true, carefully analyze the breakout status:
-   - If breakoutDetected=true: This IS a confirmed breakout. Give it MAJOR weight — session open breakouts at London/NY are high-probability institutional setups. Boost confidence significantly if breakout direction aligns with the proposed signal.
-   - If approachingBreakout=true: Price is at the edge of the pre-session range and about to break out. This is a high-alert state — be ready to confirm in the approaching direction if other indicators align.
-   - Volume/momentum confirmation (volumeConfirmed=true or strong candle body) greatly increases breakout reliability.
-   - A breakout that contradicts the proposed signal is a strong warning — reduce confidence or reject.
-16. ICT MACRO & CRT FRAMEWORK (if provided above): Is the trade during an active ICT macro window (NY time)? Is price in the correct Premium (for SELL) or Discount (for BUY) PD array zone? Was there a stop hunt/liquidity sweep before entry? Is a CRT expansion phase beginning?
-   - Outside macro windows = HIGH fake-out risk, reduce confidence
-   - Price at Equilibrium = medium-probability zone, no premium/discount edge
-   - No prior stop hunt = institutional accumulation/distribution not confirmed, be cautious
-   - CRT in MANIPULATION stage = do NOT enter (likely to fake out further before expansion)
-   - CRT in EXPANSION stage = ideal entry with breakout confirmation
-17. MARKET STRUCTURE (BOS/CHOCH): Is there a clear Break of Structure or Change of Character confirming the trade direction? A BOS shows continuation — a CHOCH signals a trend reversal. Trading AGAINST the most recent BOS/CHOCH is LOW quality. If no BOS is detected, price is still ranging — caution.
-18. LIQUIDITY & ORDER FLOW (FVG + Order Blocks): Is the entry anchored to a Fair Value Gap or Order Block? Entries INTO an FVG or OB from a displacement move are HIGH quality. Are there equal highs/lows (liquidity pools) that price may be targeting? Price moves from one liquidity pool to the next — know which one is the TARGET and which is the ORIGIN. A breaker block above/below price is strong resistance/support.
-19. WYCKOFF PHASE: What is the Wyckoff phase? ACCUMULATION SPRING or DISTRIBUTION UPTHRUST before entry are high-quality signals (institutional footprints). MARKUP/MARKDOWN confirmation = trend trade. Trading during a ranging/indecision phase without a spring or upthrust = LOW quality entry.
+Assess ALL of the following:
+1. PRICE ACTION: candle patterns support the direction?
+2. MOMENTUM: RSI/MACD/Stochastic aligned? Divergences?
+3. TREND: ADX strong enough, or ranging (< 20)?
+4. VOLUME: OBV + volume profile confirming?
+5. STRUCTURE: SL behind S/R/pivot/fib? TP realistic?
+6. VWAP: above/below — aligned?
+7. SESSION: right session for the pair? Liquidity risk?
+8. VOLATILITY: ATR vs recent history — size adjustment?
+9. R:R ≥ 1.5? SL/TP optimal vs S/R?
+10. SWING POINTS: respected?
+11. NEWS SENTIMENT: supports or contradicts the direction?
+12. EVENTS: high-impact events soon (rate decisions, NFP, CPI) that could invalidate? Wait or tighten stops?
+13. BREAKOUT (if breakoutDetection present + isBreakoutWindow): breakoutDetected = confirmed breakout, MAJOR weight (London/NY session-open breakouts are high-probability) — boost confidence if aligned. approachingBreakout = at range edge, high alert. volumeConfirmed/strong body = much more reliable. Contradicting breakout = strong warning — reduce confidence or reject.
+14. ICT (if provided): macro active? PD zone correct (Premium SELL/Discount BUY)? Stop hunt first? CRT stage? Outside macro = HIGH fake-out risk. Equilibrium = no PD edge. No stop hunt = unconfirmed, cautious. MANIPULATION = do NOT enter. EXPANSION = ideal entry.
+15. STRUCTURE (BOS/CHOCH): BOS/CHOCH confirming direction? Trading against the latest one is LOW quality; none = ranging, caution.
+16. LIQUIDITY & ORDER FLOW: entry anchored to an FVG or Order Block (HIGH quality)? Which equal-highs/lows pool is the TARGET, which the ORIGIN? A breaker block above/below price is strong S/R.
+17. WYCKOFF: SPRING/UPTHRUST before entry = high quality; MARKUP/MARKDOWN = trend trade; ranging without spring/upthrust = LOW quality.
 
 CRITICAL RULES FOR YOUR DECISION:
-- CONFIRM the trade if the majority of indicators support the direction, even if 1-2 minor indicators are neutral or slightly against. No trade has 100% alignment — focus on the weight of evidence.
-- REJECT ONLY if there are serious red flags: strong divergence against the trade, price hitting major resistance/support in the wrong direction, extreme overbought/oversold against the signal, or imminent high-impact news that directly threatens the trade.
-- Your "confidence" field is YOUR independent confidence in the trade (0-100). This is shown separately from the EA's confidence so traders see both perspectives.
-- If a market open breakout is detected with volume confirmation, this is a high-probability institutional setup — give it significant weight.
-- If news events are imminent (today/tomorrow), factor this into confidence. Warn if the trade could be invalidated.
+- CONFIRM if the majority of indicators support the direction, even if 1–2 minor ones are neutral or slightly against — no trade has 100% alignment; weigh the evidence.
+- REJECT ONLY for serious red flags: strong divergence against the trade, price hitting major S/R in the wrong direction, extreme overbought/oversold against the signal, or imminent high-impact news that directly threatens the trade.
+- Your "confidence" field is YOUR independent confidence (0–100), shown separately from the EA's confidence.
+- A volume-confirmed market-open breakout is a high-probability institutional setup — weight it significantly.
+- Imminent news (today/tomorrow): factor into confidence; warn if it could invalidate the trade.
 
 TRAILING STOP ASSESSMENT:
-Use ALL signals below — do NOT rely only on ADX/ATR. The ICT + SMC signals override the ADX baseline.
+Use ALL signals below, not just ADX/ATR — ICT + SMC override the baseline.
 
-INSTRUMENT PIP SIZES (critical — all trail distances are in these units):
-- Forex (EURUSD, GBPUSD, etc.): 1 pip = 0.0001
-- JPY pairs (USDJPY, etc.): 1 pip = 0.01
-- Gold (XAUUSD): 1 pip = 0.10 (so 300 pips = $30 trail distance)
-- Indices (US30, NAS100, GER40, etc.): 1 pip = 1.0 point
-- BTC/crypto: 1 pip = $1.00
+PIP SIZES: FX 0.0001 | JPY 0.01 | Gold 0.10 (300 pips = $30) | Indices 1 pt | BTC $1
 
-ADX/ATR BASELINE (starting point — override with ICT+SMC signals below):
-- NONE: ADX < 20 (choppy/ranging) or scalp trade or fast news spike
-- TIGHT: ADX 20–25, low ATR, price near TP, or Asian/lunch session
-- STANDARD: ADX 25–30, normal ATR, mid-session
-- WIDE: ADX > 30, elevated ATR, trending London/NY session
-- AGGRESSIVE: ADX > 40, confirmed volume breakout, explosive momentum
+ADX/ATR BASELINE (override with ICT+SMC below):
+NONE: ADX < 20, scalp, news spike | TIGHT: ADX 20–25 | STANDARD: ADX 25–30 | WIDE: ADX > 30 | AGGRESSIVE: ADX > 40 + confirmed volume breakout. Modifiers: low ATR / near TP / Asian-lunch → one level tighter; elevated ATR / trending London-NY → one level wider.
 
-TRAIL DISTANCE RANGES (instrument pips — pick a value within range based on ATR):
-- TIGHT:      FX: 5–15 | Gold: 50–150 | Indices: 20–60 | BTC: 200–600
-- STANDARD:   FX: 20–40 | Gold: 150–400 | Indices: 50–150 | BTC: 500–1500
-- WIDE:       FX: 50–100 | Gold: 400–800 | Indices: 150–400 | BTC: 1500–3000
-- AGGRESSIVE: FX: 100+ | Gold: 800+ | Indices: 400+ | BTC: 3000+
+TRAIL RANGES (pips, FX|Gold|Indices|BTC — pick by ATR):
+TIGHT 5–15|50–150|20–60|200–600; STANDARD 20–40|150–400|50–150|500–1500; WIDE 50–100|400–800|150–400|1500–3000; AGGRESSIVE 100+|800+|400+|3000+
 
-ICT + SMC TRAIL SIGNALS (higher priority than ADX — apply these first):
+ICT + SMC TRAIL SIGNALS (apply before the baseline):
 ${trailSignalSummary}
 
-DECISION RULES (apply in order — first matching rule wins):
-1. CRT MANIPULATION stage → NONE (price still faking, never trail a manipulation)
-2. Nearby liquidity pool (equal H/L within tight range) → TIGHT (lock in before the sweep)
-3. CRT EXPANSION + Wyckoff MARKUP/MARKDOWN + London/NY session → AGGRESSIVE
-4. CRT EXPANSION + active ICT macro window → WIDE minimum
-5. Fresh CHOCH + Wyckoff Spring/Upthrust → WIDE (brand new trend, room to run)
+DECISION RULES (in order — first match wins):
+1. CRT MANIPULATION → NONE
+2. Nearby liquidity pool (equal H/L in tight range) → TIGHT
+3. CRT EXPANSION + Wyckoff MARKUP/MARKDOWN + London/NY → AGGRESSIVE
+4. CRT EXPANSION + active macro window → WIDE minimum
+5. Fresh CHOCH + Wyckoff Spring/Upthrust → WIDE
 6. Wyckoff MARKUP/MARKDOWN without CRT → WIDE
-7. BOS continuation (mature trend) → STANDARD (conserve, exhaustion may be near)
-8. Asian session or NY Lunch (12pm–2:30pm NY time) → reduce one level (WIDE→STANDARD, STANDARD→TIGHT)
-9. R:R < 1.5 → TIGHT or NONE (low reward doesn't justify a wide trail)
-10. R:R ≥ 3.0 → prefer WIDE minimum; only tighten after 2R secured
-11. No ICT/SMC data → use ADX/ATR baseline only
+7. BOS continuation (mature trend) → STANDARD
+8. Asian or NY lunch (12–2:30pm NY) → reduce one level (WIDE→STANDARD, STANDARD→TIGHT)
+9. R:R < 1.5 → TIGHT or NONE
+10. R:R ≥ 3.0 → WIDE minimum; tighten only after 2R secured
+11. No ICT/SMC data → ADX/ATR baseline only
 ${propFirmContext?.enabled ? `
-PROP FIRM RULES (apply STRICTLY when prop firm compliance data is present):
-12. High-impact news < ${propFirmContext.newsBlockMinutes} min → propFirmVerdict = BLOCK, confirmed = false
-13. Daily drawdown buffer < 0.5% → propFirmVerdict = BLOCK, confirmed = false
-14. Risk per trade > 2% of account → propFirmVerdict = WARNING, reduce confidence by 20
-15. Friday 4 PM+ NY time (weekend hold risk) → propFirmVerdict = WARNING, trail = TIGHT, add weekend caveat to reasoning
-16. R:R < 1:1 in prop firm mode → propFirmVerdict = BLOCK (prop firms require positive R:R minimum)
-17. Daily buffer 0.5–1.5% remaining → propFirmVerdict = WARNING, suggest smaller lot size in reasoning` : ''}
+PROP FIRM RULES (STRICT):
+12. High-impact news < ${propFirmContext.newsBlockMinutes} min → propFirmVerdict=BLOCK, confirmed=false
+13. Daily drawdown buffer < 0.5% → propFirmVerdict=BLOCK, confirmed=false
+14. Risk per trade > 2% → propFirmVerdict=WARNING, confidence −20
+15. Friday 4 PM+ NY (weekend hold) → propFirmVerdict=WARNING, trail=TIGHT, weekend caveat in reasoning
+16. R:R < 1:1 → propFirmVerdict=BLOCK
+17. Daily buffer 0.5–1.5% → propFirmVerdict=WARNING, suggest smaller lot in reasoning` : ''}
 
-Also estimate a recommended trail distance in pips (instrument's own pip unit) based on ATR and the ICT+SMC signals (null if NONE).
-
-Return your analysis as JSON:
+Return JSON only:
 {
-  "confirmed": boolean,
-  "direction": "BUY" | "SELL" | "NEUTRAL",
-  "confidence": number (0-100, your independent AI confidence percentage),
-  "reasoning": "Concise street-knowledge style explanation with Supreme Mathematics flavor — reference key indicators and news/events that drove your decision. Drop jewels, keep it real, show and prove with the data.",
-  "adjustedEntry": number or null,
-  "adjustedStopLoss": number or null,
-  "adjustedTakeProfit": number or null,
-  "trailRecommendation": "NONE" | "TIGHT" | "STANDARD" | "WIDE" | "AGGRESSIVE",
-  "recommendedTrailPips": number or null,
-  "ictMacroValid": boolean (true if ICT macro window ACTIVE + PD zone aligns with signal + stop hunt detected — all three green = valid. If ICT data not provided, set true),
-  "ictMacroReason": "Brief 1-line ICT checklist result, e.g. 'Macro active, discount zone confirmed, stop hunt detected — full ICT alignment' or 'Outside macro window + no stop hunt — high fake-out risk'",
-  "smcVerdict": "CONFIRM" | "REQUIRE_BETTER_PRICE" | "PASS" (your SMC-only institutional verdict: CONFIRM if BOS/CHOCH aligns + entry at OB or FVG + Wyckoff confirms; REQUIRE_BETTER_PRICE if idea valid but entry not at OB/FVG; PASS if trading against structure or into liquidity. Set null if SMC data not provided),
-  "smcQuality": "HIGH" | "MEDIUM" | "LOW" (HIGH = BOS/CHOCH + OB/FVG + liquidity sweep all aligned; MEDIUM = 2 of 3; LOW = 0-1; null if no SMC data),
-  "smcReason": "One concise sentence summarizing the SMC analysis: structure type, OB/FVG presence, Wyckoff phase, liquidity target. E.g. 'Bullish CHOCH confirmed, price retesting bullish OB at 1.0855, equal lows swept, Wyckoff accumulation spring — HIGH quality entry'",
-  "confluenceScore": ${confluenceResult.score} (server-computed — pass this value through as-is, do not recalculate),
-  "confluenceGrade": "${confluenceResult.grade}" (server-computed — pass this value through as-is),
-  "propFirmVerdict": ${propFirmContext?.enabled ? '"SAFE" | "WARNING" | "BLOCK" (apply rules 12–17 above: BLOCK if news < ' + propFirmContext.newsBlockMinutes + ' min OR daily buffer < 0.5% OR R:R < 1:1; WARNING if buffer < 1.5% OR risk% > 2% OR Friday PM OR R:R < 1.5; SAFE otherwise)' : 'null'},
-  "propFirmReason": ${propFirmContext?.enabled ? '"One-line explanation of the prop firm verdict — what specifically triggered it"' : 'null'}
+"confirmed": boolean,
+"direction": "BUY" | "SELL" | "NEUTRAL",
+"confidence": number (0-100 — YOUR independent confidence, shown separately from the EA's),
+"reasoning": "Concise street-knowledge explanation with Supreme Mathematics flavor — cite the key indicators and news/events behind the decision.",
+"adjustedEntry": number or null, "adjustedStopLoss": number or null, "adjustedTakeProfit": number or null,
+"trailRecommendation": "NONE" | "TIGHT" | "STANDARD" | "WIDE" | "AGGRESSIVE",
+"recommendedTrailPips": number or null (estimate from ATR + ICT/SMC signals; null if trail NONE),
+"ictMacroValid": boolean (true iff macro window ACTIVE + PD zone aligns + stop hunt detected — all three green; true if no ICT data),
+"ictMacroReason": "1-line ICT checklist result",
+"smcVerdict": "CONFIRM" | "REQUIRE_BETTER_PRICE" | "PASS" (CONFIRM = BOS/CHOCH aligns + entry at OB/FVG + Wyckoff confirms; REQUIRE_BETTER_PRICE = idea valid, entry not at OB/FVG; PASS = against structure or into liquidity; null if no SMC data),
+"smcQuality": "HIGH" | "MEDIUM" | "LOW" (BOS/CHOCH + OB/FVG + sweep: 3 aligned = HIGH, 2 = MEDIUM, 0-1 = LOW; null if no SMC data),
+"smcReason": "1 sentence: structure type, OB/FVG presence, Wyckoff phase, liquidity target",
+"confluenceScore": ${confluenceResult.score} (pass through as-is),
+"confluenceGrade": "${confluenceResult.grade}" (pass through as-is),
+"propFirmVerdict": ${propFirmContext?.enabled ? '"SAFE" | "WARNING" | "BLOCK" (per prop firm rules 12–17 above)' : 'null'},
+"propFirmReason": ${propFirmContext?.enabled ? '"1-line explanation of what triggered the verdict"' : 'null'}
 }`
   };
 }

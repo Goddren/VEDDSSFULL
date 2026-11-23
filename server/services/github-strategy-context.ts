@@ -258,30 +258,24 @@ export function formatStrategyContextForPrompt(ctx: StrategyContext): string {
   const rsiOS = ext.rsiOversold || r.rsiOversold;
   const adx = ext.minADX || r.minADX;
 
+  // Framing slimmed for the confirmation prompt (AI cost-cutting package):
+  // box-drawing rules, blank lines, and the 3-line override restatement are
+  // gone; every threshold, rule, and trigger is verbatim. The override is
+  // now the one-line header note — same instruction, no repetition.
   const lines: string[] = [
     ``,
-    `═══════════ VALIDATED STRATEGY REFERENCE (${ctx.assetClass}) ═══════════`,
-    `Source: ${ctx.sourceNote}`,
-    ``,
+    `VALIDATED STRATEGY REFERENCE (${ctx.assetClass}) — apply these thresholds INSTEAD OF generic RSI 70/30 rules (calibrated from backtested community strategies; source: ${ctx.sourceNote}).`,
     `ASSET-SPECIFIC THRESHOLDS FOR ${ctx.symbol}:`,
     `  RSI Overbought: ${rsiOB} | RSI Oversold: ${rsiOS}`,
     `  Minimum ADX to trade: ${adx} (below = ranging/choppy, do NOT enter trend trades)`,
     `  Recommended ATR multiplier for SL: ${r.atrMultiplierSL}x`,
     `  Minimum acceptable R:R: ${r.minRR}:1`,
     `  Minimum confluence score to confirm: ${r.minConfluence}/12`,
-    ``,
     `SESSION NOTES: ${r.sessionNotes}`,
-    ``,
     `CONFLUENCE RULES (must satisfy majority for CONFIRM):`,
     ...r.confluenceRules.map((rule, i) => `  ${i + 1}. ${rule}`),
-    ``,
     `REJECTION TRIGGERS (any one = strong reason to REJECT):`,
     ...r.rejectRules.map((rule, i) => `  ${i + 1}. ${rule}`),
-    ``,
-    `OVERRIDE INSTRUCTION: Apply these ${ctx.assetClass}-specific thresholds INSTEAD OF generic`,
-    `RSI 70/30 rules. ${ctx.symbol} has its own volatility profile — the above thresholds are`,
-    `calibrated from backtested community strategies for this asset class.`,
-    `═══════════════════════════════════════════════════════════`,
   ];
 
   return lines.join('\n');
