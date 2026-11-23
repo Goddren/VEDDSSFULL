@@ -5,7 +5,7 @@ import { getStrategyContext, formatStrategyContextForPrompt } from "./services/g
 type PerformanceStats = Record<string, unknown>;
 import { getLearnedInsights, getWinningStrategyPatterns } from "./services/confirmation-learning";
 import { recordAiUsage, isUnderPlatformKeyCostCap } from "./ai-usage";
-import { aiBudgetAllEnginesEnabled, engineAiBudgetAllows, engineAiBudgetError, meterEngineAiConfirmation, noteEngineAiBudgetBlock, shouldLogBudgetBlock, engineAiBudgetCents } from "./services/ai-engine-budget";
+import { aiBudgetAllEnginesEnabled, engineAiBudgetGate, engineAiBudgetError, meterEngineAiConfirmation, noteEngineAiBudgetBlock, shouldLogBudgetBlock, engineAiBudgetCents, type EngineAiLane } from "./services/ai-engine-budget";
 import { getPipSize, getPipValue } from "./utils/pipUtils";
 import { canonicalIndexSymbol } from "./utils/symbolAliases";
 
@@ -3231,7 +3231,7 @@ function logAiFailure(userId: number | undefined, c: any, model: string, e: any,
     { provider: c?.provider, platformKey: !!c?.usedPlatformKey, model, status }, 'ai')).catch(() => {});
 }
 
-function makeFailoverClient(clients: UniversalAIClient[], userId?: number, opts?: { engine?: boolean }): UniversalAIClient {
+function makeFailoverClient(clients: UniversalAIClient[], userId?: number, opts?: { engine?: boolean; engineLane?: EngineAiLane }): UniversalAIClient {
   const primary: any = clients[0];
   return {
     defaultModel: primary.defaultModel,
@@ -3251,14 +3251,22 @@ function makeFailoverClient(clients: UniversalAIClient[], userId?: number, opts?
           // once, at the success return below: one answered call = 1 unit,
           // failed attempts are not metered (same rule as PR #101).
           const engineBudget = !!opts?.engine && !!userId && aiBudgetAllEnginesEnabled();
+          // Pool reserve (2026-11-23): engine clients carry a budget lane.
+          // 'protected' clients (the two shadow AI judges) may spend the
+          // whole pool; every other engine client is 'general' and stops
+          // at cap − reserve so the protected lanes always have room.
+          const engineLane: EngineAiLane = opts?.engineLane ?? 'general';
           if (engineBudget) {
-            if (!(await engineAiBudgetAllows(userId!))) {
-              noteEngineAiBudgetBlock(userId!);
+            const gate = await engineAiBudgetGate(userId!, engineLane);
+            if (!gate.allowed) {
+              noteEngineAiBudgetBlock(userId!, { reserve: gate.reserveBlocked });
               if (shouldLogBudgetBlock(userId!)) {
                 void import('./services/guard-events').then(({ logGuard }) => logGuard(
                   userId!, 'ai_call_failed', null,
-                  `daily AI budget reached — engine AI calls paused until 00:00 UTC (cap $${(engineAiBudgetCents() / 100).toFixed(2)}/day, AI_ENGINE_DAILY_BUDGET_CENTS)`,
-                  { reason: 'daily_ai_budget', scope: 'all_engines' }, 'ai',
+                  gate.reserveBlocked
+                    ? `daily AI budget reserve held — general engine AI calls paused to protect the FX/judges reserve until 00:00 UTC (cap $${(engineAiBudgetCents() / 100).toFixed(2)}/day, AI_BUDGET_RESERVE_CENTS)`
+                    : `daily AI budget reached — engine AI calls paused until 00:00 UTC (cap $${(engineAiBudgetCents() / 100).toFixed(2)}/day, AI_ENGINE_DAILY_BUDGET_CENTS)`,
+                  { reason: gate.reserveBlocked ? 'daily_ai_budget_reserve' : 'daily_ai_budget', scope: 'all_engines' }, 'ai',
                 )).catch(() => { /* logging only */ });
               }
               throw engineAiBudgetError();
@@ -3303,7 +3311,7 @@ function makeFailoverClient(clients: UniversalAIClient[], userId?: number, opts?
               // attempts that errored above are not metered). Independent
               // of result.usage — an answered call was bought either way.
               if (engineBudget) {
-                try { meterEngineAiConfirmation(userId!, 1); } catch { /* metering never breaks a call */ }
+                try { meterEngineAiConfirmation(userId!, 1, engineLane); } catch { /* metering never breaks a call */ }
               }
               return result;
             } catch (e: any) {
@@ -3335,8 +3343,8 @@ function makeFailoverClient(clients: UniversalAIClient[], userId?: number, opts?
  *  wrap is engine-marked — the all-engines daily budget gate + metering.
  *  Single-client chain: a provider error throws exactly as the raw client
  *  would, so caller error handling is unchanged. */
-export function wrapEngineAiClient(client: UniversalAIClient, userId: number): UniversalAIClient {
-  return makeFailoverClient([client], userId, { engine: true });
+export function wrapEngineAiClient(client: UniversalAIClient, userId: number, lane: EngineAiLane = 'general'): UniversalAIClient {
+  return makeFailoverClient([client], userId, { engine: true, engineLane: lane });
 }
 
 // Build a Groq client for economy mode (text tasks)
@@ -3376,7 +3384,7 @@ async function buildGroqVisionClient(userGroqKey?: string): Promise<UniversalAIC
 // crypto, options, futures, FX models): its calls are gated + metered against
 // the shared per-user daily AI budget (services/ai-engine-budget.ts). Default
 // OFF — user-initiated interactive callers must never pass it.
-export async function getUniversalAIClientForUser(userId: number, opts?: { critical?: boolean; engine?: boolean }): Promise<UniversalAIClient> {
+export async function getUniversalAIClientForUser(userId: number, opts?: { critical?: boolean; engine?: boolean; engineLane?: EngineAiLane }): Promise<UniversalAIClient> {
   try {
     const { storage } = await import('./storage');
 
@@ -3502,7 +3510,7 @@ export async function getUniversalAIClientForUser(userId: number, opts?: { criti
       }
       storage.updateUserApiKeyUsage(userId, (clients[0] as any).provider).catch(() => {});
       console.log(`[AI] user ${userId} client chain: ${clients.map(c => (c as any).provider).join(' → ')} (primary model ${(clients[0] as any).defaultModel})`);
-      return makeFailoverClient(clients, userId, { engine: !!opts?.engine });
+      return makeFailoverClient(clients, userId, { engine: !!opts?.engine, engineLane: opts?.engineLane });
     }
     if (!canUsePlatformKey) {
       throw new Error('AI_COST_CAP_EXCEEDED: Monthly AI usage cap reached for your membership tier. Add your own AI provider key in AI API Keys settings to continue.');
@@ -3518,13 +3526,13 @@ export async function getUniversalAIClientForUser(userId: number, opts?: { criti
   platformClient.usedPlatformKey = true;
   // Engine callers keep the budget gate + metering on this last-resort path
   // too; interactive callers get the raw client exactly as before.
-  if (opts?.engine) return makeFailoverClient([platformClient], userId, { engine: true });
+  if (opts?.engine) return makeFailoverClient([platformClient], userId, { engine: true, engineLane: opts?.engineLane });
   return platformClient as UniversalAIClient;
 }
 
 // Vision-specific client: uses Groq Llama 4 Scout (vision) in economy mode,
 // or the standard universal client (GPT-4o) in full mode
-export async function getUniversalVisionClientForUser(userId: number, opts?: { critical?: boolean; engine?: boolean }): Promise<UniversalAIClient> {
+export async function getUniversalVisionClientForUser(userId: number, opts?: { critical?: boolean; engine?: boolean; engineLane?: EngineAiLane }): Promise<UniversalAIClient> {
   try {
     const { storage } = await import('./storage');
     const user = await storage.getUser(userId);
@@ -3628,7 +3636,7 @@ export async function getUniversalVisionClientForUser(userId: number, opts?: { c
     if (clients.length) {
       storage.updateUserApiKeyUsage(userId, (clients[0] as any).provider).catch(() => {});
       console.log(`[AI Vision] user ${userId} client chain: ${clients.map((c: any) => c.provider).join(' → ')}`);
-      return makeFailoverClient(clients, userId, { engine: !!opts?.engine });
+      return makeFailoverClient(clients, userId, { engine: !!opts?.engine, engineLane: opts?.engineLane });
     }
     if (!canUsePlatformKey) {
       throw new Error('AI_COST_CAP_EXCEEDED: Monthly AI usage cap reached for your membership tier. Add your own AI provider key in AI API Keys settings to continue.');
@@ -3644,7 +3652,7 @@ export async function getUniversalVisionClientForUser(userId: number, opts?: { c
   platformClient.usedPlatformKey = true;
   // Engine callers keep the budget gate + metering on this last-resort path
   // too; interactive callers get the raw client exactly as before.
-  if (opts?.engine) return makeFailoverClient([platformClient], userId, { engine: true });
+  if (opts?.engine) return makeFailoverClient([platformClient], userId, { engine: true, engineLane: opts?.engineLane });
   return platformClient as UniversalAIClient;
 }
 
