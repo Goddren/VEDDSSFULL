@@ -1616,7 +1616,7 @@ Apply the rules appropriate for this strategy when evaluating the trade. Priorit
 ═══════════════════════════════════════════`;
 }
 
-async function buildConfirmationPrompt(
+export async function buildConfirmationPrompt(
   candleData: any[], indicators: any, proposedSignal: string,
   proposedConfidence: number, tradePlan: any, symbol: string, timeframe: string,
   newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[]; marketNarrative?: string },

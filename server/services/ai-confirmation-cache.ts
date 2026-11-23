@@ -35,9 +35,54 @@
 // none, so FX keys are byte-identical to before.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface CachedVerdict { verdict: any; at: number; eaConfidence: number; price: number }
+export interface CachedVerdict { verdict: any; at: number; eaConfidence: number; price: number; barCloseAt?: number }
 
 const TTL_MS = Number(process.env.AI_CONFIRM_CACHE_TTL_MS ?? 3 * 60 * 1000);   // 3 min
+
+// ── Bar-aware validity (AI cost-cutting package, 2026-11-22) ────────────────
+// The fixed 3-minute TTL above expires between the EA's posts on the same
+// setup: the route checks a setup once per candle, so a verdict bought early
+// in an H1 bar was dead long before the bar closed and the same question was
+// re-bought again and again (the /api/health aiCache counters sat at zero
+// while spend climbed). A verdict is now reusable until the bar it was
+// bought on CLOSES — validity aligned to the judged bar's own timeframe —
+// because the setup the verdict describes is that bar's setup; a new bar is
+// new data and re-buys. The stale-usable window and the per-symbol call
+// floor below are unchanged: past bar close, a verdict is only served via
+// the throttled-reuse path, never as a fresh hit.
+// Kill switch: AI_BAR_CACHE=off restores the fixed-TTL behavior exactly.
+// Timeframes the parser does not recognize fall back to the fixed TTL.
+export function barCacheEnabled(): boolean {
+  return process.env.AI_BAR_CACHE !== 'off';
+}
+
+/** Bar length in ms for a timeframe string ('15min', '1h', 'M15', 'H4',
+ *  '5m', '1day', 'D1'...), or null when unrecognized. Bars are aligned to
+ *  UTC boundaries, as the EA's are: a bar containing `t` closes at
+ *  floor(t / dur) * dur + dur. */
+export function barDurationMs(timeframe: string): number | null {
+  const tf = String(timeframe || '').trim();
+  const m = tf.match(/^(\d+)\s*(m|min|mins|h|hr|hrs|d|day|days|w|week|weeks)$/i);
+  if (m) {
+    const n = Number(m[1]);
+    const unit = m[2].toLowerCase();
+    const mult = unit.startsWith('h') ? 3_600_000
+      : unit.startsWith('d') ? 86_400_000
+      : unit.startsWith('w') ? 604_800_000
+      : 60_000;
+    return n > 0 ? n * mult : null;
+  }
+  const letter = tf.match(/^([MHWD])(\d+)$/i);
+  if (letter) {
+    const n = Number(letter[2]);
+    const mult = letter[1].toUpperCase() === 'H' ? 3_600_000
+      : letter[1].toUpperCase() === 'D' ? 86_400_000
+      : letter[1].toUpperCase() === 'W' ? 604_800_000
+      : 60_000;
+    return n > 0 ? n * mult : null;
+  }
+  return null;
+}
 const FLOOR_MS = Number(process.env.AI_CONFIRM_MIN_INTERVAL_MS ?? 60 * 1000);  // 1/min/symbol
 // A verdict older than TTL is still preferable to a call we are throttling, up to
 // this age. Beyond it we would rather spend a credit than act on something stale.
@@ -48,7 +93,7 @@ const CONF_BAND = Number(process.env.AI_CONFIRM_CONF_BAND ?? 5);        // EA co
 export interface ConfirmationCache {
   get(userId: number, symbol: string, timeframe: string, direction: string, eaConfidence: number, price: number, discriminator?: string): { verdict: any; reason: string } | null;
   put(userId: number, symbol: string, timeframe: string, direction: string, eaConfidence: number, price: number, verdict: any, discriminator?: string): void;
-  stats(): { hits: number; misses: number; throttled: number; total: number; savedPct: number; entries: number };
+  stats(): { hits: number; misses: number; throttled: number; total: number; savedPct: number; entries: number; barAware: boolean };
 }
 
 export function createConfirmationCache(): ConfirmationCache {
@@ -88,7 +133,12 @@ export function createConfirmationCache(): ConfirmationCache {
     const now = Date.now();
     const k = bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator);
     const hit = cache.get(k);
-    if (hit && now - hit.at < TTL_MS) {
+    // Fresh = within the fixed TTL, or — with the bar cache on — still on
+    // the same bar the verdict was bought on (see barDurationMs above).
+    const fresh = !!hit && (barCacheEnabled() && hit.barCloseAt !== undefined
+      ? now < hit.barCloseAt
+      : now - hit.at < TTL_MS);
+    if (hit && fresh) {
       hits++;
       return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1000)}s ago (same setup)` };
     }
@@ -127,7 +177,9 @@ export function createConfirmationCache(): ConfirmationCache {
     userId: number, symbol: string, timeframe: string, direction: string, eaConfidence: number, price: number, verdict: any, discriminator?: string,
   ): void {
     const now = Date.now();
-    cache.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator), { verdict, at: now, eaConfidence, price });
+    const dur = barCacheEnabled() ? barDurationMs(timeframe) : null;
+    const barCloseAt = dur ? (Math.floor(now / dur) + 1) * dur : undefined;
+    cache.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator), { verdict, at: now, eaConfidence, price, barCloseAt });
     lastCallAt.set(symbolKey(userId, symbol, timeframe), now);
     // Bound the map: entries are worthless once past the stale window.
     if (cache.size > 500) {
@@ -138,7 +190,7 @@ export function createConfirmationCache(): ConfirmationCache {
   /** Counters so the saving is measurable rather than assumed. */
   function stats() {
     const total = hits + misses + throttled;
-    return { hits, misses, throttled, total, savedPct: total ? Math.round(((hits + throttled) / total) * 100) : 0, entries: cache.size };
+    return { hits, misses, throttled, total, savedPct: total ? Math.round(((hits + throttled) / total) * 100) : 0, entries: cache.size, barAware: barCacheEnabled() };
   }
 
   return { get, put, stats };
