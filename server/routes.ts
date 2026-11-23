@@ -1344,6 +1344,18 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
           return aiGrayZoneSummary();
         } catch { return null; }
       })(),
+      // AI watch plans (2026-11-23): the plan rhythm on the live FX path —
+      // active plans right now plus today's lifecycle counters (created /
+      // triggered / confirmed / expired / invalidated / structure breaks),
+      // deep analyses bought, and plan-layer fallbacks to the per-setup
+      // path. deepCallsToday near zero with activePlans > 0 is the design
+      // working: watching is free, deep thought is rare.
+      aiWatchPlans: await (async () => {
+        try {
+          const { aiWatchPlansSummary } = await import('./services/ai-watch-plans');
+          return aiWatchPlansSummary();
+        } catch { return null; }
+      })(),
       // Which instance owns the FX engines (Postgres advisory lock). Hitting
       // /api/health repeatedly should show exactly one instance with true.
       fxLeader: await import('./services/live-trading-engine').then(m => m.isFxLeader()).catch(() => null),
@@ -10794,7 +10806,63 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
         }
       }
-      const _skipAi = _fxMarketClosed || _aiCreditsOut || !!_saverReason;
+      // ── AI WATCH PLANS (services/ai-watch-plans.ts, 2026-11-23) ────────
+      // Chris's design: the AI studies a pair ONCE (deep analysis) and
+      // writes a WATCH PLAN — the pattern it is waiting for and the exact
+      // candle that triggers entry. While a plan watches, this post buys
+      // NO AI call: the trigger is evaluated deterministically and the
+      // post is answered through the same no-trade shape the _skipAi
+      // branch below already produces (signal neutralised →
+      // mt5ExecuteTrade:false, mt5AiDecision:'OFF'). When the trigger
+      // fires, the post falls through to the confirmation + guard chain
+      // below COMPLETELY unchanged — the plan never trades by itself.
+      // The layer abstains (today's path) on: market closed, credits out,
+      // any saver reason, autotrade off (the 2026-10-14 drain lesson),
+      // a pair blocked in both directions, plan cooldown, a no-plan
+      // answer, or ANY plan-layer failure. AI_WATCH_PLANS=off disables it.
+      let _watchPlanSkip = false;
+      let _watchPlanFallthrough = false;
+      if (!_fxMarketClosed && !_aiCreditsOut && !_saverReason &&
+          (process.env.CHART_DATA_AUTOTRADE_ENABLED === 'true' || process.env.CHART_DATA_AI_WHEN_OFF === 'true')) {
+        try {
+          const _pfBoth = await import('./services/pair-filter').then(async (m) => {
+            const b = m.pairFilterVerdict(sanitizedSymbol, 'BUY');
+            const s = m.pairFilterVerdict(sanitizedSymbol, 'SELL');
+            return !!(b?.blocked && s?.blocked);
+          }).catch(() => false);
+          if (!_pfBoth) {
+            const _wp = await import('./services/ai-watch-plans');
+            if (_wp.watchPlansEnabled()) {
+              const _utcH = new Date().getUTCHours();
+              const _res = await _wp.resolveWatchPlanForPost({
+                userId: token.userId,
+                symbol: sanitizedSymbol,
+                timeframe: sanitizedTimeframe,
+                candles: candles as any,
+                currentPrice: Number(candles[0]?.c || analysis.tradePlan?.entry || 0),
+                indicators: analysis.indicators,
+                engineRead: {
+                  signal: analysis.signal, confidence: analysis.confidence,
+                  trend: analysis.trend, patterns: analysis.patterns, tradePlan: analysis.tradePlan,
+                },
+                sessionLabel: _utcH < 7 ? 'Asian' : _utcH < 13 ? 'London' : 'New York',
+              });
+              if (_res.action === 'watch') {
+                _watchPlanSkip = true;
+                _cdiag.stage = 'ai_watch_plan';
+                (_cdiag as any).watchPlan = { id: _res.plan.id, pattern: _res.plan.pattern, trigger: _wp.describeTrigger(_res.plan) };
+                analysis.alerts.push(`👁 WATCH PLAN [${_res.plan.pattern}]: ${_res.plan.direction} ${sanitizedSymbol} — waiting for ${_wp.describeTrigger(_res.plan)} · zone ${_res.plan.entryZone.low}–${_res.plan.entryZone.high} · SL ${_res.plan.stopLoss} · TP ${_res.plan.takeProfit} · dies at ${_res.plan.invalidation}`);
+                console.log(`[Watch Plan] ${sanitizedSymbol}: watching "${_res.plan.pattern}" — ${_wp.describeTrigger(_res.plan)}`);
+              } else if (_res.action === 'fallthrough') {
+                _watchPlanFallthrough = true;
+                (_cdiag as any).watchPlan = { id: _res.plan.id, pattern: _res.plan.pattern, triggered: true };
+                console.log(`[Watch Plan] ${sanitizedSymbol}: trigger fired ("${_res.plan.pattern}") — proceeding through the normal confirmation + guard chain`);
+              }
+            }
+          }
+        } catch (_wpErr) { /* plan layer abstains — today's path runs unchanged */ }
+      }
+      const _skipAi = _fxMarketClosed || _aiCreditsOut || !!_saverReason || _watchPlanSkip;
       // Second Opinion fires on any non-NEUTRAL signal ≥ 60% — tradePlan NOT required.
       // Auto-execution (TradeLocker) still needs MIN_CONFIDENCE + tradePlan — checked later.
       if (!_skipAi && analysis.signal !== 'NEUTRAL' &&
@@ -11831,14 +11899,22 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             reasoning: 'AI unavailable - trade blocked',
           };
         }
+        // Watch-plan telemetry: a post that fell through from a triggered
+        // plan and actually BOUGHT its confirmation in the block above
+        // (fresh-call stages — not cache hits, budget blocks, or gray-zone
+        // skips) counts as a plan confirmation on /api/health.
+        if (_watchPlanFallthrough && ['ai_returned', 'breakout_returned', 'breakout_vision_fallback'].includes(_cdiag.stage)) {
+          void import('./services/ai-watch-plans').then((m) => m.noteWatchPlanConfirmed(token.userId)).catch(() => { /* telemetry only */ });
+        }
         void _writeCdiagTracked();
       } else if (_skipAi) {
         // No AI call → no approval → nothing may execute. Neutralise the signal
         // so no later path can act on an unconfirmed signal.
-        _cdiag.stage = _fxMarketClosed ? 'market_closed' : _aiCreditsOut ? 'ai_credits_out' : 'ai_skipped';
+        _cdiag.stage = _fxMarketClosed ? 'market_closed' : _aiCreditsOut ? 'ai_credits_out' : _watchPlanSkip ? 'ai_watch_plan' : 'ai_skipped';
         _diagCap.neutralReason = _diagCap.neutralReason || (_fxMarketClosed
           ? 'market_closed (FX weekend: Fri 21:00 – Sun 21:00 UTC, no AI call)'
           : _aiCreditsOut ? 'ai_credits_out (every AI provider returned 402 — pausing AI calls, re-probing shortly)'
+          : _watchPlanSkip ? 'watch_plan (AI watch plan live — waiting for its trigger candle; no AI call bought)'
           : _saverReason);
         analysis.signal = 'NEUTRAL';
         void _writeCdiagTracked();

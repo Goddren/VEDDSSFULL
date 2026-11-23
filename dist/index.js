@@ -13174,14 +13174,14 @@ function nextThrottleState(existing, trends, nowMs, pauseDays, windowDays = 14) 
     if (!t.throttleLane || t.classification !== "degrading") continue;
     const k2 = throttleKey(t.userId, t.engine, t.strategy);
     if (kept.has(k2)) continue;
-    const fmt = (v, u) => v == null ? "?" : `${v >= 0 ? "+" : ""}${v.toFixed(2)}${u}`;
+    const fmt2 = (v, u) => v == null ? "?" : `${v >= 0 ? "+" : ""}${v.toFixed(2)}${u}`;
     const entry = {
       userId: t.userId,
       engine: t.engine,
       strategy: t.strategy,
       pausedAt: new Date(nowMs).toISOString(),
       pausedUntil: new Date(nowMs + pauseDays * 24 * 36e5).toISOString(),
-      reason: `degrading trend: avg ${t.metric === "pct" ? "net %" : "R"} ${fmt(t.metric === "pct" ? t.prior.avgPct : t.prior.avgR, t.metric === "pct" ? "%" : "R")} \u2192 ${fmt(t.metric === "pct" ? t.cur.avgPct : t.cur.avgR, t.metric === "pct" ? "%" : "R")} over the last ${windowDays} days vs the prior ${windowDays}, win rate ${t.cur.winRate != null ? Math.round(t.cur.winRate * 100) : "?"}% \u2014 new shadow entries paused`
+      reason: `degrading trend: avg ${t.metric === "pct" ? "net %" : "R"} ${fmt2(t.metric === "pct" ? t.prior.avgPct : t.prior.avgR, t.metric === "pct" ? "%" : "R")} \u2192 ${fmt2(t.metric === "pct" ? t.cur.avgPct : t.cur.avgR, t.metric === "pct" ? "%" : "R")} over the last ${windowDays} days vs the prior ${windowDays}, win rate ${t.cur.winRate != null ? Math.round(t.cur.winRate * 100) : "?"}% \u2014 new shadow entries paused`
     };
     kept.set(k2, entry);
     transitions.push({ type: "pause", entry, trend: t });
@@ -13616,19 +13616,19 @@ function adjustTrailBrainParams(engine, params, ev) {
   if (ev.brainTrades < min || ev.brainAvgFinal == null) {
     return { action: "none", reason: `watching \u2014 ${ev.brainTrades}/${min} brain-guided closes so far` };
   }
-  const fmt = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(unit === "R" ? 2 : 1)}${unit === "R" ? "R" : "%"}`;
+  const fmt2 = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(unit === "R" ? 2 : 1)}${unit === "R" ? "R" : "%"}`;
   const hasBase = ev.baseTrades >= MIN_BASELINE && ev.baseAvgFinal != null;
   if (hasBase && ev.brainAvgFinal <= ev.baseAvgFinal - c.harmDelta) {
     const loosest = params.trailDist >= c.trailDist[1] - 1e-9 && params.activation >= c.activation[1] - 1e-9;
     if (loosest) {
-      return { action: "dormant", reason: `brain-guided closes average ${fmt(ev.brainAvgFinal)} vs ${fmt(ev.baseAvgFinal)} before it, and the settings are already at their loosest \u2014 the brain stands down for this group` };
+      return { action: "dormant", reason: `brain-guided closes average ${fmt2(ev.brainAvgFinal)} vs ${fmt2(ev.baseAvgFinal)} before it, and the settings are already at their loosest \u2014 the brain stands down for this group` };
     }
     const next = clampTrailBrainParams(engine, {
       ...params,
       trailDist: params.trailDist + c.step,
       activation: params.activation + c.step / 2
     });
-    return { action: "loosen", params: next, reason: `brain-guided closes average ${fmt(ev.brainAvgFinal)} vs ${fmt(ev.baseAvgFinal)} un-guided \u2014 winners are being cut short, so the trail loosens one step` };
+    return { action: "loosen", params: next, reason: `brain-guided closes average ${fmt2(ev.brainAvgFinal)} vs ${fmt2(ev.baseAvgFinal)} un-guided \u2014 winners are being cut short, so the trail loosens one step` };
   }
   if (ev.brainAvgGiveback != null && ev.brainAvgGiveback > params.giveBackCap) {
     const next = clampTrailBrainParams(engine, {
@@ -13637,38 +13637,38 @@ function adjustTrailBrainParams(engine, params, ev) {
       activation: params.activation - c.step / 2
     });
     if (next.trailDist === params.trailDist && next.activation === params.activation) {
-      return { action: "none", reason: `give-back ${fmt(ev.brainAvgGiveback)} is over the ${fmt(params.giveBackCap)} cap but the settings are already at their tightest` };
+      return { action: "none", reason: `give-back ${fmt2(ev.brainAvgGiveback)} is over the ${fmt2(params.giveBackCap)} cap but the settings are already at their tightest` };
     }
-    return { action: "tighten", params: next, reason: `brain-guided closes give back ${fmt(ev.brainAvgGiveback)} from peak on average, over the ${fmt(params.giveBackCap)} cap \u2014 the trail tightens one step` };
+    return { action: "tighten", params: next, reason: `brain-guided closes give back ${fmt2(ev.brainAvgGiveback)} from peak on average, over the ${fmt2(params.giveBackCap)} cap \u2014 the trail tightens one step` };
   }
   if (hasBase && ev.baseAvgGiveback != null && ev.brainAvgGiveback != null && ev.brainAvgGiveback < ev.baseAvgGiveback && ev.brainAvgFinal >= ev.baseAvgFinal) {
     const next = clampTrailBrainParams(engine, { ...params, trailDist: params.trailDist - c.step / 2 });
     if (next.trailDist === params.trailDist) return { action: "none", reason: "the trail is working and already at its tightest useful setting" };
-    return { action: "tighten", params: next, reason: `give-back is down (${fmt(ev.brainAvgGiveback)} vs ${fmt(ev.baseAvgGiveback)}) and closes are not worse \u2014 squeezing half a step tighter` };
+    return { action: "tighten", params: next, reason: `give-back is down (${fmt2(ev.brainAvgGiveback)} vs ${fmt2(ev.baseAvgGiveback)}) and closes are not worse \u2014 squeezing half a step tighter` };
   }
   return { action: "none", reason: "the current settings are holding \u2014 no change this pass" };
 }
 async function loadTrailBrainStore(userId) {
   const hit = _cache3.get(userId);
   if (hit && Date.now() - hit.at < CACHE_MS2) return hit;
-  let store = { groups: {} };
+  let store2 = { groups: {} };
   let ok = true;
   try {
     const v = await getRuntimeStateStrict(STORE_SCOPE, String(userId));
-    if (v && typeof v === "object" && v.groups && typeof v.groups === "object") store = v;
+    if (v && typeof v === "object" && v.groups && typeof v.groups === "object") store2 = v;
   } catch {
     ok = false;
   }
-  const entry = { at: Date.now(), store, ok };
+  const entry = { at: Date.now(), store: store2, ok };
   _cache3.set(userId, entry);
   return entry;
 }
 async function getTrailBrainStore(userId) {
   return (await loadTrailBrainStore(userId)).store;
 }
-async function saveTrailBrainStore(userId, store) {
-  _cache3.set(userId, { at: Date.now(), store, ok: true });
-  saveRuntimeState(STORE_SCOPE, String(userId), store);
+async function saveTrailBrainStore(userId, store2) {
+  _cache3.set(userId, { at: Date.now(), store: store2, ok: true });
+  saveRuntimeState(STORE_SCOPE, String(userId), store2);
 }
 async function getTrailBrainSettings(userId) {
   try {
@@ -13689,10 +13689,10 @@ async function trailBrainConsult(userId, engine, strategy, condition) {
   if (!trailBrainOn(engine)) return null;
   try {
     if (!await userEngineOn(userId, engine)) return null;
-    const { store, ok } = await loadTrailBrainStore(userId);
+    const { store: store2, ok } = await loadTrailBrainStore(userId);
     if (!ok) return null;
     const key = groupKeyFor(engine, strategy, condition);
-    let g = store.groups[key];
+    let g = store2.groups[key];
     if (!g) {
       const now = (/* @__PURE__ */ new Date()).toISOString();
       g = {
@@ -13709,8 +13709,8 @@ async function trailBrainConsult(userId, engine, strategy, condition) {
         createdAt: now,
         updatedAt: now
       };
-      store.groups[key] = g;
-      void saveTrailBrainStore(userId, store);
+      store2.groups[key] = g;
+      void saveTrailBrainStore(userId, store2);
     }
     if (g.status === "dormant") return null;
     return { groupKey: key, engine, unit: g.unit, params: clampTrailBrainParams(engine, g.params), version: g.version };
@@ -13723,10 +13723,10 @@ async function trailBrainSolConsult(userId, strategyId) {
 }
 async function resetTrailBrainGroup(userId, groupKey) {
   try {
-    const store = await getTrailBrainStore(userId);
-    if (!store.groups[groupKey]) return false;
-    delete store.groups[groupKey];
-    await saveTrailBrainStore(userId, store);
+    const store2 = await getTrailBrainStore(userId);
+    if (!store2.groups[groupKey]) return false;
+    delete store2.groups[groupKey];
+    await saveTrailBrainStore(userId, store2);
     return true;
   } catch {
     return false;
@@ -13818,7 +13818,7 @@ function trailBrainParamsSummary(engine, p2) {
   return `arms at ${f(p2.activation)}, trails ${f(p2.trailDist)} behind the peak, gives back at most ${f(p2.giveBackCap)}${locks ? `, ${locks}` : ""}`;
 }
 async function getTrailBrainReport(userId) {
-  const [store, settings, log2] = await Promise.all([
+  const [store2, settings, log2] = await Promise.all([
     getTrailBrainStore(userId),
     getTrailBrainSettings(userId),
     getTrailBrainLog(userId)
@@ -13829,7 +13829,7 @@ async function getTrailBrainReport(userId) {
     userOn: settings.engines[engine] !== false,
     on: trailBrainOn(engine) && settings.engines[engine] !== false
   }));
-  const groups = Object.values(store.groups).sort((a, b) => a.engine.localeCompare(b.engine) || a.key.localeCompare(b.key)).map((g) => ({ ...g, paramsSummary: trailBrainParamsSummary(g.engine, g.params) }));
+  const groups = Object.values(store2.groups).sort((a, b) => a.engine.localeCompare(b.engine) || a.key.localeCompare(b.key)).map((g) => ({ ...g, paramsSummary: trailBrainParamsSummary(g.engine, g.params) }));
   return { engines, groups, decisions: log2 };
 }
 var STORE_SCOPE, SETTINGS_SCOPE, LOG_SCOPE, ENGINE_ENV, clampNum, TRAIL_BRAIN_MIN_EVIDENCE, MIN_BASELINE, _cache3, CACHE_MS2, _colsEnsured2, _stamped2, _logBuffer, _fxGoverned, FX_GOVERNED_TTL_MS;
@@ -14176,7 +14176,7 @@ function barDurationMs(timeframe) {
   return null;
 }
 function createConfirmationCache() {
-  const cache11 = /* @__PURE__ */ new Map();
+  const cache12 = /* @__PURE__ */ new Map();
   const lastCallAt2 = /* @__PURE__ */ new Map();
   let hits = 0, misses = 0, throttled = 0;
   function bandKey(userId, symbol, timeframe, direction, eaConf, _price, discriminator) {
@@ -14189,7 +14189,7 @@ function createConfirmationCache() {
   function get(userId, symbol, timeframe, direction, eaConfidence, price, discriminator) {
     const now = Date.now();
     const k2 = bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator);
-    const hit = cache11.get(k2);
+    const hit = cache12.get(k2);
     const fresh = !!hit && (barCacheEnabled() && hit.barCloseAt !== void 0 ? now < hit.barCloseAt : now - hit.at < TTL_MS3);
     if (hit && fresh) {
       hits++;
@@ -14200,7 +14200,7 @@ function createConfirmationCache() {
     if (now - last2 < FLOOR_MS) {
       let best = null;
       const prefix = `${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ""}:`;
-      for (const [ck, v] of Array.from(cache11.entries())) {
+      for (const [ck, v] of Array.from(cache12.entries())) {
         if (!ck.startsWith(prefix)) continue;
         if (!/^\d+$/.test(ck.slice(prefix.length))) continue;
         if (now - v.at > STALE_USABLE_MS) continue;
@@ -14218,15 +14218,15 @@ function createConfirmationCache() {
     const now = Date.now();
     const dur = barCacheEnabled() ? barDurationMs(timeframe) : null;
     const barCloseAt = dur ? (Math.floor(now / dur) + 1) * dur : void 0;
-    cache11.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator), { verdict, at: now, eaConfidence, price, barCloseAt });
+    cache12.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator), { verdict, at: now, eaConfidence, price, barCloseAt });
     lastCallAt2.set(symbolKey(userId, symbol, timeframe), now);
-    if (cache11.size > 500) {
-      for (const [k2, v] of Array.from(cache11.entries())) if (now - v.at > STALE_USABLE_MS) cache11.delete(k2);
+    if (cache12.size > 500) {
+      for (const [k2, v] of Array.from(cache12.entries())) if (now - v.at > STALE_USABLE_MS) cache12.delete(k2);
     }
   }
   function stats() {
     const total = hits + misses + throttled;
-    return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache11.size, barAware: barCacheEnabled() };
+    return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache12.size, barAware: barCacheEnabled() };
   }
   return { get, put, stats };
 }
@@ -17418,10 +17418,10 @@ function paceWindowFor(plan, symbol, direction, hourUtc = (/* @__PURE__ */ new D
 function pacePromptSection(plan) {
   if (!plan) return "";
   const sess = sessionForHour((/* @__PURE__ */ new Date()).getUTCHours());
-  const fmt = (w) => `${w.symbol} ${w.direction} (${w.winRate}% over ${w.signals}, $${w.expectancy}/signal)`;
+  const fmt2 = (w) => `${w.symbol} ${w.direction} (${w.winRate}% over ${w.signals}, $${w.expectancy}/signal)`;
   const now = plan.windows.filter((w) => sameSession(w.session, sess));
-  const focus = now.filter((w) => w.verdict === "FOCUS").slice(0, 6).map(fmt);
-  const avoid = now.filter((w) => w.verdict === "AVOID").slice(-6).map(fmt);
+  const focus = now.filter((w) => w.verdict === "FOCUS").slice(0, 6).map(fmt2);
+  const avoid = now.filter((w) => w.verdict === "AVOID").slice(-6).map(fmt2);
   const later = plan.windows.filter((w) => w.verdict === "FOCUS" && !sameSession(w.session, sess)).slice(0, 5).map((w) => `${w.symbol} ${w.direction} in ${w.session}`);
   return `
 GOAL PACE AGENT (week $${plan.weekPnl} / $${plan.weekTarget}, ${plan.mode}; need ~$${plan.neededPerDay}/day over ${plan.daysLeft} day(s); today $${plan.todayPnl}${plan.todayCap != null ? `, consistency cap $${plan.todayCap} today` : ""}):
@@ -21577,17 +21577,17 @@ async function syncUserTradeLocker(userId, force = false) {
   try {
     const connections = await storage.getUserTradelockerConnections(userId);
     const active = connections.filter((c) => c.isActive);
-    const store = cache5();
-    store[userId] = store[userId] || {};
+    const store2 = cache5();
+    store2[userId] = store2[userId] || {};
     const activeIds = new Set(active.map((c) => c.accountId));
-    for (const key of Object.keys(store[userId])) {
-      if (!activeIds.has(key)) delete store[userId][key];
+    for (const key of Object.keys(store2[userId])) {
+      if (!activeIds.has(key)) delete store2[userId][key];
     }
     for (const conn of active) {
-      if (store[userId][conn.accountId]) continue;
+      if (store2[userId][conn.accountId]) continue;
       const lb = conn.lastBalance;
       if (lb != null) {
-        store[userId][conn.accountId] = {
+        store2[userId][conn.accountId] = {
           accountId: conn.accountId,
           connectionId: conn.id,
           accountType: conn.accountType,
@@ -21610,7 +21610,7 @@ async function syncUserTradeLocker(userId, force = false) {
           storage.updateTradelockerConnection(conn.id, { lastError: null }).catch(() => {
           });
         }
-        store[userId][conn.accountId] = {
+        store2[userId][conn.accountId] = {
           accountId: conn.accountId,
           connectionId: conn.id,
           accountType: conn.accountType,
@@ -21644,13 +21644,13 @@ async function syncUserTradeLocker(userId, force = false) {
           (err) => console.error(`[TL-sync] Trade auto-log failed for ${conn.accountId} (non-fatal):`, err.message)
         );
       } catch (err) {
-        const prev = store[userId][conn.accountId];
+        const prev = store2[userId][conn.accountId];
         const msg = err?.message || "fetch failed";
         const isRateLimit = err?.status === 429 || /429|rate.?limit|too many requests|cooling down/i.test(msg);
         if (isRateLimit && prev && !prev.error) {
           continue;
         }
-        store[userId][conn.accountId] = {
+        store2[userId][conn.accountId] = {
           accountId: conn.accountId,
           connectionId: conn.id,
           accountType: conn.accountType,
@@ -21669,16 +21669,16 @@ async function syncUserTradeLocker(userId, force = false) {
       }
     }
     lastSyncAt.set(userId, Date.now());
-    return Object.values(store[userId]);
+    return Object.values(store2[userId]);
   } finally {
     inFlight.delete(userId);
   }
 }
 function getTlAccountData(userId) {
   markTlUserActive(userId);
-  const store = cache5()[userId] || {};
+  const store2 = cache5()[userId] || {};
   const now = Date.now();
-  const accounts = Object.values(store).map((a) => {
+  const accounts = Object.values(store2).map((a) => {
     const secondsAgo = Math.floor((now - new Date(a.lastUpdated).getTime()) / 1e3);
     return { ...a, secondsAgo, isConnected: secondsAgo < 120 && !a.error };
   });
@@ -23893,13 +23893,13 @@ function xauEntryBlock(symbol, now = /* @__PURE__ */ new Date()) {
   const ROLLOVER_END_MIN = ROLLOVER_END_BASE + (process.env.FX_ROLLOVER_BLOCK_END_MIN_UTC ? 0 : sh);
   const BLOCK_START_MIN = XAU_BLOCK_START_BASE + (process.env.XAU_OPEN_BLOCK_START_MIN_UTC ? 0 : sh);
   const BLOCK_END_MIN = XAU_BLOCK_END_BASE + (process.env.XAU_OPEN_BLOCK_END_MIN_UTC ? 0 : sh);
-  const fmt = (x) => `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`;
+  const fmt2 = (x) => `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`;
   if (ROLLOVER_BLOCK_ON() && m >= ROLLOVER_START_MIN && m < ROLLOVER_END_MIN) {
-    return `Rollover window: no FX entries ${fmt(ROLLOVER_START_MIN)}\u2013${fmt(ROLLOVER_END_MIN)} UTC (daily rollover, widest spreads)`;
+    return `Rollover window: no FX entries ${fmt2(ROLLOVER_START_MIN)}\u2013${fmt2(ROLLOVER_END_MIN)} UTC (daily rollover, widest spreads)`;
   }
   if (!ENTRY_BLOCK_ON() || !isXau(symbol)) return null;
   if (m >= BLOCK_START_MIN && m < BLOCK_END_MIN) {
-    return `XAUUSD spread window: no gold entries ${fmt(BLOCK_START_MIN)}\u2013${fmt(BLOCK_END_MIN)} UTC (daily break + reopen, widest spreads)`;
+    return `XAUUSD spread window: no gold entries ${fmt2(BLOCK_START_MIN)}\u2013${fmt2(BLOCK_END_MIN)} UTC (daily break + reopen, widest spreads)`;
   }
   return null;
 }
@@ -28158,13 +28158,13 @@ function selectStrategyForPair(symbol, data, htfBias, asiaHigh, asiaLow, utcHour
   const isXau2 = symbol.includes("XAU");
   const symUpper = symbol.toUpperCase();
   const isCrypto = symUpper.includes("BTC") || symUpper.includes("XBT") || symUpper.includes("ETH") || symUpper.includes("LTC") || symUpper.includes("XRP") || symUpper.includes("ADA") || symUpper.includes("SOL") || symUpper.includes("BNB") || symUpper.includes("DOT");
-  const utcDay4 = (/* @__PURE__ */ new Date()).getUTCDay();
-  const isWeekend = utcDay4 === 0 || utcDay4 === 6;
+  const utcDay5 = (/* @__PURE__ */ new Date()).getUTCDay();
+  const isWeekend = utcDay5 === 0 || utcDay5 === 6;
   const pricePct = (a, b) => Math.abs(a - b) / Math.max(b, 1e-5) * 100;
   const hasPattern = (...names) => patterns.some((p2) => names.some((n) => p2.toLowerCase().includes(n.toLowerCase())));
   if (isCrypto && isWeekend) {
     const isVolumeOk = volTrend === "surging" || volTrend === "above_average" || volTrend === "average";
-    const dayLabel = utcDay4 === 6 ? "Saturday" : "Sunday";
+    const dayLabel = utcDay5 === 6 ? "Saturday" : "Sunday";
     if (adxVal >= 22 && trend !== "NEUTRAL" && diSep >= 8 && isVolumeOk) {
       return {
         strategy: "btc_weekend_momentum",
@@ -31660,17 +31660,17 @@ function getNYTime(ts) {
   };
 }
 async function getBrokerIndexCandles(userId, symbol, mt5Tf) {
-  const cache11 = global.mt5ChartDataCache || {};
+  const cache12 = global.mt5ChartDataCache || {};
   const wanted = new Set(
     indexSymbolVariants(symbol).map((s) => s.replace(/[^A-Z0-9]/gi, "").toUpperCase())
   );
   const prefix = `mt5_chart_${userId}_`;
   const suffix = `_${mt5Tf}`;
-  for (const key of Object.keys(cache11)) {
+  for (const key of Object.keys(cache12)) {
     if (!key.startsWith(prefix) || !key.endsWith(suffix)) continue;
     const symPart = key.slice(prefix.length, key.length - suffix.length);
     if (wanted.has(symPart.replace(/[^A-Z0-9]/gi, "").toUpperCase())) {
-      const entry = cache11[key];
+      const entry = cache12[key];
       if (entry?.candles?.length) return normalizeOrbBarTimes(entry.candles);
     }
   }
@@ -46891,10 +46891,10 @@ async function computeSolShadowStats(userId, force = false) {
 function adviceFor2(stats, strategyId, ctx) {
   const bs2 = bucketsOf2(ctx);
   const hits = stats.filter((s) => s.strategy === strategyId && s.verdict !== "learning" && bs2[s.dim] === s.bucket);
-  const fmt = (s) => `${s.verdict}: ${s.dim} ${s.bucket} (n=${s.n}, median ${s.medianNet >= 0 ? "+" : ""}${s.medianNet.toFixed(1)}%)`;
+  const fmt2 = (s) => `${s.verdict}: ${s.dim} ${s.bucket} (n=${s.n}, median ${s.medianNet >= 0 ? "+" : ""}${s.medianNet.toFixed(1)}%)`;
   const avoid = hits.filter((s) => s.verdict === "avoid"), favor = hits.filter((s) => s.verdict === "favor");
   const verdict = avoid.length ? "avoid" : favor.length ? "favor" : "learning";
-  return { verdict, reasons: [...avoid, ...favor].map(fmt) };
+  return { verdict, reasons: [...avoid, ...favor].map(fmt2) };
 }
 async function getSolShadowStatsText(userId, max = 12) {
   try {
@@ -52110,9 +52110,9 @@ async function buildAccountSnapshots(userId) {
   const unknowns = [];
   const now = Date.now();
   try {
-    const cache11 = global.mt5AccountData?.[userId];
-    if (cache11) {
-      const entries = cache11.lastUpdated ? [["default", cache11]] : Object.entries(cache11);
+    const cache12 = global.mt5AccountData?.[userId];
+    if (cache12) {
+      const entries = cache12.lastUpdated ? [["default", cache12]] : Object.entries(cache12);
       for (const [k2, a] of entries) {
         if (!a?.lastUpdated) continue;
         const age = ageOf(a.lastUpdated);
@@ -53756,21 +53756,21 @@ function loadAll2() {
   }
   return {};
 }
-function saveAll2(store) {
+function saveAll2(store2) {
   try {
     const dir = path5.dirname(FILE2);
     if (!fs4.existsSync(dir)) fs4.mkdirSync(dir, { recursive: true });
-    const content = JSON.stringify(store, null, 2);
+    const content = JSON.stringify(store2, null, 2);
     fs4.writeFileSync(FILE2, content);
     backupDurableFile("kalshi_performance.json", content);
   } catch {
   }
 }
 function recordKalshiOutcome(userId, strategy, realizedPnl) {
-  const store = loadAll2();
+  const store2 = loadAll2();
   const uKey = String(userId);
-  store[uKey] = store[uKey] || {};
-  const stat = store[uKey][strategy] ?? emptyStat(strategy);
+  store2[uKey] = store2[uKey] || {};
+  const stat = store2[uKey][strategy] ?? emptyStat(strategy);
   stat.trades += 1;
   stat.totalPnl = Math.round((stat.totalPnl + realizedPnl) * 100) / 100;
   if (realizedPnl > 5e-3) {
@@ -53786,8 +53786,8 @@ function recordKalshiOutcome(userId, strategy, realizedPnl) {
   stat.bestPnl = Math.max(stat.bestPnl, Math.round(realizedPnl * 100) / 100);
   stat.worstPnl = Math.min(stat.worstPnl, Math.round(realizedPnl * 100) / 100);
   stat.lastClosedAt = (/* @__PURE__ */ new Date()).toISOString();
-  store[uKey][strategy] = stat;
-  saveAll2(store);
+  store2[uKey][strategy] = stat;
+  saveAll2(store2);
 }
 function getKalshiPerformance(userId) {
   const map = loadAll2()[String(userId)] ?? {};
@@ -56196,14 +56196,14 @@ async function assembleFuturesConsensus(userId, symbol, strategy, direction, dat
 }
 function isHighImpactNewsWindow() {
   const now = /* @__PURE__ */ new Date();
-  const utcDay4 = now.getUTCDay();
+  const utcDay5 = now.getUTCDay();
   const utcHour = now.getUTCHours();
   const utcMin = now.getUTCMinutes();
   const totalMin = utcHour * 60 + utcMin;
-  if (utcDay4 === 5 && now.getUTCDate() <= 7 && totalMin >= 795 && totalMin <= 825) return true;
-  if (utcDay4 === 3 && totalMin >= 915 && totalMin <= 945) return true;
-  if (utcDay4 >= 1 && utcDay4 <= 5 && totalMin >= 795 && totalMin <= 825) return true;
-  if (utcDay4 === 3 && (utcHour === 18 && utcMin >= 50 || utcHour === 19 && utcMin <= 10)) return true;
+  if (utcDay5 === 5 && now.getUTCDate() <= 7 && totalMin >= 795 && totalMin <= 825) return true;
+  if (utcDay5 === 3 && totalMin >= 915 && totalMin <= 945) return true;
+  if (utcDay5 >= 1 && utcDay5 <= 5 && totalMin >= 795 && totalMin <= 825) return true;
+  if (utcDay5 === 3 && (utcHour === 18 && utcMin >= 50 || utcHour === 19 && utcMin <= 10)) return true;
   return false;
 }
 function computeSmartMoney(candles) {
@@ -59167,8 +59167,8 @@ async function getLiveAccounts(userId) {
   const mt5 = [];
   const tradelocker = [];
   try {
-    const cache11 = global.mt5AccountData?.[userId];
-    const entries = cache11?.lastUpdated ? [cache11] : Object.values(cache11 || {});
+    const cache12 = global.mt5AccountData?.[userId];
+    const entries = cache12?.lastUpdated ? [cache12] : Object.values(cache12 || {});
     for (const a of entries) {
       if (!a?.lastUpdated) continue;
       const age = (Date.now() - new Date(a.lastUpdated).getTime()) / 1e3;
@@ -60590,6 +60590,494 @@ var init_futures_brain = __esm({
     "use strict";
     init_storage();
     STALE_MS = 6e4;
+  }
+});
+
+// server/services/ai-watch-plans.ts
+var ai_watch_plans_exports = {};
+__export(ai_watch_plans_exports, {
+  PLAN_MAX_EXPIRY_MS: () => PLAN_MAX_EXPIRY_MS,
+  PLAN_MIN_EXPIRY_MS: () => PLAN_MIN_EXPIRY_MS,
+  PLAN_PRICE_SANITY_PCT: () => PLAN_PRICE_SANITY_PCT,
+  WATCH_PLAN_TRIGGER_TYPES: () => WATCH_PLAN_TRIGGER_TYPES,
+  __resetWatchPlansForCheck: () => __resetWatchPlansForCheck,
+  __setWatchPlanStoreForCheck: () => __setWatchPlanStoreForCheck,
+  aiWatchPlansSummary: () => aiWatchPlansSummary,
+  buildWatchPlanPrompt: () => buildWatchPlanPrompt,
+  describeTrigger: () => describeTrigger,
+  evaluateWatchPlan: () => evaluateWatchPlan,
+  noteWatchPlanConfirmed: () => noteWatchPlanConfirmed,
+  parseWatchPlanResponse: () => parseWatchPlanResponse,
+  planFromFields: () => planFromFields,
+  resolveWatchPlanForPost: () => resolveWatchPlanForPost,
+  runDeepAnalysis: () => runDeepAnalysis,
+  validateWatchPlan: () => validateWatchPlan,
+  watchPlanCooldownMs: () => watchPlanCooldownMs,
+  watchPlanTimeoutMs: () => watchPlanTimeoutMs,
+  watchPlansEnabled: () => watchPlansEnabled
+});
+function validateWatchPlan(raw, ctx) {
+  try {
+    if (!raw || typeof raw !== "object") return null;
+    const p2 = raw;
+    if (p2.v !== 1) return null;
+    if (typeof p2.id !== "string" || !p2.id) return null;
+    if (!Number.isFinite(p2.userId)) return null;
+    if (p2.symbol !== ctx.symbol) return null;
+    if (p2.direction !== "BUY" && p2.direction !== "SELL") return null;
+    if (typeof p2.pattern !== "string" || p2.pattern.trim().length < 1 || p2.pattern.length > 80) return null;
+    if (!p2.entryZone || !isPos(p2.entryZone.low) || !isPos(p2.entryZone.high) || p2.entryZone.low > p2.entryZone.high) return null;
+    if (!p2.trigger || !WATCH_PLAN_TRIGGER_TYPES.includes(p2.trigger.type) || !isPos(p2.trigger.level)) return null;
+    if (!isPos(p2.stopLoss) || !isPos(p2.takeProfit) || !isPos(p2.invalidation)) return null;
+    if (!Number.isFinite(p2.createdAt) || !Number.isFinite(p2.expiresAt)) return null;
+    const life = p2.expiresAt - p2.createdAt;
+    if (life < PLAN_MIN_EXPIRY_MS - 6e4 || life > PLAN_MAX_EXPIRY_MS + 6e4) return null;
+    if (p2.status !== "watching" && p2.status !== "triggered") return null;
+    const px = ctx.currentPrice;
+    if (!isPos(px)) return null;
+    const band = (v) => Math.abs(v - px) / px <= PLAN_PRICE_SANITY_PCT;
+    if (![p2.entryZone.low, p2.entryZone.high, p2.trigger.level, p2.stopLoss, p2.takeProfit, p2.invalidation].every(band)) return null;
+    if (p2.direction === "BUY") {
+      if (!(p2.stopLoss < p2.entryZone.low)) return null;
+      if (!(p2.invalidation < p2.entryZone.low)) return null;
+      if (!(p2.takeProfit > p2.entryZone.high)) return null;
+    } else {
+      if (!(p2.stopLoss > p2.entryZone.high)) return null;
+      if (!(p2.invalidation > p2.entryZone.high)) return null;
+      if (!(p2.takeProfit < p2.entryZone.low)) return null;
+    }
+    if (typeof p2.confidence !== "number" || !Number.isFinite(p2.confidence)) return null;
+    return {
+      ...p2,
+      confidence: Math.min(100, Math.max(0, p2.confidence)),
+      rationale: typeof p2.rationale === "string" ? p2.rationale.slice(0, 400) : ""
+    };
+  } catch {
+    return null;
+  }
+}
+function evaluateWatchPlan(plan, candles, now) {
+  if (now >= plan.expiresAt) return "expired";
+  const cs = (candles || []).filter((k2) => k2 && isPos(k2.o) && isPos(k2.h) && isPos(k2.l) && isPos(k2.c));
+  if (!cs.length) return "watching";
+  const last2 = cs[0];
+  const prev = cs[1];
+  const buy = plan.direction === "BUY";
+  const zoneMid = (plan.entryZone.low + plan.entryZone.high) / 2;
+  const riskDist = Math.abs(zoneMid - plan.stopLoss) || Math.abs(last2.c - plan.stopLoss) || 0;
+  if (buy ? last2.c < plan.invalidation : last2.c > plan.invalidation) {
+    const beyond = buy ? plan.invalidation - last2.c : last2.c - plan.invalidation;
+    return riskDist > 0 && beyond >= 0.25 * riskDist ? "structure_break" : "invalidated";
+  }
+  const lvl2 = plan.trigger.level;
+  switch (plan.trigger.type) {
+    case "engulfing": {
+      if (!prev) return "watching";
+      const formed = buy ? prev.c < prev.o && last2.c > last2.o && last2.o <= prev.c && last2.c >= prev.o && last2.c >= lvl2 : prev.c > prev.o && last2.c < last2.o && last2.o >= prev.c && last2.c <= prev.o && last2.c <= lvl2;
+      return formed ? "triggered" : "watching";
+    }
+    case "pin_bar": {
+      const range = last2.h - last2.l;
+      if (range <= 0) return "watching";
+      const body = Math.abs(last2.c - last2.o);
+      const lowerWick = Math.min(last2.o, last2.c) - last2.l;
+      const upperWick = last2.h - Math.max(last2.o, last2.c);
+      const formed = buy ? body <= 0.35 * range && lowerWick >= 0.55 * range && last2.c >= lvl2 : body <= 0.35 * range && upperWick >= 0.55 * range && last2.c <= lvl2;
+      return formed ? "triggered" : "watching";
+    }
+    case "close_beyond_level": {
+      if (!prev) return "watching";
+      const crossed = buy ? prev.c <= lvl2 && last2.c > lvl2 : prev.c >= lvl2 && last2.c < lvl2;
+      return crossed ? "triggered" : "watching";
+    }
+    case "retest_level": {
+      const away = cs.slice(1, 12).some((k2) => buy ? k2.c > lvl2 + 0.25 * riskDist : k2.c < lvl2 - 0.25 * riskDist);
+      if (!away) return "watching";
+      const held = buy ? last2.l <= lvl2 && last2.c >= lvl2 : last2.h >= lvl2 && last2.c <= lvl2;
+      return held ? "triggered" : "watching";
+    }
+    case "inside_bar_break": {
+      const mother = cs[2];
+      if (!prev || !mother) return "watching";
+      const inside = prev.h <= mother.h && prev.l >= mother.l;
+      if (!inside) return "watching";
+      const broke = buy ? last2.c > mother.h : last2.c < mother.l;
+      return broke ? "triggered" : "watching";
+    }
+  }
+  return "watching";
+}
+function describeTrigger(plan) {
+  const lvl2 = plan.trigger.level;
+  switch (plan.trigger.type) {
+    case "engulfing":
+      return `${plan.direction === "BUY" ? "bullish" : "bearish"} engulfing close past ${lvl2}`;
+    case "pin_bar":
+      return `${plan.direction === "BUY" ? "bullish" : "bearish"} pin bar at ${lvl2}`;
+    case "close_beyond_level":
+      return `close ${plan.direction === "BUY" ? "above" : "below"} ${lvl2}`;
+    case "retest_level":
+      return `retest of ${lvl2} that holds`;
+    case "inside_bar_break":
+      return `inside-bar break ${plan.direction === "BUY" ? "up" : "down"} through ${lvl2}`;
+  }
+}
+function buildWatchPlanPrompt(input) {
+  const system = 'You are the senior FX analyst for a live automated trading engine. Your job is NOT to call a trade for this instant. Your job is to study this pair and write ONE WATCH PLAN: the single highest-quality pattern setup worth waiting for, the exact candle that will confirm entry when it forms, and the price that proves the idea wrong. The engine will watch your plan for free and only ask for a final confirmation at the moment your trigger candle forms, so a precise, patient plan is worth more than an eager one. Choose patterns from: ORB retest, BOS + FVG entry, engulfing at a key level, pin-bar rejection, range rejection, inside-bar break, trend pullback continuation. If nothing on this chart is worth watching, say so with noPlan \u2014 a steward does not invent setups. Respond ONLY with JSON in one of these two shapes:\n{"plan": {"direction": "BUY"|"SELL", "pattern": string, "entryZoneLow": number, "entryZoneHigh": number, "triggerType": "engulfing"|"pin_bar"|"close_beyond_level"|"retest_level"|"inside_bar_break", "triggerLevel": number, "stopLoss": number, "takeProfit": number, "invalidation": number, "expiryMinutes": number (15 to 480), "confidence": number (0 to 100), "rationale": "one or two short lines"}}\n{"noPlan": true, "reason": "one short line"}\nGeometry rules: for BUY, stopLoss and invalidation are BELOW the entry zone and takeProfit is ABOVE it (mirror for SELL). invalidation is the price that kills the idea before entry; triggerLevel is the level the trigger candle must close past or hold.';
+  const candles = (input.candles || []).slice(0, 30);
+  const csv = candles.map((k2) => `${fmt(k2.o)},${fmt(k2.h)},${fmt(k2.l)},${fmt(k2.c)}`).join("\n");
+  const ind = input.indicators || {};
+  const indBits = [];
+  const pick3 = (label, v) => {
+    const n = Number(v);
+    if (Number.isFinite(n)) indBits.push(`${label}=${fmt(n)}`);
+  };
+  pick3("RSI", ind.rsi ?? ind.rsi14);
+  pick3("ADX", ind.adx);
+  pick3("ATR", ind.atr);
+  pick3("MACD hist", ind.macd?.histogram ?? ind.macdHistogram);
+  pick3("EMA20", ind.ema20 ?? ind.ema?.fast);
+  pick3("EMA50", ind.ema50 ?? ind.ema?.slow);
+  const er = input.engineRead;
+  const user = [
+    `PAIR: ${input.symbol} (${input.timeframe}) \u2014 session: ${input.sessionLabel || "unknown"}`,
+    `Current price: ${candles.length ? fmt(candles[0].c) : "unknown"}`,
+    `Last ${candles.length} candles, NEWEST FIRST (open,high,low,close):
+${csv}`,
+    indBits.length ? `Indicators: ${indBits.join(" \xB7 ")}` : null,
+    er ? `Engine's deterministic read right now: signal ${er.signal ?? "NEUTRAL"}, confidence ${er.confidence ?? "?"}%, trend ${er.trend ?? "unknown"}${er.patterns?.length ? `, patterns seen: ${er.patterns.join(", ")}` : ""}${er.tradePlan ? `, its draft plan: entry ${fmt(Number(er.tradePlan.entry) || 0)}, SL ${fmt(Number(er.tradePlan.stopLoss) || 0)}, TP ${fmt(Number(er.tradePlan.takeProfit) || 0)}` : ""}` : null,
+    "Write the watch plan for this pair now \u2014 the pattern you will wait for, the candle that triggers entry, and the price that kills it."
+  ].filter(Boolean).join("\n");
+  return { system, user };
+}
+function parseWatchPlanResponse(content) {
+  if (!content) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    const m = content.match(/\{[\s\S]*\}/);
+    if (!m) return null;
+    try {
+      parsed = JSON.parse(m[0]);
+    } catch {
+      return null;
+    }
+  }
+  if (parsed?.noPlan === true) {
+    return { kind: "no_plan", reason: String(parsed.reason || "no setup worth watching").slice(0, 200) };
+  }
+  const f = parsed?.plan;
+  if (!f || typeof f !== "object") return null;
+  return { kind: "plan", fields: f };
+}
+function planFromFields(fields, ctx) {
+  let confidence = Number(fields.confidence);
+  if (!Number.isFinite(confidence)) confidence = 0;
+  if (confidence > 0 && confidence <= 1) confidence *= 100;
+  const expiryMinRaw = Number(fields.expiryMinutes);
+  const expiryMin = Number.isFinite(expiryMinRaw) ? Math.min(PLAN_MAX_EXPIRY_MS / 6e4, Math.max(PLAN_MIN_EXPIRY_MS / 6e4, expiryMinRaw)) : 120;
+  const candidate = {
+    v: 1,
+    id: ctx.id,
+    userId: ctx.userId,
+    symbol: ctx.symbol,
+    timeframe: String(fields.timeframe || ctx.timeframe || ""),
+    direction: String(fields.direction || "").toUpperCase() === "SELL" ? "SELL" : "BUY",
+    pattern: String(fields.pattern || "").slice(0, 80),
+    entryZone: { low: Number(fields.entryZoneLow), high: Number(fields.entryZoneHigh) },
+    trigger: {
+      type: String(fields.triggerType || ""),
+      level: Number(fields.triggerLevel)
+    },
+    stopLoss: Number(fields.stopLoss),
+    takeProfit: Number(fields.takeProfit),
+    invalidation: Number(fields.invalidation),
+    confidence,
+    rationale: String(fields.rationale || "").slice(0, 400),
+    createdAt: ctx.now,
+    expiresAt: ctx.now + expiryMin * 6e4,
+    status: "watching",
+    modelUsed: ctx.modelUsed ?? null
+  };
+  if (candidate.entryZone.low > candidate.entryZone.high) {
+    const t = candidate.entryZone.low;
+    candidate.entryZone.low = candidate.entryZone.high;
+    candidate.entryZone.high = t;
+  }
+  return validateWatchPlan(candidate, { symbol: ctx.symbol, currentPrice: ctx.currentPrice, now: ctx.now });
+}
+function currentCounters(userId) {
+  const day = utcDay4();
+  let s = countersByUser.get(userId);
+  if (!s || s.day !== day) {
+    s = { day, created: 0, triggered: 0, confirmed: 0, expired: 0, invalidated: 0, structureBreaks: 0, deepCalls: 0, fallbacks: 0 };
+    countersByUser.set(userId, s);
+  }
+  return s;
+}
+function noteWatchPlanConfirmed(userId) {
+  currentCounters(userId).confirmed += 1;
+}
+function __setWatchPlanStoreForCheck(s) {
+  store = s ?? defaultStore;
+  cache9.clear();
+}
+async function getBlob(userId) {
+  const hit = cache9.get(userId);
+  if (hit) return hit;
+  if (!loadStarted2.has(userId)) {
+    loadStarted2.add(userId);
+    const loaded2 = await store.load(userId);
+    const blob2 = loaded2 ?? { plans: {}, lastDeepAt: {} };
+    cache9.set(userId, blob2);
+    return blob2;
+  }
+  const loaded = await store.load(userId);
+  const blob = loaded ?? { plans: {}, lastDeepAt: {} };
+  cache9.set(userId, blob);
+  return blob;
+}
+async function persist(userId, blob) {
+  try {
+    await store.save(userId, blob);
+  } catch {
+  }
+}
+async function runDeepAnalysis(input, client2) {
+  if (!await engineAiBudgetAllows(input.userId)) {
+    throw engineAiBudgetError();
+  }
+  const { system, user } = buildWatchPlanPrompt(input);
+  const modelId = client2.defaultModel || getUserModelPreference(input.userId) || "gpt-4o-mini";
+  const call = client2.chat.completions.create({
+    model: modelId,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user }
+    ],
+    temperature: 0.3
+  });
+  const timeout = new Promise(
+    (_, reject) => setTimeout(() => reject(new Error(`watch-plan deep analysis timed out after ${watchPlanTimeoutMs()}ms`)), watchPlanTimeoutMs())
+  );
+  const resp = await Promise.race([call, timeout]);
+  const content = String(resp?.choices?.[0]?.message?.content || "");
+  if (!content) throw new Error("watch-plan deep analysis returned an empty reply");
+  meterEngineAiConfirmation(input.userId, 2);
+  return { content, model: resp?.model || modelId };
+}
+async function realDeepCall(input) {
+  const client2 = await getUniversalAIClientForUser(input.userId);
+  return runDeepAnalysis(input, client2);
+}
+async function logPlanEvent(plan, event, detail) {
+  try {
+    const { addAiConfirmationLog: addAiConfirmationLog2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    addAiConfirmationLog2(plan.userId, {
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      symbol: plan.symbol,
+      timeframe: plan.timeframe,
+      proposedSignal: plan.direction,
+      proposedConfidence: plan.confidence,
+      proposedEntry: (plan.entryZone.low + plan.entryZone.high) / 2,
+      proposedSL: plan.stopLoss,
+      proposedTP: plan.takeProfit,
+      aiDecision: "WATCH_PLAN",
+      aiDirection: plan.direction,
+      aiConfidence: plan.confidence,
+      reasoning: `WATCH PLAN ${event}: ${plan.pattern} ${plan.direction} ${plan.symbol} \u2014 ${detail}`,
+      modelUsed: plan.modelUsed || "ai-watch-plans"
+    });
+  } catch {
+  }
+}
+async function resolveWatchPlanForPost(input, deps = {}) {
+  const now = (deps.now ?? Date.now)();
+  const userId = input.userId;
+  const symbol = input.symbol;
+  try {
+    const blob = await getBlob(userId);
+    let plan = null;
+    const stored = blob.plans[symbol];
+    if (stored) {
+      plan = validateWatchPlan(stored, { symbol, currentPrice: input.currentPrice, now });
+      if (!plan) delete blob.plans[symbol];
+    }
+    if (plan) {
+      const ev = evaluateWatchPlan(plan, input.candles, now);
+      if (ev === "expired" || ev === "invalidated" || ev === "structure_break") {
+        delete blob.plans[symbol];
+        await persist(userId, blob);
+        const c = currentCounters(userId);
+        if (ev === "expired") c.expired += 1;
+        else if (ev === "invalidated") c.invalidated += 1;
+        else c.structureBreaks += 1;
+        void logPlanEvent(
+          plan,
+          ev === "expired" ? "EXPIRED" : ev === "invalidated" ? "INVALIDATED" : "STRUCTURE BREAK",
+          ev === "expired" ? `plan window ended without its trigger (${describeTrigger(plan)} never formed)` : `price closed through invalidation ${plan.invalidation} \u2014 the idea is dead`
+        );
+        plan = null;
+      } else if (ev === "triggered") {
+        if (plan.status !== "triggered") {
+          plan.status = "triggered";
+          plan.triggeredAt = now;
+          blob.plans[symbol] = plan;
+          await persist(userId, blob);
+          currentCounters(userId).triggered += 1;
+          void logPlanEvent(
+            plan,
+            "TRIGGERED",
+            `trigger formed (${describeTrigger(plan)}) \u2014 buying the one confirmation through the normal guard chain`
+          );
+        }
+        return { action: "fallthrough", plan };
+      } else {
+        return { action: "watch", plan };
+      }
+    }
+    const lastDeep = Number(blob.lastDeepAt[symbol] || 0);
+    if (now - lastDeep < watchPlanCooldownMs()) return { action: "abstain" };
+    const callDeep = deps.callDeep ?? realDeepCall;
+    const { content, model } = await callDeep(input);
+    currentCounters(userId).deepCalls += 1;
+    blob.lastDeepAt[symbol] = now;
+    await persist(userId, blob);
+    const parsed = parseWatchPlanResponse(content);
+    if (!parsed) {
+      currentCounters(userId).fallbacks += 1;
+      return { action: "abstain" };
+    }
+    if (parsed.kind === "no_plan") return { action: "abstain" };
+    const created = planFromFields(parsed.fields, {
+      userId,
+      symbol,
+      timeframe: input.timeframe,
+      currentPrice: input.currentPrice,
+      now,
+      id: `wp_${now.toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`,
+      modelUsed: model
+    });
+    if (!created) {
+      currentCounters(userId).fallbacks += 1;
+      return { action: "abstain" };
+    }
+    blob.plans[symbol] = created;
+    await persist(userId, blob);
+    currentCounters(userId).created += 1;
+    void logPlanEvent(
+      created,
+      "CREATED",
+      `watching for ${describeTrigger(created)} \xB7 zone ${created.entryZone.low}\u2013${created.entryZone.high} \xB7 SL ${created.stopLoss} \xB7 TP ${created.takeProfit} \xB7 dies at ${created.invalidation} \xB7 expires ${new Date(created.expiresAt).toISOString()}`
+    );
+    const ev0 = evaluateWatchPlan(created, input.candles, now);
+    if (ev0 === "triggered") {
+      created.status = "triggered";
+      created.triggeredAt = now;
+      blob.plans[symbol] = created;
+      await persist(userId, blob);
+      currentCounters(userId).triggered += 1;
+      void logPlanEvent(created, "TRIGGERED", `trigger already formed at creation (${describeTrigger(created)}) \u2014 proceeding to confirmation`);
+      return { action: "fallthrough", plan: created };
+    }
+    if (ev0 === "invalidated" || ev0 === "structure_break") {
+      delete blob.plans[symbol];
+      await persist(userId, blob);
+      if (ev0 === "invalidated") currentCounters(userId).invalidated += 1;
+      else currentCounters(userId).structureBreaks += 1;
+      return { action: "abstain" };
+    }
+    return { action: "watch", plan: created };
+  } catch {
+    try {
+      currentCounters(userId).fallbacks += 1;
+    } catch {
+    }
+    return { action: "abstain" };
+  }
+}
+function aiWatchPlansSummary() {
+  const day = utcDay4();
+  const agg = { created: 0, triggered: 0, confirmed: 0, expired: 0, invalidated: 0, structureBreaks: 0, deepCalls: 0, fallbacks: 0 };
+  countersByUser.forEach((s) => {
+    if (s.day !== day) return;
+    agg.created += s.created;
+    agg.triggered += s.triggered;
+    agg.confirmed += s.confirmed;
+    agg.expired += s.expired;
+    agg.invalidated += s.invalidated;
+    agg.structureBreaks += s.structureBreaks;
+    agg.deepCalls += s.deepCalls;
+    agg.fallbacks += s.fallbacks;
+  });
+  const now = Date.now();
+  let activePlans = 0;
+  cache9.forEach((blob) => {
+    for (const p2 of Object.values(blob.plans)) if (p2 && p2.expiresAt > now) activePlans += 1;
+  });
+  return { enabled: watchPlansEnabled(), activePlans, ...agg, deepCallsToday: agg.deepCalls };
+}
+function __resetWatchPlansForCheck() {
+  cache9.clear();
+  loadStarted2.clear();
+  countersByUser.clear();
+}
+var watchPlansEnabled, watchPlanCooldownMs, watchPlanTimeoutMs, PLAN_MIN_EXPIRY_MS, PLAN_MAX_EXPIRY_MS, PLAN_PRICE_SANITY_PCT, WATCH_PLAN_TRIGGER_TYPES, isPos, fmt, countersByUser, utcDay4, defaultStore, store, cache9, loadStarted2;
+var init_ai_watch_plans = __esm({
+  "server/services/ai-watch-plans.ts"() {
+    "use strict";
+    init_openai();
+    init_ai_engine_budget();
+    init_runtime_state();
+    init_db();
+    watchPlansEnabled = () => process.env.AI_WATCH_PLANS !== "off";
+    watchPlanCooldownMs = () => {
+      const n = Number(process.env.AI_WATCH_PLAN_COOLDOWN_MIN ?? 15);
+      return (Number.isFinite(n) && n >= 1 ? n : 15) * 6e4;
+    };
+    watchPlanTimeoutMs = () => {
+      const n = Number(process.env.AI_WATCH_PLAN_TIMEOUT_MS ?? 45e3);
+      return Number.isFinite(n) && n >= 5e3 ? n : 45e3;
+    };
+    PLAN_MIN_EXPIRY_MS = 15 * 6e4;
+    PLAN_MAX_EXPIRY_MS = 8 * 36e5;
+    PLAN_PRICE_SANITY_PCT = 0.25;
+    WATCH_PLAN_TRIGGER_TYPES = [
+      "engulfing",
+      "pin_bar",
+      "close_beyond_level",
+      "retest_level",
+      "inside_bar_break"
+    ];
+    isPos = (n) => typeof n === "number" && Number.isFinite(n) && n > 0;
+    fmt = (n) => {
+      if (!Number.isFinite(n)) return "0";
+      return Math.abs(n) >= 100 ? n.toFixed(2) : Math.abs(n) >= 1 ? n.toFixed(4) : n.toFixed(5);
+    };
+    countersByUser = /* @__PURE__ */ new Map();
+    utcDay4 = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    defaultStore = {
+      async load(userId) {
+        const saved = await getRuntimeStateStrict("ai_watch_plans", String(userId));
+        if (!saved || typeof saved !== "object") return null;
+        return {
+          plans: saved.plans && typeof saved.plans === "object" ? saved.plans : {},
+          lastDeepAt: saved.lastDeepAt && typeof saved.lastDeepAt === "object" ? saved.lastDeepAt : {}
+        };
+      },
+      async save(userId, blob) {
+        await ensureRuntimeStateTable();
+        await pool.query(
+          `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+       ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+          ["ai_watch_plans", String(userId), JSON.stringify(blob)]
+        );
+      }
+    };
+    store = defaultStore;
+    cache9 = /* @__PURE__ */ new Map();
+    loadStarted2 = /* @__PURE__ */ new Set();
   }
 });
 
@@ -62525,7 +63013,7 @@ async function repairCandles(symbol, timeframe, eaCandles) {
   const verdict = assessCandles(eaCandles);
   if (verdict.usable) return { candles: eaCandles, repaired: false, reason: verdict.reason };
   const key = `${symbol}:${timeframe}`;
-  const hit = cache9.get(key);
+  const hit = cache10.get(key);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS7) {
     return { candles: hit.candles, repaired: true, reason: `${verdict.reason} \u2014 substituted cached Twelve Data bars` };
   }
@@ -62548,7 +63036,7 @@ async function repairCandles(symbol, timeframe, eaCandles) {
     if (!check.usable) {
       return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 replacement bars also unusable (${check.reason})` };
     }
-    cache9.set(key, { at: Date.now(), candles: mapped });
+    cache10.set(key, { at: Date.now(), candles: mapped });
     console.log(`[candle-repair] ${symbol} ${timeframe}: EA feed unusable (${verdict.reason}); substituted ${mapped.length} Twelve Data bars, ${check.barsWithRange} with real range`);
     return { candles: mapped, repaired: true, reason: `${verdict.reason} \u2014 substituted Twelve Data bars` };
   } catch (e) {
@@ -62556,11 +63044,11 @@ async function repairCandles(symbol, timeframe, eaCandles) {
     return { candles: eaCandles, repaired: false, reason: `${verdict.reason} \u2014 fetch failed: ${e?.message}` };
   }
 }
-var cache9, CACHE_TTL_MS7, lastFetchAt, MIN_FETCH_GAP_MS;
+var cache10, CACHE_TTL_MS7, lastFetchAt, MIN_FETCH_GAP_MS;
 var init_candle_repair = __esm({
   "server/services/candle-repair.ts"() {
     "use strict";
-    cache9 = /* @__PURE__ */ new Map();
+    cache10 = /* @__PURE__ */ new Map();
     CACHE_TTL_MS7 = 6e4;
     lastFetchAt = 0;
     MIN_FETCH_GAP_MS = 8e3;
@@ -64102,23 +64590,23 @@ function evaluateGuardPerformance(guarded, baseline, opts) {
   if (guarded.avgFinal == null) {
     return { verdict: "unproven", reason: "guarded closes carry no measurable result yet" };
   }
-  const fmt = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}${unit}`;
+  const fmt2 = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}${unit}`;
   if (guarded.avgFinal <= baseline.avgFinal - delta) {
     return {
       verdict: "hurting",
-      reason: `closes under this guard average ${fmt(guarded.avgFinal)} vs ${fmt(baseline.avgFinal)} before it \u2014 worse by ${Math.abs(guarded.avgFinal - baseline.avgFinal).toFixed(2)}${unit} over ${guarded.trades} trades`
+      reason: `closes under this guard average ${fmt2(guarded.avgFinal)} vs ${fmt2(baseline.avgFinal)} before it \u2014 worse by ${Math.abs(guarded.avgFinal - baseline.avgFinal).toFixed(2)}${unit} over ${guarded.trades} trades`
     };
   }
   if (baseline.avgGiveback != null && guarded.avgGiveback != null && guarded.avgGiveback >= baseline.avgGiveback && guarded.avgFinal < 0) {
     return {
       verdict: "hurting",
-      reason: `giveback did not improve (${guarded.avgGiveback.toFixed(2)}${unit} under the guard vs ${baseline.avgGiveback.toFixed(2)}${unit} before) and closes average ${fmt(guarded.avgFinal)} over ${guarded.trades} trades`
+      reason: `giveback did not improve (${guarded.avgGiveback.toFixed(2)}${unit} under the guard vs ${baseline.avgGiveback.toFixed(2)}${unit} before) and closes average ${fmt2(guarded.avgFinal)} over ${guarded.trades} trades`
     };
   }
   if (baseline.avgGiveback != null && guarded.avgGiveback != null && guarded.avgGiveback < baseline.avgGiveback && guarded.avgFinal >= baseline.avgFinal) {
     return {
       verdict: "helping",
-      reason: `giveback ${guarded.avgGiveback.toFixed(2)}${unit} vs ${baseline.avgGiveback.toFixed(2)}${unit} before, closes ${fmt(guarded.avgFinal)} vs ${fmt(baseline.avgFinal)} \u2014 the guard is earning its keep`
+      reason: `giveback ${guarded.avgGiveback.toFixed(2)}${unit} vs ${baseline.avgGiveback.toFixed(2)}${unit} before, closes ${fmt2(guarded.avgFinal)} vs ${fmt2(baseline.avgFinal)} \u2014 the guard is earning its keep`
     };
   }
   return { verdict: "unproven", reason: "mixed evidence so far \u2014 no clear verdict yet" };
@@ -64542,15 +65030,15 @@ async function runTrailBrainLearningForUser(userId, force = false) {
   if (!force && Date.now() - last2 < THROTTLE_MS2) return;
   _lastRun2.set(userId, Date.now());
   try {
-    const store = await getTrailBrainStore(userId);
+    const store2 = await getTrailBrainStore(userId);
     for (const key of await stampedGroupKeys(userId)) {
-      if (!store.groups[key]) {
+      if (!store2.groups[key]) {
         const g = groupFromKey(key);
-        if (g) store.groups[key] = g;
+        if (g) store2.groups[key] = g;
       }
     }
     let changed = false;
-    for (const g of Object.values(store.groups)) {
+    for (const g of Object.values(store2.groups)) {
       try {
         const ev = await trailBrainGroupEvidence(userId, g);
         if (!ev) continue;
@@ -64576,7 +65064,7 @@ async function runTrailBrainLearningForUser(userId, force = false) {
         console.error(`[trail-brain] learning failed for group ${g.key} (non-fatal):`, e?.message || e);
       }
     }
-    if (changed) await saveTrailBrainStore(userId, store);
+    if (changed) await saveTrailBrainStore(userId, store2);
   } catch (e) {
     console.error("[trail-brain] user learning failed (non-fatal):", e?.message || e);
   }
@@ -82290,7 +82778,7 @@ function buildAssDocument(cues, styleId, opts) {
   const fontSize = Math.max(24, Math.round(style.fontSize * scale));
   const titleSize = Math.max(26, Math.round(46 * scale));
   const marginV = Math.round(style.marginV * scale);
-  const fmt = (name, font, size, primary, bold, outline, align, mv, box) => `Style: ${name},${font},${size},${primary},&H000000,&H000000,${box ? "&H80000000" : "&H000000"},${bold},0,0,0,100,100,0,0,${box ? 3 : 1},${outline},0,${align},24,24,${mv},1`;
+  const fmt2 = (name, font, size, primary, bold, outline, align, mv, box) => `Style: ${name},${font},${size},${primary},&H000000,&H000000,${box ? "&H80000000" : "&H000000"},${bold},0,0,0,100,100,0,0,${box ? 3 : 1},${outline},0,${align},24,24,${mv},1`;
   const lines = [
     "[Script Info]",
     "ScriptType: v4.00+",
@@ -82300,8 +82788,8 @@ function buildAssDocument(cues, styleId, opts) {
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    fmt("Base", style.fontName, fontSize, style.primary, styleId === "clean" ? 0 : 1, style.outline, style.alignment, marginV, style.box ? 1 : 0),
-    fmt("Title", "Archivo Black", titleSize, "&HFFFFFF", 1, 5, 8, Math.round(36 * scale), 0),
+    fmt2("Base", style.fontName, fontSize, style.primary, styleId === "clean" ? 0 : 1, style.outline, style.alignment, marginV, style.box ? 1 : 0),
+    fmt2("Title", "Archivo Black", titleSize, "&HFFFFFF", 1, 5, 8, Math.round(36 * scale), 0),
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
@@ -88534,7 +89022,7 @@ var prop_firm_consistency_audit_loop_exports = {};
 __export(prop_firm_consistency_audit_loop_exports, {
   startPropFirmConsistencyAuditLoop: () => startPropFirmConsistencyAuditLoop
 });
-function cache10() {
+function cache11() {
   global.tlConsistencyStatus = global.tlConsistencyStatus || {};
   return global.tlConsistencyStatus;
 }
@@ -88547,11 +89035,11 @@ async function auditTradeLocker() {
     return;
   }
   if (!connections.length) return;
-  const store = cache10();
+  const store2 = cache11();
   for (const conn of connections) {
     try {
       const result = await getConsistencyStatus(conn.id, "tradelocker", conn.consistencyThresholdPct, conn.consistencyEnabled !== false);
-      store[conn.id] = { ...result, checkedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      store2[conn.id] = { ...result, checkedAt: (/* @__PURE__ */ new Date()).toISOString() };
       if (!result.enabled) continue;
       if (result.status === "breached") {
         console.warn(`[Consistency Audit] ${conn.accountId} (${conn.propFirmName || "prop firm"}) BREACHED: ${result.guidance}`);
@@ -88576,11 +89064,11 @@ async function auditDxtrade() {
     return;
   }
   if (!connections.length) return;
-  const store = cache10();
+  const store2 = cache11();
   for (const conn of connections) {
     try {
       const result = await getConsistencyStatus(conn.id, "dxtrade", conn.consistency_threshold_pct, conn.consistency_enabled === true);
-      store[`dx_${conn.id}`] = { ...result, checkedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      store2[`dx_${conn.id}`] = { ...result, checkedAt: (/* @__PURE__ */ new Date()).toISOString() };
       if (!result.enabled) continue;
       const label = conn.label || conn.account_code || `dxtrade #${conn.id}`;
       if (result.status === "breached") {
@@ -89466,9 +89954,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "2918d67d-dirty";
+var BUILD_COMMIT = "096ced0e-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-23T04:16:34.668Z";
+var BUILT_AT = "2026-11-23T08:08:06.279Z";
 
 // server/stripe.ts
 init_db();
@@ -92288,11 +92776,11 @@ router4.post("/biz-builder/:profileId/generate-credit-tasks", async (req, res2) 
     if (!profiles.length) return res2.status(404).json({ error: "Profile not found" });
     const p2 = profiles[0];
     const today = /* @__PURE__ */ new Date();
-    const fmt = (d) => d.toISOString().split("T")[0];
+    const fmt2 = (d) => d.toISOString().split("T")[0];
     const addDays2 = (n) => {
       const d = new Date(today);
       d.setDate(d.getDate() + n);
-      return fmt(d);
+      return fmt2(d);
     };
     const raw = await callClaude(
       "You are a business credit expert.",
@@ -93808,6 +94296,20 @@ async function registerRoutes(app2, existingServer) {
         try {
           const { aiGrayZoneSummary: aiGrayZoneSummary2 } = await Promise.resolve().then(() => (init_ai_gray_zone(), ai_gray_zone_exports));
           return aiGrayZoneSummary2();
+        } catch {
+          return null;
+        }
+      })(),
+      // AI watch plans (2026-11-23): the plan rhythm on the live FX path —
+      // active plans right now plus today's lifecycle counters (created /
+      // triggered / confirmed / expired / invalidated / structure breaks),
+      // deep analyses bought, and plan-layer fallbacks to the per-setup
+      // path. deepCallsToday near zero with activePlans > 0 is the design
+      // working: watching is free, deep thought is rare.
+      aiWatchPlans: await (async () => {
+        try {
+          const { aiWatchPlansSummary: aiWatchPlansSummary2 } = await Promise.resolve().then(() => (init_ai_watch_plans(), ai_watch_plans_exports));
+          return aiWatchPlansSummary2();
         } catch {
           return null;
         }
@@ -101639,7 +102141,52 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
         }
       }
-      const _skipAi = _fxMarketClosed || _aiCreditsOut || !!_saverReason;
+      let _watchPlanSkip = false;
+      let _watchPlanFallthrough = false;
+      if (!_fxMarketClosed && !_aiCreditsOut && !_saverReason && (process.env.CHART_DATA_AUTOTRADE_ENABLED === "true" || process.env.CHART_DATA_AI_WHEN_OFF === "true")) {
+        try {
+          const _pfBoth = await Promise.resolve().then(() => (init_pair_filter(), pair_filter_exports)).then(async (m) => {
+            const b = m.pairFilterVerdict(sanitizedSymbol, "BUY");
+            const s = m.pairFilterVerdict(sanitizedSymbol, "SELL");
+            return !!(b?.blocked && s?.blocked);
+          }).catch(() => false);
+          if (!_pfBoth) {
+            const _wp = await Promise.resolve().then(() => (init_ai_watch_plans(), ai_watch_plans_exports));
+            if (_wp.watchPlansEnabled()) {
+              const _utcH = (/* @__PURE__ */ new Date()).getUTCHours();
+              const _res = await _wp.resolveWatchPlanForPost({
+                userId: token.userId,
+                symbol: sanitizedSymbol,
+                timeframe: sanitizedTimeframe,
+                candles,
+                currentPrice: Number(candles[0]?.c || analysis.tradePlan?.entry || 0),
+                indicators: analysis.indicators,
+                engineRead: {
+                  signal: analysis.signal,
+                  confidence: analysis.confidence,
+                  trend: analysis.trend,
+                  patterns: analysis.patterns,
+                  tradePlan: analysis.tradePlan
+                },
+                sessionLabel: _utcH < 7 ? "Asian" : _utcH < 13 ? "London" : "New York"
+              });
+              if (_res.action === "watch") {
+                _watchPlanSkip = true;
+                _cdiag.stage = "ai_watch_plan";
+                _cdiag.watchPlan = { id: _res.plan.id, pattern: _res.plan.pattern, trigger: _wp.describeTrigger(_res.plan) };
+                analysis.alerts.push(`\u{1F441} WATCH PLAN [${_res.plan.pattern}]: ${_res.plan.direction} ${sanitizedSymbol} \u2014 waiting for ${_wp.describeTrigger(_res.plan)} \xB7 zone ${_res.plan.entryZone.low}\u2013${_res.plan.entryZone.high} \xB7 SL ${_res.plan.stopLoss} \xB7 TP ${_res.plan.takeProfit} \xB7 dies at ${_res.plan.invalidation}`);
+                console.log(`[Watch Plan] ${sanitizedSymbol}: watching "${_res.plan.pattern}" \u2014 ${_wp.describeTrigger(_res.plan)}`);
+              } else if (_res.action === "fallthrough") {
+                _watchPlanFallthrough = true;
+                _cdiag.watchPlan = { id: _res.plan.id, pattern: _res.plan.pattern, triggered: true };
+                console.log(`[Watch Plan] ${sanitizedSymbol}: trigger fired ("${_res.plan.pattern}") \u2014 proceeding through the normal confirmation + guard chain`);
+              }
+            }
+          }
+        } catch (_wpErr) {
+        }
+      }
+      const _skipAi = _fxMarketClosed || _aiCreditsOut || !!_saverReason || _watchPlanSkip;
       if (!_skipAi && analysis.signal !== "NEUTRAL" && analysis.confidence >= Math.min(60, MIN_CONFIDENCE_FOR_AUTO_TRADE)) {
         _cdiag.gatePassed = true;
         try {
@@ -102506,10 +103053,14 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             reasoning: "AI unavailable - trade blocked"
           };
         }
+        if (_watchPlanFallthrough && ["ai_returned", "breakout_returned", "breakout_vision_fallback"].includes(_cdiag.stage)) {
+          void Promise.resolve().then(() => (init_ai_watch_plans(), ai_watch_plans_exports)).then((m) => m.noteWatchPlanConfirmed(token.userId)).catch(() => {
+          });
+        }
         void _writeCdiagTracked();
       } else if (_skipAi) {
-        _cdiag.stage = _fxMarketClosed ? "market_closed" : _aiCreditsOut ? "ai_credits_out" : "ai_skipped";
-        _diagCap.neutralReason = _diagCap.neutralReason || (_fxMarketClosed ? "market_closed (FX weekend: Fri 21:00 \u2013 Sun 21:00 UTC, no AI call)" : _aiCreditsOut ? "ai_credits_out (every AI provider returned 402 \u2014 pausing AI calls, re-probing shortly)" : _saverReason);
+        _cdiag.stage = _fxMarketClosed ? "market_closed" : _aiCreditsOut ? "ai_credits_out" : _watchPlanSkip ? "ai_watch_plan" : "ai_skipped";
+        _diagCap.neutralReason = _diagCap.neutralReason || (_fxMarketClosed ? "market_closed (FX weekend: Fri 21:00 \u2013 Sun 21:00 UTC, no AI call)" : _aiCreditsOut ? "ai_credits_out (every AI provider returned 402 \u2014 pausing AI calls, re-probing shortly)" : _watchPlanSkip ? "watch_plan (AI watch plan live \u2014 waiting for its trigger candle; no AI call bought)" : _saverReason);
         analysis.signal = "NEUTRAL";
         void _writeCdiagTracked();
       } else {
@@ -103749,8 +104300,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     const userId = req.user.id;
     const { symbol, timeframe } = req.params;
     const chartDataKey = `mt5_chart_${userId}_${symbol}_${timeframe}`;
-    const cache11 = global.mt5ChartDataCache || {};
-    const chartData = cache11[chartDataKey];
+    const cache12 = global.mt5ChartDataCache || {};
+    const chartData = cache12[chartDataKey];
     if (!chartData) {
       return res2.status(404).json({ error: "No chart data found. Make sure your MT5 Chart Data EA is running." });
     }
@@ -105211,8 +105762,8 @@ Respond with ONLY valid JSON:
     strategy.progressWinRate = winRate2;
     strategy.progressPercentage = Math.min(100, Math.max(0, Math.round(closedProfit / strategy.profitTarget * 100)));
     const _mt5BalLive = (() => {
-      const cache11 = global.mt5AccountData?.[userId];
-      return cache11 ? Object.values(cache11).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
+      const cache12 = global.mt5AccountData?.[userId];
+      return cache12 ? Object.values(cache12).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
     })();
     const _tlBalLive = Object.values(global.tlAccountData?.[userId] || {}).reduce((s, a) => s + (a?.balance || 0), 0);
     const _liveBalance = _mt5BalLive + _tlBalLive;
@@ -120125,15 +120676,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Unauthorized" });
     const userId = req.user.id;
     const rawSymbol = req.params.symbol.toUpperCase().replace(/[^A-Za-z0-9/_.-]/g, "");
-    const cache11 = global.mt5ChartDataCache || {};
-    const allKeys = Object.keys(cache11);
+    const cache12 = global.mt5ChartDataCache || {};
+    const allKeys = Object.keys(cache12);
     const PREFER_TF = ["M6", "M5", "M1", "M15", "M30", "H1", "H4"];
     let found = null;
     let foundTf = "";
     for (const tf of PREFER_TF) {
       const key = `mt5_chart_${userId}_${rawSymbol}_${tf}`;
-      if (cache11[key]) {
-        found = cache11[key];
+      if (cache12[key]) {
+        found = cache12[key];
         foundTf = tf;
         break;
       }
@@ -120141,7 +120692,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!found) {
       const partialKey = allKeys.find((k2) => k2.includes(`_${userId}_`) && k2.includes(rawSymbol));
       if (partialKey) {
-        found = cache11[partialKey];
+        found = cache12[partialKey];
         foundTf = partialKey.split("_").pop() || "";
       }
     }
