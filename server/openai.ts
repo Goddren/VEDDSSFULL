@@ -836,6 +836,15 @@ export interface AiVisionConfirmation {
   bullCase?: string;
   bearCase?: string;
   deepReasoningUsed?: boolean;
+  /** Set when the gray-zone gate (services/ai-gray-zone.ts) skipped the AI
+   *  purchase because the rules had already decided: 'decisive_reject'
+   *  (vision path) or 'decisive_pass' (breakout engine gate). Callers must
+   *  not meter a purchase that never happened. */
+  grayZoneSkipped?: string;
+  /** How many PAID provider calls produced this verdict, when the caller
+   *  needs exact metering (cheap-first-pass tiering: a free first pass is
+   *  0, an escalation is 1). Undefined = the caller's existing convention. */
+  aiCallsBought?: number;
 }
 
 export interface AiConfirmationLogEntry {
@@ -1110,7 +1119,7 @@ function resolveIctThresholds(accountBalance: number): { aPlus: number; a: numbe
   return                            { aPlus: 9,  a: 7, b: 5, c: 4, minGrade: 'A+' };  // Capital preservation
 }
 
-function computeConfluenceScore(
+export function computeConfluenceScore(
   signal: string,
   ictContext: IctContext | null | undefined,
   smcContext: SmcContext | null | undefined,
@@ -2714,6 +2723,7 @@ export async function getBreakoutConfirmation(
 ): Promise<AiVisionConfirmation> {
   try {
     const { computeBreakoutScore } = await import('./utils/breakoutEngine');
+    const { aiGrayZoneEnabled, noteGrayZoneSkip } = await import('./services/ai-gray-zone');
 
     const m1 = multiTFCandles?.['M1'] || multiTFCandles?.['1m'] || [];
     const m5 = multiTFCandles?.['M5'] || multiTFCandles?.['5m'] || [];
@@ -2807,6 +2817,22 @@ Entry: ${tradePlan?.entryPrice} | SL: ${tradePlan?.stopLoss} | TP: ${tradePlan?.
 
 INSTRUCTION: If grade is A (≥70%) or B (≥50%) AND ≥3 strategies align in same direction as ${proposedSignal}, CONFIRM with fixed R:R targets. No trailing stop in your response. Show and prove.`;
 
+    // ── AI GRAY-ZONE GATE (services/ai-gray-zone.ts) ──────────────────────
+    // The deterministic tiered gate above has ALREADY decided this trade:
+    // grade-fail returned without buying anything, and for a gate-approved
+    // breakout the code below forces confirmed=true over whatever the model
+    // returns ("the AI JSON cannot veto a passing engine score"). The AI
+    // purchase here is a pure rubber stamp — its confirmed cannot change
+    // the outcome, its SL/TP are overridden by the deterministic ATR
+    // ladder, its adjustedEntry is never applied in breakout mode, and its
+    // remaining outputs (confidence number, reasoning, breakoutQuality,
+    // propFirmVerdict) are telemetry with no decision consumer in the
+    // route. So when the gate is on, don't buy it: proceed with the
+    // engine-only verdict — the same shape this function already returns
+    // when no AI client is available. AI_GRAY_ZONE=off restores the call.
+    const grayZoneBreakout = aiGrayZoneEnabled();
+    if (grayZoneBreakout && userId) noteGrayZoneSkip(userId, 'decisive_pass');
+
     let aiClient: any = null;
     try {
       aiClient = await getUniversalAIClientForUser(userId || 0, { critical: true });
@@ -2847,27 +2873,40 @@ INSTRUCTION: If grade is A (≥70%) or B (≥50%) AND ≥3 strategies align in s
         breakoutScore: breakoutResult.score,
         breakoutGrade: breakoutResult.grade,
         breakoutStrategies: breakoutResult.strategies,
+        ...(grayZoneBreakout ? { grayZoneSkipped: 'decisive_pass', modelUsed: 'breakout-engine' } : {}),
       };
     }
 
-    const response = await aiClient.chat.completions.create({
-      model: aiClient.defaultModel,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      response_format: { type: 'json_object' },
-      max_tokens: 800,
-      temperature: 0.3,
-    });
-
-    const rawContent = response.choices?.[0]?.message?.content || '{}';
     let parsed: any = {};
-    try {
-      const jsonMatch = extractFirstJsonObject(rawContent);
-      parsed = JSON.parse(jsonMatch ?? rawContent);
-    } catch {
-      parsed = { confirmed: false, confidence: breakoutResult.percentage, reasoning: rawContent };
+    if (grayZoneBreakout) {
+      // Engine-only verdict (see the gray-zone gate above): confirmed per
+      // the deterministic gate, confidence = the engine's own percentage —
+      // identical to the no-AI-client fallback's semantics.
+      parsed = {
+        confirmed: true,
+        confidence: breakoutResult.percentage,
+        reasoning: `[Breakout Engine — AI purchase skipped by the gray-zone gate: the deterministic engine gate already approved this breakout and the AI verdict cannot change that outcome]\n\n${breakoutResult.summary}`,
+        propFirmVerdict: 'SAFE',
+      };
+    } else {
+      const response = await aiClient.chat.completions.create({
+        model: aiClient.defaultModel,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        response_format: { type: 'json_object' },
+        max_tokens: 800,
+        temperature: 0.3,
+      });
+
+      const rawContent = response.choices?.[0]?.message?.content || '{}';
+      try {
+        const jsonMatch = extractFirstJsonObject(rawContent);
+        parsed = JSON.parse(jsonMatch ?? rawContent);
+      } catch {
+        parsed = { confirmed: false, confidence: breakoutResult.percentage, reasoning: rawContent };
+      }
     }
 
     // Deterministic CONFIRM for any GATE-APPROVED breakout (A+/A ≥3, B ≥2, C ≥1 in
@@ -2922,6 +2961,7 @@ INSTRUCTION: If grade is A (≥70%) or B (≥50%) AND ≥3 strategies align in s
       breakoutStrategies: breakoutResult.strategies,
       breakoutQuality,
       propFirmVerdict: (['SAFE', 'WARNING', 'BLOCK'] as const).includes(parsed.propFirmVerdict) ? parsed.propFirmVerdict : 'SAFE',
+      ...(grayZoneBreakout ? { grayZoneSkipped: 'decisive_pass', modelUsed: 'breakout-engine' } : {}),
     };
 
   } catch (err: any) {
