@@ -12405,10 +12405,14 @@ var init_ai_usage = __esm({
 var ai_engine_budget_exports = {};
 __export(ai_engine_budget_exports, {
   aiBudgetAllEnginesEnabled: () => aiBudgetAllEnginesEnabled,
+  aiBudgetReserveEnabled: () => aiBudgetReserveEnabled,
   aiCostDisciplineEnabled: () => aiCostDisciplineEnabled,
+  applySavedEngineAiSpend: () => applySavedEngineAiSpend,
   engineAiBudgetAllows: () => engineAiBudgetAllows,
   engineAiBudgetCents: () => engineAiBudgetCents,
   engineAiBudgetError: () => engineAiBudgetError,
+  engineAiBudgetGate: () => engineAiBudgetGate,
+  engineAiBudgetReserveCents: () => engineAiBudgetReserveCents,
   engineAiBudgetSummary: () => engineAiBudgetSummary,
   engineAiBudgetVerdict: () => engineAiBudgetVerdict,
   engineAiEstCentsPerCall: () => engineAiEstCentsPerCall,
@@ -12433,6 +12437,20 @@ function engineAiEstCentsPerCall() {
   const n = Number(process.env.AI_ENGINE_CONFIRM_EST_CENTS ?? 0.15);
   return Number.isFinite(n) && n > 0 ? n : 0.15;
 }
+function aiBudgetReserveEnabled() {
+  return aiCostDisciplineEnabled() && process.env.AI_BUDGET_RESERVE !== "off";
+}
+function engineAiBudgetReserveCents() {
+  const raw = process.env.AI_BUDGET_RESERVE_CENTS;
+  if (raw === void 0) return 100;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 100;
+}
+function noteReserveConfig(reserve, cap) {
+  if (reserveConfigWarned || reserve < cap) return;
+  reserveConfigWarned = true;
+  console.warn(`[AI Budget] AI_BUDGET_RESERVE_CENTS (${reserve}) >= the daily cap (${cap}) \u2014 general engine lanes get no AI spend while the reserve is on; protected lanes (FX confirmations, watch plans, judges) are unaffected.`);
+}
 function utcDay() {
   return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
 }
@@ -12440,10 +12458,19 @@ function currentSpend(userId) {
   const day = utcDay();
   let s = spendByUser.get(userId);
   if (!s || s.day !== day) {
-    s = { day, cents: 0, calls: 0, blocked: 0 };
+    s = { day, cents: 0, calls: 0, blocked: 0, reserveBlocked: 0, protectedCents: 0, generalCents: 0 };
     spendByUser.set(userId, s);
   }
   return s;
+}
+function applySavedEngineAiSpend(s, saved) {
+  if (!saved || saved.day !== s.day) return;
+  s.cents = Math.max(s.cents, Number(saved.cents) || 0);
+  s.calls = Math.max(s.calls, Number(saved.calls) || 0);
+  s.blocked = Math.max(s.blocked, Number(saved.blocked) || 0);
+  s.reserveBlocked = Math.max(s.reserveBlocked, Number(saved.reserveBlocked) || 0);
+  s.protectedCents = Math.max(s.protectedCents, Number(saved.protectedCents) || 0);
+  s.generalCents = Math.max(s.generalCents, Number(saved.generalCents) || 0);
 }
 async function ensureLoaded(userId) {
   if (loadStarted.has(userId)) return;
@@ -12451,10 +12478,7 @@ async function ensureLoaded(userId) {
   try {
     const saved = await getRuntimeStateStrict("ai_engine_budget", String(userId));
     if (saved && saved.day === utcDay()) {
-      const s = currentSpend(userId);
-      s.cents = Math.max(s.cents, Number(saved.cents) || 0);
-      s.calls = Math.max(s.calls, Number(saved.calls) || 0);
-      s.blocked = Math.max(s.blocked, Number(saved.blocked) || 0);
+      applySavedEngineAiSpend(currentSpend(userId), saved);
     }
   } catch {
   }
@@ -12472,33 +12496,59 @@ function persistSoon(userId) {
   if (typeof t.unref === "function") t.unref();
   persistTimers.set(userId, t);
 }
-async function engineAiBudgetAllows(userId) {
-  if (!aiCostDisciplineEnabled()) return true;
+async function engineAiBudgetGate(userId, lane = "general") {
+  if (!aiCostDisciplineEnabled()) return { allowed: true, reserveBlocked: false };
   try {
     const cap = engineAiBudgetCents();
-    if (cap <= 0) return false;
+    if (cap <= 0) return { allowed: false, reserveBlocked: false };
     await ensureLoaded(userId);
-    return currentSpend(userId).cents < cap;
+    const s = currentSpend(userId);
+    if (s.cents >= cap) return { allowed: false, reserveBlocked: false };
+    if (lane === "general" && aiBudgetReserveEnabled()) {
+      const reserve = engineAiBudgetReserveCents();
+      noteReserveConfig(reserve, cap);
+      if (reserve > 0 && s.cents >= cap - reserve) {
+        return { allowed: false, reserveBlocked: true };
+      }
+    }
+    return { allowed: true, reserveBlocked: false };
   } catch {
-    return true;
+    return { allowed: true, reserveBlocked: false };
   }
 }
-function meterEngineAiConfirmation(userId, units = 1) {
+async function engineAiBudgetAllows(userId, lane = "general") {
+  return (await engineAiBudgetGate(userId, lane)).allowed;
+}
+function meterEngineAiConfirmation(userId, units = 1, lane = "general") {
   if (!aiCostDisciplineEnabled()) return;
   const u = Math.max(1, Math.floor(Number(units) || 1));
   const s = currentSpend(userId);
-  s.cents += engineAiEstCentsPerCall() * u;
+  const cost = engineAiEstCentsPerCall() * u;
+  s.cents += cost;
   s.calls += u;
+  if (lane === "protected") s.protectedCents += cost;
+  else s.generalCents += cost;
   persistSoon(userId);
 }
 function engineAiSpendToday(userId) {
   const s = currentSpend(userId);
-  return { cents: Math.round(s.cents * 1e3) / 1e3, calls: s.calls, blocked: s.blocked, capCents: engineAiBudgetCents() };
+  return {
+    cents: Math.round(s.cents * 1e3) / 1e3,
+    calls: s.calls,
+    blocked: s.blocked,
+    capCents: engineAiBudgetCents(),
+    reserveBlocked: s.reserveBlocked,
+    protectedCents: Math.round(s.protectedCents * 1e3) / 1e3,
+    generalCents: Math.round(s.generalCents * 1e3) / 1e3,
+    reserveCents: engineAiBudgetReserveCents(),
+    reserveEnabled: aiBudgetReserveEnabled()
+  };
 }
-function noteEngineAiBudgetBlock(userId) {
+function noteEngineAiBudgetBlock(userId, opts) {
   if (!aiCostDisciplineEnabled()) return;
   const s = currentSpend(userId);
   s.blocked += 1;
+  if (opts?.reserve) s.reserveBlocked += 1;
   persistSoon(userId);
 }
 function engineAiBudgetError() {
@@ -12512,13 +12562,16 @@ function engineAiBudgetError() {
 }
 function engineAiBudgetSummary() {
   const day = utcDay();
-  let users2 = 0, cents = 0, calls = 0, blocked = 0;
+  let users2 = 0, cents = 0, calls = 0, blocked = 0, reserveBlocked = 0, protectedCents = 0, generalCents = 0;
   spendByUser.forEach((s) => {
     if (s.day !== day) return;
     users2++;
     cents += s.cents;
     calls += s.calls;
     blocked += s.blocked;
+    reserveBlocked += s.reserveBlocked;
+    protectedCents += s.protectedCents;
+    generalCents += s.generalCents;
   });
   return {
     enabled: aiCostDisciplineEnabled(),
@@ -12528,7 +12581,12 @@ function engineAiBudgetSummary() {
     usersTracked: users2,
     spendCentsToday: Math.round(cents * 1e3) / 1e3,
     callsToday: calls,
-    blockedToday: blocked
+    blockedToday: blocked,
+    reserveCents: engineAiBudgetReserveCents(),
+    reserveEnabled: aiBudgetReserveEnabled(),
+    reserveBlockedToday: reserveBlocked,
+    protectedSpendCentsToday: Math.round(protectedCents * 1e3) / 1e3,
+    generalSpendCentsToday: Math.round(generalCents * 1e3) / 1e3
   };
 }
 function engineAiBudgetVerdict() {
@@ -12550,11 +12608,12 @@ function shouldLogBudgetBlock(userId) {
   lastBlockLogAt.set(userId, now);
   return true;
 }
-var spendByUser, loadStarted, persistTimers, lastBlockLogAt;
+var reserveConfigWarned, spendByUser, loadStarted, persistTimers, lastBlockLogAt;
 var init_ai_engine_budget = __esm({
   "server/services/ai-engine-budget.ts"() {
     "use strict";
     init_runtime_state();
+    reserveConfigWarned = false;
     spendByUser = /* @__PURE__ */ new Map();
     loadStarted = /* @__PURE__ */ new Set();
     persistTimers = /* @__PURE__ */ new Map();
@@ -15206,7 +15265,7 @@ async function getCryptoAiConfirmation(opts) {
       console.log(`[crypto-ai-confirmation] ${opts.symbol} ${opts.direction}: verdict reused \u2014 ${cached.reason}`);
       return cached.verdict;
     }
-    const client2 = await getUniversalAIClientForUser(opts.userId, { engine: true });
+    const client2 = await getUniversalAIClientForUser(opts.userId, { engine: true, engineLane: opts.cacheScope ? "protected" : "general" });
     const recent = opts.candles.slice(-20);
     const candleSummary = recent.map((c) => {
       const tNum = Number(c.t);
@@ -23374,9 +23433,12 @@ async function runMultiModelAnalysis(userId, systemPrompt, userPrompt, routingCo
   };
   let capturedCommentary = void 0;
   try {
-    if (budgetMod?.aiBudgetAllEnginesEnabled() && !await budgetMod.engineAiBudgetAllows(userId)) {
-      budgetMod.noteEngineAiBudgetBlock(userId);
-      throw budgetMod.engineAiBudgetError();
+    if (budgetMod?.aiBudgetAllEnginesEnabled()) {
+      const gate = await budgetMod.engineAiBudgetGate(userId, "general");
+      if (!gate.allowed) {
+        budgetMod.noteEngineAiBudgetBlock(userId, { reserve: gate.reserveBlocked });
+        throw budgetMod.engineAiBudgetError();
+      }
     }
     switch (routingConfig.mode) {
       case "single": {
@@ -37002,16 +37064,18 @@ function makeFailoverClient(clients, userId, opts) {
       completions: {
         create: async (params) => {
           const engineBudget = !!opts?.engine && !!userId && aiBudgetAllEnginesEnabled();
+          const engineLane = opts?.engineLane ?? "general";
           if (engineBudget) {
-            if (!await engineAiBudgetAllows(userId)) {
-              noteEngineAiBudgetBlock(userId);
+            const gate = await engineAiBudgetGate(userId, engineLane);
+            if (!gate.allowed) {
+              noteEngineAiBudgetBlock(userId, { reserve: gate.reserveBlocked });
               if (shouldLogBudgetBlock(userId)) {
                 void Promise.resolve().then(() => (init_guard_events(), guard_events_exports)).then(({ logGuard: logGuard2 }) => logGuard2(
                   userId,
                   "ai_call_failed",
                   null,
-                  `daily AI budget reached \u2014 engine AI calls paused until 00:00 UTC (cap $${(engineAiBudgetCents() / 100).toFixed(2)}/day, AI_ENGINE_DAILY_BUDGET_CENTS)`,
-                  { reason: "daily_ai_budget", scope: "all_engines" },
+                  gate.reserveBlocked ? `daily AI budget reserve held \u2014 general engine AI calls paused to protect the FX/judges reserve until 00:00 UTC (cap $${(engineAiBudgetCents() / 100).toFixed(2)}/day, AI_BUDGET_RESERVE_CENTS)` : `daily AI budget reached \u2014 engine AI calls paused until 00:00 UTC (cap $${(engineAiBudgetCents() / 100).toFixed(2)}/day, AI_ENGINE_DAILY_BUDGET_CENTS)`,
+                  { reason: gate.reserveBlocked ? "daily_ai_budget_reserve" : "daily_ai_budget", scope: "all_engines" },
                   "ai"
                 )).catch(() => {
                 });
@@ -37050,7 +37114,7 @@ function makeFailoverClient(clients, userId, opts) {
               }
               if (engineBudget) {
                 try {
-                  meterEngineAiConfirmation(userId, 1);
+                  meterEngineAiConfirmation(userId, 1, engineLane);
                 } catch {
                 }
               }
@@ -37077,8 +37141,8 @@ function makeFailoverClient(clients, userId, opts) {
     }
   };
 }
-function wrapEngineAiClient(client2, userId) {
-  return makeFailoverClient([client2], userId, { engine: true });
+function wrapEngineAiClient(client2, userId, lane = "general") {
+  return makeFailoverClient([client2], userId, { engine: true, engineLane: lane });
 }
 async function buildGroqEconomyClient(userGroqKey) {
   const apiKey = userGroqKey || process.env.GROQ_API_KEY;
@@ -37189,7 +37253,7 @@ async function getUniversalAIClientForUser(userId, opts) {
       storage2.updateUserApiKeyUsage(userId, clients[0].provider).catch(() => {
       });
       console.log(`[AI] user ${userId} client chain: ${clients.map((c) => c.provider).join(" \u2192 ")} (primary model ${clients[0].defaultModel})`);
-      return makeFailoverClient(clients, userId, { engine: !!opts?.engine });
+      return makeFailoverClient(clients, userId, { engine: !!opts?.engine, engineLane: opts?.engineLane });
     }
     if (!canUsePlatformKey) {
       throw new Error("AI_COST_CAP_EXCEEDED: Monthly AI usage cap reached for your membership tier. Add your own AI provider key in AI API Keys settings to continue.");
@@ -37202,7 +37266,7 @@ async function getUniversalAIClientForUser(userId, opts) {
   platformClient.defaultModel = "gpt-4o-mini";
   platformClient.provider = "openai";
   platformClient.usedPlatformKey = true;
-  if (opts?.engine) return makeFailoverClient([platformClient], userId, { engine: true });
+  if (opts?.engine) return makeFailoverClient([platformClient], userId, { engine: true, engineLane: opts?.engineLane });
   return platformClient;
 }
 async function getUniversalVisionClientForUser(userId, opts) {
@@ -37301,7 +37365,7 @@ async function getUniversalVisionClientForUser(userId, opts) {
       storage2.updateUserApiKeyUsage(userId, clients[0].provider).catch(() => {
       });
       console.log(`[AI Vision] user ${userId} client chain: ${clients.map((c) => c.provider).join(" \u2192 ")}`);
-      return makeFailoverClient(clients, userId, { engine: !!opts?.engine });
+      return makeFailoverClient(clients, userId, { engine: !!opts?.engine, engineLane: opts?.engineLane });
     }
     if (!canUsePlatformKey) {
       throw new Error("AI_COST_CAP_EXCEEDED: Monthly AI usage cap reached for your membership tier. Add your own AI provider key in AI API Keys settings to continue.");
@@ -37314,7 +37378,7 @@ async function getUniversalVisionClientForUser(userId, opts) {
   platformClient.defaultModel = "gpt-4o-mini";
   platformClient.provider = "openai";
   platformClient.usedPlatformKey = true;
-  if (opts?.engine) return makeFailoverClient([platformClient], userId, { engine: true });
+  if (opts?.engine) return makeFailoverClient([platformClient], userId, { engine: true, engineLane: opts?.engineLane });
   return platformClient;
 }
 async function getOpenAIInstanceForUser(userId) {
