@@ -2149,6 +2149,45 @@ function confirmationMaxRetries(today: number): number {
   return process.env.AI_COST_DISCIPLINE === 'off' ? today : 1;
 }
 
+// ── Cheap first pass (AI cost-cutting package, Layer 4) ────────────────────
+// On the OpenRouter branch (the default confirmation path — DEFAULT_AI_MODEL
+// is an OpenRouter slug and user model prefs are in-memory, resetting to it
+// every deploy) the confirmation first goes to a FREE OpenRouter model that
+// is already in AVAILABLE_VISION_MODELS: google/gemma-4-31b-it:free
+// (vision-capable, tier 'budget', $0/call). Only a BORDERLINE first-pass
+// verdict escalates to the selected (paid) model:
+//   - its confidence lands within ±BAND of the user's own decision floor
+//     (getAiMinConfidence — the existing floor the verdict is judged
+//     against, default 70), or
+//   - its smcVerdict is REQUIRE_BETTER_PRICE (the structure is undecided —
+//     exactly the case a stronger model may resolve differently).
+// A clear verdict (well above or below the floor) is one the paid model is
+// not expected to flip, so it stands and NOTHING is metered (aiCallsBought
+// 0). An escalation meters exactly 1. A first-pass ERROR propagates exactly
+// as a selected-model error does today (fail-closed, unmetered) — no
+// escalation purchase is made on an error. Deliberately NOT used:
+// openai/gpt-oss-20b (returned a constant 75 on 298/298 confirmation calls,
+// 2026-09-22) and google/gemma-3-4b-it (documented ~12% confidence ceiling).
+// Other provider branches stay single-model in v1 (user-key cost
+// structures). Kill switch AI_CHEAP_FIRST_PASS=off restores the single
+// selected-model call byte-for-byte. The deep-reasoning debate path is not
+// tiered.
+export function cheapFirstPassEnabled(): boolean {
+  return process.env.AI_CHEAP_FIRST_PASS !== 'off';
+}
+export function cheapFirstPassModel(): string {
+  return process.env.AI_CHEAP_FIRST_PASS_MODEL || 'google/gemma-4-31b-it:free';
+}
+export function cheapFirstPassBand(): number {
+  const n = Number(process.env.AI_CHEAP_FIRST_PASS_BAND);
+  return Number.isFinite(n) && n >= 0 ? n : 15;
+}
+/** Pure escalation test, exported for check-ai-cost-cutting.ts. */
+export function isBorderlineVerdict(confidence: number, smcVerdict: unknown, floor: number, band: number): boolean {
+  return (Number.isFinite(confidence) && Math.abs(confidence - floor) <= band)
+    || smcVerdict === 'REQUIRE_BETTER_PRICE';
+}
+
 async function callOpenAIConfirmation(prompt: { system: string; user: string }, model: string, userId?: number): Promise<string> {
   // Critical: this is the FX EA confirmation — a live trade-decision call.
   const openaiInstance = userId ? await getUniversalAIClientForUser(userId, { critical: true }) : getOpenAIInstance();
@@ -2527,6 +2566,12 @@ export async function getAiVisionConfirmation(
 
     let content = '';
     let thinkingTrace: string | null = null;
+    // Layer 4 bookkeeping: which model actually answered, and how many PAID
+    // calls the answer cost (undefined = the pre-package single-call path,
+    // metered by the routes convention; 0 = free first pass stood;
+    // 1 = escalated to the selected model).
+    let answeringModel = selectedModel;
+    let aiCallsBought: number | undefined;
 
     try {
     if (provider === 'openai') {
@@ -2574,22 +2619,56 @@ export async function getAiVisionConfirmation(
           reasoning: `No OpenRouter API key configured (platform or user). Add your key on the AI Provider Keys page, or switch to an OpenAI model.`,
         };
       }
-      try {
-        const result = await callOpenRouterConfirmation(prompt, selectedModel, (personalKey || platformKey)!);
-        content = result.content;
-        thinkingTrace = result.thinking;
-      } catch (personalErr) {
-        // A broken/revoked personal key must not permanently block this provider —
-        // this call (unlike getUniversalAIClientForUser) is single-shot with no
-        // failover chain, so a masked platform key here means total failure with
-        // no recourse. Retry once with the platform-wide key before giving up.
-        if (personalKey && platformKey && platformKey !== personalKey) {
-          const result = await callOpenRouterConfirmation(prompt, selectedModel, platformKey);
-          content = result.content;
-          thinkingTrace = result.thinking;
-        } else {
+      // One OpenRouter call for a given model, preserving the historical
+      // key behaviour: try the resolved key (personal if present, else
+      // platform); a broken/revoked personal key retries once with the
+      // platform-wide key before giving up (this call is single-shot with
+      // no failover chain, so a masked platform key would otherwise mean
+      // total failure with no recourse).
+      const callOR = async (model: string) => {
+        try {
+          return await callOpenRouterConfirmation(prompt, model, (personalKey || platformKey)!);
+        } catch (personalErr) {
+          if (personalKey && platformKey && platformKey !== personalKey) {
+            return await callOpenRouterConfirmation(prompt, model, platformKey);
+          }
           throw personalErr;
         }
+      };
+      const cheapModel = cheapFirstPassEnabled() ? cheapFirstPassModel() : null;
+      if (cheapModel && cheapModel !== selectedModel) {
+        // Cheap first pass on the free model. An error here propagates
+        // exactly like a selected-model error (fail-closed, no escalation
+        // purchase); an unparseable answer falls through to the shared
+        // parse below, which fails closed the same way.
+        const first = await callOR(cheapModel);
+        content = first.content;
+        thinkingTrace = first.thinking;
+        answeringModel = cheapModel;
+        aiCallsBought = 0;
+        let firstParsed: any = null;
+        try {
+          const m = extractFirstJsonObject(first.content);
+          firstParsed = JSON.parse(m ?? first.content);
+        } catch { /* unparseable — no escalation; shared parse fails closed */ }
+        if (firstParsed) {
+          const floor = userId ? getAiMinConfidence(userId) : 70;
+          const conf = coerceConfidence(firstParsed.confidence);
+          if (isBorderlineVerdict(conf, firstParsed.smcVerdict, floor, cheapFirstPassBand())) {
+            console.log(`[AI Vision Confirmation] Cheap first pass borderline for ${symbol} (confidence ${conf} vs floor ${floor}, smcVerdict ${firstParsed.smcVerdict ?? 'null'}) — escalating to ${selectedModel}`);
+            const esc = await callOR(selectedModel);
+            content = esc.content;
+            thinkingTrace = esc.thinking;
+            answeringModel = selectedModel;
+            aiCallsBought = 1;
+          } else {
+            console.log(`[AI Vision Confirmation] Cheap first pass answered for ${symbol} (confidence ${conf} vs floor ${floor}) — no escalation, $0 spent`);
+          }
+        }
+      } else {
+        const result = await callOR(selectedModel);
+        content = result.content;
+        thinkingTrace = result.thinking;
       }
     } else if (userId) {
       const apiKey = await getUserApiKeyForProvider(userId, provider);
@@ -2651,7 +2730,7 @@ export async function getAiVisionConfirmation(
 
     const jsonMatch = extractFirstJsonObject(content);
     const result = JSON.parse(jsonMatch ?? content);
-    console.log(`[AI Vision Confirmation] ${symbol}: ${result.confirmed ? 'CONFIRMED' : 'REJECTED'} (AI says ${result.direction} at ${result.confidence}%) [${provider}/${selectedModel}]`);
+    console.log(`[AI Vision Confirmation] ${symbol}: ${result.confirmed ? 'CONFIRMED' : 'REJECTED'} (AI says ${result.direction} at ${result.confidence}%) [${provider}/${answeringModel}]`);
 
     const validTrailValues = ['NONE', 'TIGHT', 'STANDARD', 'WIDE', 'AGGRESSIVE'];
     const trailRec = validTrailValues.includes(result.trailRecommendation) ? result.trailRecommendation : undefined;
@@ -2676,8 +2755,9 @@ export async function getAiVisionConfirmation(
       propFirmReason: typeof result.propFirmReason === 'string' ? result.propFirmReason : undefined,
       newsBlocked: false,
       newsProximityMinutes: null,
-      modelUsed: selectedModel,
+      modelUsed: answeringModel,
       providerUsed: provider,
+      ...(typeof aiCallsBought === 'number' ? { aiCallsBought } : {}),
       thinkingTrace,
     };
   } catch (error: any) {

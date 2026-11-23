@@ -11069,7 +11069,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                     );
                     _grayZone.noteGrayZoneAsked(token.userId);
                     if (_visionFallback && !(_visionFallback as any).aiError) {
-                      _costDiscipline.meterEngineAiConfirmation(token.userId, (_visionFallback as any).deepReasoningUsed ? 2 : 1);
+                      // Same Layer-4 metering as the main vision path:
+                      // aiCallsBought when reported, else the convention.
+                      const _fbUnits = typeof (_visionFallback as any).aiCallsBought === 'number'
+                        ? (_visionFallback as any).aiCallsBought
+                        : ((_visionFallback as any).deepReasoningUsed ? 2 : 1);
+                      if (_fbUnits > 0) _costDiscipline.meterEngineAiConfirmation(token.userId, _fbUnits);
                     }
                     if (_visionFallback && Number((_visionFallback as any).aiConfidence) > 0) {
                       _putBC(token.userId, sanitizedSymbol, sanitizedTimeframe, _fbDir, analysis.confidence, _fbPrice, _visionFallback);
@@ -11235,8 +11240,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               // Meter the answered call against the daily engine AI budget
               // (aiError verdicts are not billed and are not metered;
               // deep-reasoning answers cost two passes, so they meter 2).
+              // AI cost-cutting Layer 4: when the verdict reports how many
+              // PAID calls its answer cost (aiCallsBought — 0 when the free
+              // first pass stood, 1 when it escalated), meter exactly that;
+              // a $0 answer is not metered at all (meterEngineAiConfirmation
+              // clamps units to >= 1, so 0 must skip the call, not pass 0).
               if (aiConfirmation && !((aiConfirmation as any).aiError)) {
-                _costDiscipline.meterEngineAiConfirmation(token.userId, (aiConfirmation as any).deepReasoningUsed ? 2 : 1);
+                const _units = typeof (aiConfirmation as any).aiCallsBought === 'number'
+                  ? (aiConfirmation as any).aiCallsBought
+                  : ((aiConfirmation as any).deepReasoningUsed ? 2 : 1);
+                if (_units > 0) _costDiscipline.meterEngineAiConfirmation(token.userId, _units);
               }
               // Only a REAL answer is cached. An error result (aiConfidence 0 —
               // e.g. a 402, a timeout) must never be reused: that would pin a
