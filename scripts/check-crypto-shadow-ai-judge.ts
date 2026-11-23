@@ -106,7 +106,7 @@ const confirmSrc = src('../server/services/crypto-ai-confirmation.ts');
 check('C1 judge reuses the live confirmation module (dynamic import, no new prompt)',
   shadowSrc.includes("await import('./crypto-ai-confirmation')") && shadowSrc.includes('getCryptoAiConfirmation'));
 check('C2 confirmation client is engine-marked (shared pool metering, as live)',
-  confirmSrc.includes('getUniversalAIClientForUser(opts.userId, { engine: true })'));
+  confirmSrc.includes('getUniversalAIClientForUser(opts.userId, { engine: true, engineLane: opts.cacheScope ? \'protected\' : \'general\' })'));
 check('C3 shadow lane adds NO second meter/client of its own',
   !shadowSrc.includes('ai-engine-budget') && !shadowSrc.includes('meterEngineAi') && !shadowSrc.includes('getUniversalAIClientForUser'));
 check('C4 cacheScope namespaces the verdict cache key', confirmSrc.includes("`${CONFIRM_TIMEFRAME}:${opts.cacheScope}`"));

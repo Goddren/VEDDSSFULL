@@ -35,6 +35,11 @@ delete process.env.AI_COST_DISCIPLINE;
 delete process.env.AI_BUDGET_ALL_ENGINES;
 process.env.AI_ENGINE_DAILY_BUDGET_CENTS = '0.3';
 process.env.AI_ENGINE_CONFIRM_EST_CENTS = '0.15';
+// Pool reserve (2026-11-23): this suite predates the reserve and tests the
+// undifferentiated pool — pin the reserve to 0 so its behavior sections
+// keep their original meaning. The reserve itself is covered by
+// check-ai-budget-reserve.ts.
+process.env.AI_BUDGET_RESERVE_CENTS = '0';
 
 let failures = 0;
 let passes = 0;
@@ -52,19 +57,19 @@ const openaiMod = await import('../server/openai');
 {
   const oai = src('../server/openai.ts');
   check('A1 failover client gates engine calls on the budget',
-    oai.includes('aiBudgetAllEnginesEnabled()') && oai.includes('engineAiBudgetAllows(userId!)') &&
+    oai.includes('aiBudgetAllEnginesEnabled()') && oai.includes('engineAiBudgetGate(userId!, engineLane)') &&
     oai.includes('throw engineAiBudgetError()'));
   check('A2 the gate runs BEFORE any provider call is bought',
     oai.indexOf('throw engineAiBudgetError()') > -1 &&
     oai.indexOf('throw engineAiBudgetError()') < oai.indexOf('for (let i = 0; i < clients.length; i++)'));
   check('A3 answered engine calls meter once at the success return',
-    oai.includes('meterEngineAiConfirmation(userId!, 1)'));
+    oai.includes('meterEngineAiConfirmation(userId!, 1, engineLane)'));
   check('A4 both builders accept opts.engine (default off)',
-    count(oai, 'opts?: { critical?: boolean; engine?: boolean }') === 2 &&
-    count(oai, 'makeFailoverClient(clients, userId, { engine: !!opts?.engine })') === 2);
+    count(oai, 'opts?: { critical?: boolean; engine?: boolean; engineLane?: EngineAiLane }') === 2 &&
+    count(oai, 'makeFailoverClient(clients, userId, { engine: !!opts?.engine, engineLane: opts?.engineLane })') === 2);
   check('A5 wrapEngineAiClient is exported for raw engine clients',
     oai.includes('export function wrapEngineAiClient') &&
-    oai.includes('makeFailoverClient([client], userId, { engine: true })'));
+    oai.includes('makeFailoverClient([client], userId, { engine: true, engineLane: lane })'));
 
   const engineSites: Array<[string, string]> = [
     ['live-trading-engine', '../server/services/live-trading-engine.ts'],

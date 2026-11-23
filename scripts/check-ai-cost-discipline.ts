@@ -32,6 +32,10 @@ import { readFileSync } from 'node:fs';
 delete process.env.AI_COST_DISCIPLINE;
 process.env.AI_ENGINE_DAILY_BUDGET_CENTS = '0.3';
 process.env.AI_ENGINE_CONFIRM_EST_CENTS = '0.15';
+// Pool reserve (2026-11-23): this suite predates the reserve — pin it to
+// 0 so the behavior sections test the undifferentiated pool they were
+// written for. The chart-data gate itself is now a protected lane (A1).
+process.env.AI_BUDGET_RESERVE_CENTS = '0';
 
 let failures = 0;
 let passes = 0;
@@ -49,8 +53,8 @@ const cache = await import('../server/services/ai-confirmation-cache');
 {
   const routes = src('../server/routes.ts');
   check('A1 all three confirmation branches consult the budget gate',
-    count(routes, 'engineAiBudgetAllows(token.userId)') >= 3,
-    `${count(routes, 'engineAiBudgetAllows(token.userId)')} call sites`);
+    count(routes, 'engineAiBudgetAllows(token.userId, \'protected\')') >= 3,
+    `${count(routes, 'engineAiBudgetAllows(token.userId, \'protected\')')} call sites`);
   check('A2 all three branches meter answered confirmations',
     count(routes, 'meterEngineAiConfirmation(token.userId') >= 3,
     `${count(routes, 'meterEngineAiConfirmation(token.userId')} call sites`);

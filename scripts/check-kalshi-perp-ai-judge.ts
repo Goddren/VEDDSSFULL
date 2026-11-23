@@ -187,7 +187,7 @@ async function main(): Promise<void> {
 
   // H — metering exactly once + dedupe
   {
-    check('H1 judge buys through the engine-marked client', judgeSrc.includes("getUniversalAIClientForUser(c.userId, { engine: true })"));
+    check('H1 judge buys through the engine-marked client', judgeSrc.includes("getUniversalAIClientForUser(c.userId, { engine: true, engineLane: 'protected' })"));
     check('H2 judge module never meters itself', !judgeSrc.includes('meterEngineAiConfirmation'));
     clearJudgeDedupe();
     let calls = 0;
