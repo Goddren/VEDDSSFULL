@@ -51477,22 +51477,38 @@ __export(kalshi_perps_exports, {
   getPerpRiskParams: () => getPerpRiskParams,
   getPerpTouch: () => getPerpTouch,
   indexExcludeSet: () => indexExcludeSet,
+  kalshiRetryDelayMs: () => kalshiRetryDelayMs,
+  maxStockPerpTickers: () => maxStockPerpTickers,
   perpHost: () => perpHost,
   underlyingOfPerpTicker: () => underlyingOfPerpTicker
 });
 function perpHost() {
   return process.env.KALSHI_PERP_HOST === "demo" ? DEMO_HOST : PROD_HOST;
 }
-async function getJson(path24) {
-  const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), 15e3);
-  try {
-    const res2 = await fetch(`${perpHost()}${path24}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
-    if (!res2.ok) throw new Error(`kalshi-perps GET ${path24} -> ${res2.status}`);
-    return await res2.json();
-  } finally {
-    clearTimeout(to);
+function kalshiRetryDelayMs(attempt, retryAfterSec) {
+  if (retryAfterSec != null && Number.isFinite(retryAfterSec) && retryAfterSec >= 0) {
+    return Math.min(5e3, Math.round(retryAfterSec * 1e3));
   }
+  return Math.min(5e3, 400 * 2 ** Math.max(0, attempt));
+}
+async function getJson(path24) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 15e3);
+    try {
+      const res2 = await fetch(`${perpHost()}${path24}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
+      if ((res2.status === 429 || res2.status === 503) && attempt < 2) {
+        const ra = Number(res2.headers.get("retry-after"));
+        await sleep(kalshiRetryDelayMs(attempt, Number.isFinite(ra) ? ra : null));
+        continue;
+      }
+      if (!res2.ok) throw new Error(`kalshi-perps GET ${path24} -> ${res2.status}`);
+      return await res2.json();
+    } finally {
+      clearTimeout(to);
+    }
+  }
+  throw new Error(`kalshi-perps GET ${path24} -> retries exhausted`);
 }
 function underlyingOfPerpTicker(ticker) {
   const m = /^KX([A-Z][A-Z0-9.]*)PERP1?$/.exec(ticker || "");
@@ -51536,10 +51552,14 @@ async function getPerpMarkets() {
   _marketsCache = { at: Date.now(), markets: out };
   return out;
 }
+function maxStockPerpTickers() {
+  const n = Number(process.env.KALSHI_STOCK_SHADOW_MAX_TICKERS ?? 40);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 40;
+}
 async function getLiquidStockPerps() {
   const minVol = Number(process.env.KALSHI_STOCK_SHADOW_MIN_VOL24_USD ?? 25e3);
   const minOi = Number(process.env.KALSHI_STOCK_SHADOW_MIN_OI_USD ?? 1e4);
-  const maxTickers = Math.max(1, Math.floor(Number(process.env.KALSHI_STOCK_SHADOW_MAX_TICKERS ?? 20)));
+  const maxTickers = maxStockPerpTickers();
   const exclude = indexExcludeSet();
   const all = await getPerpMarkets();
   return all.filter((m) => m.status === "active" && m.underlying && !exclude.has(m.underlying)).filter((m) => m.price > 0 && m.bid > 0 && m.ask > m.bid).filter((m) => m.volume24hNotionalUsd >= minVol && m.openInterestNotionalUsd >= minOi).sort((a, b) => b.volume24hNotionalUsd - a.volume24hNotionalUsd).slice(0, maxTickers);
@@ -51692,7 +51712,7 @@ async function getPerpCorporateActions() {
   _caCache = { at: Date.now(), actions };
   return actions;
 }
-var PROD_HOST, DEMO_HOST, num7, DEFAULT_INDEX_EXCLUDE, _marketsCache, MARKETS_TTL_MS, _riskCache, _candleCache, CANDLE_TTL_MS, TF_MINUTES2, _caCache;
+var PROD_HOST, DEMO_HOST, num7, sleep, DEFAULT_INDEX_EXCLUDE, _marketsCache, MARKETS_TTL_MS, _riskCache, _candleCache, CANDLE_TTL_MS, TF_MINUTES2, _caCache;
 var init_kalshi_perps = __esm({
   "server/services/kalshi-perps.ts"() {
     "use strict";
@@ -51702,6 +51722,7 @@ var init_kalshi_perps = __esm({
       const n = typeof v === "string" ? parseFloat(v) : Number(v);
       return Number.isFinite(n) ? n : 0;
     };
+    sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     DEFAULT_INDEX_EXCLUDE = /* @__PURE__ */ new Set(["SPY", "QQQ", "DIA", "IWM", "US500", "USTECH100", "SPX", "NDX", "VIX"]);
     _marketsCache = null;
     MARKETS_TTL_MS = 6e4;
@@ -68584,9 +68605,14 @@ __export(cryptocom_scanner_exports, {
   STRATEGY_RUNNERS: () => STRATEGY_RUNNERS,
   getDefiUniverseEntry: () => getDefiUniverseEntry,
   manualCloseCryptoTrade: () => manualCloseCryptoTrade,
+  maxSymbolsPerCycle: () => maxSymbolsPerCycle,
   runCryptocomEngineScan: () => runCryptocomEngineScan,
   startCryptocomEngineScanner: () => startCryptocomEngineScanner
 });
+function maxSymbolsPerCycle() {
+  const n = Number(process.env.CRYPTO_MAX_SYMBOLS_PER_CYCLE);
+  return Number.isFinite(n) && n >= 1 ? Math.min(25, Math.floor(n)) : 10;
+}
 function universeKey(chain, symbol) {
   return `${chain.toLowerCase()}::${symbol.toUpperCase()}`;
 }
@@ -70129,11 +70155,12 @@ async function scanOneUser(userId) {
     }
   }
   let symbols = allSymbols;
-  if (allSymbols.length > MAX_SYMBOLS_PER_CYCLE) {
+  const maxPerCycle = maxSymbolsPerCycle();
+  if (allSymbols.length > maxPerCycle) {
     const start = (scanCursor.get(userId) || 0) % allSymbols.length;
     symbols = [];
-    for (let i = 0; i < MAX_SYMBOLS_PER_CYCLE; i++) symbols.push(allSymbols[(start + i) % allSymbols.length]);
-    scanCursor.set(userId, (start + MAX_SYMBOLS_PER_CYCLE) % allSymbols.length);
+    for (let i = 0; i < maxPerCycle; i++) symbols.push(allSymbols[(start + i) % allSymbols.length]);
+    scanCursor.set(userId, (start + maxPerCycle) % allSymbols.length);
   }
   for (const symbol of symbols) {
     try {
@@ -70562,7 +70589,7 @@ function startCryptocomEngineScanner() {
   };
   tryStart();
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, defiUniverse, CRYPTO_SL_ATR_MULT, CRYPTO_MIN_RR, _modelUniverse, _gasStatus, ROTATE_AFTER_H, ROTATE_FLAT_PCT, ROTATE_MIN_SCORE, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, EXIT_BUDGET_MS, ENTRY_BUDGET_MS, userInFlight, _cycleNo, USER_CONCURRENCY, started3, scanInFlight, _skippedTicks, _scansCompleted, WORKER_ID, _hbBooted, CRYPTO_RUN_LOCK_KEY, _holdsRunLock, STALE_AFTER_MS;
+var MIN_SCAN_INTERVAL_MS, lastScanAt, scanCursor, defiUniverse, CRYPTO_SL_ATR_MULT, CRYPTO_MIN_RR, _modelUniverse, _gasStatus, ROTATE_AFTER_H, ROTATE_FLAT_PCT, ROTATE_MIN_SCORE, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, EXIT_BUDGET_MS, ENTRY_BUDGET_MS, userInFlight, _cycleNo, USER_CONCURRENCY, started3, scanInFlight, _skippedTicks, _scansCompleted, WORKER_ID, _hbBooted, CRYPTO_RUN_LOCK_KEY, _holdsRunLock, STALE_AFTER_MS;
 var init_cryptocom_scanner = __esm({
   "server/services/cryptocom-scanner.ts"() {
     "use strict";
@@ -70579,7 +70606,6 @@ var init_cryptocom_scanner = __esm({
     init_cefi_executor();
     MIN_SCAN_INTERVAL_MS = 6e4;
     lastScanAt = /* @__PURE__ */ new Map();
-    MAX_SYMBOLS_PER_CYCLE = 5;
     scanCursor = /* @__PURE__ */ new Map();
     defiUniverse = /* @__PURE__ */ new Map();
     CRYPTO_SL_ATR_MULT = Number(process.env.CRYPTO_SL_ATR_MULT ?? 1.5);
@@ -73048,8 +73074,12 @@ __export(kalshi_stock_shadow_exports, {
   startKalshiStockShadow: () => startKalshiStockShadow,
   statsRepairEnabled: () => statsRepairEnabled,
   stockOrbEnabled: () => stockOrbEnabled,
+  stockShadowCadence: () => stockShadowCadence,
   stockShadowEnabled: () => stockShadowEnabled
 });
+function stockShadowCadence() {
+  return { tickMs: TICK_MS2, entryEveryMs: EVERY_MS2(), maxOpen: MAX_OPEN2(), maxPerStrategy: MAX_PER_STRAT2(), cooldownMs: COOLDOWN_MS2() };
+}
 function isValidShadowReturnPct(v) {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) && Math.abs(n) <= maxValidReturnPct();
@@ -74095,19 +74125,26 @@ function startKalshiStockShadow() {
     return;
   }
   const tick3 = async () => {
+    if (_tickInFlight) {
+      console.warn("[kalshi-stock-shadow] previous cycle still running \u2014 skipping this tick.");
+      return;
+    }
+    _tickInFlight = true;
     try {
       const uid2 = await resolveOwnerUserId();
       if (uid2) await runKalshiStockShadowCycle(uid2);
       loopTick("kalshi-stock-shadow");
     } catch (e) {
       console.error("[kalshi-stock-shadow] tick failed (non-fatal):", e?.message ?? e);
+    } finally {
+      _tickInFlight = false;
     }
   };
   setTimeout(tick3, 3 * 6e4).unref?.();
-  setInterval(tick3, 5 * 6e4).unref?.();
+  setInterval(tick3, TICK_MS2).unref?.();
   console.log("[kalshi-stock-shadow] started \u2014 SHADOW lane on public Kalshi perp data (no credentials, no orders).");
 }
-var stockOrbEnabled, num12, stockShadowEnabled, accountSimEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, maxValidReturnPct, maxValidEntryUsd, statsRepairEnabled, STATS_REPAIR_REASON, _statsRepair, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, PERP_STRATEGY_KEYS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started6;
+var stockOrbEnabled, num12, stockShadowEnabled, accountSimEnabled, MAX_OPEN2, MAX_PER_STRAT2, COOLDOWN_MS2, EVERY_MS2, TICK_MS2, NOTIONAL2, MIN_CONF, FEE_BPS, SL_LO, SL_HI, ATR_MULT2, RR, maxValidReturnPct, maxValidEntryUsd, statsRepairEnabled, STATS_REPAIR_REASON, _statsRepair, CRYPTO_PORTS, OPTIONS_PORTS, etFmt, _statsCache2, toIso, emaTrend, crossUp, crossDown, rsiAbove, rsiBelow, rsiCrossUp, rsiCrossDown, emaAbove, emaBelow, FX_PORTS, PERP_STRATEGY_KEYS, OPTIONS_CFG, _lastEntryRun, _ownerId, _started6, _tickInFlight;
 var init_kalshi_stock_shadow = __esm({
   "server/services/kalshi-stock-shadow.ts"() {
     "use strict";
@@ -74131,10 +74168,11 @@ var init_kalshi_stock_shadow = __esm({
     };
     stockShadowEnabled = () => process.env.KALSHI_STOCK_SHADOW !== "off";
     accountSimEnabled = () => process.env.KALSHI_ACCOUNT_SIM !== "off";
-    MAX_OPEN2 = () => Math.floor(num12("KALSHI_STOCK_SHADOW_MAX_OPEN", 30));
-    MAX_PER_STRAT2 = () => Math.floor(num12("KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY", 3));
+    MAX_OPEN2 = () => Math.floor(num12("KALSHI_STOCK_SHADOW_MAX_OPEN", 45));
+    MAX_PER_STRAT2 = () => Math.floor(num12("KALSHI_STOCK_SHADOW_MAX_PER_STRATEGY", 4));
     COOLDOWN_MS2 = () => num12("KALSHI_STOCK_SHADOW_COOLDOWN_MIN", 60) * 6e4;
-    EVERY_MS2 = () => num12("KALSHI_STOCK_SHADOW_EVERY_MIN", 10) * 6e4;
+    EVERY_MS2 = () => num12("KALSHI_STOCK_SHADOW_EVERY_MIN", 5) * 6e4;
+    TICK_MS2 = 5 * 6e4;
     NOTIONAL2 = () => num12("KALSHI_STOCK_SHADOW_NOTIONAL_USD", 250);
     MIN_CONF = () => num12("KALSHI_STOCK_SHADOW_MIN_CONFIDENCE", 70);
     FEE_BPS = () => num12("KALSHI_STOCK_SHADOW_FEE_BPS", 20);
@@ -74195,6 +74233,7 @@ var init_kalshi_stock_shadow = __esm({
     _lastEntryRun = /* @__PURE__ */ new Map();
     _ownerId = null;
     _started6 = false;
+    _tickInFlight = false;
   }
 });
 
@@ -80658,7 +80697,7 @@ async function persistRemoteAsset(remoteUrl) {
       if (!res2.ok) {
         console.error(`[content-asset-store] fetch failed for ${remoteUrl}: ${res2.status} (attempt ${attempt}/${MAX_ATTEMPTS})`);
         if (attempt < MAX_ATTEMPTS) {
-          await sleep(1e3 * attempt);
+          await sleep2(1e3 * attempt);
           continue;
         }
         return null;
@@ -80679,7 +80718,7 @@ async function persistRemoteAsset(remoteUrl) {
     } catch (err) {
       console.error(`[content-asset-store] persistRemoteAsset failed (attempt ${attempt}/${MAX_ATTEMPTS}):`, err?.message ?? err);
       if (attempt < MAX_ATTEMPTS) {
-        await sleep(1e3 * attempt);
+        await sleep2(1e3 * attempt);
         continue;
       }
       return null;
@@ -80687,7 +80726,7 @@ async function persistRemoteAsset(remoteUrl) {
   }
   return null;
 }
-function sleep(ms) {
+function sleep2(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 async function getPersistedAsset(id) {
@@ -88919,7 +88958,7 @@ function scheduleNext() {
     await grantMonthlyTierCreditsOncePerMonth().catch(() => {
     });
     scheduleNext();
-  }, TICK_MS2);
+  }, TICK_MS3);
 }
 async function startTierCreditScheduler() {
   try {
@@ -88932,7 +88971,7 @@ async function startTierCreditScheduler() {
     console.error("[TierCredits] scheduler start failed (non-fatal):", e?.message ?? e);
   }
 }
-var _timer, TICK_MS2;
+var _timer, TICK_MS3;
 var init_tier_credit_scheduler = __esm({
   "server/services/tier-credit-scheduler.ts"() {
     "use strict";
@@ -88941,7 +88980,7 @@ var init_tier_credit_scheduler = __esm({
     init_storage();
     init_token_rewards();
     _timer = null;
-    TICK_MS2 = 24 * 60 * 60 * 1e3;
+    TICK_MS3 = 24 * 60 * 60 * 1e3;
   }
 });
 
@@ -89196,7 +89235,7 @@ function startStrategyRunner() {
   started6 = true;
   setInterval(() => {
     tick().then(() => loopTick("strategy-runner")).catch((e) => recordProcessError("guardedJob", e, "strategy-runner"));
-  }, TICK_MS3);
+  }, TICK_MS4);
   console.log("[Strategy Runner] Deployment runner started (30s interval).");
 }
 async function tick() {
@@ -89726,7 +89765,7 @@ async function dispatchBreakeven(dep, open2, newStop, newTp) {
   }
   return false;
 }
-var TICK_MS3, TF_API, TF_MS, CRYPTOS, CONTRACT_SIZE3, started6, ticking, _lessonStateCache;
+var TICK_MS4, TF_API, TF_MS, CRYPTOS, CONTRACT_SIZE3, started6, ticking, _lessonStateCache;
 var init_strategy_runner = __esm({
   "server/services/strategy-runner.ts"() {
     "use strict";
@@ -89740,7 +89779,7 @@ var init_strategy_runner = __esm({
     init_strategy_shadow();
     init_strategy_spec();
     init_pipUtils();
-    TICK_MS3 = 3e4;
+    TICK_MS4 = 3e4;
     TF_API = { M1: "1min", M5: "5min", M15: "15min", M30: "30min", H1: "1h", H4: "4h", D1: "1day" };
     TF_MS = { M1: 6e4, M5: 3e5, M15: 9e5, M30: 18e5, H1: 36e5, H4: 144e5, D1: 864e5 };
     CRYPTOS = /* @__PURE__ */ new Set(["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "LTCUSD", "DOGEUSD"]);
@@ -90027,18 +90066,18 @@ async function tick2() {
 function startFxPaperMonitor() {
   if (started7) return;
   started7 = true;
-  console.log(`[fx-paper-monitor] started \u2014 closing open FX paper trades on SL/TP every ${TICK_MS4 / 6e4} min (max-hold ${MAX_HOLD_MS / 36e5}h).`);
+  console.log(`[fx-paper-monitor] started \u2014 closing open FX paper trades on SL/TP every ${TICK_MS5 / 6e4} min (max-hold ${MAX_HOLD_MS / 36e5}h).`);
   setInterval(() => {
     tick2().catch((e) => {
       console.error("[fx-paper-monitor] tick error:", e?.message ?? e);
       recordProcessError("guardedJob", e, "fx-paper-monitor");
     });
-  }, TICK_MS4);
+  }, TICK_MS5);
   setTimeout(() => {
     tick2().catch((e) => recordProcessError("guardedJob", e, "fx-paper-monitor"));
   }, 15e3);
 }
-var TICK_MS4, MAX_HOLD_MS, started7;
+var TICK_MS5, MAX_HOLD_MS, started7;
 var init_fx_paper_monitor = __esm({
   "server/services/fx-paper-monitor.ts"() {
     "use strict";
@@ -90046,7 +90085,7 @@ var init_fx_paper_monitor = __esm({
     init_crash_heartbeat();
     init_process_guards();
     init_service();
-    TICK_MS4 = 3 * 60 * 1e3;
+    TICK_MS5 = 3 * 60 * 1e3;
     MAX_HOLD_MS = 3 * 24 * 60 * 60 * 1e3;
     started7 = false;
   }
@@ -90738,9 +90777,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "4823a099-dirty";
+var BUILD_COMMIT = "1d20749c-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-24T11:07:02.531Z";
+var BUILT_AT = "2026-11-24T15:31:31.130Z";
 
 // server/stripe.ts
 init_db();

@@ -9441,22 +9441,38 @@ __export(kalshi_perps_exports, {
   getPerpRiskParams: () => getPerpRiskParams,
   getPerpTouch: () => getPerpTouch,
   indexExcludeSet: () => indexExcludeSet,
+  kalshiRetryDelayMs: () => kalshiRetryDelayMs,
+  maxStockPerpTickers: () => maxStockPerpTickers,
   perpHost: () => perpHost,
   underlyingOfPerpTicker: () => underlyingOfPerpTicker
 });
 function perpHost() {
   return process.env.KALSHI_PERP_HOST === "demo" ? DEMO_HOST : PROD_HOST;
 }
-async function getJson(path2) {
-  const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), 15e3);
-  try {
-    const res2 = await fetch(`${perpHost()}${path2}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
-    if (!res2.ok) throw new Error(`kalshi-perps GET ${path2} -> ${res2.status}`);
-    return await res2.json();
-  } finally {
-    clearTimeout(to);
+function kalshiRetryDelayMs(attempt, retryAfterSec) {
+  if (retryAfterSec != null && Number.isFinite(retryAfterSec) && retryAfterSec >= 0) {
+    return Math.min(5e3, Math.round(retryAfterSec * 1e3));
   }
+  return Math.min(5e3, 400 * 2 ** Math.max(0, attempt));
+}
+async function getJson(path2) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 15e3);
+    try {
+      const res2 = await fetch(`${perpHost()}${path2}`, { signal: ctrl.signal, headers: { accept: "application/json" } });
+      if ((res2.status === 429 || res2.status === 503) && attempt < 2) {
+        const ra = Number(res2.headers.get("retry-after"));
+        await sleep(kalshiRetryDelayMs(attempt, Number.isFinite(ra) ? ra : null));
+        continue;
+      }
+      if (!res2.ok) throw new Error(`kalshi-perps GET ${path2} -> ${res2.status}`);
+      return await res2.json();
+    } finally {
+      clearTimeout(to);
+    }
+  }
+  throw new Error(`kalshi-perps GET ${path2} -> retries exhausted`);
 }
 function underlyingOfPerpTicker(ticker) {
   const m = /^KX([A-Z][A-Z0-9.]*)PERP1?$/.exec(ticker || "");
@@ -9500,10 +9516,14 @@ async function getPerpMarkets() {
   _marketsCache = { at: Date.now(), markets: out };
   return out;
 }
+function maxStockPerpTickers() {
+  const n = Number(process.env.KALSHI_STOCK_SHADOW_MAX_TICKERS ?? 40);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 40;
+}
 async function getLiquidStockPerps() {
   const minVol = Number(process.env.KALSHI_STOCK_SHADOW_MIN_VOL24_USD ?? 25e3);
   const minOi = Number(process.env.KALSHI_STOCK_SHADOW_MIN_OI_USD ?? 1e4);
-  const maxTickers = Math.max(1, Math.floor(Number(process.env.KALSHI_STOCK_SHADOW_MAX_TICKERS ?? 20)));
+  const maxTickers = maxStockPerpTickers();
   const exclude = indexExcludeSet();
   const all = await getPerpMarkets();
   return all.filter((m) => m.status === "active" && m.underlying && !exclude.has(m.underlying)).filter((m) => m.price > 0 && m.bid > 0 && m.ask > m.bid).filter((m) => m.volume24hNotionalUsd >= minVol && m.openInterestNotionalUsd >= minOi).sort((a, b) => b.volume24hNotionalUsd - a.volume24hNotionalUsd).slice(0, maxTickers);
@@ -9656,7 +9676,7 @@ async function getPerpCorporateActions() {
   _caCache = { at: Date.now(), actions };
   return actions;
 }
-var PROD_HOST, DEMO_HOST, num, DEFAULT_INDEX_EXCLUDE, _marketsCache, MARKETS_TTL_MS, _riskCache, _candleCache, CANDLE_TTL_MS, TF_MINUTES, _caCache;
+var PROD_HOST, DEMO_HOST, num, sleep, DEFAULT_INDEX_EXCLUDE, _marketsCache, MARKETS_TTL_MS, _riskCache, _candleCache, CANDLE_TTL_MS, TF_MINUTES, _caCache;
 var init_kalshi_perps = __esm({
   "server/services/kalshi-perps.ts"() {
     "use strict";
@@ -9666,6 +9686,7 @@ var init_kalshi_perps = __esm({
       const n = typeof v === "string" ? parseFloat(v) : Number(v);
       return Number.isFinite(n) ? n : 0;
     };
+    sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     DEFAULT_INDEX_EXCLUDE = /* @__PURE__ */ new Set(["SPY", "QQQ", "DIA", "IWM", "US500", "USTECH100", "SPX", "NDX", "VIX"]);
     _marketsCache = null;
     MARKETS_TTL_MS = 6e4;
@@ -40023,7 +40044,10 @@ init_trail_brain();
 init_cefi_executor();
 var MIN_SCAN_INTERVAL_MS = 6e4;
 var lastScanAt = /* @__PURE__ */ new Map();
-var MAX_SYMBOLS_PER_CYCLE = 5;
+function maxSymbolsPerCycle() {
+  const n = Number(process.env.CRYPTO_MAX_SYMBOLS_PER_CYCLE);
+  return Number.isFinite(n) && n >= 1 ? Math.min(25, Math.floor(n)) : 10;
+}
 var scanCursor = /* @__PURE__ */ new Map();
 var defiUniverse = /* @__PURE__ */ new Map();
 function universeKey(chain, symbol) {
@@ -41566,11 +41590,12 @@ async function scanOneUser(userId) {
     }
   }
   let symbols = allSymbols;
-  if (allSymbols.length > MAX_SYMBOLS_PER_CYCLE) {
+  const maxPerCycle = maxSymbolsPerCycle();
+  if (allSymbols.length > maxPerCycle) {
     const start = (scanCursor.get(userId) || 0) % allSymbols.length;
     symbols = [];
-    for (let i = 0; i < MAX_SYMBOLS_PER_CYCLE; i++) symbols.push(allSymbols[(start + i) % allSymbols.length]);
-    scanCursor.set(userId, (start + MAX_SYMBOLS_PER_CYCLE) % allSymbols.length);
+    for (let i = 0; i < maxPerCycle; i++) symbols.push(allSymbols[(start + i) % allSymbols.length]);
+    scanCursor.set(userId, (start + maxPerCycle) % allSymbols.length);
   }
   for (const symbol of symbols) {
     try {

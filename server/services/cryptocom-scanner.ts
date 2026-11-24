@@ -30,7 +30,19 @@ const lastScanAt = new Map<number, number>();
 // Cap how many symbols are processed per scan cycle to bound per-cycle memory/CPU
 // (candle fetch + full indicator suite per symbol). Large watchlists are covered
 // by ROTATING through them across cycles instead of scanning all at once.
-const MAX_SYMBOLS_PER_CYCLE = 5; // trimmed footprint: smaller working set per cycle (was 12); cursor still covers the full list over successive cycles
+// Widened 5 → 10 (2026-11-15, Chris's ask for continuous hot-market coverage):
+// at the default 2-minute per-user scan interval a ~40-token DeFi universe
+// took ~16 min per full rotation, so a token that started moving could wait
+// that long for its next evaluation; 10/cycle halves the rotation to ~8 min.
+// The scanner runs in its own isolated worker process now (render.yaml), so
+// the footprint that forced 12 → 5 on the web service no longer threatens
+// FX/TradeLocker, and GeckoTerminal candle reads are TTL-cached (10 min with
+// a CoinGecko key), so the faster rotation mostly re-reads cache instead of
+// doubling API spend. Env-tunable: CRYPTO_MAX_SYMBOLS_PER_CYCLE (1–25).
+export function maxSymbolsPerCycle(): number {
+  const n = Number(process.env.CRYPTO_MAX_SYMBOLS_PER_CYCLE);
+  return Number.isFinite(n) && n >= 1 ? Math.min(25, Math.floor(n)) : 10;
+}
 const scanCursor = new Map<number, number>();
 
 type Decision = 'watching' | 'signal' | 'skipped' | 'error';
@@ -1908,11 +1920,12 @@ async function scanOneUser(userId: number): Promise<void> {
   // big working set in one pass (candles + indicators per symbol). The cursor
   // advances each cycle, wrapping, so every symbol is still scanned over time.
   let symbols = allSymbols;
-  if (allSymbols.length > MAX_SYMBOLS_PER_CYCLE) {
+  const maxPerCycle = maxSymbolsPerCycle();
+  if (allSymbols.length > maxPerCycle) {
     const start = (scanCursor.get(userId) || 0) % allSymbols.length;
     symbols = [];
-    for (let i = 0; i < MAX_SYMBOLS_PER_CYCLE; i++) symbols.push(allSymbols[(start + i) % allSymbols.length]);
-    scanCursor.set(userId, (start + MAX_SYMBOLS_PER_CYCLE) % allSymbols.length);
+    for (let i = 0; i < maxPerCycle; i++) symbols.push(allSymbols[(start + i) % allSymbols.length]);
+    scanCursor.set(userId, (start + maxPerCycle) % allSymbols.length);
   }
 
   for (const symbol of symbols) {
