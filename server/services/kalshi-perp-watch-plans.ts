@@ -624,7 +624,10 @@ export async function resolvePerpWatchPlan(
         else if (ev === 'invalidated') counters.invalidated += 1;
         else counters.structureBreaks += 1;
         plan = null; // fall through to the re-plan branch below
-      } else if (ev === 'triggered') {
+      } else if (ev === 'triggered' || plan.status === 'triggered') {
+        // A triggered plan STAYS triggered until expiry/invalidation
+        // retires it (the FX v1 semantics): the trigger formed once,
+        // and later signals for this ticker+strategy proceed under it.
         if (plan.status !== 'triggered') {
           plan.status = 'triggered';
           plan.triggeredAt = now;
