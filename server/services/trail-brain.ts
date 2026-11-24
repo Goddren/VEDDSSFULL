@@ -201,7 +201,7 @@ export interface TrailBrainDecision {
  * stopFloor for every input — the brain can tighten a stop, it can
  * never widen one past where the trade started.
  */
-export function trailBrainDecide(params: TrailBrainParams, input: { peak: number; current: number; stopFloor: number }): TrailBrainDecision {
+export function trailBrainDecide(params: TrailBrainParams, input: { peak: number; current: number; stopFloor: number; floorCap?: number }): TrailBrainDecision {
   const { peak, current, stopFloor } = input;
   if (!Number.isFinite(peak) || !Number.isFinite(current) || !Number.isFinite(stopFloor) || peak < params.activation) {
     return { armed: false, floor: stopFloor, exitNow: false, binding: false };
@@ -211,6 +211,11 @@ export function trailBrainDecide(params: TrailBrainParams, input: { peak: number
   for (const s of params.lockSteps) {
     if (peak >= s.atPeak) floor = Math.max(floor, s.lock);
   }
+  // Optional caller cap (Kalshi perp R geometry): the trailed floor may
+  // never exceed the trade's own planned target. Absent → behaviour is
+  // exactly as before for every other lane. The stopFloor clamp runs
+  // LAST, so a pathological cap can never loosen the original stop.
+  if (input.floorCap != null && Number.isFinite(input.floorCap)) floor = Math.min(floor, input.floorCap);
   floor = Math.max(floor, stopFloor);
   return { armed: true, floor, exitNow: current <= floor, binding: floor > stopFloor };
 }
@@ -219,17 +224,141 @@ export function trailBrainDecide(params: TrailBrainParams, input: { peak: number
  * Price-space helper for the %-unit price lanes (Kalshi shadow + live):
  * the trailed stop price implied by the peak gain so far. Returns null
  * when the brain is not binding (floor at/under the original stop).
+ * `rActivation` (Kalshi perp lane only) swaps the group's percent
+ * parameters for this trade's own R geometry — see the R-geometry
+ * section below. Absent → percent behaviour, byte-identical to before.
  */
 export function trailBrainStopPrice(input: {
   direction: string; entryPrice: number; peakGainPct: number; currentGainPct: number; slPct: number; params: TrailBrainParams;
+  rActivation?: TrailBrainRActivation;
 }): { stopPrice: number; floorPct: number; exitNow: boolean } | null {
-  const { entryPrice, peakGainPct, currentGainPct, slPct, params } = input;
+  const { entryPrice, peakGainPct, currentGainPct, slPct } = input;
   if (!(entryPrice > 0) || !(slPct > 0)) return null;
-  const d = trailBrainDecide(params, { peak: peakGainPct, current: currentGainPct, stopFloor: -slPct });
+  const params = input.rActivation ? trailBrainEffectiveParams(input.params, input.rActivation) : input.params;
+  const d = trailBrainDecide(params, {
+    peak: peakGainPct, current: currentGainPct, stopFloor: -slPct,
+    floorCap: input.rActivation?.target,
+  });
   if (!d.binding) return null;
   const short = input.direction === 'short';
   const stopPrice = short ? entryPrice * (1 - d.floor / 100) : entryPrice * (1 + d.floor / 100);
   return { stopPrice, floorPct: d.floor, exitNow: d.exitNow };
+}
+
+// ── Kalshi perp R-geometry activation ─────────────────────────────────────
+// THE DEFECT (traced 2026-11-21): Kalshi perp shadow showed ZERO Trail
+// Brain guided closes — not a wiring gap, a units mismatch. Perp exits
+// are fixed TP/SL: stop distance slPct ∈ [0.8%, 4%], target at 2R, so a
+// trade's peak gain caps at +8% — while the shared brain's percent
+// activation defaults to 15% with an 8% HARD FLOOR in the kalshi
+// clamps. On this lane the brain could essentially never arm.
+//
+// THE FIX: for the Kalshi perp lane ONLY, the adapter derives the
+// brain's parameters from the trade's OWN geometry, in R terms — the
+// same parameterisation the R-unit lanes (FX/crypto) already use
+// (their defaults: arm at 1R, trail 0.75R, give back at most 1R),
+// scaled by this trade's stop distance (1R = slPct). Activation is
+// additionally capped at 75% of the trade's planned target, and the
+// trailed floor is capped at the target itself, so the override can
+// never reach past the trade's own plan. The group's learned percent
+// parameters are untouched (the store, evidence and learner keep
+// working in %; a dormant group still returns no consult, so the
+// learner's stand-down still gates this lane) — the override applies
+// per trade, at the adapter call, never as a global config change.
+// Every other lane passes no override and is byte-identical to before.
+//
+// Kill switch: KALSHI_PERP_TRAIL_R=off → the adapters pass no
+// override and the lane is back to percent activation exactly as
+// before. Env tuning (clamped): KALSHI_PERP_TRAIL_ACTIVATION_R
+// (default 1.0, [0.5, 1.5]), KALSHI_PERP_TRAIL_DIST_R (default 0.75,
+// [0.3, 1.25]), KALSHI_PERP_TRAIL_GIVEBACK_R (default 1.0, [0.4, 1.5]).
+export interface TrailBrainRGeometry {
+  /** Arm when the peak reaches this many R (× the trade's stop distance). */
+  activationR: number;
+  /** Trail distance behind the peak, in R. */
+  trailDistR: number;
+  /** Hard give-back cap, in R. */
+  giveBackR: number;
+  /** Step locks in R: at atPeak R, the floor is at least lock R. */
+  lockStepsR: TrailBrainLockStep[];
+}
+
+export interface TrailBrainRActivation extends TrailBrainRGeometry {
+  /** Progress units per 1R for this trade (Kalshi perps: slPct). */
+  oneR: number;
+  /** The trade's planned target in progress units (perp lane: target
+   *  gain %). Activation is capped at 75% of it; the floor at 100%. */
+  target?: number;
+}
+
+export function kalshiPerpTrailROn(): boolean {
+  return process.env.KALSHI_PERP_TRAIL_R !== 'off';
+}
+
+const rEnv = (v: string | undefined, dflt: number, lo: number, hi: number): number => {
+  const n = Number(v);
+  return Number.isFinite(n) && v != null && v !== '' ? Math.min(hi, Math.max(lo, n)) : dflt;
+};
+
+export function kalshiPerpTrailRGeometry(): TrailBrainRGeometry {
+  return {
+    activationR: rEnv(process.env.KALSHI_PERP_TRAIL_ACTIVATION_R, 1.0, 0.5, 1.5),
+    trailDistR: rEnv(process.env.KALSHI_PERP_TRAIL_DIST_R, 0.75, 0.3, 1.25),
+    giveBackR: rEnv(process.env.KALSHI_PERP_TRAIL_GIVEBACK_R, 1.0, 0.4, 1.5),
+    lockStepsR: [{ atPeak: 1.5, lock: 1.0 }],
+  };
+}
+
+/**
+ * The per-trade override for one Kalshi perp trade, from its own
+ * entry / target / stop geometry. Returns null (→ percent behaviour,
+ * fail-open) when the kill switch is off or the geometry is unusable.
+ * Pure.
+ */
+export function kalshiPerpTrailActivation(input: {
+  entryPrice: number; takeProfit: number; slPct: number;
+}): TrailBrainRActivation | null {
+  if (!kalshiPerpTrailROn()) return null;
+  const { entryPrice, takeProfit, slPct } = input;
+  if (!(entryPrice > 0) || !(slPct > 0) || !(takeProfit > 0)) return null;
+  const target = (Math.abs(takeProfit - entryPrice) / entryPrice) * 100;
+  if (!(target > 0) || !Number.isFinite(target)) return null;
+  return { ...kalshiPerpTrailRGeometry(), oneR: slPct, target };
+}
+
+/**
+ * Effective parameters for one trade under an R activation override:
+ * every R value is scaled by the trade's own stop distance. Activation
+ * is capped at 75% of the trade's planned target; lock steps that
+ * would sit at/past the target are dropped and every lock stays below
+ * its step. No override (or an unusable one) returns `params`
+ * unchanged — the other lanes' path, byte-identical. Pure.
+ */
+export function trailBrainEffectiveParams(params: TrailBrainParams, override?: TrailBrainRActivation): TrailBrainParams {
+  if (!override || !(override.oneR > 0) || !Number.isFinite(override.oneR)) return params;
+  const oneR = override.oneR;
+  const target = override.target != null && Number.isFinite(override.target) && override.target > 0 ? override.target : null;
+  let activation = override.activationR * oneR;
+  if (target != null) activation = Math.min(activation, 0.75 * target);
+  const lockSteps = (Array.isArray(override.lockStepsR) ? override.lockStepsR : [])
+    .filter(s => s && Number.isFinite(s.atPeak) && Number.isFinite(s.lock))
+    .map(s => ({ atPeak: s.atPeak * oneR, lock: s.lock * oneR }))
+    .filter(s => (target == null || s.atPeak < target) && s.lock > 0)
+    .map(s => ({ atPeak: s.atPeak, lock: Math.min(s.lock, s.atPeak - oneR * 0.05) }))
+    .sort((a, b) => a.atPeak - b.atPeak)
+    .slice(0, 4);
+  return {
+    activation,
+    trailDist: override.trailDistR * oneR,
+    giveBackCap: override.giveBackR * oneR,
+    lockSteps,
+  };
+}
+
+/** Plain-words line for the panel when the perp lane runs R geometry. */
+export function kalshiPerpTrailRSummary(): string {
+  const g = kalshiPerpTrailRGeometry();
+  return `R geometry (per-trade): arms at +${g.activationR}R of each trade's own stop, trails ${g.trailDistR}R behind the peak, gives back at most ${g.giveBackR}R`;
 }
 
 // ── The learning adjustment (pure; applied by trail-brain-learning.ts) ────
@@ -525,6 +654,14 @@ export async function getTrailBrainReport(userId: number) {
   }));
   const groups = Object.values(store.groups)
     .sort((a, b) => a.engine.localeCompare(b.engine) || a.key.localeCompare(b.key))
-    .map(g => ({ ...g, paramsSummary: trailBrainParamsSummary(g.engine, g.params) }));
+    .map(g => ({
+      ...g,
+      // Kalshi perp groups govern through per-trade R geometry while
+      // KALSHI_PERP_TRAIL_R is on — say so, rather than quoting the
+      // stored percent parameters the lane no longer arms on.
+      paramsSummary: g.engine === 'kalshi' && kalshiPerpTrailROn()
+        ? kalshiPerpTrailRSummary()
+        : trailBrainParamsSummary(g.engine, g.params),
+    }));
   return { engines, groups, decisions: log };
 }

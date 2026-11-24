@@ -110,7 +110,7 @@
 import { pool } from '../db';
 import { loopTick } from '../crash-heartbeat';
 import { ensureKalshiPerpShadowTables } from './ensure-kalshi-perp-shadow-tables';
-import { trailBrainConsult, trailBrainStopPrice, stampTrailBrainTrade } from './trail-brain';
+import { trailBrainConsult, trailBrainStopPrice, stampTrailBrainTrade, kalshiPerpTrailActivation, ensureTrailBrainColumns, kalshiPerpTrailROn, kalshiPerpTrailRGeometry } from './trail-brain';
 import { improvementThrottleBlocks, logImprovementBlock } from './improvement-loop';
 import {
   getLiquidStockPerps, getPerpCandles, getPerpTouch, getPerpFundingHistory, getPerpFundingEstimate,
@@ -565,6 +565,28 @@ export interface KalshiStockShadowReport {
   // wait for an AI plan trigger on top of the mechanical signal — the
   // counters below are the layer's evidence.
   aiWatchPlans: KalshiPerpWatchPlansPanelReport;
+  // Trail Brain on this lane (trail-brain.ts): activation mode in force
+  // and the guided-close evidence for the window.
+  trailBrain: KalshiPerpTrailBrainReport;
+}
+
+export interface KalshiPerpTrailBrainReport {
+  /** 'R' = activation derived from each trade's own R geometry
+   *  (KALSHI_PERP_TRAIL_R on); 'pct' = legacy percent activation. */
+  mode: 'R' | 'pct';
+  /** The R arm point in force when mode is 'R' (e.g. 1.0 = arm at +1R
+   *  of the trade's own stop); null in 'pct' mode. */
+  activationR: number | null;
+  /** Valid closes in the window that exited on the brain's trailed
+   *  stop (exit_reason 'trail'). Zero was structural before R mode:
+   *  percent activation (15%, 8% floor) sat above this lane's +8%
+   *  peak cap, so the brain could never arm. */
+  guidedCloses: number;
+  /** Valid closes in the window stamped brain-governed (the brain's
+   *  floor bound at some point in the trade's life). */
+  governedCloses: number;
+  /** Average NET return % of the guided closes; null when none. */
+  avgNetPctGuided: number | null;
 }
 
 export interface KalshiAccountSimResult {
@@ -650,6 +672,10 @@ const toIso = (v: unknown): string | null => {
 export async function getKalshiStockShadowReport(userId: number, days = 30): Promise<KalshiStockShadowReport> {
   const windowDays = Number.isFinite(days) ? Math.max(1, Math.min(365, Math.floor(days))) : 30;
   await ensureKalshiPerpShadowTables();
+  // The trail-brain section below reads the attribution stamp columns;
+  // the ensure is the same lazy, idempotent, never-rejecting pattern
+  // the stamp path uses, so the report works before any stamp lands.
+  await ensureTrailBrainColumns('kalshi_perp_shadow_trades');
 
   // The abs(return_pct) bound + the notional bound are the read-time half
   // of the stats-validity quarantine: closes written before the write-time
@@ -665,7 +691,7 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
     AND entry_price <= $5::float
     AND closed_at >= now() - ($2::int * interval '1 day')`;
   const simOn = accountSimEnabled();
-  const [summaryRes, byStrategyRes, openRes, recentClosesRes, closesRes, invalidRes, aiJudgeRes] = await Promise.all([
+  const [summaryRes, byStrategyRes, openRes, recentClosesRes, closesRes, invalidRes, aiJudgeRes, trailBrainRes] = await Promise.all([
     pool.query(
       `WITH valid_closes AS (
          SELECT * FROM kalshi_perp_shadow_trades WHERE ${validCloseWhere}
@@ -761,6 +787,18 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
          AND t.notional_usd <= greatest($4::float, t.entry_price * 1.5)
          AND t.entry_price <= $5::float
          AND t.closed_at >= now() - ($2::int * interval '1 day')`,
+      [userId, windowDays, returnBound, notionalCap, entryCeiling]).catch(() => ({ rows: [] as any[] })),
+    // Trail Brain evidence for the window: closes that exited on the
+    // brain's trailed stop, and closes stamped brain-governed. Same
+    // validity bounds as every other statistic here. Fail-soft like
+    // the judge read — a missing stamp column must not sink the panel.
+    pool.query(
+      `SELECT
+         (count(*) FILTER (WHERE exit_reason = 'trail'))::int AS guided_closes,
+         (count(*) FILTER (WHERE trail_brain_version IS NOT NULL))::int AS governed_closes,
+         avg(return_pct) FILTER (WHERE exit_reason = 'trail')::float AS avg_net_pct_guided
+       FROM kalshi_perp_shadow_trades
+       WHERE ${validCloseWhere}`,
       [userId, windowDays, returnBound, notionalCap, entryCeiling]).catch(() => ({ rows: [] as any[] })),
   ]);
 
@@ -875,12 +913,22 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
 
   const aiWatchPlans: KalshiPerpWatchPlansPanelReport = kalshiPerpWatchPlansSummary(userId);
 
+  const tbRow = (trailBrainRes as any)?.rows?.[0] || {};
+  const trailBrain: KalshiPerpTrailBrainReport = {
+    mode: kalshiPerpTrailROn() ? 'R' : 'pct',
+    activationR: kalshiPerpTrailROn() ? kalshiPerpTrailRGeometry().activationR : null,
+    guidedCloses: Number(tbRow.guided_closes) || 0,
+    governedCloses: Number(tbRow.governed_closes) || 0,
+    avgNetPctGuided: tbRow.avg_net_pct_guided == null ? null : Number(tbRow.avg_net_pct_guided),
+  };
+
   return {
     days: windowDays,
     ...(accountSim ? { accountSim } : {}),
     perpBrain,
     aiJudge,
     aiWatchPlans,
+    trailBrain,
     summary: {
       openCount: Number(s.open_count) || 0,
       closedCount: Number(s.closed_count) || 0,
@@ -1146,7 +1194,12 @@ export async function resolveKalshiStockShadowTrades(userId: number): Promise<nu
     // underlying, % units) may raise a trailed stop behind the peak.
     // The trailed stop is clamped at the trade's own stop inside
     // trailBrainDecide (−sl_pct), so it can only tighten; the hard
-    // stop/target checks keep their order and priority.
+    // stop/target checks keep their order and priority. Activation
+    // runs on the trade's OWN R geometry (kalshiPerpTrailActivation):
+    // the percent defaults (arm at 15%, 8% hard floor) could never arm
+    // on a lane whose peak caps at +8% (2R target on a ≤4% stop) —
+    // R mode arms at +1R of this trade's stop instead.
+    // KALSHI_PERP_TRAIL_R=off restores percent activation.
     const tb = await trailBrainConsult(userId, 'kalshi', String(t.strategy || 'all'), String(t.underlying || 'all'));
     if (candles.length) {
       // Walk the candles since entry for the first stop/target touch, priced
@@ -1162,7 +1215,7 @@ export async function resolveKalshiStockShadowTrades(userId: number): Promise<nu
           exit = short ? Math.max(t.stop_loss, cd.ask.o) : Math.min(t.stop_loss, cd.bid.o); why = 'stop'; break;
         }
         if (tb) {
-          const ts = trailBrainStopPrice({ direction: String(t.direction), entryPrice: Number(t.entry_price), peakGainPct: Number(t.peak_gain_pct) || 0, currentGainPct: gain, slPct: Number(t.sl_pct), params: tb.params });
+          const ts = trailBrainStopPrice({ direction: String(t.direction), entryPrice: Number(t.entry_price), peakGainPct: Number(t.peak_gain_pct) || 0, currentGainPct: gain, slPct: Number(t.sl_pct), params: tb.params, rActivation: kalshiPerpTrailActivation({ entryPrice: Number(t.entry_price), takeProfit: Number(t.take_profit), slPct: Number(t.sl_pct) }) ?? undefined });
           if (ts) {
             void stampTrailBrainTrade('kalshi_perp_shadow_trades', t.id, tb);
             if (short ? cd.ask.h >= ts.stopPrice : cd.bid.l <= ts.stopPrice) {

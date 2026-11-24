@@ -63,7 +63,7 @@
 import { pool } from '../db';
 import { loopTick } from '../crash-heartbeat';
 import { ensureKalshiPerpLiveTables } from './ensure-kalshi-perp-live-tables';
-import { trailBrainConsult, trailBrainStopPrice, stampTrailBrainTrade } from './trail-brain';
+import { trailBrainConsult, trailBrainStopPrice, stampTrailBrainTrade, kalshiPerpTrailActivation } from './trail-brain';
 import { ensureKalshiPerpShadowTables } from './ensure-kalshi-perp-shadow-tables';
 import { getRuntimeStateStrict, saveRuntimeState } from './runtime-state';
 import {
@@ -648,6 +648,11 @@ async function monitorLiveExits(userId: number, actions: Array<{ ticker: string;
           // trailBrainDecide, so it can only tighten; entry gates are
           // untouched (exits were never gated). Without a consult the
           // original scanExitTrigger runs byte-for-byte as before.
+          // Activation runs on the trade's OWN R geometry
+          // (kalshiPerpTrailActivation — arm at +1R of this trade's
+          // stop), same as the shadow resolver: the percent defaults
+          // could never arm on this lane's +8%-capped peaks.
+          // KALSHI_PERP_TRAIL_R=off restores percent activation.
           const tb = await trailBrainConsult(userId, 'kalshi', String(t.strategy || 'all'), String(t.underlying || 'all'));
           if (tb) {
             const short = t.direction === 'short';
@@ -657,7 +662,7 @@ async function monitorLiveExits(userId: number, actions: Array<{ ticker: string;
             for (const cd of fresh) {
               const gain = short ? ((Number(t.entry_price) - cd.ask.l) / Number(t.entry_price)) * 100 : ((cd.bid.h - Number(t.entry_price)) / Number(t.entry_price)) * 100;
               if (gain > peak) peak = gain;
-              const ts = trailBrainStopPrice({ direction: String(t.direction), entryPrice: Number(t.entry_price), peakGainPct: peak, currentGainPct: gain, slPct: Number(t.sl_pct), params: tb.params });
+              const ts = trailBrainStopPrice({ direction: String(t.direction), entryPrice: Number(t.entry_price), peakGainPct: peak, currentGainPct: gain, slPct: Number(t.sl_pct), params: tb.params, rActivation: kalshiPerpTrailActivation({ entryPrice: Number(t.entry_price), takeProfit: Number(t.take_profit), slPct: Number(t.sl_pct) }) ?? undefined });
               if (ts) {
                 effStop = short ? Math.min(effStop, ts.stopPrice) : Math.max(effStop, ts.stopPrice);
                 trailBound = true;
