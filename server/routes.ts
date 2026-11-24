@@ -10901,6 +10901,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           // vision setups; the breakout rubber stamp). AI_GRAY_ZONE=off
           // restores ask-always behavior.
           const _grayZone = await import('./services/ai-gray-zone');
+          // AI verdict fidelity (services/ai-verdict-fidelity.ts): the
+          // model's own `confirmed` + `direction` bind the vision gate, not
+          // just its confidence number. AI_VERDICT_FIDELITY=off restores
+          // the pre-fix confidence-only semantics.
+          const _verdictFidelity = await import('./services/ai-verdict-fidelity');
           const _logBudgetBlock = () => {
             if (!_costDiscipline.shouldLogBudgetBlock(token.userId)) return;
             void import('./services/guard-events').then(({ logGuard }) => logGuard(
@@ -11381,13 +11386,48 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             
             // ── Quant Rules Agent — dual-vote consensus (mirrors SOL engine) ────────
             const quantResult = runForexQuantAgent(preConfirmSignal, analysis.indicators, smcContext);
-            const aiVerdict: 'CONFIRM' | 'SKIP' = (() => {
-              if (useBreakoutMode) return aiConfirmation.confirmed ? 'CONFIRM' : 'SKIP';
-              // Use the user's real AI-confidence setting with a 72% floor (was a
-              // hard-coded 65% stub that ignored the setting — too close to coin-flip).
-              const _aiBar = Math.max(55, _getAiMinConf(token.userId) ?? 72);
-              return aiConfirmation.aiConfidence >= _aiBar ? 'CONFIRM' : 'SKIP';
-            })();
+            // ── Verdict fidelity (2026-11-24) ─────────────────────────────
+            // Snapshot the model's RAW verdict before anything below mutates
+            // aiConfirmation: the gate flips `confirmed` on BOTH outcomes and
+            // the advisory override rewrites the record. The confirmation log
+            // stores this snapshot so the feed shows what the model actually
+            // said next to whatever label the gate chose.
+            const _modelVerdict = {
+              confirmed: (aiConfirmation as any).confirmed === true,
+              direction: aiConfirmation.aiDirection,
+              confidence: aiConfirmation.aiConfidence,
+              confidenceDefaulted: (aiConfirmation as any).confidenceDefaulted === true,
+            };
+            // Vision verdicts — the main vision path AND the breakout→vision
+            // fallback (a vision verdict sitting inside breakout mode) — are
+            // evaluated under the fidelity rules: the model's confirmed +
+            // direction + confidence all bind. Pure breakout verdicts keep
+            // their confirmed-only semantics (their direction is the
+            // engine's own, never the model's). With AI_VERDICT_FIDELITY=off
+            // the evaluator returns the pre-fix confidence-only outcomes.
+            const _isVisionVerdict = !useBreakoutMode || _cdiag.stage === 'breakout_vision_fallback';
+            const _verdictEval = _isVisionVerdict
+              ? _verdictFidelity.evaluateVisionVerdict({
+                  confirmed: (aiConfirmation as any).confirmed,
+                  aiDirection: aiConfirmation.aiDirection,
+                  aiConfidence: aiConfirmation.aiConfidence,
+                  proposedSignal: preConfirmSignal,
+                  // Use the user's real AI-confidence setting with a 72% floor
+                  // (was a hard-coded 65% stub that ignored the setting — too
+                  // close to coin-flip) for the consensus bar; the pass floor
+                  // is the same setting via getAiMinConfidence below.
+                  passFloor: _getAiMinConf(token.userId),
+                  verdictBar: Math.max(55, _getAiMinConf(token.userId) ?? 72),
+                  fidelityOn: _verdictFidelity.verdictFidelityEnabled(),
+                })
+              : null;
+            if (_verdictEval && _verdictFidelity.verdictFidelityEnabled()
+                && (_verdictEval.directionVeto || _verdictEval.confirmedVeto)) {
+              console.log(`[AI Gate] ${sanitizedSymbol} verdict-fidelity veto — model direction=${aiConfirmation.aiDirection} vs proposed ${preConfirmSignal} (directionVeto=${_verdictEval.directionVeto}), model confirmed=${(aiConfirmation as any).confirmed} (confirmedVeto=${_verdictEval.confirmedVeto}), confidence=${aiConfirmation.aiConfidence}%: the model's own verdict cannot pass, whatever its confidence says`);
+            }
+            const aiVerdict: 'CONFIRM' | 'SKIP' = _verdictEval
+              ? _verdictEval.aiVerdict
+              : (aiConfirmation.confirmed ? 'CONFIRM' : 'SKIP');
             type SSConsensusLabel = 'STRONG_CONFIRM' | 'STRONG_SKIP' | 'CAUTION' | 'WATCH';
             const consensusLabel: SSConsensusLabel =
               quantResult.verdict === 'CONFIRM' && aiVerdict === 'CONFIRM' ? 'STRONG_CONFIRM' :
@@ -11422,9 +11462,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const AI_MIN_CONFIDENCE = getAiMinConfidence(token.userId);
             const EA_MIN_CONFIDENCE_FOR_AI_GATE = 80;
             const breakoutGrade = aiConfirmation.breakoutGrade as string | undefined;
-            const aiPasses = useBreakoutMode
-              ? aiConfirmation.confirmed
-              : aiConfirmation.aiConfidence >= AI_MIN_CONFIDENCE;
+            // Vision verdicts pass through the fidelity evaluator (confirmed
+            // + direction + confidence); breakout verdicts keep the
+            // confirmed-only test they have always had.
+            const aiPasses = _verdictEval
+              ? _verdictEval.aiPasses
+              : aiConfirmation.confirmed;
             const eaPasses = preConfirmConfidence >= EA_MIN_CONFIDENCE_FOR_AI_GATE;
             // ── AI-override quality floor ──────────────────────────────────────
             // An AI override (AI confirms but EA is below the 80% gate) on a WEAK
@@ -11502,6 +11545,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             if (_smcSaysNo) {
               console.log(`[AI Gate] ${sanitizedSymbol} BLOCKED — SMC is ON and the model returned smcVerdict=PASS (against structure / into liquidity) while also setting confirmed=${aiConfirmation.confirmed}, confidence=${aiConfirmation.aiConfidence}. The verdict wins.`);
             }
+            // Raw-verdict + watch-plan linkage fields stamped on BOTH
+            // confirmation-log writes below (allowed and blocked), so the
+            // feed record always carries what the model itself said and —
+            // for a post that fell through from a triggered watch plan —
+            // which plan it belonged to (the diag row had the linkage; the
+            // feed row never did, which made triggered-plan verdicts
+            // indistinguishable from ordinary ones).
+            const _wpDiag = (_cdiag as any).watchPlan;
+            const _rawVerdictLog = {
+              modelConfirmed: _modelVerdict.confirmed,
+              confidenceDefaulted: _modelVerdict.confidenceDefaulted,
+              ...(_wpDiag ? { watchPlanId: String(_wpDiag.id), watchPlanTriggered: !!_wpDiag.triggered } : {}),
+            };
             const tradeAllowed = !_smcSaysNo
               && ((consensusLabel !== 'STRONG_SKIP' && aiPasses && !overrideTooWeak) || _advisoryOverride);
             if (_advisoryOverride) {
@@ -11509,8 +11565,22 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               // (not conflicting). Confirm + temper the sizing confidence since it
               // lacks full ICT confluence → reduced-size advisory entry.
               aiConfirmation.confirmed = true;
-              aiConfirmation.aiConfidence = Math.max(60, Math.min(preConfirmConfidence, 75));
               (aiConfirmation as any).advisoryOverride = true;
+              if (_verdictFidelity.verdictFidelityEnabled()) {
+                // Verdict fidelity: do NOT rewrite the model's confidence.
+                // The capped number survives ONLY as the effective value the
+                // EA-facing response reports (the EA tempers sizing from
+                // it); every record — confirmation log, outcome row, paper
+                // journal — keeps the model's own number, and the log row is
+                // labelled ADVISORY_OVERRIDE so the rescue is never mistaken
+                // for a clean approval. (Pre-fix this rewrite is exactly how
+                // the feed came to display a constant 75 the model never
+                // gave — see the 2026-09-23 note above.)
+                (aiConfirmation as any).modelAiConfidence = _modelVerdict.confidence;
+                (aiConfirmation as any).advisoryEffectiveConfidence = Math.max(60, Math.min(preConfirmConfidence, 75));
+              } else {
+                aiConfirmation.aiConfidence = Math.max(60, Math.min(preConfirmConfidence, 75));
+              }
               console.log(`[SS Consensus] ${sanitizedSymbol} — ⚖️ ADVISORY OVERRIDE: strong signal ${preConfirmConfidence}% + no structural conflict → trading despite low ICT confluence (was STRONG_SKIP)`);
               analysis.alerts.push(`⚖️ ADVISORY ENTRY: strong ${preConfirmConfidence}% signal, no structural conflict — traded at reduced size despite low ICT confluence.`);
             }
@@ -11546,6 +11616,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 smcReason: aiConfirmation.smcReason,
                 modelUsed: (aiConfirmation as any).modelUsed || modelInfo?.name || selectedModelId,
                 providerUsed: (aiConfirmation as any).providerUsed || modelInfo?.provider || undefined,
+                ..._rawVerdictLog,
                 ...logExtraContext,
               });
 
@@ -11607,7 +11678,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               }
             } else {
               const isAiOverride = aiPasses && !eaPasses;
-              const approvalLabel = consensusLabel === 'STRONG_CONFIRM' ? 'STRONG CONFIRM' : isAiOverride ? 'AI OVERRIDE' : 'APPROVED';
+              // An advisory-override rescue is labelled as what it is, never
+              // as a clean approval (verdict fidelity; =off restores the old
+              // labels along with the old confidence rewrite).
+              const _advisoryLabel = _verdictFidelity.verdictFidelityEnabled() && _advisoryOverride;
+              const approvalLabel = _advisoryLabel ? 'ADVISORY OVERRIDE' : consensusLabel === 'STRONG_CONFIRM' ? 'STRONG CONFIRM' : isAiOverride ? 'AI OVERRIDE' : 'APPROVED';
               console.log(`[AI Vision Confirmation] ${approvalLabel} [${consensusLabel}] trade on ${sanitizedSymbol} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}% | Quant: ${quantResult.score})${isAiOverride ? ' - AI overriding low EA' : ''}: ${aiConfirmation.reasoning}`);
               analysis.alerts.push(`TRADE ${approvalLabel} [${consensusLabel}] (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}% | Quant: ${quantResult.score}/100)${isAiOverride ? ' [AI overrode low EA]' : ''} - ${aiConfirmation.reasoning}`);
               aiConfirmation.confirmed = true;
@@ -11766,7 +11841,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 symbol: sanitizedSymbol, timeframe: sanitizedTimeframe,
                 proposedSignal: preConfirmSignal, proposedConfidence: preConfirmConfidence,
                 proposedEntry: preConfirmEntry, proposedSL: preConfirmSL, proposedTP: preConfirmTP,
-                aiDecision: isAiOverride ? 'AI_OVERRIDE' : (hasAdjustments ? 'ADJUSTED' : 'APPROVED'),
+                aiDecision: _advisoryLabel ? 'ADVISORY_OVERRIDE' : isAiOverride ? 'AI_OVERRIDE' : (hasAdjustments ? 'ADJUSTED' : 'APPROVED'),
                 aiDirection: aiConfirmation.aiDirection,
                 aiConfidence: aiConfirmation.aiConfidence, reasoning: aiConfirmation.reasoning,
                 adjustedEntry: aiConfirmation.adjustedEntry, adjustedSL: aiConfirmation.adjustedStopLoss,
@@ -11781,6 +11856,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 smcReason: aiConfirmation.smcReason,
                 modelUsed: (aiConfirmation as any).modelUsed || modelInfo?.name || selectedModelId,
                 providerUsed: (aiConfirmation as any).providerUsed || modelInfo?.provider || undefined,
+                ..._rawVerdictLog,
                 ...logExtraContext,
               });
 
@@ -11815,7 +11891,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   timeframe: sanitizedTimeframe,
                   direction: analysis.signal,
                   session: confirmSession,
-                  aiDecision: isAiOverride ? 'AI_OVERRIDE' : (hasAdjustments ? 'ADJUSTED' : 'APPROVED'),
+                  aiDecision: _advisoryLabel ? 'ADVISORY_OVERRIDE' : isAiOverride ? 'AI_OVERRIDE' : (hasAdjustments ? 'ADJUSTED' : 'APPROVED'),
                   aiConfidence: _n(aiConfirmation.aiConfidence),
                   proposedConfidence: _n(preConfirmConfidence),
                   confluenceScore: _n(aiConfirmation.confluenceScore),
@@ -13567,7 +13643,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         // AI Second Opinion results (flat for MT5 parsing - separate from EA confidence)
         mt5AiEnabled: !!aiConfirmation,
         mt5AiDecision: aiConfirmation ? (aiConfirmation.confirmed ? 'APPROVED' : 'BLOCKED') : 'OFF',
-        mt5AiConfidence: aiConfirmation?.aiConfidence || 0,
+        // Verdict fidelity: the EA tempers sizing from this number, so on an
+        // advisory-override entry it still receives the capped EFFECTIVE
+        // confidence — the one place the cap survives. The model's own
+        // number is what every record (log/outcome/journal) stores. With
+        // AI_VERDICT_FIDELITY=off no effective field is set and this is
+        // exactly the pre-fix (rewritten) value.
+        mt5AiConfidence: (aiConfirmation as any)?.advisoryEffectiveConfidence ?? aiConfirmation?.aiConfidence ?? 0,
         mt5AiDirection: aiConfirmation?.aiDirection || 'NEUTRAL',
         mt5AiReasoning: aiConfirmation?.reasoning || '',
         mt5EaConfidence: preConfirmConfidence || analysis.confidence,
@@ -13586,7 +13668,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         aiConfirmation: aiConfirmation ? {
           confirmed: aiConfirmation.confirmed,
           aiDirection: aiConfirmation.aiDirection,
-          aiConfidence: aiConfirmation.aiConfidence,
+          aiConfidence: (aiConfirmation as any).advisoryEffectiveConfidence ?? aiConfirmation.aiConfidence,
           reasoning: aiConfirmation.reasoning,
         } : null,
         // VEDD SS AI plan status

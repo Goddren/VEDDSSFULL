@@ -35885,6 +35885,7 @@ __export(openai_exports, {
   cheapFirstPassEnabled: () => cheapFirstPassEnabled,
   cheapFirstPassModel: () => cheapFirstPassModel,
   coerceConfidence: () => coerceConfidence,
+  coerceConfidenceDetailed: () => coerceConfidenceDetailed,
   computeConfluenceScore: () => computeConfluenceScore,
   detectMarketRegime: () => detectMarketRegime,
   enrichLeadWithAI: () => enrichLeadWithAI,
@@ -36294,6 +36295,12 @@ function extractFirstJsonObject(text3) {
     }
   }
   return null;
+}
+function coerceConfidenceDetailed(raw) {
+  let c = typeof raw === "string" ? parseFloat(raw) : raw;
+  if (typeof c !== "number" || !Number.isFinite(c)) return { value: 50, defaulted: true };
+  if (c > 0 && c < 1) c *= 100;
+  return { value: Math.max(0, Math.min(100, Math.round(c))), defaulted: false };
 }
 function coerceConfidence(raw) {
   let c = typeof raw === "string" ? parseFloat(raw) : raw;
@@ -37651,10 +37658,12 @@ ${prompt.system}`, user: judgeUser },
     const jsonMatch = extractFirstJsonObject(result.content);
     const parsed = JSON.parse(jsonMatch ?? result.content);
     const validTrailValues = ["NONE", "TIGHT", "STANDARD", "WIDE", "AGGRESSIVE"];
+    const _judgeConf = coerceConfidenceDetailed(parsed.confidence);
     return {
       confirmed: !!parsed.confirmed,
       aiDirection: parsed.direction || "NEUTRAL",
-      aiConfidence: coerceConfidence(parsed.confidence),
+      aiConfidence: _judgeConf.value,
+      confidenceDefaulted: _judgeConf.defaulted,
       reasoning: parsed.reasoning || "No reasoning provided",
       adjustedEntry: typeof parsed.adjustedEntry === "number" ? parsed.adjustedEntry : void 0,
       adjustedStopLoss: typeof parsed.adjustedStopLoss === "number" ? parsed.adjustedStopLoss : void 0,
@@ -37890,14 +37899,13 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
     console.log(`[AI Vision Confirmation] ${symbol}: ${result.confirmed ? "CONFIRMED" : "REJECTED"} (AI says ${result.direction} at ${result.confidence}%) [${provider}/${answeringModel}]`);
     const validTrailValues = ["NONE", "TIGHT", "STANDARD", "WIDE", "AGGRESSIVE"];
     const trailRec = validTrailValues.includes(result.trailRecommendation) ? result.trailRecommendation : void 0;
+    const _visionConf = coerceConfidenceDetailed(result.confidence);
+    noteConfidenceSample(_visionConf.value);
     return {
       confirmed: !!result.confirmed,
       aiDirection: result.direction || "NEUTRAL",
-      aiConfidence: (() => {
-        const c = coerceConfidence(result.confidence);
-        noteConfidenceSample(c);
-        return c;
-      })(),
+      aiConfidence: _visionConf.value,
+      confidenceDefaulted: _visionConf.defaulted,
       reasoning: result.reasoning || "No reasoning provided",
       adjustedEntry: typeof result.adjustedEntry === "number" ? result.adjustedEntry : void 0,
       adjustedStopLoss: typeof result.adjustedStopLoss === "number" ? result.adjustedStopLoss : void 0,
@@ -63564,6 +63572,42 @@ function chartDataAiSettingsKeyOff() {
 }
 var init_chart_data_ai_availability = __esm({
   "server/services/chart-data-ai-availability.ts"() {
+    "use strict";
+  }
+});
+
+// server/services/ai-verdict-fidelity.ts
+var ai_verdict_fidelity_exports = {};
+__export(ai_verdict_fidelity_exports, {
+  evaluateVisionVerdict: () => evaluateVisionVerdict,
+  verdictFidelityEnabled: () => verdictFidelityEnabled
+});
+function verdictFidelityEnabled() {
+  return process.env.AI_VERDICT_FIDELITY !== "off";
+}
+function evaluateVisionVerdict(input) {
+  const direction = String(input.aiDirection || "NEUTRAL").toUpperCase();
+  const proposed = String(input.proposedSignal || "").toUpperCase();
+  const directionVeto = direction !== proposed;
+  const confirmedVeto = input.confirmed !== true;
+  if (!input.fidelityOn) {
+    return {
+      aiPasses: input.aiConfidence >= input.passFloor,
+      aiVerdict: input.aiConfidence >= input.verdictBar ? "CONFIRM" : "SKIP",
+      directionVeto,
+      confirmedVeto
+    };
+  }
+  const verdictOk = !directionVeto && !confirmedVeto;
+  return {
+    aiPasses: verdictOk && input.aiConfidence >= input.passFloor,
+    aiVerdict: verdictOk && input.aiConfidence >= input.verdictBar ? "CONFIRM" : "SKIP",
+    directionVeto,
+    confirmedVeto
+  };
+}
+var init_ai_verdict_fidelity = __esm({
+  "server/services/ai-verdict-fidelity.ts"() {
     "use strict";
   }
 });
@@ -90694,9 +90738,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "c34a3c76-dirty";
+var BUILD_COMMIT = "4823a099-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-24T11:05:57.618Z";
+var BUILT_AT = "2026-11-24T11:07:02.531Z";
 
 // server/stripe.ts
 init_db();
@@ -102944,6 +102988,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const { isAiVisionConfirmationEnabled: isAiVisionConfirmationEnabled2, getAiVisionConfirmation: getAiVisionConfirmation2, getBreakoutConfirmation: getBreakoutConfirmation2, addAiConfirmationLog: addAiConfirmationLog2, getUserModelPreference: getUserModelPreference2, AVAILABLE_VISION_MODELS: AVAILABLE_VISION_MODELS2, isICTStrategyEnabled: isICTStrategyEnabled2, isSMCStrategyEnabled: isSMCStrategyEnabled2, isPropFirmModeEnabled: isPropFirmModeEnabled2, getPropFirmContext: getPropFirmContext2, isBreakoutModeEnabled: isBreakoutModeEnabled2, isTrailingStopEnabled: isTrailingStopEnabled2, setTrailingStopEnabled: setTrailingStopEnabled2, hydrateBreakoutModeMap: hydrateBreakoutModeMap2, hydrateAiVisionMap: hydrateAiVisionMap2, getAiMinConfidence: _getAiMinConf } = await Promise.resolve().then(() => (init_openai(), openai_exports));
           const _costDiscipline = await Promise.resolve().then(() => (init_ai_engine_budget(), ai_engine_budget_exports));
           const _grayZone = await Promise.resolve().then(() => (init_ai_gray_zone(), ai_gray_zone_exports));
+          const _verdictFidelity = await Promise.resolve().then(() => (init_ai_verdict_fidelity(), ai_verdict_fidelity_exports));
           const _logBudgetBlock = () => {
             if (!_costDiscipline.shouldLogBudgetBlock(token.userId)) return;
             void Promise.resolve().then(() => (init_guard_events(), guard_events_exports)).then(({ logGuard: logGuard2 }) => logGuard2(
@@ -103387,11 +103432,30 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               if (aiConfirmation) aiConfirmation.trailRecommendation = "NONE";
             }
             const quantResult = runForexQuantAgent(preConfirmSignal, analysis.indicators, smcContext);
-            const aiVerdict = (() => {
-              if (useBreakoutMode) return aiConfirmation.confirmed ? "CONFIRM" : "SKIP";
-              const _aiBar = Math.max(55, _getAiMinConf(token.userId) ?? 72);
-              return aiConfirmation.aiConfidence >= _aiBar ? "CONFIRM" : "SKIP";
-            })();
+            const _modelVerdict = {
+              confirmed: aiConfirmation.confirmed === true,
+              direction: aiConfirmation.aiDirection,
+              confidence: aiConfirmation.aiConfidence,
+              confidenceDefaulted: aiConfirmation.confidenceDefaulted === true
+            };
+            const _isVisionVerdict = !useBreakoutMode || _cdiag.stage === "breakout_vision_fallback";
+            const _verdictEval = _isVisionVerdict ? _verdictFidelity.evaluateVisionVerdict({
+              confirmed: aiConfirmation.confirmed,
+              aiDirection: aiConfirmation.aiDirection,
+              aiConfidence: aiConfirmation.aiConfidence,
+              proposedSignal: preConfirmSignal,
+              // Use the user's real AI-confidence setting with a 72% floor
+              // (was a hard-coded 65% stub that ignored the setting — too
+              // close to coin-flip) for the consensus bar; the pass floor
+              // is the same setting via getAiMinConfidence below.
+              passFloor: _getAiMinConf(token.userId),
+              verdictBar: Math.max(55, _getAiMinConf(token.userId) ?? 72),
+              fidelityOn: _verdictFidelity.verdictFidelityEnabled()
+            }) : null;
+            if (_verdictEval && _verdictFidelity.verdictFidelityEnabled() && (_verdictEval.directionVeto || _verdictEval.confirmedVeto)) {
+              console.log(`[AI Gate] ${sanitizedSymbol} verdict-fidelity veto \u2014 model direction=${aiConfirmation.aiDirection} vs proposed ${preConfirmSignal} (directionVeto=${_verdictEval.directionVeto}), model confirmed=${aiConfirmation.confirmed} (confirmedVeto=${_verdictEval.confirmedVeto}), confidence=${aiConfirmation.aiConfidence}%: the model's own verdict cannot pass, whatever its confidence says`);
+            }
+            const aiVerdict = _verdictEval ? _verdictEval.aiVerdict : aiConfirmation.confirmed ? "CONFIRM" : "SKIP";
             const consensusLabel = quantResult.verdict === "CONFIRM" && aiVerdict === "CONFIRM" ? "STRONG_CONFIRM" : quantResult.verdict === "SKIP" && aiVerdict === "SKIP" ? "STRONG_SKIP" : quantResult.verdict === "CONFIRM" && aiVerdict === "SKIP" || quantResult.verdict === "SKIP" && aiVerdict === "CONFIRM" ? "CAUTION" : "WATCH";
             const ssConsensusEntry = {
               symbol: sanitizedSymbol,
@@ -103415,7 +103479,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const AI_MIN_CONFIDENCE = getAiMinConfidence2(token.userId);
             const EA_MIN_CONFIDENCE_FOR_AI_GATE = 80;
             const breakoutGrade = aiConfirmation.breakoutGrade;
-            const aiPasses = useBreakoutMode ? aiConfirmation.confirmed : aiConfirmation.aiConfidence >= AI_MIN_CONFIDENCE;
+            const aiPasses = _verdictEval ? _verdictEval.aiPasses : aiConfirmation.confirmed;
             const eaPasses = preConfirmConfidence >= EA_MIN_CONFIDENCE_FOR_AI_GATE;
             const _isAiOverride = aiPasses && !eaPasses;
             const _alignedVotes = Number(aiConfirmation.alignedVotes ?? NaN);
@@ -103440,11 +103504,22 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             if (_smcSaysNo) {
               console.log(`[AI Gate] ${sanitizedSymbol} BLOCKED \u2014 SMC is ON and the model returned smcVerdict=PASS (against structure / into liquidity) while also setting confirmed=${aiConfirmation.confirmed}, confidence=${aiConfirmation.aiConfidence}. The verdict wins.`);
             }
+            const _wpDiag = _cdiag.watchPlan;
+            const _rawVerdictLog = {
+              modelConfirmed: _modelVerdict.confirmed,
+              confidenceDefaulted: _modelVerdict.confidenceDefaulted,
+              ..._wpDiag ? { watchPlanId: String(_wpDiag.id), watchPlanTriggered: !!_wpDiag.triggered } : {}
+            };
             const tradeAllowed = !_smcSaysNo && (consensusLabel !== "STRONG_SKIP" && aiPasses && !overrideTooWeak || _advisoryOverride);
             if (_advisoryOverride) {
               aiConfirmation.confirmed = true;
-              aiConfirmation.aiConfidence = Math.max(60, Math.min(preConfirmConfidence, 75));
               aiConfirmation.advisoryOverride = true;
+              if (_verdictFidelity.verdictFidelityEnabled()) {
+                aiConfirmation.modelAiConfidence = _modelVerdict.confidence;
+                aiConfirmation.advisoryEffectiveConfidence = Math.max(60, Math.min(preConfirmConfidence, 75));
+              } else {
+                aiConfirmation.aiConfidence = Math.max(60, Math.min(preConfirmConfidence, 75));
+              }
               console.log(`[SS Consensus] ${sanitizedSymbol} \u2014 \u2696\uFE0F ADVISORY OVERRIDE: strong signal ${preConfirmConfidence}% + no structural conflict \u2192 trading despite low ICT confluence (was STRONG_SKIP)`);
               analysis.alerts.push(`\u2696\uFE0F ADVISORY ENTRY: strong ${preConfirmConfidence}% signal, no structural conflict \u2014 traded at reduced size despite low ICT confluence.`);
             }
@@ -103475,6 +103550,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 smcReason: aiConfirmation.smcReason,
                 modelUsed: aiConfirmation.modelUsed || modelInfo?.name || selectedModelId,
                 providerUsed: aiConfirmation.providerUsed || modelInfo?.provider || void 0,
+                ..._rawVerdictLog,
                 ...logExtraContext
               });
               try {
@@ -103523,7 +103599,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               }
             } else {
               const isAiOverride = aiPasses && !eaPasses;
-              const approvalLabel = consensusLabel === "STRONG_CONFIRM" ? "STRONG CONFIRM" : isAiOverride ? "AI OVERRIDE" : "APPROVED";
+              const _advisoryLabel = _verdictFidelity.verdictFidelityEnabled() && _advisoryOverride;
+              const approvalLabel = _advisoryLabel ? "ADVISORY OVERRIDE" : consensusLabel === "STRONG_CONFIRM" ? "STRONG CONFIRM" : isAiOverride ? "AI OVERRIDE" : "APPROVED";
               console.log(`[AI Vision Confirmation] ${approvalLabel} [${consensusLabel}] trade on ${sanitizedSymbol} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}% | Quant: ${quantResult.score})${isAiOverride ? " - AI overriding low EA" : ""}: ${aiConfirmation.reasoning}`);
               analysis.alerts.push(`TRADE ${approvalLabel} [${consensusLabel}] (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}% | Quant: ${quantResult.score}/100)${isAiOverride ? " [AI overrode low EA]" : ""} - ${aiConfirmation.reasoning}`);
               aiConfirmation.confirmed = true;
@@ -103656,7 +103733,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 proposedEntry: preConfirmEntry,
                 proposedSL: preConfirmSL,
                 proposedTP: preConfirmTP,
-                aiDecision: isAiOverride ? "AI_OVERRIDE" : hasAdjustments ? "ADJUSTED" : "APPROVED",
+                aiDecision: _advisoryLabel ? "ADVISORY_OVERRIDE" : isAiOverride ? "AI_OVERRIDE" : hasAdjustments ? "ADJUSTED" : "APPROVED",
                 aiDirection: aiConfirmation.aiDirection,
                 aiConfidence: aiConfirmation.aiConfidence,
                 reasoning: aiConfirmation.reasoning,
@@ -103673,6 +103750,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 smcReason: aiConfirmation.smcReason,
                 modelUsed: aiConfirmation.modelUsed || modelInfo?.name || selectedModelId,
                 providerUsed: aiConfirmation.providerUsed || modelInfo?.provider || void 0,
+                ..._rawVerdictLog,
                 ...logExtraContext
               });
               try {
@@ -103704,7 +103782,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   timeframe: sanitizedTimeframe,
                   direction: analysis.signal,
                   session: confirmSession,
-                  aiDecision: isAiOverride ? "AI_OVERRIDE" : hasAdjustments ? "ADJUSTED" : "APPROVED",
+                  aiDecision: _advisoryLabel ? "ADVISORY_OVERRIDE" : isAiOverride ? "AI_OVERRIDE" : hasAdjustments ? "ADJUSTED" : "APPROVED",
                   aiConfidence: _n(aiConfirmation.aiConfidence),
                   proposedConfidence: _n(preConfirmConfidence),
                   confluenceScore: _n(aiConfirmation.confluenceScore),
@@ -105005,7 +105083,13 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
         // AI Second Opinion results (flat for MT5 parsing - separate from EA confidence)
         mt5AiEnabled: !!aiConfirmation,
         mt5AiDecision: aiConfirmation ? aiConfirmation.confirmed ? "APPROVED" : "BLOCKED" : "OFF",
-        mt5AiConfidence: aiConfirmation?.aiConfidence || 0,
+        // Verdict fidelity: the EA tempers sizing from this number, so on an
+        // advisory-override entry it still receives the capped EFFECTIVE
+        // confidence — the one place the cap survives. The model's own
+        // number is what every record (log/outcome/journal) stores. With
+        // AI_VERDICT_FIDELITY=off no effective field is set and this is
+        // exactly the pre-fix (rewritten) value.
+        mt5AiConfidence: aiConfirmation?.advisoryEffectiveConfidence ?? aiConfirmation?.aiConfidence ?? 0,
         mt5AiDirection: aiConfirmation?.aiDirection || "NEUTRAL",
         mt5AiReasoning: aiConfirmation?.reasoning || "",
         mt5EaConfidence: preConfirmConfidence || analysis.confidence,
@@ -105024,7 +105108,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
         aiConfirmation: aiConfirmation ? {
           confirmed: aiConfirmation.confirmed,
           aiDirection: aiConfirmation.aiDirection,
-          aiConfidence: aiConfirmation.aiConfidence,
+          aiConfidence: aiConfirmation.advisoryEffectiveConfidence ?? aiConfirmation.aiConfidence,
           reasoning: aiConfirmation.reasoning
         } : null,
         // VEDD SS AI plan status

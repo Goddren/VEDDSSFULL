@@ -553,6 +553,17 @@ export function extractFirstJsonObject(text: string): string | null {
   return null; // never closed -- truncated, let the caller's own fallback handle it
 }
 
+export function coerceConfidenceDetailed(raw: any): { value: number; defaulted: boolean } {
+  let c = typeof raw === 'string' ? parseFloat(raw) : raw;
+  // `defaulted` marks the fallback below: the model supplied no usable
+  // confidence at all, so the 50 is OURS, not the model's. Threaded onto
+  // the confirmation result (confidenceDefaulted) and the confirmation
+  // log so a defaulted number is never mistaken for a model opinion.
+  if (typeof c !== 'number' || !Number.isFinite(c)) return { value: 50, defaulted: true };
+  if (c > 0 && c < 1) c *= 100; // 0-1 fraction → percent
+  return { value: Math.max(0, Math.min(100, Math.round(c))), defaulted: false };
+}
+
 export function coerceConfidence(raw: any): number {
   let c = typeof raw === 'string' ? parseFloat(raw) : raw;
   if (typeof c !== 'number' || !Number.isFinite(c)) return 50;
@@ -845,6 +856,12 @@ export interface AiVisionConfirmation {
    *  needs exact metering (cheap-first-pass tiering: a free first pass is
    *  0, an escalation is 1). Undefined = the caller's existing convention. */
   aiCallsBought?: number;
+  /** True when the model's reply carried no usable confidence and
+   *  coerceConfidence substituted its 50 fallback — the number on this
+   *  result is the parser's, not the model's. Set by the vision + judge
+   *  parse sites; undefined on synthetic verdicts (budget/gray-zone),
+   *  whose confidence is 0 by construction and never defaulted. */
+  confidenceDefaulted?: boolean;
 }
 
 export interface AiConfirmationLogEntry {
@@ -860,10 +877,31 @@ export interface AiConfirmationLogEntry {
   // 'WATCH_PLAN' (2026-11-23): AI watch-plan lifecycle entries (created /
   // triggered / expired / invalidated) written by services/ai-watch-plans.ts
   // so the feed shows what the AI is watching, not just what it decided.
-  aiDecision: 'APPROVED' | 'REJECTED' | 'ADJUSTED' | 'AI_OVERRIDE' | 'ERROR' | 'WATCH_PLAN';
+  // 'ADVISORY_OVERRIDE' (2026-11-24): the trade proceeded ONLY because the
+  // advisory confluence override rescued a STRONG_SKIP — written instead of
+  // APPROVED/ADJUSTED so the feed never presents an override rescue as a
+  // clean model approval (verdict-fidelity fix; AI_VERDICT_FIDELITY=off
+  // restores the old labels).
+  aiDecision: 'APPROVED' | 'REJECTED' | 'ADJUSTED' | 'AI_OVERRIDE' | 'ERROR' | 'WATCH_PLAN' | 'ADVISORY_OVERRIDE';
   aiDirection: string;
   aiConfidence: number;
   reasoning: string;
+  /** The model's RAW parsed `confirmed`, snapshotted before any gate
+   *  mutation (the gate sets confirmed=true on approval and false on
+   *  block, and the advisory override used to rewrite aiConfidence).
+   *  Together with aiDirection/aiConfidence — now always the model's own
+   *  values on gate rows — this makes any label/verdict contradiction
+   *  self-evident in the feed. Absent on ERROR rows (no verdict existed)
+   *  and on WATCH_PLAN lifecycle rows. */
+  modelConfirmed?: boolean;
+  /** True when the model's reply carried no usable confidence and the
+   *  parser's 50 fallback was stored in aiConfidence. */
+  confidenceDefaulted?: boolean;
+  /** Watch-plan linkage when this verdict row belongs to a post that fell
+   *  through from a triggered AI watch plan (PR #108): the plan's id and
+   *  whether the plan had triggered. Absent on ordinary posts. */
+  watchPlanId?: string;
+  watchPlanTriggered?: boolean;
   adjustedEntry?: number;
   adjustedSL?: number;
   adjustedTP?: number;
@@ -2430,10 +2468,12 @@ async function runDeepReasoningDebate(
     const jsonMatch = extractFirstJsonObject(result.content);
     const parsed = JSON.parse(jsonMatch ?? result.content);
     const validTrailValues = ['NONE', 'TIGHT', 'STANDARD', 'WIDE', 'AGGRESSIVE'];
+    const _judgeConf = coerceConfidenceDetailed(parsed.confidence);
     return {
       confirmed: !!parsed.confirmed,
       aiDirection: parsed.direction || 'NEUTRAL',
-      aiConfidence: coerceConfidence(parsed.confidence),
+      aiConfidence: _judgeConf.value,
+      confidenceDefaulted: _judgeConf.defaulted,
       reasoning: parsed.reasoning || 'No reasoning provided',
       adjustedEntry: typeof parsed.adjustedEntry === 'number' ? parsed.adjustedEntry : undefined,
       adjustedStopLoss: typeof parsed.adjustedStopLoss === 'number' ? parsed.adjustedStopLoss : undefined,
@@ -2737,10 +2777,13 @@ export async function getAiVisionConfirmation(
 
     const validTrailValues = ['NONE', 'TIGHT', 'STANDARD', 'WIDE', 'AGGRESSIVE'];
     const trailRec = validTrailValues.includes(result.trailRecommendation) ? result.trailRecommendation : undefined;
+    const _visionConf = coerceConfidenceDetailed(result.confidence);
+    noteConfidenceSample(_visionConf.value);
     return {
       confirmed: !!result.confirmed,
       aiDirection: result.direction || 'NEUTRAL',
-      aiConfidence: (() => { const c = coerceConfidence(result.confidence); noteConfidenceSample(c); return c; })(),
+      aiConfidence: _visionConf.value,
+      confidenceDefaulted: _visionConf.defaulted,
       reasoning: result.reasoning || 'No reasoning provided',
       adjustedEntry: typeof result.adjustedEntry === 'number' ? result.adjustedEntry : undefined,
       adjustedStopLoss: typeof result.adjustedStopLoss === 'number' ? result.adjustedStopLoss : undefined,
