@@ -197,7 +197,7 @@ check('J Strategy Studio EA PipSize recognises SP500/SPX (source pin)',
 
 // ── K. Service worker ────────────────────────────────────────────────────────
 const sw = readFileSync(new URL('../client/public/sw.js', import.meta.url), 'utf8');
-check("K sw bumped for the EA-download change", sw.includes("CACHE_VERSION = 'vedd-v292'"));
+check("K sw bumped for the EA-download change", sw.includes("CACHE_VERSION = 'vedd-v293'"));
 
 console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

@@ -96,7 +96,23 @@ export interface ConfirmationCache {
   stats(): { hits: number; misses: number; throttled: number; total: number; savedPct: number; entries: number; barAware: boolean };
 }
 
-export function createConfirmationCache(): ConfirmationCache {
+/** Per-instance bar-cache overrides (2026-11-24, crypto stewardship).
+ *  Absent (the FX instance, every pre-existing caller), behavior is
+ *  byte-identical to before: the shared AI_BAR_CACHE switch decides and
+ *  the cache timeframe string IS the bar timeframe. An instance may
+ *  supply its own switch (the crypto instance answers to
+ *  CRYPTO_BAR_CACHE, decoupled from the FX switch) and a resolver from
+ *  cache timeframe to bar timeframe (the crypto judge's cache timeframe
+ *  carries its ':shadow-h1' namespace suffix, which is not a duration —
+ *  its bars are H1, so its bar timeframe resolves to '1h'). */
+export interface ConfirmationCacheOptions {
+  barEnabled?: () => boolean;
+  barTimeframe?: (timeframe: string) => string;
+}
+
+export function createConfirmationCache(opts: ConfirmationCacheOptions = {}): ConfirmationCache {
+  const barOn = (): boolean => (opts.barEnabled ? opts.barEnabled() : barCacheEnabled());
+  const barTf = (timeframe: string): string => (opts.barTimeframe ? opts.barTimeframe(timeframe) : timeframe);
   const cache = new Map<string, CachedVerdict>();
   const lastCallAt = new Map<string, number>();
   let hits = 0, misses = 0, throttled = 0;
@@ -135,7 +151,7 @@ export function createConfirmationCache(): ConfirmationCache {
     const hit = cache.get(k);
     // Fresh = within the fixed TTL, or — with the bar cache on — still on
     // the same bar the verdict was bought on (see barDurationMs above).
-    const fresh = !!hit && (barCacheEnabled() && hit.barCloseAt !== undefined
+    const fresh = !!hit && (barOn() && hit.barCloseAt !== undefined
       ? now < hit.barCloseAt
       : now - hit.at < TTL_MS);
     if (hit && fresh) {
@@ -177,7 +193,7 @@ export function createConfirmationCache(): ConfirmationCache {
     userId: number, symbol: string, timeframe: string, direction: string, eaConfidence: number, price: number, verdict: any, discriminator?: string,
   ): void {
     const now = Date.now();
-    const dur = barCacheEnabled() ? barDurationMs(timeframe) : null;
+    const dur = barOn() ? barDurationMs(barTf(timeframe)) : null;
     const barCloseAt = dur ? (Math.floor(now / dur) + 1) * dur : undefined;
     cache.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator), { verdict, at: now, eaConfidence, price, barCloseAt });
     lastCallAt.set(symbolKey(userId, symbol, timeframe), now);
@@ -190,7 +206,7 @@ export function createConfirmationCache(): ConfirmationCache {
   /** Counters so the saving is measurable rather than assumed. */
   function stats() {
     const total = hits + misses + throttled;
-    return { hits, misses, throttled, total, savedPct: total ? Math.round(((hits + throttled) / total) * 100) : 0, entries: cache.size, barAware: barCacheEnabled() };
+    return { hits, misses, throttled, total, savedPct: total ? Math.round(((hits + throttled) / total) * 100) : 0, entries: cache.size, barAware: barOn() };
   }
 
   return { get, put, stats };

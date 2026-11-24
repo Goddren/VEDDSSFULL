@@ -32,12 +32,34 @@ import type { CandleData } from '../indicators';
 // incident (ai-confirmation-cache.ts); this call site never got the same
 // treatment, so the 60 s scanner re-bought the identical confirmation —
 // same symbol, same strategy, same direction, scanner score in the same
-// 5-point band — on every cycle. Same pattern, same semantics: 3-min TTL,
-// 1/min per-symbol floor, stale reuse up to 10 min, keyed on
+// 5-point band — on every cycle. Same pattern, same semantics: 1/min
+// per-symbol floor, stale reuse up to 10 min, keyed on
 // user:symbol:timeframe:direction:strategy:score-band. The verdict object is
 // returned as-is; no decision logic changes. Error results are never cached.
-// The only caller fetches 5-minute bars (cryptocom-scanner fetchBars '5m').
-const cryptoConfirmationCache = createConfirmationCache();
+// The only live caller fetches 5-minute bars (cryptocom-scanner fetchBars
+// '5m'); the shadow judge (cacheScope 'shadow-h1') judges H1 bars.
+//
+// ── Bar-length validity (crypto stewardship, 2026-11-24) ───────────────────
+// The Nov 23 leak audit found this lane still dripping: verdicts were
+// bought per candidate on the scanner's short cycle while their fixed
+// 3-minute TTL expired between scans of the same setup. A verdict now
+// stays valid for the remainder of the bar it was bought on — the 5m
+// bar for live confirmations, the H1 bar for the shadow judge (its
+// cache timeframe carries the ':shadow-h1' namespace suffix, resolved
+// to '1h' for bar purposes only; cache KEYS are unchanged) — so the
+// same user+symbol+timeframe+direction+strategy+score-band question is
+// never re-bought inside its bar; a new bar is new data and re-asks.
+// Past bar close the verdict is only served via the throttled-reuse
+// path, exactly like the FX cache. This instance answers to its OWN
+// switch, decoupled from the FX bar-cache switch: CRYPTO_BAR_CACHE=off
+// restores the fixed 3-minute TTL for crypto only.
+export function cryptoBarCacheEnabled(): boolean {
+  return process.env.CRYPTO_BAR_CACHE !== 'off';
+}
+const cryptoConfirmationCache = createConfirmationCache({
+  barEnabled: cryptoBarCacheEnabled,
+  barTimeframe: (tf) => (tf.includes(':shadow-h1') ? '1h' : tf),
+});
 const CONFIRM_TIMEFRAME = '5m';
 
 /** Counters so the crypto cache saving is measurable, like the FX side's. */
