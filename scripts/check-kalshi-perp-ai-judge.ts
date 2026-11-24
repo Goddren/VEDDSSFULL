@@ -38,7 +38,7 @@
  *   I. Parse + prompt hygiene: strict JSON, prose-wrapped JSON, 0–100
  *      confidence rescale, garbage → null; the prompt stays lean.
  *   J. Live-lane isolation: kalshi-perp-live.ts never references the
- *      judge; sw bumped to vedd-v291 for the panel change.
+ *      judge; sw bumped to vedd-v292 for the panel change.
  */
 import { readFileSync } from 'node:fs';
 import {
@@ -265,7 +265,7 @@ async function main(): Promise<void> {
     const live = src('server/services/kalshi-perp-live.ts');
     check('J1 live perp path never references the judge', !live.includes('ai-judge') && !live.includes('AiJudge') && !live.includes('judgeKalshi'));
     check('J2 report exposes the aiJudge scoreboard', lane.includes('aggregateAiJudgeScoreboard') && lane.includes('aiJudge,'));
-    check('J3 sw bumped to vedd-v291', src('client/public/sw.js').includes("CACHE_VERSION = 'vedd-v291'"));
+    check('J3 sw bumped to vedd-v292', src('client/public/sw.js').includes("CACHE_VERSION = 'vedd-v292'"));
     const panel = src('client/src/components/kalshi-shadow-panel.tsx');
     check('J4 panel renders the AI judge section with honest copy', panel.includes('AI judge') && panel.includes('collecting evidence') && panel.includes('never blocking'));
   }
