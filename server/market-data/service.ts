@@ -9,6 +9,7 @@ import {
 import { marketDataCache } from './cache';
 import { patternChangeDetector } from './pattern-change-detector';
 import { TwelveDataProvider } from './providers/twelve-data';
+import { fetchIndexFromYahoo, logIndexSource } from './yahoo-index';
 
 class MarketDataService {
   private providers: Map<string, MarketDataProvider> = new Map();
@@ -46,6 +47,11 @@ class MarketDataService {
     hash: string;
     fromCache: boolean;
   }> {
+    // Index symbols take a dedicated path (Yahoo-primary — see below).
+    // Every other asset type keeps the exact flow it has always had.
+    if (request.assetType === 'index') {
+      return this.fetchIndexMarketData(request);
+    }
     const provider = this.selectProvider(request.assetType);
     if (!provider) {
       const yb = await fetchIndexFromYahoo(request).catch(() => null);
@@ -92,6 +98,80 @@ class MarketDataService {
     };
   }
   
+  /**
+   * Index OHLCV (US30, NAS100, US500, GER40…).
+   *
+   * The account's Twelve Data plan does not include indices — DJI/NDX
+   * return HTTP 404 on every call — while Yahoo's cash-index candles work.
+   * The old order (Twelve Data first, Yahoo only in the catch) therefore
+   * burned a guaranteed-404 request on every scan, and whenever Yahoo
+   * returned nothing (throttled, or its by-design refusal to serve stale
+   * intraday bars outside cash hours) the RAW provider 404 was rethrown
+   * and surfaced as the engine's scan error ("Scan failed: Twelve Data
+   * API error: 404 Not Found", live-trading-engine scan loop).
+   *
+   * So for indices Yahoo is PRIMARY and Twelve Data the fallback
+   * (INDEX_YAHOO_PRIMARY=off restores the old order). When both sources
+   * fail, one clear error names the symbol and both sources instead of
+   * presenting a bare provider 404 as the scan failure.
+   */
+  private async fetchIndexMarketData(request: MarketDataRequest): Promise<{
+    bars: OHLCVBar[];
+    provider: string;
+    hash: string;
+    fromCache: boolean;
+  }> {
+    const provider = this.selectProvider(request.assetType);
+    const ttl = marketDataCache.getTTLForTimeframe(request.timeframe);
+    const yahooFirst = process.env.INDEX_YAHOO_PRIMARY !== 'off';
+
+    const fromYahoo = async (): Promise<{ bars: OHLCVBar[]; provider: string; hash: string; fromCache: boolean } | null> => {
+      const cached = marketDataCache.get<OHLCVBar[]>(request.symbol, request.timeframe, 'yahoo-index');
+      if (cached) {
+        return { bars: cached, provider: 'yahoo-index', hash: this.generateHash(cached), fromCache: true };
+      }
+      const yb = await fetchIndexFromYahoo(request).catch(() => null);
+      if (!yb || !yb.length) return null;
+      logIndexSource(request.symbol, 'yahoo', 'OHLCV');
+      marketDataCache.set(request.symbol, request.timeframe, 'yahoo-index', yb, ttl);
+      return { bars: yb, provider: 'yahoo-index', hash: this.generateHash(yb), fromCache: false };
+    };
+
+    let tdError: Error | null = null;
+    const fromTwelveData = async (): Promise<{ bars: OHLCVBar[]; provider: string; hash: string; fromCache: boolean } | null> => {
+      if (!provider) return null;
+      const cached = marketDataCache.get<OHLCVBar[]>(request.symbol, request.timeframe, provider.name);
+      if (cached) {
+        return { bars: cached, provider: provider.name, hash: this.generateHash(cached), fromCache: true };
+      }
+      try {
+        const bars = await provider.fetchOHLCV(request);
+        logIndexSource(request.symbol, 'twelvedata', 'OHLCV');
+        marketDataCache.set(request.symbol, request.timeframe, provider.name, bars, ttl);
+        return { bars, provider: provider.name, hash: this.generateHash(bars), fromCache: false };
+      } catch (err) {
+        tdError = err instanceof Error ? err : new Error(String(err));
+        return null;
+      }
+    };
+
+    if (yahooFirst) {
+      const y = await fromYahoo();
+      if (y) return y;
+      const t = await fromTwelveData();
+      if (t) return t;
+    } else {
+      const t = await fromTwelveData();
+      if (t) return t;
+      const y = await fromYahoo();
+      if (y) return y;
+    }
+
+    const message = `Index data unavailable for ${request.symbol}: Yahoo returned no data and Twelve Data failed (${tdError ? tdError.message : 'no Twelve Data provider configured'})`;
+    console.error(`[market-data] ${message}`);
+    throw new Error(message);
+  }
+
   async checkForPatternChange(
     symbol: string,
     assetType: AssetType,
@@ -164,53 +244,9 @@ class MarketDataService {
   }
 }
 
-// ── Index fallback (Yahoo Finance chart API, no key) ─────────────────────
-const YAHOO_INDEX: Array<[RegExp, string]> = [
-  [/^(US30|WS30|DJ30|DJI|DOW|USA30|WALLST)/i, '^DJI'],
-  [/^(US500|SPX500|SPX|SP500|USA500)/i, '^GSPC'],
-  [/^(US100|NAS100|NAS|USTEC|NDX)/i, '^NDX'],
-  [/^(GER40|DE40|GER30|DAX)/i, '^GDAXI'],
-  [/^(UK100|FTSE)/i, '^FTSE'],
-  [/^(JP225|JPN225|NIK225)/i, '^N225'],
-];
-async function fetchIndexFromYahoo(req: MarketDataRequest): Promise<OHLCVBar[] | null> {
-  const sym = String(req.symbol || '').replace(/[^A-Za-z0-9]/g, '');
-  const hit = YAHOO_INDEX.find(([re]) => re.test(sym));
-  if (!hit) return null;
-  const tf = req.timeframe;
-  const interval = tf === '1m' ? '1m' : tf === '5m' ? '5m' : tf === '15m' ? '15m' : tf === '30m' ? '30m' : (tf === '1h' || tf === '4h') ? '60m' : tf === '1w' ? '1wk' : '1d';
-  const range = interval === '1m' ? '5d' : (interval === '5m' || interval === '15m' || interval === '30m') ? '30d' : interval === '60m' ? '180d' : '5y';
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(hit[1])}?interval=${interval}&range=${range}`;
-  const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(12_000) });
-  if (!r.ok) return null;
-  const j: any = await r.json();
-  const res = j?.chart?.result?.[0];
-  const q = res?.indicators?.quote?.[0];
-  if (!res?.timestamp || !q) return null;
-  let bars: OHLCVBar[] = [];
-  res.timestamp.forEach((t: number, i: number) => {
-    if (q.close[i] == null || q.open[i] == null || q.high[i] == null || q.low[i] == null) return;
-    bars.push({ timestamp: t * 1000, open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i], volume: q.volume?.[i] ?? 0 });
-  });
-  if (tf === '4h') {
-    const m = new Map<number, OHLCVBar>();
-    for (const b of bars) {
-      const k = Math.floor(b.timestamp / 14_400_000) * 14_400_000;
-      const x = m.get(k);
-      if (!x) m.set(k, { ...b, timestamp: k });
-      else { x.high = Math.max(x.high, b.high); x.low = Math.min(x.low, b.low); x.close = b.close; x.volume += b.volume; }
-    }
-    bars = Array.from(m.values()).sort((a, b) => a.timestamp - b.timestamp);
-  }
-  if (!bars.length) return null;
-  // The cash index only trades exchange hours — outside them the last bar is
-  // hours old. Intraday requests get no data then, rather than stale prices.
-  const ageMs = Date.now() - bars[bars.length - 1].timestamp;
-  const maxAge = interval === '1d' || interval === '1wk' ? 5 * 86_400_000 : tf === '4h' ? 6 * 3_600_000 : 2 * 3_600_000;
-  if (ageMs > maxAge) return null;
-  const lim = req.limit && req.limit > 0 ? req.limit : bars.length;
-  return bars.slice(-lim);
-}
+// The Yahoo cash-index fetcher lives in ./yahoo-index (shared with the
+// Twelve Data provider's ATR path); it is imported at the top of this file
+// and used by fetchMarketData / fetchIndexMarketData above.
 
 export const marketDataService = new MarketDataService();
 
