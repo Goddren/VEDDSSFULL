@@ -499,7 +499,7 @@ export interface WatchPlanDeps {
  * failover wrapper (the double-count PR #103's audit exists to prevent).
  */
 export async function runDeepAnalysis(input: DeepAnalysisInput, client: any): Promise<{ content: string; model: string | null }> {
-  if (!(await engineAiBudgetAllows(input.userId))) {
+  if (!(await engineAiBudgetAllows(input.userId, 'protected'))) {
     throw engineAiBudgetError();
   }
   const { system, user } = buildWatchPlanPrompt(input);
@@ -519,7 +519,7 @@ export async function runDeepAnalysis(input: DeepAnalysisInput, client: any): Pr
   const content = String(resp?.choices?.[0]?.message?.content || '');
   if (!content) throw new Error('watch-plan deep analysis returned an empty reply');
   // The call was ANSWERED — meter it exactly once, at the deep rate.
-  meterEngineAiConfirmation(input.userId, 2);
+  meterEngineAiConfirmation(input.userId, 2, 'protected');
   return { content, model: resp?.model || modelId };
 }
 

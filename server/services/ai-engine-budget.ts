@@ -50,6 +50,24 @@
 // route's call branch, including its free deterministic grade-fail returns —
 // a slight overcount, acceptable for a cap (this is a budget, not an invoice).
 //
+// POOL RESERVE (2026-11-23): the cap above is ONE pool, but a full Monday
+// of evidence showed the 24/7 general lanes (Sol consensus, crypto live
+// confirmations, options/futures, the ensemble, the FX Models cycle)
+// re-draining it to the cap overnight — 25,532 blocked calls in a day —
+// so the FX confirmation path, the AI watch plans, and the two shadow AI
+// judges never got a cent. The reserve fixes the ORDER, not the size:
+// the cap does not change, but calls are classified by lane. PROTECTED
+// lanes (the FX chart-data confirmations in routes.ts, AI watch-plan
+// deep analyses, the Kalshi perp AI judge, the crypto shadow AI judge)
+// may spend the whole pool down to the last cent. GENERAL lanes (every
+// other engine-marked call) may spend only while the day's spend is
+// below cap − reserve (AI_BUDGET_RESERVE_CENTS, default 100¢ — half the
+// default $2 pool). A general call stopped by the reserve fails with the
+// exact same 402-shaped budget error as a cap stop, so no engine's
+// fail-open/fail-closed behavior changes; it is counted separately
+// (reserveBlocked) so the protection is visible on /api/health. Kill
+// switch AI_BUDGET_RESERVE=off restores the single undifferentiated pool.
+//
 // PERSISTENCE: in-process counters (authoritative for the single web process
 // that serves chart-data), debounced into runtime_state scope
 // 'ai_engine_budget' so a mid-day restart does not reset the day's spend.
@@ -95,7 +113,48 @@ export function engineAiEstCentsPerCall(): number {
   return Number.isFinite(n) && n > 0 ? n : 0.15;
 }
 
-interface EngineAiSpend { day: string; cents: number; calls: number; blocked: number }
+/** Budget lane for an engine AI call. 'protected' lanes (FX chart-data
+ *  confirmations, AI watch plans, the two shadow AI judges) may spend
+ *  the whole pool; 'general' lanes (every other engine-marked call) stop
+ *  at cap − reserve while the reserve is on. Default everywhere is
+ *  'general' — a call site is protected only by opting in explicitly. */
+export type EngineAiLane = 'protected' | 'general';
+
+/** Kill switch for the pool reserve. Default ON. When off, the pool is
+ *  the single undifferentiated pool of PR #103 — lane is ignored. */
+export function aiBudgetReserveEnabled(): boolean {
+  return aiCostDisciplineEnabled() && process.env.AI_BUDGET_RESERVE !== 'off';
+}
+
+/** Protected reserve inside the daily pool, in cents. Default 100¢
+ *  (half the default $2 cap). Validated like the cap: a non-numeric or
+ *  negative value falls back to the default rather than silently
+ *  disabling or exploding the reserve; an explicit 0 is honored (no
+ *  protection, equivalent to the kill switch). A reserve ≥ the cap is
+ *  allowed — general lanes then get nothing — and is logged once. */
+export function engineAiBudgetReserveCents(): number {
+  const raw = process.env.AI_BUDGET_RESERVE_CENTS;
+  if (raw === undefined) return 100;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 100;
+}
+
+let reserveConfigWarned = false;
+function noteReserveConfig(reserve: number, cap: number): void {
+  if (reserveConfigWarned || reserve < cap) return;
+  reserveConfigWarned = true;
+  console.warn(`[AI Budget] AI_BUDGET_RESERVE_CENTS (${reserve}) >= the daily cap (${cap}) — general engine lanes get no AI spend while the reserve is on; protected lanes (FX confirmations, watch plans, judges) are unaffected.`);
+}
+
+interface EngineAiSpend {
+  day: string; cents: number; calls: number; blocked: number;
+  /** General-lane calls stopped by the reserve while the pool still had
+   *  protected room (a subset of blocked, broken out for /api/health). */
+  reserveBlocked: number;
+  /** Metered spend split by lane, for observability. cents is always
+   *  their sum (modulo rows saved before the reserve existed). */
+  protectedCents: number; generalCents: number;
+}
 
 const spendByUser = new Map<number, EngineAiSpend>();
 const loadStarted = new Set<number>();
@@ -110,10 +169,28 @@ function currentSpend(userId: number): EngineAiSpend {
   const day = utcDay();
   let s = spendByUser.get(userId);
   if (!s || s.day !== day) {
-    s = { day, cents: 0, calls: 0, blocked: 0 };
+    s = { day, cents: 0, calls: 0, blocked: 0, reserveBlocked: 0, protectedCents: 0, generalCents: 0 };
     spendByUser.set(userId, s);
   }
   return s;
+}
+
+/** Merge a persisted ai_engine_budget row into the in-process counters.
+ *  Backward-compatible by construction: rows saved before the reserve
+ *  existed have no reserveBlocked / protectedCents / generalCents
+ *  fields, and Number(undefined) || 0 reads them as 0 — an old row
+ *  loads cleanly and the lane split simply starts counting from the
+ *  upgrade. Exported so the check suite can drive the merge directly
+ *  (the DB load path itself is best-effort and unreachable in checks). */
+export function applySavedEngineAiSpend(s: EngineAiSpend, saved: any): void {
+  if (!saved || saved.day !== s.day) return;
+  // Take the max so spend metered while the load was in flight is kept.
+  s.cents = Math.max(s.cents, Number(saved.cents) || 0);
+  s.calls = Math.max(s.calls, Number(saved.calls) || 0);
+  s.blocked = Math.max(s.blocked, Number(saved.blocked) || 0);
+  s.reserveBlocked = Math.max(s.reserveBlocked, Number(saved.reserveBlocked) || 0);
+  s.protectedCents = Math.max(s.protectedCents, Number(saved.protectedCents) || 0);
+  s.generalCents = Math.max(s.generalCents, Number(saved.generalCents) || 0);
 }
 
 async function ensureLoaded(userId: number): Promise<void> {
@@ -122,11 +199,7 @@ async function ensureLoaded(userId: number): Promise<void> {
   try {
     const saved: any = await getRuntimeStateStrict('ai_engine_budget', String(userId));
     if (saved && saved.day === utcDay()) {
-      const s = currentSpend(userId);
-      // Take the max so spend metered while the load was in flight is kept.
-      s.cents = Math.max(s.cents, Number(saved.cents) || 0);
-      s.calls = Math.max(s.calls, Number(saved.calls) || 0);
-      s.blocked = Math.max(s.blocked, Number(saved.blocked) || 0);
+      applySavedEngineAiSpend(currentSpend(userId), saved);
     }
   } catch { /* best-effort: in-process counter still bounds this process */ }
 }
@@ -144,48 +217,91 @@ function persistSoon(userId: number): void {
   persistTimers.set(userId, t);
 }
 
-/** True when another engine confirmation may be bought for this user today.
- *  Always true when the kill switch is off. Fails OPEN on any internal
- *  error — a budget-store hiccup must never halt confirmations; only a
- *  positively-known exhausted budget blocks. */
-export async function engineAiBudgetAllows(userId: number): Promise<boolean> {
-  if (!aiCostDisciplineEnabled()) return true;
+/** The gate verdict for one prospective engine AI call. reserveBlocked
+ *  is true only when the call was refused BY THE RESERVE — a general
+ *  lane stopped while the pool still had protected room — as opposed
+ *  to a plain cap stop, so callers can count the protection separately
+ *  (noteEngineAiBudgetBlock's reserve flag). */
+export interface EngineAiBudgetGateResult { allowed: boolean; reserveBlocked: boolean }
+
+/** Full gate: may this user buy another engine AI call in this lane
+ *  today? Always allowed when the kill switch is off. Fails OPEN on any
+ *  internal error — a budget-store hiccup must never halt confirmations;
+ *  only a positively-known exhausted budget (or reserve) blocks. */
+export async function engineAiBudgetGate(userId: number, lane: EngineAiLane = 'general'): Promise<EngineAiBudgetGateResult> {
+  if (!aiCostDisciplineEnabled()) return { allowed: true, reserveBlocked: false };
   try {
     const cap = engineAiBudgetCents();
-    if (cap <= 0) return false;
+    if (cap <= 0) return { allowed: false, reserveBlocked: false };
     await ensureLoaded(userId);
-    return currentSpend(userId).cents < cap;
+    const s = currentSpend(userId);
+    if (s.cents >= cap) return { allowed: false, reserveBlocked: false };
+    if (lane === 'general' && aiBudgetReserveEnabled()) {
+      const reserve = engineAiBudgetReserveCents();
+      noteReserveConfig(reserve, cap);
+      if (reserve > 0 && s.cents >= cap - reserve) {
+        return { allowed: false, reserveBlocked: true };
+      }
+    }
+    return { allowed: true, reserveBlocked: false };
   } catch {
-    return true;
+    return { allowed: true, reserveBlocked: false };
   }
+}
+
+/** True when another engine confirmation may be bought for this user
+ *  today in the given lane (default 'general' — the stricter lane, so
+ *  pre-reserve call sites keep working unchanged). Thin wrapper over
+ *  engineAiBudgetGate for callers that do not count reserve blocks. */
+export async function engineAiBudgetAllows(userId: number, lane: EngineAiLane = 'general'): Promise<boolean> {
+  return (await engineAiBudgetGate(userId, lane)).allowed;
 }
 
 /** Meter one answered confirmation (units > 1 for deep-reasoning's passes).
  *  No-op when the kill switch is off. Callers meter only real answers —
- *  aiError verdicts are not billed and are not metered. */
-export function meterEngineAiConfirmation(userId: number, units = 1): void {
+ *  aiError verdicts are not billed and are not metered. The lane only
+ *  feeds the protected/general spend split on /api/health; the pool
+ *  total (cents/calls) is identical whichever lane meters. */
+export function meterEngineAiConfirmation(userId: number, units = 1, lane: EngineAiLane = 'general'): void {
   if (!aiCostDisciplineEnabled()) return;
   const u = Math.max(1, Math.floor(Number(units) || 1));
   const s = currentSpend(userId);
-  s.cents += engineAiEstCentsPerCall() * u;
+  const cost = engineAiEstCentsPerCall() * u;
+  s.cents += cost;
   s.calls += u;
+  if (lane === 'protected') s.protectedCents += cost; else s.generalCents += cost;
   persistSoon(userId);
 }
 
 /** Today's metered spend for observability (health/checks). */
-export function engineAiSpendToday(userId: number): { cents: number; calls: number; blocked: number; capCents: number } {
+export function engineAiSpendToday(userId: number): {
+  cents: number; calls: number; blocked: number; capCents: number;
+  reserveBlocked: number; protectedCents: number; generalCents: number;
+  reserveCents: number; reserveEnabled: boolean;
+} {
   const s = currentSpend(userId);
-  return { cents: Math.round(s.cents * 1000) / 1000, calls: s.calls, blocked: s.blocked, capCents: engineAiBudgetCents() };
+  return {
+    cents: Math.round(s.cents * 1000) / 1000, calls: s.calls, blocked: s.blocked,
+    capCents: engineAiBudgetCents(),
+    reserveBlocked: s.reserveBlocked,
+    protectedCents: Math.round(s.protectedCents * 1000) / 1000,
+    generalCents: Math.round(s.generalCents * 1000) / 1000,
+    reserveCents: engineAiBudgetReserveCents(),
+    reserveEnabled: aiBudgetReserveEnabled(),
+  };
 }
 
 /** Record one budget-blocked engine call (the gate refused to buy it).
  *  Counted separately from metered spend — a blocked call costs nothing —
  *  and surfaced on /api/health so a capped engine is visible at a glance
- *  instead of looking like a provider outage. */
-export function noteEngineAiBudgetBlock(userId: number): void {
+ *  instead of looking like a provider outage. opts.reserve marks a
+ *  general-lane call stopped by the reserve while protected room
+ *  remained; it counts in blocked too (reserveBlocked is the subset). */
+export function noteEngineAiBudgetBlock(userId: number, opts?: { reserve?: boolean }): void {
   if (!aiCostDisciplineEnabled()) return;
   const s = currentSpend(userId);
   s.blocked += 1;
+  if (opts?.reserve) s.reserveBlocked += 1;
   persistSoon(userId);
 }
 
@@ -214,15 +330,20 @@ export function engineAiBudgetError(): Error & { status: number; aiErrorStatus: 
 export function engineAiBudgetSummary(): {
   enabled: boolean; allEngines: boolean; capCentsPerUser: number; estCentsPerCall: number;
   usersTracked: number; spendCentsToday: number; callsToday: number; blockedToday: number;
+  reserveCents: number; reserveEnabled: boolean; reserveBlockedToday: number;
+  protectedSpendCentsToday: number; generalSpendCentsToday: number;
 } {
   const day = utcDay();
-  let users = 0, cents = 0, calls = 0, blocked = 0;
+  let users = 0, cents = 0, calls = 0, blocked = 0, reserveBlocked = 0, protectedCents = 0, generalCents = 0;
   spendByUser.forEach((s) => {
     if (s.day !== day) return;
     users++;
     cents += s.cents;
     calls += s.calls;
     blocked += s.blocked;
+    reserveBlocked += s.reserveBlocked;
+    protectedCents += s.protectedCents;
+    generalCents += s.generalCents;
   });
   return {
     enabled: aiCostDisciplineEnabled(),
@@ -233,6 +354,11 @@ export function engineAiBudgetSummary(): {
     spendCentsToday: Math.round(cents * 1000) / 1000,
     callsToday: calls,
     blockedToday: blocked,
+    reserveCents: engineAiBudgetReserveCents(),
+    reserveEnabled: aiBudgetReserveEnabled(),
+    reserveBlockedToday: reserveBlocked,
+    protectedSpendCentsToday: Math.round(protectedCents * 1000) / 1000,
+    generalSpendCentsToday: Math.round(generalCents * 1000) / 1000,
   };
 }
 

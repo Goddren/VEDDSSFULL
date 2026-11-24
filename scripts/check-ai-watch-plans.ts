@@ -383,7 +383,7 @@ const mkInput = (userId: number, candles: any[]) => ({
   check('8.3 dry pool refuses BEFORE any call (402-shaped budget error)', budgetThrew);
 
   check('8.4 service meters at exactly one call site, at 2 units',
-    count(svcSrc, 'meterEngineAiConfirmation(input.userId, 2)') === 1);
+    count(svcSrc, 'meterEngineAiConfirmation(input.userId, 2, \'protected\')') === 1);
   check('8.5 service never builds an engine-marked client (no double-count)',
     !/engine:\s*true/.test(svcSrc) && !/getUniversalAIClientForUser\(input\.userId,\s*\{/.test(svcSrc));
   check('8.6 watching answers through the EXISTING no-trade shape (_skipAi fold + neutralisation)',

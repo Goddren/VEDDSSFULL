@@ -11058,7 +11058,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 aiConfirmation = _bcHit.verdict;
                 _cdiag.stage = 'breakout_cached';
                 console.log(`[Breakout Confirmation] ${sanitizedSymbol}: reused verdict — ${_bcHit.reason}`);
-              } else if (await _costDiscipline.engineAiBudgetAllows(token.userId)) {
+              } else if (await _costDiscipline.engineAiBudgetAllows(token.userId, 'protected')) {
               _cdiag.stage = 'breakout_called';
               aiConfirmation = await getBreakoutConfirmation(
                 candles, analysis.indicators, analysis.signal, analysis.confidence,
@@ -11069,7 +11069,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               // rubber-stamp confirmation (grayZoneSkipped) — nothing was
               // purchased, so nothing is metered and no "asked" is counted.
               if (aiConfirmation && !(aiConfirmation as any).grayZoneSkipped) {
-                _costDiscipline.meterEngineAiConfirmation(token.userId, 1);
+                _costDiscipline.meterEngineAiConfirmation(token.userId, 1, 'protected');
                 _grayZone.noteGrayZoneAsked(token.userId);
               }
               if (aiConfirmation && Number((aiConfirmation as any).aiConfidence) > 0) {
@@ -11127,7 +11127,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   if (_fbHit) {
                     _visionFallback = _fbHit.verdict;
                     console.log(`[Breakout Master] ${sanitizedSymbol}: vision fallback verdict reused — ${_fbHit.reason}`);
-                  } else if (await _costDiscipline.engineAiBudgetAllows(token.userId)) {
+                  } else if (await _costDiscipline.engineAiBudgetAllows(token.userId, 'protected')) {
                     _visionFallback = await getAiVisionConfirmation(
                       candles, analysis.indicators, analysis.signal, analysis.confidence,
                       analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
@@ -11142,7 +11142,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                       const _fbUnits = typeof (_visionFallback as any).aiCallsBought === 'number'
                         ? (_visionFallback as any).aiCallsBought
                         : ((_visionFallback as any).deepReasoningUsed ? 2 : 1);
-                      if (_fbUnits > 0) _costDiscipline.meterEngineAiConfirmation(token.userId, _fbUnits);
+                      if (_fbUnits > 0) _costDiscipline.meterEngineAiConfirmation(token.userId, _fbUnits, 'protected');
                     }
                     if (_visionFallback && Number((_visionFallback as any).aiConfidence) > 0) {
                       _putBC(token.userId, sanitizedSymbol, sanitizedTimeframe, _fbDir, analysis.confidence, _fbPrice, _visionFallback);
@@ -11294,7 +11294,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 aiConfirmation = _ccHit.verdict;
                 _cdiag.stage = 'ai_cached';
                 console.log(`[AI Confirmation] ${sanitizedSymbol}: reused verdict — ${_ccHit.reason}`);
-              } else if (await _costDiscipline.engineAiBudgetAllows(token.userId)) {
+              } else if (await _costDiscipline.engineAiBudgetAllows(token.userId, 'protected')) {
               _cdiag.stage = 'ai_called';
               aiConfirmation = await getAiVisionConfirmation(
                 candles, analysis.indicators, analysis.signal, analysis.confidence,
@@ -11317,7 +11317,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const _units = typeof (aiConfirmation as any).aiCallsBought === 'number'
                   ? (aiConfirmation as any).aiCallsBought
                   : ((aiConfirmation as any).deepReasoningUsed ? 2 : 1);
-                if (_units > 0) _costDiscipline.meterEngineAiConfirmation(token.userId, _units);
+                if (_units > 0) _costDiscipline.meterEngineAiConfirmation(token.userId, _units, 'protected');
               }
               // Only a REAL answer is cached. An error result (aiConfidence 0 —
               // e.g. a 402, a timeout) must never be reused: that would pin a
