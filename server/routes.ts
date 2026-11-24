@@ -6445,7 +6445,7 @@ Return ONLY a JSON object with this structure:
         if (forexCount >= 2 || s.length === 6) return 'forex';
         return 'stock';
       };
-      const detectedAssetType = assetType || inferAssetType(symbol);
+      const detectedAssetType = assetType || ((await import('./market-data')).marketDataService.detectAssetType(symbol) === 'index' ? 'index' : inferAssetType(symbol));
       
       const atrData = await provider.fetchATR(symbol, detectedAssetType, timeframe);
       
