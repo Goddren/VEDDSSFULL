@@ -4007,7 +4007,7 @@ export default function WeeklyStrategyPage() {
                       {/* Most recent decision */}
                       {(() => {
                         const latest = aiLogs[0];
-                        const isApproved = latest?.aiDecision === 'APPROVED' || latest?.aiDecision === 'AI_OVERRIDE' || latest?.aiDecision === 'ADJUSTED';
+                        const isApproved = latest?.aiDecision === 'APPROVED' || latest?.aiDecision === 'AI_OVERRIDE' || latest?.aiDecision === 'ADJUSTED' || latest?.aiDecision === 'ADVISORY_OVERRIDE';
                         const isRejected = latest?.aiDecision === 'REJECTED';
                         return (
                           <div className={`rounded-xl p-3 border ${isApproved ? 'border-emerald-500/30 bg-emerald-900/20' : isRejected ? 'border-red-500/30 bg-red-900/20' : 'border-gray-700/50 bg-gray-800/40'}`}>
@@ -4082,7 +4082,7 @@ export default function WeeklyStrategyPage() {
                           <p className="text-gray-600 text-[10px] uppercase tracking-wide mb-1.5">Recent decisions</p>
                           <div className="space-y-1">
                             {aiLogs.slice(1, 5).map((log: any, i: number) => {
-                              const approved = log.aiDecision === 'APPROVED' || log.aiDecision === 'AI_OVERRIDE' || log.aiDecision === 'ADJUSTED';
+                              const approved = log.aiDecision === 'APPROVED' || log.aiDecision === 'AI_OVERRIDE' || log.aiDecision === 'ADJUSTED' || log.aiDecision === 'ADVISORY_OVERRIDE';
                               const rejected = log.aiDecision === 'REJECTED';
                               return (
                                 <div key={i} className="flex items-center justify-between bg-gray-800/40 rounded-lg px-3 py-1.5 text-xs">
@@ -5615,6 +5615,7 @@ export default function WeeklyStrategyPage() {
                     className={`rounded-xl border p-3 space-y-2 ${
                       log.aiDecision === 'APPROVED' ? 'border-emerald-500/30 bg-emerald-500/5' :
                       log.aiDecision === 'AI_OVERRIDE' ? 'border-blue-500/30 bg-blue-500/5' :
+                      log.aiDecision === 'ADVISORY_OVERRIDE' ? 'border-purple-500/30 bg-purple-500/5' :
                       log.aiDecision === 'ADJUSTED' ? 'border-amber-500/30 bg-amber-500/5' :
                       log.aiDecision === 'REJECTED' ? 'border-red-500/30 bg-red-500/5' :
                       'border-gray-500/30 bg-gray-500/5'
@@ -5624,10 +5625,11 @@ export default function WeeklyStrategyPage() {
                         <Badge className={`text-xs ${
                           log.aiDecision === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
                           log.aiDecision === 'AI_OVERRIDE' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
+                          log.aiDecision === 'ADVISORY_OVERRIDE' ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' :
                           log.aiDecision === 'ADJUSTED' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
                           log.aiDecision === 'REJECTED' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
                           'bg-gray-500/20 text-gray-400 border-gray-500/30'
-                        }`}>{log.aiDecision === 'AI_OVERRIDE' ? 'AI OVERRIDE' : log.aiDecision}</Badge>
+                        }`}>{log.aiDecision === 'AI_OVERRIDE' ? 'AI OVERRIDE' : log.aiDecision === 'ADVISORY_OVERRIDE' ? 'ADVISORY OVERRIDE' : log.aiDecision}</Badge>
                         <span className="font-semibold text-white text-sm">{log.symbol}</span>
                         <Badge variant="outline" className="text-[10px] text-gray-400">{log.timeframe}</Badge>
                       </div>
