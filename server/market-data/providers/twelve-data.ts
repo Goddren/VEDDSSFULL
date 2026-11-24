@@ -1,6 +1,23 @@
 import { MarketDataProvider, MarketDataRequest, OHLCVBar, AssetType } from '../types';
 import { rateLimiter } from '../rate-limiter';
 import { getPipSize } from '../../utils/pipUtils';
+import { fetchIndexFromYahoo, computeAtrFromBars, logIndexSource } from '../yahoo-index';
+
+export interface FetchATRResult {
+  atr: number;
+  atrPercent: number;
+  currentPrice: number;
+  suggestedSL: {
+    conservative: number;
+    moderate: number;
+    aggressive: number;
+  };
+  suggestedSLPips?: {
+    conservative: number;
+    moderate: number;
+    aggressive: number;
+  };
+}
 
 const TWELVE_DATA_BASE_URL = 'https://api.twelvedata.com';
 
@@ -198,21 +215,74 @@ export class TwelveDataProvider implements MarketDataProvider {
     }
   }
   
-  async fetchATR(symbol: string, assetType: AssetType, timeframe: string = '1d', period: number = 14): Promise<{
-    atr: number;
-    atrPercent: number;
-    currentPrice: number;
-    suggestedSL: {
-      conservative: number;
-      moderate: number;
-      aggressive: number;
+  /**
+   * ATR dispatcher. For INDEX symbols the Twelve Data plan on this account
+   * doesn't cover the instrument (DJI/NDX 404 on /atr and /price just like
+   * /time_series), and this method historically had NO fallback at all —
+   * so index ATR derives from Yahoo cash-index candles first, with Twelve
+   * Data as the fallback (INDEX_YAHOO_PRIMARY=off restores Twelve Data
+   * first). Both sources down = one clear error naming the symbol and
+   * both sources. Non-index symbols go straight to Twelve Data, exactly
+   * as before.
+   */
+  async fetchATR(symbol: string, assetType: AssetType, timeframe: string = '1d', period: number = 14): Promise<FetchATRResult> {
+    if (assetType !== 'index') {
+      return this.fetchATRFromTwelveData(symbol, assetType, timeframe, period);
+    }
+    const yahooFirst = process.env.INDEX_YAHOO_PRIMARY !== 'off';
+    let tdError: Error | null = null;
+    const fromTwelveData = async (): Promise<FetchATRResult | null> => {
+      try {
+        const r = await this.fetchATRFromTwelveData(symbol, assetType, timeframe, period);
+        logIndexSource(symbol, 'twelvedata', 'ATR');
+        return r;
+      } catch (err) {
+        tdError = err instanceof Error ? err : new Error(String(err));
+        return null;
+      }
     };
-    suggestedSLPips?: {
-      conservative: number;
-      moderate: number;
-      aggressive: number;
+    if (yahooFirst) {
+      const y = await this.fetchIndexATRFromYahoo(symbol, timeframe, period);
+      if (y) return y;
+      const t = await fromTwelveData();
+      if (t) return t;
+    } else {
+      const t = await fromTwelveData();
+      if (t) return t;
+      const y = await this.fetchIndexATRFromYahoo(symbol, timeframe, period);
+      if (y) return y;
+    }
+    const message = `Index data unavailable for ${symbol}: Yahoo returned no data and Twelve Data failed (${tdError ? tdError.message : 'unknown error'})`;
+    console.error(`[market-data] ${message}`);
+    throw new Error(message);
+  }
+
+  /** ATR computed from Yahoo cash-index candles; null when Yahoo has none. */
+  private async fetchIndexATRFromYahoo(symbol: string, timeframe: string, period: number): Promise<FetchATRResult | null> {
+    const bars = await fetchIndexFromYahoo({
+      symbol,
+      assetType: 'index',
+      timeframe: timeframe as MarketDataRequest['timeframe'],
+      limit: period + 5,
+    }).catch(() => null);
+    if (!bars || bars.length < 2) return null;
+    const computed = computeAtrFromBars(bars, period);
+    if (!computed || !(computed.atr > 0) || !(computed.currentPrice > 0)) return null;
+    logIndexSource(symbol, 'yahoo', 'ATR');
+    const { atr, currentPrice } = computed;
+    return {
+      atr,
+      atrPercent: (atr / currentPrice) * 100,
+      currentPrice,
+      suggestedSL: {
+        conservative: atr * 2,
+        moderate: atr * 1.5,
+        aggressive: atr
+      }
     };
-  }> {
+  }
+
+  private async fetchATRFromTwelveData(symbol: string, assetType: AssetType, timeframe: string = '1d', period: number = 14): Promise<FetchATRResult> {
     await rateLimiter.waitForSlot(this.name);
     
     const normalizedSymbol = this.normalizeSymbol(symbol, assetType);
