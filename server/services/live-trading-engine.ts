@@ -4498,7 +4498,11 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
     try {
       // Critical: runAILiveAnalysis is the FX engine's live decision call.
       // Engine: gated + metered against the shared daily AI budget.
-      openai = await getUniversalAIClientForUser(userId, { critical: true, engine: true });
+      // Lane: PROTECTED (PR #111) — this is the FX engine's live decision
+      // call, so like the chart-data confirmations it may spend the budget
+      // reserve; as 'general' it was fenced off once the day's total spend
+      // crossed cap-reserve and the engine's analysis died every scan.
+      openai = await getUniversalAIClientForUser(userId, { critical: true, engine: true, engineLane: 'protected' });
     } catch {
       addActivity(userId, { type: 'error', message: 'No AI API key configured. Cannot analyze.' });
       if (_fxMode !== 'ai' || _fxShadow) await _aiFailed('failed:no_client');

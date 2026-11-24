@@ -27545,7 +27545,7 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
   try {
     const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
     try {
-      openai2 = await getUniversalAIClientForUser2(userId, { critical: true, engine: true });
+      openai2 = await getUniversalAIClientForUser2(userId, { critical: true, engine: true, engineLane: "protected" });
     } catch {
       addActivity(userId, { type: "error", message: "No AI API key configured. Cannot analyze." });
       if (_fxMode !== "ai" || _fxShadow) await _aiFailed("failed:no_client");

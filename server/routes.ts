@@ -10774,6 +10774,29 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // re-buying that failure on every candle (ai-budget-guard.ts).
       const _aiCreditsOut = !_fxMarketClosed && await import('./services/ai-budget-guard')
         .then(m => m.fxShouldPauseForCredits()).catch(() => false);
+      // ── Chart-data AI availability (PR #111) ──────────────────────────
+      // Is this route's AI layer (confirmations, verdict cache, gray-zone,
+      // watch plans) allowed to run for THIS user? Until now the saver and
+      // the watch-plan hook keyed off the Render env flag alone — a flag
+      // created to gate TradeLocker fan-out EXECUTION (still env-gated
+      // below, untouched) that was never set in production, so the AI layer
+      // ran zero checks from 2026-10-16 on. It is now keyed to the user's
+      // own EA switch (eaIsEnabled, read at this route's head — a disabled
+      // EA's posts are 403'd before reaching here) OR the env flags.
+      // CHART_DATA_AI_SETTINGS_KEY=off restores env-only keying; if the
+      // availability module can't load, env-only behavior stands (fail
+      // safe = the pre-PR behavior). See
+      // services/chart-data-ai-availability.ts.
+      const _envChartAi = process.env.CHART_DATA_AUTOTRADE_ENABLED === 'true' || process.env.CHART_DATA_AI_WHEN_OFF === 'true';
+      let _chartAiEnabled = _envChartAi;
+      try {
+        const _avail = await import('./services/chart-data-ai-availability');
+        _chartAiEnabled = _avail.chartDataAiEnabled({
+          envEnabled: _envChartAi,
+          settingsKeyOff: _avail.chartDataAiSettingsKeyOff(),
+          eaEnabled: eaIsEnabled,
+        });
+      } catch { /* module unavailable → env-only keying (pre-PR behavior) */ }
       // ── AI credit savers (2026-10-16) ─────────────────────────────────
       // On 2026-10-14 this path bought ~3,850 vision calls in 16h (~4/min on
       // H1 charts) while its autotrade was OFF, so none could ever trade, and
@@ -10783,7 +10806,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       //  3. Pairs on the pair-filter blocklist never reach the AI.
       let _saverReason: string | null = null;
       if (!_fxMarketClosed && !_aiCreditsOut && analysis.signal !== 'NEUTRAL') {
-        if (process.env.CHART_DATA_AUTOTRADE_ENABLED !== 'true' && process.env.CHART_DATA_AI_WHEN_OFF !== 'true') {
+        if (!_chartAiEnabled) {
           _saverReason = 'ai_skipped_autotrade_off (chart-data autotrade is off, so no AI call)';
         } else {
           try {
@@ -10817,13 +10840,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // fires, the post falls through to the confirmation + guard chain
       // below COMPLETELY unchanged — the plan never trades by itself.
       // The layer abstains (today's path) on: market closed, credits out,
-      // any saver reason, autotrade off (the 2026-10-14 drain lesson),
-      // a pair blocked in both directions, plan cooldown, a no-plan
+      // any saver reason, the AI layer being unavailable for this user
+      // (_chartAiEnabled — the 2026-10-14 drain lesson), a pair blocked in
+      // both directions, plan cooldown, a no-plan
       // answer, or ANY plan-layer failure. AI_WATCH_PLANS=off disables it.
       let _watchPlanSkip = false;
       let _watchPlanFallthrough = false;
-      if (!_fxMarketClosed && !_aiCreditsOut && !_saverReason &&
-          (process.env.CHART_DATA_AUTOTRADE_ENABLED === 'true' || process.env.CHART_DATA_AI_WHEN_OFF === 'true')) {
+      if (!_fxMarketClosed && !_aiCreditsOut && !_saverReason && _chartAiEnabled) {
         try {
           const _pfBoth = await import('./services/pair-filter').then(async (m) => {
             const b = m.pairFilterVerdict(sanitizedSymbol, 'BUY');
