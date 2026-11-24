@@ -34925,6 +34925,7 @@ __export(openai_exports, {
   cheapFirstPassEnabled: () => cheapFirstPassEnabled,
   cheapFirstPassModel: () => cheapFirstPassModel,
   coerceConfidence: () => coerceConfidence,
+  coerceConfidenceDetailed: () => coerceConfidenceDetailed,
   computeConfluenceScore: () => computeConfluenceScore,
   detectMarketRegime: () => detectMarketRegime,
   enrichLeadWithAI: () => enrichLeadWithAI,
@@ -35334,6 +35335,12 @@ function extractFirstJsonObject(text2) {
     }
   }
   return null;
+}
+function coerceConfidenceDetailed(raw) {
+  let c = typeof raw === "string" ? parseFloat(raw) : raw;
+  if (typeof c !== "number" || !Number.isFinite(c)) return { value: 50, defaulted: true };
+  if (c > 0 && c < 1) c *= 100;
+  return { value: Math.max(0, Math.min(100, Math.round(c))), defaulted: false };
 }
 function coerceConfidence(raw) {
   let c = typeof raw === "string" ? parseFloat(raw) : raw;
@@ -36691,10 +36698,12 @@ ${prompt.system}`, user: judgeUser },
     const jsonMatch = extractFirstJsonObject(result.content);
     const parsed = JSON.parse(jsonMatch ?? result.content);
     const validTrailValues = ["NONE", "TIGHT", "STANDARD", "WIDE", "AGGRESSIVE"];
+    const _judgeConf = coerceConfidenceDetailed(parsed.confidence);
     return {
       confirmed: !!parsed.confirmed,
       aiDirection: parsed.direction || "NEUTRAL",
-      aiConfidence: coerceConfidence(parsed.confidence),
+      aiConfidence: _judgeConf.value,
+      confidenceDefaulted: _judgeConf.defaulted,
       reasoning: parsed.reasoning || "No reasoning provided",
       adjustedEntry: typeof parsed.adjustedEntry === "number" ? parsed.adjustedEntry : void 0,
       adjustedStopLoss: typeof parsed.adjustedStopLoss === "number" ? parsed.adjustedStopLoss : void 0,
@@ -36930,14 +36939,13 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
     console.log(`[AI Vision Confirmation] ${symbol}: ${result.confirmed ? "CONFIRMED" : "REJECTED"} (AI says ${result.direction} at ${result.confidence}%) [${provider}/${answeringModel}]`);
     const validTrailValues = ["NONE", "TIGHT", "STANDARD", "WIDE", "AGGRESSIVE"];
     const trailRec = validTrailValues.includes(result.trailRecommendation) ? result.trailRecommendation : void 0;
+    const _visionConf = coerceConfidenceDetailed(result.confidence);
+    noteConfidenceSample(_visionConf.value);
     return {
       confirmed: !!result.confirmed,
       aiDirection: result.direction || "NEUTRAL",
-      aiConfidence: (() => {
-        const c = coerceConfidence(result.confidence);
-        noteConfidenceSample(c);
-        return c;
-      })(),
+      aiConfidence: _visionConf.value,
+      confidenceDefaulted: _visionConf.defaulted,
       reasoning: result.reasoning || "No reasoning provided",
       adjustedEntry: typeof result.adjustedEntry === "number" ? result.adjustedEntry : void 0,
       adjustedStopLoss: typeof result.adjustedStopLoss === "number" ? result.adjustedStopLoss : void 0,
