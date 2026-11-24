@@ -137,32 +137,33 @@ class MarketDataService {
       return { bars: yb, provider: 'yahoo-index', hash: this.generateHash(yb), fromCache: false };
     };
 
-    let tdError: Error | null = null;
-    const fromTwelveData = async (): Promise<{ bars: OHLCVBar[]; provider: string; hash: string; fromCache: boolean } | null> => {
-      if (!provider) return null;
+    const fromTwelveData = async (): Promise<{ res: { bars: OHLCVBar[]; provider: string; hash: string; fromCache: boolean } | null; err: Error | null }> => {
+      if (!provider) return { res: null, err: null };
       const cached = marketDataCache.get<OHLCVBar[]>(request.symbol, request.timeframe, provider.name);
       if (cached) {
-        return { bars: cached, provider: provider.name, hash: this.generateHash(cached), fromCache: true };
+        return { res: { bars: cached, provider: provider.name, hash: this.generateHash(cached), fromCache: true }, err: null };
       }
       try {
         const bars = await provider.fetchOHLCV(request);
         logIndexSource(request.symbol, 'twelvedata', 'OHLCV');
         marketDataCache.set(request.symbol, request.timeframe, provider.name, bars, ttl);
-        return { bars, provider: provider.name, hash: this.generateHash(bars), fromCache: false };
+        return { res: { bars, provider: provider.name, hash: this.generateHash(bars), fromCache: false }, err: null };
       } catch (err) {
-        tdError = err instanceof Error ? err : new Error(String(err));
-        return null;
+        return { res: null, err: err instanceof Error ? err : new Error(String(err)) };
       }
     };
 
+    let tdError: Error | null = null;
     if (yahooFirst) {
       const y = await fromYahoo();
       if (y) return y;
       const t = await fromTwelveData();
-      if (t) return t;
+      tdError = t.err;
+      if (t.res) return t.res;
     } else {
       const t = await fromTwelveData();
-      if (t) return t;
+      tdError = t.err;
+      if (t.res) return t.res;
       const y = await fromYahoo();
       if (y) return y;
     }

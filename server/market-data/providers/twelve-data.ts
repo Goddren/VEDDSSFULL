@@ -230,25 +230,26 @@ export class TwelveDataProvider implements MarketDataProvider {
       return this.fetchATRFromTwelveData(symbol, assetType, timeframe, period);
     }
     const yahooFirst = process.env.INDEX_YAHOO_PRIMARY !== 'off';
-    let tdError: Error | null = null;
-    const fromTwelveData = async (): Promise<FetchATRResult | null> => {
+    const fromTwelveData = async (): Promise<{ res: FetchATRResult | null; err: Error | null }> => {
       try {
         const r = await this.fetchATRFromTwelveData(symbol, assetType, timeframe, period);
         logIndexSource(symbol, 'twelvedata', 'ATR');
-        return r;
+        return { res: r, err: null };
       } catch (err) {
-        tdError = err instanceof Error ? err : new Error(String(err));
-        return null;
+        return { res: null, err: err instanceof Error ? err : new Error(String(err)) };
       }
     };
+    let tdError: Error | null = null;
     if (yahooFirst) {
       const y = await this.fetchIndexATRFromYahoo(symbol, timeframe, period);
       if (y) return y;
       const t = await fromTwelveData();
-      if (t) return t;
+      tdError = t.err;
+      if (t.res) return t.res;
     } else {
       const t = await fromTwelveData();
-      if (t) return t;
+      tdError = t.err;
+      if (t.res) return t.res;
       const y = await this.fetchIndexATRFromYahoo(symbol, timeframe, period);
       if (y) return y;
     }
