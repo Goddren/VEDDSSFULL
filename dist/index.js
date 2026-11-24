@@ -28494,7 +28494,7 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
   try {
     const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
     try {
-      openai2 = await getUniversalAIClientForUser2(userId, { critical: true, engine: true });
+      openai2 = await getUniversalAIClientForUser2(userId, { critical: true, engine: true, engineLane: "protected" });
     } catch {
       addActivity(userId, { type: "error", message: "No AI API key configured. Cannot analyze." });
       if (_fxMode !== "ai" || _fxShadow) await _aiFailed("failed:no_client");
@@ -63378,6 +63378,26 @@ var init_ambassador_market_briefing = __esm({
   }
 });
 
+// server/services/chart-data-ai-availability.ts
+var chart_data_ai_availability_exports = {};
+__export(chart_data_ai_availability_exports, {
+  chartDataAiEnabled: () => chartDataAiEnabled,
+  chartDataAiSettingsKeyOff: () => chartDataAiSettingsKeyOff
+});
+function chartDataAiEnabled(inputs) {
+  if (inputs.envEnabled) return true;
+  if (inputs.settingsKeyOff) return false;
+  return inputs.eaEnabled === true;
+}
+function chartDataAiSettingsKeyOff() {
+  return process.env.CHART_DATA_AI_SETTINGS_KEY === "off";
+}
+var init_chart_data_ai_availability = __esm({
+  "server/services/chart-data-ai-availability.ts"() {
+    "use strict";
+  }
+});
+
 // server/services/paper-trade-tracker.ts
 var paper_trade_tracker_exports = {};
 __export(paper_trade_tracker_exports, {
@@ -90504,9 +90524,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "e991a69d-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-24T04:11:46.742Z";
+var BUILD_COMMIT = "e8d5e0ad-dirty";
+var BUILD_BRANCH = "feat/ai-awake-fixes";
+var BUILT_AT = "2026-11-24T07:40:32.822Z";
 
 // server/stripe.ts
 init_db();
@@ -102668,9 +102688,20 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       })();
       if (_fxMarketClosed) _cdiag.stage = "market_closed";
       const _aiCreditsOut = !_fxMarketClosed && await Promise.resolve().then(() => (init_ai_budget_guard(), ai_budget_guard_exports)).then((m) => m.fxShouldPauseForCredits()).catch(() => false);
+      const _envChartAi = process.env.CHART_DATA_AUTOTRADE_ENABLED === "true" || process.env.CHART_DATA_AI_WHEN_OFF === "true";
+      let _chartAiEnabled = _envChartAi;
+      try {
+        const _avail = await Promise.resolve().then(() => (init_chart_data_ai_availability(), chart_data_ai_availability_exports));
+        _chartAiEnabled = _avail.chartDataAiEnabled({
+          envEnabled: _envChartAi,
+          settingsKeyOff: _avail.chartDataAiSettingsKeyOff(),
+          eaEnabled: eaIsEnabled
+        });
+      } catch {
+      }
       let _saverReason = null;
       if (!_fxMarketClosed && !_aiCreditsOut && analysis.signal !== "NEUTRAL") {
-        if (process.env.CHART_DATA_AUTOTRADE_ENABLED !== "true" && process.env.CHART_DATA_AI_WHEN_OFF !== "true") {
+        if (!_chartAiEnabled) {
           _saverReason = "ai_skipped_autotrade_off (chart-data autotrade is off, so no AI call)";
         } else {
           try {
@@ -102693,7 +102724,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       }
       let _watchPlanSkip = false;
       let _watchPlanFallthrough = false;
-      if (!_fxMarketClosed && !_aiCreditsOut && !_saverReason && (process.env.CHART_DATA_AUTOTRADE_ENABLED === "true" || process.env.CHART_DATA_AI_WHEN_OFF === "true")) {
+      if (!_fxMarketClosed && !_aiCreditsOut && !_saverReason && _chartAiEnabled) {
         try {
           const _pfBoth = await Promise.resolve().then(() => (init_pair_filter(), pair_filter_exports)).then(async (m) => {
             const b = m.pairFilterVerdict(sanitizedSymbol, "BUY");

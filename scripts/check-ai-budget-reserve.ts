@@ -33,8 +33,12 @@
  *      protected lane (routes.ts chart-data ×3, watch plans, Kalshi
  *      judge, crypto confirmation's shadow scope); the ensemble gates
  *      as general; representative general sites (Sol, FX Models,
- *      options, futures, crypto scanner, live-trading engine) never
- *      claim the protected lane.
+ *      options, futures, crypto scanner) never claim the protected
+ *      lane. PR #111 exception, pinned at F9: live-trading-engine's
+ *      runAILiveAnalysis — the FX engine's live decision call — was
+ *      flipped to protected by Chris's explicit approval (deferred at
+ *      the #109 merge, approved Nov 24); it is the ONLY protected
+ *      claim in that file.
  *   G. Diff scope — the reserve env name lives only in the budget module
  *      and the client layer's log line; judge/watch-plan files carry no
  *      logic changes beyond their gate/meter lane arguments.
@@ -293,11 +297,20 @@ async function attempt(client: any): Promise<{ ok: boolean; status?: number; bud
     ['options-scanner', '../server/services/options-scanner.ts'],
     ['futures-scanner', '../server/services/futures-scanner.ts'],
     ['cryptocom-scanner', '../server/services/cryptocom-scanner.ts'],
-    ['live-trading-engine', '../server/services/live-trading-engine.ts'],
   ] as Array<[string, string]>) {
     check(`F8 general site never claims the protected lane: ${name}`,
       !src(path).includes("engineLane: 'protected'") && !src(path).includes("'protected'"));
   }
+
+  // PR #111 (Chris-approved flip): runAILiveAnalysis is the FX engine's
+  // live decision call and now buys on the protected lane — exactly one
+  // protected claim in the file, at that call site; the file's other
+  // engine call (autoGenerateBrainSignals) stays general.
+  const lte = src('../server/services/live-trading-engine.ts');
+  check('F9 live-trading-engine: only runAILiveAnalysis claims the protected lane (PR #111)',
+    count(lte, "engineLane: 'protected'") === 1 && count(lte, "'protected'") === 1 &&
+    lte.includes("getUniversalAIClientForUser(userId, { critical: true, engine: true, engineLane: 'protected' })") &&
+    lte.includes('getUniversalAIClientForUser(userId, { engine: true })'));
 }
 
 // ── G. Diff scope ─────────────────────────────────────────────────────────
