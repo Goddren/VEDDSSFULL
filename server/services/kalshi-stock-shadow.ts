@@ -109,7 +109,7 @@
 import { pool } from '../db';
 import { loopTick } from '../crash-heartbeat';
 import { ensureKalshiPerpShadowTables } from './ensure-kalshi-perp-shadow-tables';
-import { trailBrainConsult, trailBrainStopPrice, stampTrailBrainTrade } from './trail-brain';
+import { trailBrainConsult, trailBrainStopPrice, stampTrailBrainTrade, kalshiPerpTrailActivation } from './trail-brain';
 import { improvementThrottleBlocks, logImprovementBlock } from './improvement-loop';
 import {
   getLiquidStockPerps, getPerpCandles, getPerpTouch, getPerpFundingHistory, getPerpFundingEstimate,
@@ -1130,7 +1130,12 @@ export async function resolveKalshiStockShadowTrades(userId: number): Promise<nu
     // underlying, % units) may raise a trailed stop behind the peak.
     // The trailed stop is clamped at the trade's own stop inside
     // trailBrainDecide (−sl_pct), so it can only tighten; the hard
-    // stop/target checks keep their order and priority.
+    // stop/target checks keep their order and priority. Activation
+    // runs on the trade's OWN R geometry (kalshiPerpTrailActivation):
+    // the percent defaults (arm at 15%, 8% hard floor) could never arm
+    // on a lane whose peak caps at +8% (2R target on a ≤4% stop) —
+    // R mode arms at +1R of this trade's stop instead.
+    // KALSHI_PERP_TRAIL_R=off restores percent activation.
     const tb = await trailBrainConsult(userId, 'kalshi', String(t.strategy || 'all'), String(t.underlying || 'all'));
     if (candles.length) {
       // Walk the candles since entry for the first stop/target touch, priced
@@ -1146,7 +1151,7 @@ export async function resolveKalshiStockShadowTrades(userId: number): Promise<nu
           exit = short ? Math.max(t.stop_loss, cd.ask.o) : Math.min(t.stop_loss, cd.bid.o); why = 'stop'; break;
         }
         if (tb) {
-          const ts = trailBrainStopPrice({ direction: String(t.direction), entryPrice: Number(t.entry_price), peakGainPct: Number(t.peak_gain_pct) || 0, currentGainPct: gain, slPct: Number(t.sl_pct), params: tb.params });
+          const ts = trailBrainStopPrice({ direction: String(t.direction), entryPrice: Number(t.entry_price), peakGainPct: Number(t.peak_gain_pct) || 0, currentGainPct: gain, slPct: Number(t.sl_pct), params: tb.params, rActivation: kalshiPerpTrailActivation({ entryPrice: Number(t.entry_price), takeProfit: Number(t.take_profit), slPct: Number(t.sl_pct) }) ?? undefined });
           if (ts) {
             void stampTrailBrainTrade('kalshi_perp_shadow_trades', t.id, tb);
             if (short ? cd.ask.h >= ts.stopPrice : cd.bid.l <= ts.stopPrice) {
