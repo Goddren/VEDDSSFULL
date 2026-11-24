@@ -51,7 +51,7 @@ import type { CandleData } from '../indicators';
 // never re-bought inside its bar; a new bar is new data and re-asks.
 // Past bar close the verdict is only served via the throttled-reuse
 // path, exactly like the FX cache. This instance answers to its OWN
-// switch, decoupled from the FX AI_BAR_CACHE: CRYPTO_BAR_CACHE=off
+// switch, decoupled from the FX bar-cache switch: CRYPTO_BAR_CACHE=off
 // restores the fixed 3-minute TTL for crypto only.
 export function cryptoBarCacheEnabled(): boolean {
   return process.env.CRYPTO_BAR_CACHE !== 'off';
