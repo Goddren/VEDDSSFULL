@@ -8675,19 +8675,19 @@ function adjustTrailBrainParams(engine, params, ev) {
   if (ev.brainTrades < min || ev.brainAvgFinal == null) {
     return { action: "none", reason: `watching \u2014 ${ev.brainTrades}/${min} brain-guided closes so far` };
   }
-  const fmt = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(unit === "R" ? 2 : 1)}${unit === "R" ? "R" : "%"}`;
+  const fmt2 = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(unit === "R" ? 2 : 1)}${unit === "R" ? "R" : "%"}`;
   const hasBase = ev.baseTrades >= MIN_BASELINE && ev.baseAvgFinal != null;
   if (hasBase && ev.brainAvgFinal <= ev.baseAvgFinal - c.harmDelta) {
     const loosest = params.trailDist >= c.trailDist[1] - 1e-9 && params.activation >= c.activation[1] - 1e-9;
     if (loosest) {
-      return { action: "dormant", reason: `brain-guided closes average ${fmt(ev.brainAvgFinal)} vs ${fmt(ev.baseAvgFinal)} before it, and the settings are already at their loosest \u2014 the brain stands down for this group` };
+      return { action: "dormant", reason: `brain-guided closes average ${fmt2(ev.brainAvgFinal)} vs ${fmt2(ev.baseAvgFinal)} before it, and the settings are already at their loosest \u2014 the brain stands down for this group` };
     }
     const next = clampTrailBrainParams(engine, {
       ...params,
       trailDist: params.trailDist + c.step,
       activation: params.activation + c.step / 2
     });
-    return { action: "loosen", params: next, reason: `brain-guided closes average ${fmt(ev.brainAvgFinal)} vs ${fmt(ev.baseAvgFinal)} un-guided \u2014 winners are being cut short, so the trail loosens one step` };
+    return { action: "loosen", params: next, reason: `brain-guided closes average ${fmt2(ev.brainAvgFinal)} vs ${fmt2(ev.baseAvgFinal)} un-guided \u2014 winners are being cut short, so the trail loosens one step` };
   }
   if (ev.brainAvgGiveback != null && ev.brainAvgGiveback > params.giveBackCap) {
     const next = clampTrailBrainParams(engine, {
@@ -8696,38 +8696,38 @@ function adjustTrailBrainParams(engine, params, ev) {
       activation: params.activation - c.step / 2
     });
     if (next.trailDist === params.trailDist && next.activation === params.activation) {
-      return { action: "none", reason: `give-back ${fmt(ev.brainAvgGiveback)} is over the ${fmt(params.giveBackCap)} cap but the settings are already at their tightest` };
+      return { action: "none", reason: `give-back ${fmt2(ev.brainAvgGiveback)} is over the ${fmt2(params.giveBackCap)} cap but the settings are already at their tightest` };
     }
-    return { action: "tighten", params: next, reason: `brain-guided closes give back ${fmt(ev.brainAvgGiveback)} from peak on average, over the ${fmt(params.giveBackCap)} cap \u2014 the trail tightens one step` };
+    return { action: "tighten", params: next, reason: `brain-guided closes give back ${fmt2(ev.brainAvgGiveback)} from peak on average, over the ${fmt2(params.giveBackCap)} cap \u2014 the trail tightens one step` };
   }
   if (hasBase && ev.baseAvgGiveback != null && ev.brainAvgGiveback != null && ev.brainAvgGiveback < ev.baseAvgGiveback && ev.brainAvgFinal >= ev.baseAvgFinal) {
     const next = clampTrailBrainParams(engine, { ...params, trailDist: params.trailDist - c.step / 2 });
     if (next.trailDist === params.trailDist) return { action: "none", reason: "the trail is working and already at its tightest useful setting" };
-    return { action: "tighten", params: next, reason: `give-back is down (${fmt(ev.brainAvgGiveback)} vs ${fmt(ev.baseAvgGiveback)}) and closes are not worse \u2014 squeezing half a step tighter` };
+    return { action: "tighten", params: next, reason: `give-back is down (${fmt2(ev.brainAvgGiveback)} vs ${fmt2(ev.baseAvgGiveback)}) and closes are not worse \u2014 squeezing half a step tighter` };
   }
   return { action: "none", reason: "the current settings are holding \u2014 no change this pass" };
 }
 async function loadTrailBrainStore(userId) {
   const hit = _cache3.get(userId);
   if (hit && Date.now() - hit.at < CACHE_MS2) return hit;
-  let store = { groups: {} };
+  let store2 = { groups: {} };
   let ok = true;
   try {
     const v = await getRuntimeStateStrict(STORE_SCOPE, String(userId));
-    if (v && typeof v === "object" && v.groups && typeof v.groups === "object") store = v;
+    if (v && typeof v === "object" && v.groups && typeof v.groups === "object") store2 = v;
   } catch {
     ok = false;
   }
-  const entry = { at: Date.now(), store, ok };
+  const entry = { at: Date.now(), store: store2, ok };
   _cache3.set(userId, entry);
   return entry;
 }
 async function getTrailBrainStore(userId) {
   return (await loadTrailBrainStore(userId)).store;
 }
-async function saveTrailBrainStore(userId, store) {
-  _cache3.set(userId, { at: Date.now(), store, ok: true });
-  saveRuntimeState(STORE_SCOPE, String(userId), store);
+async function saveTrailBrainStore(userId, store2) {
+  _cache3.set(userId, { at: Date.now(), store: store2, ok: true });
+  saveRuntimeState(STORE_SCOPE, String(userId), store2);
 }
 async function getTrailBrainSettings(userId) {
   try {
@@ -8748,10 +8748,10 @@ async function trailBrainConsult(userId, engine, strategy, condition) {
   if (!trailBrainOn(engine)) return null;
   try {
     if (!await userEngineOn(userId, engine)) return null;
-    const { store, ok } = await loadTrailBrainStore(userId);
+    const { store: store2, ok } = await loadTrailBrainStore(userId);
     if (!ok) return null;
     const key = groupKeyFor(engine, strategy, condition);
-    let g = store.groups[key];
+    let g = store2.groups[key];
     if (!g) {
       const now = (/* @__PURE__ */ new Date()).toISOString();
       g = {
@@ -8768,8 +8768,8 @@ async function trailBrainConsult(userId, engine, strategy, condition) {
         createdAt: now,
         updatedAt: now
       };
-      store.groups[key] = g;
-      void saveTrailBrainStore(userId, store);
+      store2.groups[key] = g;
+      void saveTrailBrainStore(userId, store2);
     }
     if (g.status === "dormant") return null;
     return { groupKey: key, engine, unit: g.unit, params: clampTrailBrainParams(engine, g.params), version: g.version };
@@ -8782,10 +8782,10 @@ async function trailBrainSolConsult(userId, strategyId) {
 }
 async function resetTrailBrainGroup(userId, groupKey) {
   try {
-    const store = await getTrailBrainStore(userId);
-    if (!store.groups[groupKey]) return false;
-    delete store.groups[groupKey];
-    await saveTrailBrainStore(userId, store);
+    const store2 = await getTrailBrainStore(userId);
+    if (!store2.groups[groupKey]) return false;
+    delete store2.groups[groupKey];
+    await saveTrailBrainStore(userId, store2);
     return true;
   } catch {
     return false;
@@ -8877,7 +8877,7 @@ function trailBrainParamsSummary(engine, p) {
   return `arms at ${f(p.activation)}, trails ${f(p.trailDist)} behind the peak, gives back at most ${f(p.giveBackCap)}${locks ? `, ${locks}` : ""}`;
 }
 async function getTrailBrainReport(userId) {
-  const [store, settings, log] = await Promise.all([
+  const [store2, settings, log] = await Promise.all([
     getTrailBrainStore(userId),
     getTrailBrainSettings(userId),
     getTrailBrainLog(userId)
@@ -8888,7 +8888,7 @@ async function getTrailBrainReport(userId) {
     userOn: settings.engines[engine] !== false,
     on: trailBrainOn(engine) && settings.engines[engine] !== false
   }));
-  const groups = Object.values(store.groups).sort((a, b) => a.engine.localeCompare(b.engine) || a.key.localeCompare(b.key)).map((g) => ({ ...g, paramsSummary: trailBrainParamsSummary(g.engine, g.params) }));
+  const groups = Object.values(store2.groups).sort((a, b) => a.engine.localeCompare(b.engine) || a.key.localeCompare(b.key)).map((g) => ({ ...g, paramsSummary: trailBrainParamsSummary(g.engine, g.params) }));
   return { engines, groups, decisions: log };
 }
 var STORE_SCOPE, SETTINGS_SCOPE, LOG_SCOPE, ENGINE_ENV, clampNum, TRAIL_BRAIN_MIN_EVIDENCE, MIN_BASELINE, _cache3, CACHE_MS2, _colsEnsured2, _stamped2, _logBuffer, _fxGoverned, FX_GOVERNED_TTL_MS;
@@ -14842,6 +14842,523 @@ var init_improvement_loop = __esm({
   }
 });
 
+// server/services/ai-watch-plans.ts
+function evaluateWatchPlan(plan, candles, now) {
+  if (now >= plan.expiresAt) return "expired";
+  const cs = (candles || []).filter((k) => k && isPos(k.o) && isPos(k.h) && isPos(k.l) && isPos(k.c));
+  if (!cs.length) return "watching";
+  const last2 = cs[0];
+  const prev = cs[1];
+  const buy = plan.direction === "BUY";
+  const zoneMid = (plan.entryZone.low + plan.entryZone.high) / 2;
+  const riskDist = Math.abs(zoneMid - plan.stopLoss) || Math.abs(last2.c - plan.stopLoss) || 0;
+  if (buy ? last2.c < plan.invalidation : last2.c > plan.invalidation) {
+    const beyond = buy ? plan.invalidation - last2.c : last2.c - plan.invalidation;
+    return riskDist > 0 && beyond >= 0.25 * riskDist ? "structure_break" : "invalidated";
+  }
+  const lvl = plan.trigger.level;
+  switch (plan.trigger.type) {
+    case "engulfing": {
+      if (!prev) return "watching";
+      const formed = buy ? prev.c < prev.o && last2.c > last2.o && last2.o <= prev.c && last2.c >= prev.o && last2.c >= lvl : prev.c > prev.o && last2.c < last2.o && last2.o >= prev.c && last2.c <= prev.o && last2.c <= lvl;
+      return formed ? "triggered" : "watching";
+    }
+    case "pin_bar": {
+      const range = last2.h - last2.l;
+      if (range <= 0) return "watching";
+      const body = Math.abs(last2.c - last2.o);
+      const lowerWick = Math.min(last2.o, last2.c) - last2.l;
+      const upperWick = last2.h - Math.max(last2.o, last2.c);
+      const formed = buy ? body <= 0.35 * range && lowerWick >= 0.55 * range && last2.c >= lvl : body <= 0.35 * range && upperWick >= 0.55 * range && last2.c <= lvl;
+      return formed ? "triggered" : "watching";
+    }
+    case "close_beyond_level": {
+      if (!prev) return "watching";
+      const crossed = buy ? prev.c <= lvl && last2.c > lvl : prev.c >= lvl && last2.c < lvl;
+      return crossed ? "triggered" : "watching";
+    }
+    case "retest_level": {
+      const away = cs.slice(1, 12).some((k) => buy ? k.c > lvl + 0.25 * riskDist : k.c < lvl - 0.25 * riskDist);
+      if (!away) return "watching";
+      const held = buy ? last2.l <= lvl && last2.c >= lvl : last2.h >= lvl && last2.c <= lvl;
+      return held ? "triggered" : "watching";
+    }
+    case "inside_bar_break": {
+      const mother = cs[2];
+      if (!prev || !mother) return "watching";
+      const inside = prev.h <= mother.h && prev.l >= mother.l;
+      if (!inside) return "watching";
+      const broke = buy ? last2.c > mother.h : last2.c < mother.l;
+      return broke ? "triggered" : "watching";
+    }
+  }
+  return "watching";
+}
+var PLAN_MIN_EXPIRY_MS, PLAN_MAX_EXPIRY_MS, WATCH_PLAN_TRIGGER_TYPES, isPos;
+var init_ai_watch_plans = __esm({
+  "server/services/ai-watch-plans.ts"() {
+    "use strict";
+    init_openai();
+    init_ai_engine_budget();
+    init_runtime_state();
+    init_db();
+    PLAN_MIN_EXPIRY_MS = 15 * 6e4;
+    PLAN_MAX_EXPIRY_MS = 8 * 36e5;
+    WATCH_PLAN_TRIGGER_TYPES = [
+      "engulfing",
+      "pin_bar",
+      "close_beyond_level",
+      "retest_level",
+      "inside_bar_break"
+    ];
+    isPos = (n) => typeof n === "number" && Number.isFinite(n) && n > 0;
+  }
+});
+
+// server/services/crypto-watch-plans.ts
+function cryptoPlanStopPct(p) {
+  const mid = (p.entryZone.low + p.entryZone.high) / 2;
+  return mid > 0 ? Math.abs(mid - p.stopLoss) / mid * 100 : NaN;
+}
+function cryptoPlanRMultiple(p) {
+  const mid = (p.entryZone.low + p.entryZone.high) / 2;
+  const risk = Math.abs(mid - p.stopLoss);
+  return risk > 0 ? Math.abs(p.takeProfit - mid) / risk : NaN;
+}
+function validateCryptoWatchPlan(raw, ctx) {
+  try {
+    if (!raw || typeof raw !== "object") return null;
+    const p = raw;
+    if (p.v !== 1) return null;
+    if (typeof p.id !== "string" || !p.id) return null;
+    if (!Number.isFinite(p.userId)) return null;
+    if (p.symbol !== ctx.symbol) return null;
+    if (typeof p.underlying !== "string" || !p.underlying) return null;
+    if (typeof p.strategy !== "string" || !p.strategy) return null;
+    if (ctx.strategyKeys) {
+      const keys = ctx.strategyKeys instanceof Set ? ctx.strategyKeys : new Set(ctx.strategyKeys);
+      if (!keys.has(p.strategy)) return null;
+    }
+    if (p.direction !== "long" && p.direction !== "short") return null;
+    if (typeof p.pattern !== "string" || p.pattern.trim().length < 1 || p.pattern.length > 80) return null;
+    if (!p.entryZone || !isPos2(p.entryZone.low) || !isPos2(p.entryZone.high) || p.entryZone.low > p.entryZone.high) return null;
+    if (!p.trigger || !WATCH_PLAN_TRIGGER_TYPES.includes(p.trigger.type) || !isPos2(p.trigger.level)) return null;
+    if (!isPos2(p.stopLoss) || !isPos2(p.takeProfit) || !isPos2(p.invalidation)) return null;
+    if (!Number.isFinite(p.createdAt) || !Number.isFinite(p.expiresAt)) return null;
+    const life = p.expiresAt - p.createdAt;
+    if (life < CRYPTO_PLAN_MIN_EXPIRY_MS - 6e4 || life > CRYPTO_PLAN_MAX_EXPIRY_MS + 6e4) return null;
+    if (p.status !== "watching" && p.status !== "triggered") return null;
+    const px = ctx.currentPrice;
+    if (!isPos2(px)) return null;
+    const band = (v) => Math.abs(v - px) / px <= CRYPTO_PLAN_PRICE_SANITY_PCT;
+    if (![p.entryZone.low, p.entryZone.high, p.trigger.level, p.stopLoss, p.takeProfit, p.invalidation].every(band)) return null;
+    const long = p.direction === "long";
+    if (long) {
+      if (!(p.stopLoss < p.entryZone.low)) return null;
+      if (!(p.invalidation < p.entryZone.low)) return null;
+      if (!(p.takeProfit > p.entryZone.high)) return null;
+    } else {
+      if (!(p.stopLoss > p.entryZone.high)) return null;
+      if (!(p.invalidation > p.entryZone.high)) return null;
+      if (!(p.takeProfit < p.entryZone.low)) return null;
+    }
+    const stopPct = cryptoPlanStopPct(p);
+    if (!Number.isFinite(stopPct) || stopPct < CRYPTO_PLAN_STOP_MIN_PCT || stopPct > CRYPTO_PLAN_STOP_MAX_PCT) return null;
+    const rMult = cryptoPlanRMultiple(p);
+    if (!Number.isFinite(rMult) || rMult < CRYPTO_PLAN_TARGET_R * 0.9 || rMult > CRYPTO_PLAN_TARGET_R * 1.1) return null;
+    if (typeof p.confidence !== "number" || !Number.isFinite(p.confidence)) return null;
+    return {
+      ...p,
+      confidence: Math.min(100, Math.max(0, p.confidence)),
+      rationale: typeof p.rationale === "string" ? p.rationale.slice(0, 400) : ""
+    };
+  } catch {
+    return null;
+  }
+}
+function toFxPlan(p) {
+  return {
+    v: 1,
+    id: p.id,
+    userId: p.userId,
+    symbol: p.symbol,
+    timeframe: "H1",
+    direction: p.direction === "long" ? "BUY" : "SELL",
+    pattern: p.pattern,
+    entryZone: p.entryZone,
+    trigger: p.trigger,
+    stopLoss: p.stopLoss,
+    takeProfit: p.takeProfit,
+    invalidation: p.invalidation,
+    confidence: p.confidence,
+    rationale: p.rationale,
+    createdAt: p.createdAt,
+    expiresAt: p.expiresAt,
+    status: p.status,
+    triggeredAt: p.triggeredAt,
+    modelUsed: p.modelUsed
+  };
+}
+function evaluateCryptoWatchPlan(plan, candlesNewestFirst, now) {
+  return evaluateWatchPlan(toFxPlan(plan), candlesNewestFirst, now);
+}
+function buildCryptoWatchPlanPrompt(input) {
+  const system = `You are the senior analyst for a crypto DeFi SHADOW trading lane (Base chain spot pairs, paper trades only). A mechanical strategy has flagged this pair, but mechanical entries alone have produced poor accuracy. Your job is NOT to call a trade for this instant. Study the evidence and write ONE WATCH PLAN for the named strategy: the single highest-quality pattern worth waiting for on this pair, the exact candle that confirms entry when it forms, and the price that proves the idea wrong. The engine will watch your plan for free on hourly candles and only open when your trigger forms AND the strategy's own signal agrees. This is a 24/7 market \u2014 there are no sessions, opens or closes to lean on. A precise, patient plan beats an eager one; if the evidence says this pair+strategy pairing is a proven loser or nothing is worth watching, say so with noPlan \u2014 a steward does not invent setups. Short plans are hypothetical (Base spot cannot short) but are judged by the same evidence standard. Respond ONLY with JSON in one of these two shapes:
+{"plan": {"direction": "long"|"short", "pattern": string, "entryZoneLow": number, "entryZoneHigh": number, "triggerType": "engulfing"|"pin_bar"|"close_beyond_level"|"retest_level"|"inside_bar_break", "triggerLevel": number, "stopLoss": number, "takeProfit": number, "invalidation": number, "expiryMinutes": number (60 to 2880), "confidence": number (0 to 100), "rationale": "one or two short lines"}}
+{"noPlan": true, "reason": "one short line"}
+Geometry rules (the lane's exits are fixed and your sketch must match them): for long, stopLoss and invalidation are BELOW the entry zone and takeProfit is ABOVE it (mirror for short). The stop distance from the zone midpoint must be between 1.5% and 12% of price, and the target must sit at about 2x the stop distance (2R). triggerLevel is the level the trigger candle must close past or hold. Anchor your stop near the lane stop given below.`;
+  const closes = (input.recentCloses || []).filter((n) => Number.isFinite(n)).slice(-12);
+  let pattern = null;
+  if (closes.length >= 2) {
+    const first = closes[0], lastC = closes[closes.length - 1];
+    const movePct = first > 0 ? (lastC - first) / first * 100 : 0;
+    let ups = 0;
+    for (let i = 1; i < closes.length; i++) if (closes[i] > closes[i - 1]) ups++;
+    pattern = `Recent H1 closes (oldest to newest): ${closes.join(", ")} \u2014 net ${movePct >= 0 ? "+" : ""}${movePct.toFixed(2)}% over the window, ${ups} of ${closes.length - 1} hourly moves up`;
+  }
+  const hist = input.pairHistory;
+  const recentLines = (hist?.recent || []).slice(0, 10).map((r) => `${r.strategy} ${r.direction} ${r.netPct >= 0 ? "+" : ""}${r.netPct.toFixed(2)}%${r.rMultiple != null ? ` (${r.rMultiple >= 0 ? "+" : ""}${r.rMultiple.toFixed(1)}R)` : ""}`);
+  const rec = input.strategyRecord;
+  const formLine = rec && (rec.last14d || rec.prior14d) ? `Strategy recent form: last 14d ${fmtRec(rec.last14d)} vs prior 14d ${fmtRec(rec.prior14d)}` : null;
+  const evidenceLines = (input.bucketEvidence || []).slice(0, 8).map((b) => `${b.dim}=${b.bucket}: ${b.verdict} (n=${b.n}, median net ${b.medianNet >= 0 ? "+" : ""}${b.medianNet.toFixed(2)}%)`);
+  const ctxParts = [];
+  if (input.liquidityUsd != null && input.liquidityUsd > 0) ctxParts.push(`pool liquidity $${Math.round(input.liquidityUsd).toLocaleString("en-US")}`);
+  if (input.buyShareH1 != null) ctxParts.push(`buy share 1h ${Math.round(input.buyShareH1 * 100)}%`);
+  if (input.btcChange24h != null) ctxParts.push(`BTC 24h ${input.btcChange24h >= 0 ? "+" : ""}${input.btcChange24h.toFixed(2)}%`);
+  if (input.htfAligned != null) ctxParts.push(input.htfAligned ? "HTF aligned with this side" : "HTF against this side");
+  const user = [
+    `STUDY: ${input.strategy} on ${input.underlying} (${input.symbol}) \u2014 the strategy's mechanical signal just fired ${input.signalDirection.toUpperCase()}${input.signalScore != null ? ` (score ${input.signalScore})` : ""}`,
+    `Current price \u2248 ${fmt(input.entryPrice)} \xB7 lane stop for this pair right now: ${input.slPct.toFixed(2)}% (1.5x H1 ATR, clamped 1.5\u201312%) \xB7 ATR ${input.atrPct != null ? `${input.atrPct.toFixed(2)}%` : "n/a"} \xB7 H1 trend ${input.h1Trend ?? "n/a"}, H4 trend ${input.h4Trend ?? "n/a"}${ctxParts.length ? ` \xB7 ${ctxParts.join(" \xB7 ")}` : ""}`,
+    `PAIR HISTORY (${input.underlying} in this lane): ${fmtRec(hist?.summary)}`,
+    recentLines.length ? `Last closes on ${input.underlying} (newest first): ${recentLines.join("; ")}` : null,
+    `STRATEGY RECORD (${input.strategy} overall): ${fmtRec(rec?.overall)}`,
+    formLine,
+    `BUCKET EVIDENCE (the lane's record on setups like this): ${evidenceLines.length ? "" : "no bucket has enough history yet"}`,
+    ...evidenceLines.map((l) => `  ${l}`),
+    pattern,
+    `Write the watch plan for ${input.strategy} on ${input.underlying} now \u2014 or answer noPlan if the evidence says wait for a different day.`
+  ].filter(Boolean).join("\n");
+  return { system, user };
+}
+function parseCryptoWatchPlanResponse(content) {
+  if (!content) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    const m = content.match(/\{[\s\S]*\}/);
+    if (!m) return null;
+    try {
+      parsed = JSON.parse(m[0]);
+    } catch {
+      return null;
+    }
+  }
+  if (parsed?.noPlan === true) {
+    return { kind: "no_plan", reason: String(parsed.reason || "no setup worth watching").slice(0, 200) };
+  }
+  const f = parsed?.plan;
+  if (!f || typeof f !== "object") return null;
+  return { kind: "plan", fields: f };
+}
+function cryptoPlanFromFields(fields, ctx) {
+  let confidence = Number(fields.confidence);
+  if (!Number.isFinite(confidence)) confidence = 0;
+  if (confidence > 0 && confidence <= 1) confidence *= 100;
+  const expiryMinRaw = Number(fields.expiryMinutes);
+  const expiryMin = Number.isFinite(expiryMinRaw) ? Math.min(CRYPTO_PLAN_MAX_EXPIRY_MS / 6e4, Math.max(CRYPTO_PLAN_MIN_EXPIRY_MS / 6e4, expiryMinRaw)) : 720;
+  const dirRaw = String(fields.direction || "").toLowerCase();
+  const candidate = {
+    v: 1,
+    id: ctx.id,
+    userId: ctx.userId,
+    symbol: ctx.symbol,
+    underlying: ctx.underlying,
+    strategy: ctx.strategy,
+    direction: dirRaw === "short" || dirRaw === "sell" ? "short" : "long",
+    pattern: String(fields.pattern || "").slice(0, 80),
+    entryZone: { low: Number(fields.entryZoneLow), high: Number(fields.entryZoneHigh) },
+    trigger: {
+      type: String(fields.triggerType || ""),
+      level: Number(fields.triggerLevel)
+    },
+    stopLoss: Number(fields.stopLoss),
+    takeProfit: Number(fields.takeProfit),
+    invalidation: Number(fields.invalidation),
+    confidence,
+    rationale: String(fields.rationale || "").slice(0, 400),
+    createdAt: ctx.now,
+    expiresAt: ctx.now + expiryMin * 6e4,
+    status: "watching",
+    modelUsed: ctx.modelUsed ?? null
+  };
+  if (candidate.entryZone.low > candidate.entryZone.high) {
+    const t = candidate.entryZone.low;
+    candidate.entryZone.low = candidate.entryZone.high;
+    candidate.entryZone.high = t;
+  }
+  return validateCryptoWatchPlan(candidate, { symbol: ctx.symbol, currentPrice: ctx.currentPrice, strategyKeys: ctx.strategyKeys });
+}
+function currentCounters(userId) {
+  const day = utcDay4();
+  let s = countersByUser.get(userId);
+  if (!s || s.day !== day) {
+    s = { day, c: emptyCounters() };
+    countersByUser.set(userId, s);
+  }
+  return s.c;
+}
+function noteCryptoPlanEntry(userId) {
+  currentCounters(userId).entriesViaPlan += 1;
+}
+function cryptoWatchPlanCountersToday(userId) {
+  const s = countersByUser.get(userId);
+  return s && s.day === utcDay4() ? { ...s.c } : emptyCounters();
+}
+async function getBlob(userId) {
+  const hit = cache4.get(userId);
+  if (hit) return hit;
+  loadStarted2.add(userId);
+  const loaded = await store.load(userId);
+  const blob = loaded ?? { plans: {}, lastDeepAt: {} };
+  cache4.set(userId, blob);
+  return blob;
+}
+async function persist(userId, blob) {
+  try {
+    await store.save(userId, blob);
+  } catch {
+  }
+}
+function countActiveCryptoPlans(userId, now = Date.now()) {
+  const blob = cache4.get(userId);
+  if (!blob) return 0;
+  let n = 0;
+  for (const p of Object.values(blob.plans)) if (p && p.expiresAt > now) n += 1;
+  return n;
+}
+function newCryptoPlanCycle() {
+  return { deepUsed: 0, deepCap: cryptoPlanMaxDeepPerCycle() };
+}
+async function runCryptoDeepStudy(input, client2) {
+  if (!await engineAiBudgetAllows(input.userId, "protected")) {
+    throw engineAiBudgetError();
+  }
+  const { system, user } = buildCryptoWatchPlanPrompt(input);
+  const modelId = client2.defaultModel || getUserModelPreference(input.userId) || "gpt-4o-mini";
+  const call = client2.chat.completions.create({
+    model: modelId,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user }
+    ],
+    temperature: 0.3
+  });
+  const timeout = new Promise((_, reject) => {
+    const t = setTimeout(() => reject(new Error(`crypto watch-plan study timed out after ${cryptoWatchPlanTimeoutMs()}ms`)), cryptoWatchPlanTimeoutMs());
+    t.unref?.();
+  });
+  const resp = await Promise.race([call, timeout]);
+  const content = String(resp?.choices?.[0]?.message?.content || "");
+  if (!content) throw new Error("crypto watch-plan study returned an empty reply");
+  meterEngineAiConfirmation(input.userId, 2, "protected");
+  return { content, model: resp?.model || modelId };
+}
+async function realDeepCall(input) {
+  const client2 = await getUniversalAIClientForUser(input.userId);
+  return runCryptoDeepStudy(input, client2);
+}
+async function resolveCryptoWatchPlan(input, cycle, deps = {}) {
+  const now = (deps.now ?? Date.now)();
+  const userId = input.userId;
+  const key = cryptoPlanKey(input.symbol, input.strategy);
+  const counters = currentCounters(userId);
+  try {
+    const blob = await getBlob(userId);
+    let plan = null;
+    const stored = blob.plans[key];
+    if (stored) {
+      plan = validateCryptoWatchPlan(stored, { symbol: input.symbol, currentPrice: input.currentPrice, strategyKeys: deps.strategyKeys });
+      if (!plan) delete blob.plans[key];
+    }
+    if (plan) {
+      const ev = evaluateCryptoWatchPlan(plan, input.candlesNewestFirst, now);
+      if (ev === "expired" || ev === "invalidated" || ev === "structure_break") {
+        delete blob.plans[key];
+        await persist(userId, blob);
+        if (ev === "expired") counters.expired += 1;
+        else if (ev === "invalidated") counters.invalidated += 1;
+        else counters.structureBreaks += 1;
+        plan = null;
+      } else if (ev === "triggered" || plan.status === "triggered") {
+        if (plan.status !== "triggered") {
+          plan.status = "triggered";
+          plan.triggeredAt = now;
+          blob.plans[key] = plan;
+          await persist(userId, blob);
+          counters.triggered += 1;
+        }
+        return { action: "triggered", plan };
+      } else {
+        counters.planSkips += 1;
+        return { action: "skip", plan };
+      }
+    }
+    const lastDeep = Number(blob.lastDeepAt[key] || 0);
+    if (now - lastDeep < cryptoWatchPlanCooldownMs() || cycle.deepUsed >= cycle.deepCap) {
+      counters.planSkips += 1;
+      return { action: "skip", plan: null };
+    }
+    const callDeep = deps.callDeep ?? realDeepCall;
+    let study;
+    try {
+      study = await callDeep(input);
+    } catch (e) {
+      const isBudget = e?.budgetBlocked === true || e?.aiErrorStatus === "budget" || Number(e?.status ?? e?.statusCode) === 402;
+      if (!isBudget) console.warn(`[crypto-watch-plans] study failed for ${input.symbol}/${input.strategy}: ${String(e?.message || e).slice(0, 140)}`);
+      counters.planSkips += 1;
+      return { action: "skip", plan: null };
+    }
+    cycle.deepUsed += 1;
+    counters.deepCalls += 1;
+    blob.lastDeepAt[key] = now;
+    await persist(userId, blob);
+    const parsed = parseCryptoWatchPlanResponse(study.content);
+    if (!parsed || parsed.kind === "no_plan") {
+      counters.planSkips += 1;
+      return { action: "skip", plan: null };
+    }
+    const created = cryptoPlanFromFields(parsed.fields, {
+      userId,
+      symbol: input.symbol,
+      underlying: input.underlying,
+      strategy: input.strategy,
+      currentPrice: input.currentPrice,
+      now,
+      id: `cwp_${now.toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`,
+      modelUsed: study.model,
+      strategyKeys: deps.strategyKeys
+    });
+    if (!created) {
+      counters.planSkips += 1;
+      return { action: "skip", plan: null };
+    }
+    blob.plans[key] = created;
+    await persist(userId, blob);
+    counters.created += 1;
+    const ev0 = evaluateCryptoWatchPlan(created, input.candlesNewestFirst, now);
+    if (ev0 === "triggered") {
+      created.status = "triggered";
+      created.triggeredAt = now;
+      blob.plans[key] = created;
+      await persist(userId, blob);
+      counters.triggered += 1;
+      return { action: "triggered", plan: created };
+    }
+    if (ev0 === "invalidated" || ev0 === "structure_break") {
+      delete blob.plans[key];
+      await persist(userId, blob);
+      if (ev0 === "invalidated") counters.invalidated += 1;
+      else counters.structureBreaks += 1;
+      counters.planSkips += 1;
+      return { action: "skip", plan: null };
+    }
+    counters.planSkips += 1;
+    return { action: "skip", plan: created };
+  } catch {
+    try {
+      currentCounters(userId).fallbacks += 1;
+    } catch {
+    }
+    return { action: "fallback" };
+  }
+}
+function cryptoWatchPlansSummary(userId) {
+  return {
+    enabled: cryptoWatchPlansEnabled(),
+    activePlans: countActiveCryptoPlans(userId),
+    ...cryptoWatchPlanCountersToday(userId)
+  };
+}
+var cryptoWatchPlansEnabled, cryptoWatchPlanCooldownMs, CRYPTO_PLAN_MAX_DEEP_PER_CYCLE, cryptoPlanMaxDeepPerCycle, cryptoWatchPlanTimeoutMs, CRYPTO_PLAN_MIN_EXPIRY_MS, CRYPTO_PLAN_MAX_EXPIRY_MS, CRYPTO_PLAN_PRICE_SANITY_PCT, CRYPTO_PLAN_STOP_MIN_PCT, CRYPTO_PLAN_STOP_MAX_PCT, CRYPTO_PLAN_TARGET_R, cryptoPlanKey, isPos2, fmt, fmtRec, emptyCounters, countersByUser, utcDay4, defaultStore, store, cache4, loadStarted2;
+var init_crypto_watch_plans = __esm({
+  "server/services/crypto-watch-plans.ts"() {
+    "use strict";
+    init_openai();
+    init_ai_engine_budget();
+    init_runtime_state();
+    init_db();
+    init_ai_watch_plans();
+    cryptoWatchPlansEnabled = () => process.env.CRYPTO_WATCH_PLANS !== "off";
+    cryptoWatchPlanCooldownMs = () => {
+      const n = Number(process.env.CRYPTO_WATCH_PLAN_COOLDOWN_MIN ?? 30);
+      return (Number.isFinite(n) && n >= 30 ? n : 30) * 6e4;
+    };
+    CRYPTO_PLAN_MAX_DEEP_PER_CYCLE = 3;
+    cryptoPlanMaxDeepPerCycle = () => {
+      const n = Number(process.env.CRYPTO_WATCH_PLAN_MAX_DEEP_PER_CYCLE ?? CRYPTO_PLAN_MAX_DEEP_PER_CYCLE);
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : CRYPTO_PLAN_MAX_DEEP_PER_CYCLE;
+    };
+    cryptoWatchPlanTimeoutMs = () => {
+      const n = Number(process.env.CRYPTO_WATCH_PLAN_TIMEOUT_MS ?? 45e3);
+      return Number.isFinite(n) && n >= 5e3 ? n : 45e3;
+    };
+    CRYPTO_PLAN_MIN_EXPIRY_MS = 1 * 36e5;
+    CRYPTO_PLAN_MAX_EXPIRY_MS = 48 * 36e5;
+    CRYPTO_PLAN_PRICE_SANITY_PCT = 0.25;
+    CRYPTO_PLAN_STOP_MIN_PCT = 1.5;
+    CRYPTO_PLAN_STOP_MAX_PCT = 12;
+    CRYPTO_PLAN_TARGET_R = 2;
+    cryptoPlanKey = (symbol, strategy) => `${symbol}|${strategy}`;
+    isPos2 = (n) => typeof n === "number" && Number.isFinite(n) && n > 0;
+    fmt = (n) => {
+      if (!Number.isFinite(n)) return "0";
+      return Math.abs(n) >= 100 ? n.toFixed(2) : Math.abs(n) >= 1 ? n.toFixed(4) : n.toFixed(5);
+    };
+    fmtRec = (s) => {
+      if (!s || !s.n) return "no closed trades yet";
+      const wr = s.winRate != null ? `${Math.round(s.winRate * 100)}% WR` : "WR n/a";
+      const avgR = s.avgR != null ? `avg ${s.avgR >= 0 ? "+" : ""}${s.avgR.toFixed(2)}R` : "avg R n/a";
+      const med = s.medianNetPct != null ? `median net ${s.medianNetPct >= 0 ? "+" : ""}${s.medianNetPct.toFixed(2)}%` : "median n/a";
+      return `${s.n} trades, ${wr}, ${avgR}, ${med}`;
+    };
+    emptyCounters = () => ({
+      created: 0,
+      triggered: 0,
+      expired: 0,
+      invalidated: 0,
+      structureBreaks: 0,
+      deepCalls: 0,
+      planSkips: 0,
+      fallbacks: 0,
+      entriesViaPlan: 0
+    });
+    countersByUser = /* @__PURE__ */ new Map();
+    utcDay4 = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    defaultStore = {
+      async load(userId) {
+        const saved = await getRuntimeStateStrict("crypto_watch_plans", String(userId));
+        if (!saved || typeof saved !== "object") return null;
+        return {
+          plans: saved.plans && typeof saved.plans === "object" ? saved.plans : {},
+          lastDeepAt: saved.lastDeepAt && typeof saved.lastDeepAt === "object" ? saved.lastDeepAt : {}
+        };
+      },
+      async save(userId, blob) {
+        await ensureRuntimeStateTable();
+        await pool.query(
+          `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+       ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+          ["crypto_watch_plans", String(userId), JSON.stringify(blob)]
+        );
+      }
+    };
+    store = defaultStore;
+    cache4 = /* @__PURE__ */ new Map();
+    loadStarted2 = /* @__PURE__ */ new Set();
+  }
+});
+
 // server/services/crypto-ports.ts
 var crypto_ports_exports = {};
 __export(crypto_ports_exports, {
@@ -15148,8 +15665,10 @@ function barDurationMs(timeframe) {
   }
   return null;
 }
-function createConfirmationCache() {
-  const cache7 = /* @__PURE__ */ new Map();
+function createConfirmationCache(opts = {}) {
+  const barOn = () => opts.barEnabled ? opts.barEnabled() : barCacheEnabled();
+  const barTf = (timeframe) => opts.barTimeframe ? opts.barTimeframe(timeframe) : timeframe;
+  const cache8 = /* @__PURE__ */ new Map();
   const lastCallAt2 = /* @__PURE__ */ new Map();
   let hits = 0, misses = 0, throttled = 0;
   function bandKey(userId, symbol, timeframe, direction, eaConf, _price, discriminator) {
@@ -15162,8 +15681,8 @@ function createConfirmationCache() {
   function get(userId, symbol, timeframe, direction, eaConfidence, price, discriminator) {
     const now = Date.now();
     const k = bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator);
-    const hit = cache7.get(k);
-    const fresh = !!hit && (barCacheEnabled() && hit.barCloseAt !== void 0 ? now < hit.barCloseAt : now - hit.at < TTL_MS4);
+    const hit = cache8.get(k);
+    const fresh = !!hit && (barOn() && hit.barCloseAt !== void 0 ? now < hit.barCloseAt : now - hit.at < TTL_MS4);
     if (hit && fresh) {
       hits++;
       return { verdict: hit.verdict, reason: `cached ${Math.round((now - hit.at) / 1e3)}s ago (same setup)` };
@@ -15173,7 +15692,7 @@ function createConfirmationCache() {
     if (now - last2 < FLOOR_MS) {
       let best = null;
       const prefix = `${userId}:${symbol}:${timeframe}:${direction}${discriminator ? `:${discriminator}` : ""}:`;
-      for (const [ck, v] of Array.from(cache7.entries())) {
+      for (const [ck, v] of Array.from(cache8.entries())) {
         if (!ck.startsWith(prefix)) continue;
         if (!/^\d+$/.test(ck.slice(prefix.length))) continue;
         if (now - v.at > STALE_USABLE_MS) continue;
@@ -15189,17 +15708,17 @@ function createConfirmationCache() {
   }
   function put(userId, symbol, timeframe, direction, eaConfidence, price, verdict, discriminator) {
     const now = Date.now();
-    const dur = barCacheEnabled() ? barDurationMs(timeframe) : null;
+    const dur = barOn() ? barDurationMs(barTf(timeframe)) : null;
     const barCloseAt = dur ? (Math.floor(now / dur) + 1) * dur : void 0;
-    cache7.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator), { verdict, at: now, eaConfidence, price, barCloseAt });
+    cache8.set(bandKey(userId, symbol, timeframe, direction, eaConfidence, price, discriminator), { verdict, at: now, eaConfidence, price, barCloseAt });
     lastCallAt2.set(symbolKey(userId, symbol, timeframe), now);
-    if (cache7.size > 500) {
-      for (const [k, v] of Array.from(cache7.entries())) if (now - v.at > STALE_USABLE_MS) cache7.delete(k);
+    if (cache8.size > 500) {
+      for (const [k, v] of Array.from(cache8.entries())) if (now - v.at > STALE_USABLE_MS) cache8.delete(k);
     }
   }
   function stats() {
     const total = hits + misses + throttled;
-    return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache7.size, barAware: barCacheEnabled() };
+    return { hits, misses, throttled, total, savedPct: total ? Math.round((hits + throttled) / total * 100) : 0, entries: cache8.size, barAware: barOn() };
   }
   return { get, put, stats };
 }
@@ -15334,9 +15853,13 @@ var init_shadow_lessons = __esm({
 // server/services/crypto-ai-confirmation.ts
 var crypto_ai_confirmation_exports = {};
 __export(crypto_ai_confirmation_exports, {
+  cryptoBarCacheEnabled: () => cryptoBarCacheEnabled,
   cryptoConfirmationCacheStats: () => cryptoConfirmationCacheStats,
   getCryptoAiConfirmation: () => getCryptoAiConfirmation
 });
+function cryptoBarCacheEnabled() {
+  return process.env.CRYPTO_BAR_CACHE !== "off";
+}
 function cryptoConfirmationCacheStats() {
   return cryptoConfirmationCache.stats();
 }
@@ -15476,7 +15999,10 @@ var init_crypto_ai_confirmation = __esm({
     "use strict";
     init_openai();
     init_ai_confirmation_cache();
-    cryptoConfirmationCache = createConfirmationCache();
+    cryptoConfirmationCache = createConfirmationCache({
+      barEnabled: cryptoBarCacheEnabled,
+      barTimeframe: (tf) => tf.includes(":shadow-h1") ? "1h" : tf
+    });
     CONFIRM_TIMEFRAME = "5m";
   }
 });
@@ -15489,6 +16015,7 @@ __export(crypto_shadow_exports, {
   aggregateAiJudge: () => aggregateAiJudge,
   bucketsOf: () => bucketsOf,
   buildJudgeEvidence: () => buildJudgeEvidence,
+  collectCryptoPlanEvidence: () => collectCryptoPlanEvidence,
   collectJudgeEvidence: () => collectJudgeEvidence,
   computeCryptoShadowAiJudge: () => computeCryptoShadowAiJudge,
   computeCryptoShadowStats: () => computeCryptoShadowStats,
@@ -15842,6 +16369,42 @@ async function collectJudgeEvidence(userId, args) {
     return void 0;
   }
 }
+async function collectCryptoPlanEvidence(userId, args) {
+  try {
+    const pairRows = (await pool.query(
+      `SELECT c.strategy, c.direction, c.net_pct, t.r_multiple FROM crypto_shadow_context c JOIN crypto_shadow_trades t ON t.id = c.trade_id
+        WHERE c.user_id=$1 AND t.underlying=$2 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL ORDER BY c.closed_at DESC`,
+      [userId, args.underlying]
+    )).rows;
+    const stratRows = (await pool.query(
+      `SELECT c.net_pct, t.r_multiple, c.closed_at FROM crypto_shadow_context c JOIN crypto_shadow_trades t ON t.id = c.trade_id
+        WHERE c.user_id=$1 AND c.strategy=$2 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL ORDER BY c.closed_at DESC`,
+      [userId, args.strategy]
+    )).rows;
+    const form = strategyForm(stratRows);
+    const bs = bucketsOf(args.ctx);
+    const bucketEvidence = args.stats.filter((s) => s.strategy === args.strategy && s.verdict !== "learning" && bs[s.dim] === s.bucket).map((s) => ({ verdict: s.verdict, dim: s.dim, bucket: s.bucket, n: s.n, medianNet: s.medianNet }));
+    return {
+      pairHistory: {
+        summary: toPlanSummary(summarizeJudgeCloses(pairRows)),
+        recent: pairRows.slice(0, 10).map((r) => ({
+          strategy: String(r.strategy),
+          direction: String(r.direction),
+          netPct: Number(r.net_pct),
+          rMultiple: r.r_multiple == null ? null : Number(r.r_multiple)
+        }))
+      },
+      strategyRecord: {
+        overall: toPlanSummary(form.overall),
+        last14d: form.last14 ? toPlanSummary(form.last14) : null,
+        prior14d: form.prior14 ? toPlanSummary(form.prior14) : null
+      },
+      bucketEvidence
+    };
+  } catch {
+    return void 0;
+  }
+}
 async function resolveCryptoShadowTrades(userId) {
   await ensureCryptoShadowTables();
   const { rows } = await pool.query(`SELECT * FROM crypto_shadow_trades WHERE user_id=$1 AND status='open'`, [userId]);
@@ -15926,6 +16489,9 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
   const floorMult = Number(process.env.CRYPTO_PAPER_COST_FLOOR_MULT ?? 3);
   let opened = 0;
   const shadowCfg = { ...cfg, directionFilter: "both" };
+  const plansOn = cryptoWatchPlansEnabled();
+  const planCycle = newCryptoPlanCycle();
+  const planStrategyKeys = /* @__PURE__ */ new Set([...Object.keys(deps.runners), "composite_autonomous"]);
   for (const symbol of symbols) {
     if (open.length >= MAX_OPEN()) break;
     if (isTokenizedAsset2(symbol)) continue;
@@ -16017,6 +16583,45 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
       if (uni.newToken) tags.push("new_token");
       if (ctx.buy_share_h1 != null && ctx.buy_share_h1 > 0.65) tags.push("buyers_dominant");
       if (ctx.buy_share_h1 != null && ctx.buy_share_h1 < 0.45) tags.push("sellers_dominant");
+      let viaPlan = false;
+      if (plansOn) {
+        let res2 = { action: "fallback" };
+        try {
+          const planEvidence = await collectCryptoPlanEvidence(userId, {
+            underlying: und,
+            strategy: strat,
+            stats,
+            ctx
+          }).catch(() => void 0);
+          res2 = await resolveCryptoWatchPlan({
+            userId,
+            symbol,
+            underlying: und,
+            strategy: strat,
+            signalDirection: short ? "short" : "long",
+            signalScore: sig.score ?? null,
+            entryPrice: price,
+            slPct,
+            atrPct: ctx.atr_pct,
+            h1Trend,
+            h4Trend,
+            htfAligned: aligned,
+            liquidityUsd: uni.liquidityUsd,
+            buyShareH1: ctx.buy_share_h1,
+            btcChange24h: btcChange,
+            recentCloses: closes.slice(-12),
+            pairHistory: planEvidence?.pairHistory ?? null,
+            strategyRecord: planEvidence?.strategyRecord ?? null,
+            bucketEvidence: planEvidence?.bucketEvidence ?? null,
+            candlesNewestFirst: bars.slice().reverse().map((b) => ({ o: b.o, h: b.h, l: b.l, c: b.c })),
+            currentPrice: price
+          }, planCycle, { strategyKeys: planStrategyKeys });
+        } catch {
+          res2 = { action: "fallback" };
+        }
+        if (res2.action === "skip") continue;
+        viaPlan = res2.action === "triggered";
+      }
       const ins = await pool.query(
         `INSERT INTO crypto_shadow_trades (user_id, strategy, symbol, underlying, chain, token_address, pool_address, direction, entry_price, stop_loss, take_profit,
            sl_pct, notional_usd, cost_bps, score, max_hours) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
@@ -16096,12 +16701,13 @@ async function runCryptoShadowAll(userId, cfg, symbols, chain, slippageCapBps, d
       ).catch(() => {
       });
       open.push({ strategy: strat, underlying: und });
+      if (viaPlan) noteCryptoPlanEntry(userId);
       opened++;
     }
   }
   return { opened, closed };
 }
-var num3, shadowAllEnabled, MAX_OPEN, MAX_PER_STRAT, COOLDOWN_MS, EVERY_MS, NOTIONAL, _ensured2, _statsCache, cryptoShadowAiJudgeOn, JUDGE_TIMEOUT_MS, NO_VERDICT, _judgeStatsCache, _pct, _r, _usd, _lastRun;
+var num3, shadowAllEnabled, MAX_OPEN, MAX_PER_STRAT, COOLDOWN_MS, EVERY_MS, NOTIONAL, _ensured2, _statsCache, cryptoShadowAiJudgeOn, JUDGE_TIMEOUT_MS, NO_VERDICT, _judgeStatsCache, _pct, _r, _usd, toPlanSummary, _lastRun;
 var init_crypto_shadow = __esm({
   "server/services/crypto-shadow.ts"() {
     "use strict";
@@ -16109,6 +16715,7 @@ var init_crypto_shadow = __esm({
     init_shadow_lesson_gate();
     init_improvement_loop();
     init_trail_brain();
+    init_crypto_watch_plans();
     num3 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
@@ -16128,6 +16735,7 @@ var init_crypto_shadow = __esm({
     _pct = (x) => `${x >= 0 ? "+" : ""}${x.toFixed(2)}%`;
     _r = (x) => x == null ? "n/a" : `${x >= 0 ? "+" : ""}${x.toFixed(2)}R`;
     _usd = (x) => x >= 1e9 ? `$${(x / 1e9).toFixed(1)}B` : x >= 1e6 ? `$${(x / 1e6).toFixed(1)}M` : x >= 1e3 ? `$${Math.round(x / 1e3)}k` : `$${Math.round(x)}`;
+    toPlanSummary = (s) => s.n ? { n: s.n, winRate: s.winRate, avgR: s.avgR, medianNetPct: s.medianNet } : { n: 0, winRate: null, avgR: null, medianNetPct: null };
     _lastRun = /* @__PURE__ */ new Map();
   }
 });
@@ -18021,10 +18629,10 @@ function paceWindowFor(plan, symbol, direction, hourUtc = (/* @__PURE__ */ new D
 function pacePromptSection(plan) {
   if (!plan) return "";
   const sess = sessionForHour((/* @__PURE__ */ new Date()).getUTCHours());
-  const fmt = (w) => `${w.symbol} ${w.direction} (${w.winRate}% over ${w.signals}, $${w.expectancy}/signal)`;
+  const fmt2 = (w) => `${w.symbol} ${w.direction} (${w.winRate}% over ${w.signals}, $${w.expectancy}/signal)`;
   const now = plan.windows.filter((w) => sameSession(w.session, sess));
-  const focus = now.filter((w) => w.verdict === "FOCUS").slice(0, 6).map(fmt);
-  const avoid = now.filter((w) => w.verdict === "AVOID").slice(-6).map(fmt);
+  const focus = now.filter((w) => w.verdict === "FOCUS").slice(0, 6).map(fmt2);
+  const avoid = now.filter((w) => w.verdict === "AVOID").slice(-6).map(fmt2);
   const later = plan.windows.filter((w) => w.verdict === "FOCUS" && !sameSession(w.session, sess)).slice(0, 5).map((w) => `${w.symbol} ${w.direction} in ${w.session}`);
   return `
 GOAL PACE AGENT (week $${plan.weekPnl} / $${plan.weekTarget}, ${plan.mode}; need ~$${plan.neededPerDay}/day over ${plan.daysLeft} day(s); today $${plan.todayPnl}${plan.todayCap != null ? `, consistency cap $${plan.todayCap} today` : ""}):
@@ -18055,12 +18663,12 @@ __export(ai_level_exports, {
   setAiLevel: () => setAiLevel
 });
 function getAiLevelSync(userId) {
-  const hit = cache4.get(userId);
+  const hit = cache5.get(userId);
   if (!hit || Date.now() - hit.at > 6e4) void refresh(userId);
   return AI_LEVELS[hit?.level ?? "balanced"];
 }
 async function getAiLevel(userId) {
-  const hit = cache4.get(userId);
+  const hit = cache5.get(userId);
   if (hit && Date.now() - hit.at < 6e4) return AI_LEVELS[hit.level];
   return AI_LEVELS[await refresh(userId)];
 }
@@ -18069,11 +18677,11 @@ async function refresh(userId) {
     const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
     const v = await getRuntimeStateStrict2("ai_level", String(userId));
     const level = v?.level === "eco" || v?.level === "turbo" ? v.level : "balanced";
-    cache4.set(userId, { at: Date.now(), level });
+    cache5.set(userId, { at: Date.now(), level });
     return level;
   } catch {
-    const prev = cache4.get(userId)?.level ?? "balanced";
-    cache4.set(userId, { at: Date.now(), level: prev });
+    const prev = cache5.get(userId)?.level ?? "balanced";
+    cache5.set(userId, { at: Date.now(), level: prev });
     return prev;
   }
 }
@@ -18086,10 +18694,10 @@ async function setAiLevel(userId, level) {
      ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
     [String(userId), JSON.stringify({ level })]
   );
-  cache4.set(userId, { at: Date.now(), level });
+  cache5.set(userId, { at: Date.now(), level });
   return AI_LEVELS[level];
 }
-var AI_LEVELS, cache4;
+var AI_LEVELS, cache5;
 var init_ai_level = __esm({
   "server/services/ai-level.ts"() {
     "use strict";
@@ -18098,7 +18706,7 @@ var init_ai_level = __esm({
       balanced: { level: "balanced", scanMult: 1, cacheMs: 6e4, cachePips: 3, fxModelsEveryH: 1, cryptoSkipMemoryMin: 60, cryptoModelsEveryH: 2 },
       turbo: { level: "turbo", scanMult: 0.67, cacheMs: 3e4, cachePips: 1.5, fxModelsEveryH: 1, cryptoSkipMemoryMin: 30, cryptoModelsEveryH: 1 }
     };
-    cache4 = /* @__PURE__ */ new Map();
+    cache5 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -20557,7 +21165,7 @@ async function _recordFxBrainOutcome(userId, conn, existing, match, result, prof
     );
   }
 }
-function cache5() {
+function cache6() {
   global.tlAccountData = global.tlAccountData || {};
   return global.tlAccountData;
 }
@@ -20934,27 +21542,27 @@ async function syncUserTradeLocker(userId, force = false) {
   if (!force) {
     const last2 = lastSyncAt.get(userId) || 0;
     if (now - last2 < MIN_RESYNC_GAP_MS) {
-      return Object.values(cache5()[userId] || {});
+      return Object.values(cache6()[userId] || {});
     }
   }
   if (inFlight.has(userId)) {
-    return Object.values(cache5()[userId] || {});
+    return Object.values(cache6()[userId] || {});
   }
   inFlight.add(userId);
   try {
     const connections = await storage.getUserTradelockerConnections(userId);
     const active = connections.filter((c) => c.isActive);
-    const store = cache5();
-    store[userId] = store[userId] || {};
+    const store2 = cache6();
+    store2[userId] = store2[userId] || {};
     const activeIds = new Set(active.map((c) => c.accountId));
-    for (const key of Object.keys(store[userId])) {
-      if (!activeIds.has(key)) delete store[userId][key];
+    for (const key of Object.keys(store2[userId])) {
+      if (!activeIds.has(key)) delete store2[userId][key];
     }
     for (const conn of active) {
-      if (store[userId][conn.accountId]) continue;
+      if (store2[userId][conn.accountId]) continue;
       const lb = conn.lastBalance;
       if (lb != null) {
-        store[userId][conn.accountId] = {
+        store2[userId][conn.accountId] = {
           accountId: conn.accountId,
           connectionId: conn.id,
           accountType: conn.accountType,
@@ -20977,7 +21585,7 @@ async function syncUserTradeLocker(userId, force = false) {
           storage.updateTradelockerConnection(conn.id, { lastError: null }).catch(() => {
           });
         }
-        store[userId][conn.accountId] = {
+        store2[userId][conn.accountId] = {
           accountId: conn.accountId,
           connectionId: conn.id,
           accountType: conn.accountType,
@@ -21011,13 +21619,13 @@ async function syncUserTradeLocker(userId, force = false) {
           (err) => console.error(`[TL-sync] Trade auto-log failed for ${conn.accountId} (non-fatal):`, err.message)
         );
       } catch (err) {
-        const prev = store[userId][conn.accountId];
+        const prev = store2[userId][conn.accountId];
         const msg = err?.message || "fetch failed";
         const isRateLimit = err?.status === 429 || /429|rate.?limit|too many requests|cooling down/i.test(msg);
         if (isRateLimit && prev && !prev.error) {
           continue;
         }
-        store[userId][conn.accountId] = {
+        store2[userId][conn.accountId] = {
           accountId: conn.accountId,
           connectionId: conn.id,
           accountType: conn.accountType,
@@ -21036,16 +21644,16 @@ async function syncUserTradeLocker(userId, force = false) {
       }
     }
     lastSyncAt.set(userId, Date.now());
-    return Object.values(store[userId]);
+    return Object.values(store2[userId]);
   } finally {
     inFlight.delete(userId);
   }
 }
 function getTlAccountData(userId) {
   markTlUserActive(userId);
-  const store = cache5()[userId] || {};
+  const store2 = cache6()[userId] || {};
   const now = Date.now();
-  const accounts = Object.values(store).map((a) => {
+  const accounts = Object.values(store2).map((a) => {
     const secondsAgo = Math.floor((now - new Date(a.lastUpdated).getTime()) / 1e3);
     return { ...a, secondsAgo, isConnected: secondsAgo < 120 && !a.error };
   });
@@ -23083,13 +23691,13 @@ function xauEntryBlock(symbol, now = /* @__PURE__ */ new Date()) {
   const ROLLOVER_END_MIN = ROLLOVER_END_BASE + (process.env.FX_ROLLOVER_BLOCK_END_MIN_UTC ? 0 : sh);
   const BLOCK_START_MIN = XAU_BLOCK_START_BASE + (process.env.XAU_OPEN_BLOCK_START_MIN_UTC ? 0 : sh);
   const BLOCK_END_MIN = XAU_BLOCK_END_BASE + (process.env.XAU_OPEN_BLOCK_END_MIN_UTC ? 0 : sh);
-  const fmt = (x) => `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`;
+  const fmt2 = (x) => `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`;
   if (ROLLOVER_BLOCK_ON() && m >= ROLLOVER_START_MIN && m < ROLLOVER_END_MIN) {
-    return `Rollover window: no FX entries ${fmt(ROLLOVER_START_MIN)}\u2013${fmt(ROLLOVER_END_MIN)} UTC (daily rollover, widest spreads)`;
+    return `Rollover window: no FX entries ${fmt2(ROLLOVER_START_MIN)}\u2013${fmt2(ROLLOVER_END_MIN)} UTC (daily rollover, widest spreads)`;
   }
   if (!ENTRY_BLOCK_ON() || !isXau(symbol)) return null;
   if (m >= BLOCK_START_MIN && m < BLOCK_END_MIN) {
-    return `XAUUSD spread window: no gold entries ${fmt(BLOCK_START_MIN)}\u2013${fmt(BLOCK_END_MIN)} UTC (daily break + reopen, widest spreads)`;
+    return `XAUUSD spread window: no gold entries ${fmt2(BLOCK_START_MIN)}\u2013${fmt2(BLOCK_END_MIN)} UTC (daily break + reopen, widest spreads)`;
   }
   return null;
 }
@@ -24313,11 +24921,11 @@ async function compute2(userId) {
 async function hourFilterVerdict(userId, hourUtc) {
   if (process.env.HOUR_FILTER_ENABLED === "false") return null;
   try {
-    let entry = cache6.get(userId);
+    let entry = cache7.get(userId);
     if (!entry || Date.now() - entry.at > TTL_MS7) {
       const fresh = await compute2(userId);
       entry = { at: Date.now(), ...fresh };
-      cache6.set(userId, entry);
+      cache7.set(userId, entry);
       const list = Array.from(fresh.blocked).sort((a, b) => a - b).map((h) => `${h}:00`).join(", ");
       console.log(`[HourFilter] user ${userId}: recomputed over ${LOOKBACK_DAYS3}d \u2014 blocking ${fresh.blocked.size} hour(s)${list ? ": " + list : ""} (floor ${WR_FLOOR}% on ${MIN_SAMPLE}+ trades)`);
     }
@@ -24333,7 +24941,7 @@ async function hourFilterTable(userId) {
   const { stats, blocked } = await compute2(userId);
   return { stats: stats.sort((a, b) => a.hour - b.hour), blocked: Array.from(blocked).sort((a, b) => a - b) };
 }
-var MIN_SAMPLE, WR_FLOOR, TTL_MS7, LOOKBACK_DAYS3, cache6;
+var MIN_SAMPLE, WR_FLOOR, TTL_MS7, LOOKBACK_DAYS3, cache7;
 var init_hour_filter = __esm({
   "server/services/hour-filter.ts"() {
     "use strict";
@@ -24341,7 +24949,7 @@ var init_hour_filter = __esm({
     WR_FLOOR = Number(process.env.HOUR_FILTER_MIN_WINRATE ?? 45);
     TTL_MS7 = Number(process.env.HOUR_FILTER_TTL_MS ?? 60 * 60 * 1e3);
     LOOKBACK_DAYS3 = Number(process.env.HOUR_FILTER_LOOKBACK_DAYS ?? 180);
-    cache6 = /* @__PURE__ */ new Map();
+    cache7 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -27362,13 +27970,13 @@ function selectStrategyForPair(symbol, data, htfBias, asiaHigh, asiaLow, utcHour
   const isXau2 = symbol.includes("XAU");
   const symUpper = symbol.toUpperCase();
   const isCrypto = symUpper.includes("BTC") || symUpper.includes("XBT") || symUpper.includes("ETH") || symUpper.includes("LTC") || symUpper.includes("XRP") || symUpper.includes("ADA") || symUpper.includes("SOL") || symUpper.includes("BNB") || symUpper.includes("DOT");
-  const utcDay4 = (/* @__PURE__ */ new Date()).getUTCDay();
-  const isWeekend = utcDay4 === 0 || utcDay4 === 6;
+  const utcDay5 = (/* @__PURE__ */ new Date()).getUTCDay();
+  const isWeekend = utcDay5 === 0 || utcDay5 === 6;
   const pricePct = (a, b) => Math.abs(a - b) / Math.max(b, 1e-5) * 100;
   const hasPattern = (...names) => patterns.some((p) => names.some((n) => p.toLowerCase().includes(n.toLowerCase())));
   if (isCrypto && isWeekend) {
     const isVolumeOk = volTrend === "surging" || volTrend === "above_average" || volTrend === "average";
-    const dayLabel = utcDay4 === 6 ? "Saturday" : "Sunday";
+    const dayLabel = utcDay5 === 6 ? "Saturday" : "Sunday";
     if (adxVal >= 22 && trend !== "NEUTRAL" && diSep >= 8 && isVolumeOk) {
       return {
         strategy: "btc_weekend_momentum",
@@ -30864,17 +31472,17 @@ function getNYTime(ts) {
   };
 }
 async function getBrokerIndexCandles(userId, symbol, mt5Tf) {
-  const cache7 = global.mt5ChartDataCache || {};
+  const cache8 = global.mt5ChartDataCache || {};
   const wanted = new Set(
     indexSymbolVariants(symbol).map((s) => s.replace(/[^A-Z0-9]/gi, "").toUpperCase())
   );
   const prefix = `mt5_chart_${userId}_`;
   const suffix = `_${mt5Tf}`;
-  for (const key of Object.keys(cache7)) {
+  for (const key of Object.keys(cache8)) {
     if (!key.startsWith(prefix) || !key.endsWith(suffix)) continue;
     const symPart = key.slice(prefix.length, key.length - suffix.length);
     if (wanted.has(symPart.replace(/[^A-Z0-9]/gi, "").toUpperCase())) {
-      const entry = cache7[key];
+      const entry = cache8[key];
       if (entry?.candles?.length) return normalizeOrbBarTimes(entry.candles);
     }
   }
@@ -39752,7 +40360,8 @@ async function getCryptoPromotionPanel(userId) {
   ]);
   const activeKeys = new Set(promotions.filter((p) => p.active).map((p) => `${p.strategy}|${p.dim}|${p.bucket}`));
   const candidates = stats.filter((s) => s.verdict === "avoid").map((s) => ({ ...s, alreadyGuarded: activeKeys.has(`${s.strategy}|${s.dim}|${s.bucket}`) })).sort((a, b) => b.n - a.n);
-  return { candidates, promotions, aiJudge };
+  const aiWatchPlans = cryptoWatchPlansSummary(userId);
+  return { candidates, promotions, aiJudge, aiWatchPlans };
 }
 async function promoteCryptoBucket(userId, sel) {
   const stats = await computeCryptoShadowStats(userId, true);
@@ -39831,6 +40440,7 @@ var init_crypto_shadow_promotions = __esm({
     "use strict";
     init_runtime_state();
     init_crypto_shadow();
+    init_crypto_watch_plans();
     SCOPE3 = "crypto_shadow_promotions";
     _cache6 = /* @__PURE__ */ new Map();
     CACHE_MS5 = 3e4;
