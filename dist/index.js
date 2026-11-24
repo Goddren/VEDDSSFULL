@@ -13754,6 +13754,10 @@ __export(trail_brain_exports, {
   getTrailBrainSettings: () => getTrailBrainSettings,
   getTrailBrainStore: () => getTrailBrainStore,
   groupKeyFor: () => groupKeyFor,
+  kalshiPerpTrailActivation: () => kalshiPerpTrailActivation,
+  kalshiPerpTrailRGeometry: () => kalshiPerpTrailRGeometry,
+  kalshiPerpTrailROn: () => kalshiPerpTrailROn,
+  kalshiPerpTrailRSummary: () => kalshiPerpTrailRSummary,
   logTrailBrainDecision: () => logTrailBrainDecision,
   noteTrailBrainFxGoverned: () => noteTrailBrainFxGoverned,
   resetTrailBrainGroup: () => resetTrailBrainGroup,
@@ -13764,6 +13768,7 @@ __export(trail_brain_exports, {
   trailBrainClamps: () => trailBrainClamps,
   trailBrainConsult: () => trailBrainConsult,
   trailBrainDecide: () => trailBrainDecide,
+  trailBrainEffectiveParams: () => trailBrainEffectiveParams,
   trailBrainOn: () => trailBrainOn,
   trailBrainParamsSummary: () => trailBrainParamsSummary,
   trailBrainSolConsult: () => trailBrainSolConsult,
@@ -13826,17 +13831,61 @@ function trailBrainDecide(params, input) {
   for (const s of params.lockSteps) {
     if (peak >= s.atPeak) floor = Math.max(floor, s.lock);
   }
+  if (input.floorCap != null && Number.isFinite(input.floorCap)) floor = Math.min(floor, input.floorCap);
   floor = Math.max(floor, stopFloor);
   return { armed: true, floor, exitNow: current2 <= floor, binding: floor > stopFloor };
 }
 function trailBrainStopPrice(input) {
-  const { entryPrice, peakGainPct, currentGainPct, slPct, params } = input;
+  const { entryPrice, peakGainPct, currentGainPct, slPct } = input;
   if (!(entryPrice > 0) || !(slPct > 0)) return null;
-  const d = trailBrainDecide(params, { peak: peakGainPct, current: currentGainPct, stopFloor: -slPct });
+  const params = input.rActivation ? trailBrainEffectiveParams(input.params, input.rActivation) : input.params;
+  const d = trailBrainDecide(params, {
+    peak: peakGainPct,
+    current: currentGainPct,
+    stopFloor: -slPct,
+    floorCap: input.rActivation?.target
+  });
   if (!d.binding) return null;
   const short = input.direction === "short";
   const stopPrice = short ? entryPrice * (1 - d.floor / 100) : entryPrice * (1 + d.floor / 100);
   return { stopPrice, floorPct: d.floor, exitNow: d.exitNow };
+}
+function kalshiPerpTrailROn() {
+  return process.env.KALSHI_PERP_TRAIL_R !== "off";
+}
+function kalshiPerpTrailRGeometry() {
+  return {
+    activationR: rEnv(process.env.KALSHI_PERP_TRAIL_ACTIVATION_R, 1, 0.5, 1.5),
+    trailDistR: rEnv(process.env.KALSHI_PERP_TRAIL_DIST_R, 0.75, 0.3, 1.25),
+    giveBackR: rEnv(process.env.KALSHI_PERP_TRAIL_GIVEBACK_R, 1, 0.4, 1.5),
+    lockStepsR: [{ atPeak: 1.5, lock: 1 }]
+  };
+}
+function kalshiPerpTrailActivation(input) {
+  if (!kalshiPerpTrailROn()) return null;
+  const { entryPrice, takeProfit, slPct } = input;
+  if (!(entryPrice > 0) || !(slPct > 0) || !(takeProfit > 0)) return null;
+  const target = Math.abs(takeProfit - entryPrice) / entryPrice * 100;
+  if (!(target > 0) || !Number.isFinite(target)) return null;
+  return { ...kalshiPerpTrailRGeometry(), oneR: slPct, target };
+}
+function trailBrainEffectiveParams(params, override) {
+  if (!override || !(override.oneR > 0) || !Number.isFinite(override.oneR)) return params;
+  const oneR = override.oneR;
+  const target = override.target != null && Number.isFinite(override.target) && override.target > 0 ? override.target : null;
+  let activation = override.activationR * oneR;
+  if (target != null) activation = Math.min(activation, 0.75 * target);
+  const lockSteps = (Array.isArray(override.lockStepsR) ? override.lockStepsR : []).filter((s) => s && Number.isFinite(s.atPeak) && Number.isFinite(s.lock)).map((s) => ({ atPeak: s.atPeak * oneR, lock: s.lock * oneR })).filter((s) => (target == null || s.atPeak < target) && s.lock > 0).map((s) => ({ atPeak: s.atPeak, lock: Math.min(s.lock, s.atPeak - oneR * 0.05) })).sort((a, b) => a.atPeak - b.atPeak).slice(0, 4);
+  return {
+    activation,
+    trailDist: override.trailDistR * oneR,
+    giveBackCap: override.giveBackR * oneR,
+    lockSteps
+  };
+}
+function kalshiPerpTrailRSummary() {
+  const g = kalshiPerpTrailRGeometry();
+  return `R geometry (per-trade): arms at +${g.activationR}R of each trade's own stop, trails ${g.trailDistR}R behind the peak, gives back at most ${g.giveBackR}R`;
 }
 function adjustTrailBrainParams(engine, params, ev) {
   const c = trailBrainClamps(engine);
@@ -14058,10 +14107,16 @@ async function getTrailBrainReport(userId) {
     userOn: settings.engines[engine] !== false,
     on: trailBrainOn(engine) && settings.engines[engine] !== false
   }));
-  const groups = Object.values(store3.groups).sort((a, b) => a.engine.localeCompare(b.engine) || a.key.localeCompare(b.key)).map((g) => ({ ...g, paramsSummary: trailBrainParamsSummary(g.engine, g.params) }));
+  const groups = Object.values(store3.groups).sort((a, b) => a.engine.localeCompare(b.engine) || a.key.localeCompare(b.key)).map((g) => ({
+    ...g,
+    // Kalshi perp groups govern through per-trade R geometry while
+    // KALSHI_PERP_TRAIL_R is on — say so, rather than quoting the
+    // stored percent parameters the lane no longer arms on.
+    paramsSummary: g.engine === "kalshi" && kalshiPerpTrailROn() ? kalshiPerpTrailRSummary() : trailBrainParamsSummary(g.engine, g.params)
+  }));
   return { engines, groups, decisions: log2 };
 }
-var STORE_SCOPE, SETTINGS_SCOPE, LOG_SCOPE, ENGINE_ENV, clampNum, TRAIL_BRAIN_MIN_EVIDENCE, MIN_BASELINE, _cache3, CACHE_MS2, _colsEnsured2, _stamped2, _logBuffer, _fxGoverned, FX_GOVERNED_TTL_MS;
+var STORE_SCOPE, SETTINGS_SCOPE, LOG_SCOPE, ENGINE_ENV, clampNum, rEnv, TRAIL_BRAIN_MIN_EVIDENCE, MIN_BASELINE, _cache3, CACHE_MS2, _colsEnsured2, _stamped2, _logBuffer, _fxGoverned, FX_GOVERNED_TTL_MS;
 var init_trail_brain = __esm({
   "server/services/trail-brain.ts"() {
     "use strict";
@@ -14077,6 +14132,10 @@ var init_trail_brain = __esm({
       kalshi: "TRAIL_BRAIN_KALSHI"
     };
     clampNum = (v, [lo2, hi2], fallback) => Number.isFinite(v) ? Math.min(hi2, Math.max(lo2, v)) : fallback;
+    rEnv = (v, dflt, lo2, hi2) => {
+      const n = Number(v);
+      return Number.isFinite(n) && v != null && v !== "" ? Math.min(hi2, Math.max(lo2, n)) : dflt;
+    };
     TRAIL_BRAIN_MIN_EVIDENCE = () => Math.max(3, Math.floor(Number(process.env.TRAIL_BRAIN_MIN_TRADES ?? 10) || 10));
     MIN_BASELINE = 5;
     _cache3 = /* @__PURE__ */ new Map();
@@ -73241,6 +73300,7 @@ function accountReplay(closes, startBalance = 100, maxValidPct) {
 async function getKalshiStockShadowReport(userId, days = 30) {
   const windowDays = Number.isFinite(days) ? Math.max(1, Math.min(365, Math.floor(days))) : 30;
   await ensureKalshiPerpShadowTables();
+  await ensureTrailBrainColumns("kalshi_perp_shadow_trades");
   const returnBound = maxValidReturnPct();
   const notionalCap = 2 * NOTIONAL2();
   const entryCeiling = maxValidEntryUsd();
@@ -73250,7 +73310,7 @@ async function getKalshiStockShadowReport(userId, days = 30) {
     AND entry_price <= $5::float
     AND closed_at >= now() - ($2::int * interval '1 day')`;
   const simOn = accountSimEnabled();
-  const [summaryRes, byStrategyRes, openRes, recentClosesRes, closesRes, invalidRes, aiJudgeRes] = await Promise.all([
+  const [summaryRes, byStrategyRes, openRes, recentClosesRes, closesRes, invalidRes, aiJudgeRes, trailBrainRes] = await Promise.all([
     pool.query(
       `WITH valid_closes AS (
          SELECT * FROM kalshi_perp_shadow_trades WHERE ${validCloseWhere}
@@ -73351,6 +73411,19 @@ async function getKalshiStockShadowReport(userId, days = 30) {
          AND t.entry_price <= $5::float
          AND t.closed_at >= now() - ($2::int * interval '1 day')`,
       [userId, windowDays, returnBound, notionalCap, entryCeiling]
+    ).catch(() => ({ rows: [] })),
+    // Trail Brain evidence for the window: closes that exited on the
+    // brain's trailed stop, and closes stamped brain-governed. Same
+    // validity bounds as every other statistic here. Fail-soft like
+    // the judge read — a missing stamp column must not sink the panel.
+    pool.query(
+      `SELECT
+         (count(*) FILTER (WHERE exit_reason = 'trail'))::int AS guided_closes,
+         (count(*) FILTER (WHERE trail_brain_version IS NOT NULL))::int AS governed_closes,
+         avg(return_pct) FILTER (WHERE exit_reason = 'trail')::float AS avg_net_pct_guided
+       FROM kalshi_perp_shadow_trades
+       WHERE ${validCloseWhere}`,
+      [userId, windowDays, returnBound, notionalCap, entryCeiling]
     ).catch(() => ({ rows: [] }))
   ]);
   const s = summaryRes.rows[0] || {};
@@ -73437,12 +73510,21 @@ async function getKalshiStockShadowReport(userId, days = 30) {
   };
   aiJudge.judgedCloses = aiJudge.scoreboard.judgedCloses;
   const aiWatchPlans = kalshiPerpWatchPlansSummary(userId);
+  const tbRow = trailBrainRes?.rows?.[0] || {};
+  const trailBrain = {
+    mode: kalshiPerpTrailROn() ? "R" : "pct",
+    activationR: kalshiPerpTrailROn() ? kalshiPerpTrailRGeometry().activationR : null,
+    guidedCloses: Number(tbRow.guided_closes) || 0,
+    governedCloses: Number(tbRow.governed_closes) || 0,
+    avgNetPctGuided: tbRow.avg_net_pct_guided == null ? null : Number(tbRow.avg_net_pct_guided)
+  };
   return {
     days: windowDays,
     ...accountSim ? { accountSim } : {},
     perpBrain,
     aiJudge,
     aiWatchPlans,
+    trailBrain,
     summary: {
       openCount: Number(s.open_count) || 0,
       closedCount: Number(s.closed_count) || 0,
@@ -73653,7 +73735,7 @@ async function resolveKalshiStockShadowTrades(userId) {
           break;
         }
         if (tb) {
-          const ts = trailBrainStopPrice({ direction: String(t.direction), entryPrice: Number(t.entry_price), peakGainPct: Number(t.peak_gain_pct) || 0, currentGainPct: gain, slPct: Number(t.sl_pct), params: tb.params });
+          const ts = trailBrainStopPrice({ direction: String(t.direction), entryPrice: Number(t.entry_price), peakGainPct: Number(t.peak_gain_pct) || 0, currentGainPct: gain, slPct: Number(t.sl_pct), params: tb.params, rActivation: kalshiPerpTrailActivation({ entryPrice: Number(t.entry_price), takeProfit: Number(t.take_profit), slPct: Number(t.sl_pct) }) ?? void 0 });
           if (ts) {
             void stampTrailBrainTrade("kalshi_perp_shadow_trades", t.id, tb);
             if (short ? cd.ask.h >= ts.stopPrice : cd.bid.l <= ts.stopPrice) {
@@ -74679,7 +74761,7 @@ async function monitorLiveExits(userId, actions) {
             for (const cd of fresh) {
               const gain = short ? (Number(t.entry_price) - cd.ask.l) / Number(t.entry_price) * 100 : (cd.bid.h - Number(t.entry_price)) / Number(t.entry_price) * 100;
               if (gain > peak) peak = gain;
-              const ts = trailBrainStopPrice({ direction: String(t.direction), entryPrice: Number(t.entry_price), peakGainPct: peak, currentGainPct: gain, slPct: Number(t.sl_pct), params: tb.params });
+              const ts = trailBrainStopPrice({ direction: String(t.direction), entryPrice: Number(t.entry_price), peakGainPct: peak, currentGainPct: gain, slPct: Number(t.sl_pct), params: tb.params, rActivation: kalshiPerpTrailActivation({ entryPrice: Number(t.entry_price), takeProfit: Number(t.take_profit), slPct: Number(t.sl_pct) }) ?? void 0 });
               if (ts) {
                 effStop = short ? Math.min(effStop, ts.stopPrice) : Math.max(effStop, ts.stopPrice);
                 trailBound = true;
@@ -90738,9 +90820,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "4823a099-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-24T11:07:02.531Z";
+var BUILD_COMMIT = "36844ac5-dirty";
+var BUILD_BRANCH = "feat/kalshi-perp-trail-r-activation";
+var BUILT_AT = "2026-11-24T15:13:13.887Z";
 
 // server/stripe.ts
 init_db();
