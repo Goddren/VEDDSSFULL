@@ -3,6 +3,7 @@ import { InfoExplainer } from "@/components/info-explainer";
 import {
   CryptoLiveTogglesPanel,
   CryptoShadowAiJudgePanel,
+  CryptoWatchPlansPanel,
   CryptoShadowPromotionsPanel,
   EngineSafeguardsPanel,
   GateCalibrationPanel,
@@ -51,6 +52,7 @@ export default function GuardsTrailsPage() {
       <CryptoLiveTogglesPanel />
       <CryptoShadowPromotionsPanel />
       <CryptoShadowAiJudgePanel />
+      <CryptoWatchPlansPanel />
       <GateCalibrationPanel />
       <TrailStudyPanel />
     </div>

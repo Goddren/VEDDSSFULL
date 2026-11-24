@@ -24,7 +24,7 @@
  *   F. Kill switch + wiring pins: lane consults plans only when on,
  *      after every existing gate, before the judge + INSERT; report and
  *      panel expose aiWatchPlans; judge suite surface untouched;
- *      kalshi-perp-live.ts has zero plan references; sw vedd-v291.
+ *      kalshi-perp-live.ts has zero plan references; sw vedd-v292.
  */
 import { readFileSync } from 'node:fs';
 import * as wp from '../server/services/kalshi-perp-watch-plans';
@@ -310,7 +310,7 @@ async function main(): Promise<void> {
     const live = src('server/services/kalshi-perp-live.ts');
     check('F9 live-lane isolation: kalshi-perp-live.ts has zero watch-plan references',
       !live.includes('kalshi-perp-watch-plans') && !live.includes('PerpWatchPlan') && !live.includes('resolvePerpWatchPlan'));
-    check('F10 sw bumped to vedd-v291', src('client/public/sw.js').includes("CACHE_VERSION = 'vedd-v291'"));
+    check('F10 sw bumped to vedd-v292', src('client/public/sw.js').includes("CACHE_VERSION = 'vedd-v292'"));
     check('F11 plan layer reuses the FX trigger evaluator + judge evidence types (no forked logic)',
       svcSrc.includes("from './ai-watch-plans'") && svcSrc.includes('evaluateWatchPlan') &&
       svcSrc.includes("from './kalshi-perp-ai-judge'"));

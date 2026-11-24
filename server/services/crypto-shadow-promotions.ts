@@ -40,6 +40,9 @@
 
 import { getRuntimeStateStrict, saveRuntimeState } from './runtime-state';
 import { computeCryptoShadowStats, computeCryptoShadowAiJudge, type BucketStat, type AiJudgeStat } from './crypto-shadow';
+import { cryptoWatchPlansSummary, type CryptoWatchPlanCounters } from './crypto-watch-plans';
+
+export type CryptoWatchPlansSummary = CryptoWatchPlanCounters & { enabled: boolean; activePlans: number };
 
 export interface CryptoShadowPromotion {
   id: string;
@@ -91,7 +94,7 @@ async function storePromotions(userId: number, promotions: CryptoShadowPromotion
 // ── Candidates ──────────────────────────────────────────────────────────────
 /** The lane's 'avoid' verdicts (its own bar — see header), flagged when a
  *  promotion already covers them, plus the stored promotions themselves. */
-export async function getCryptoPromotionPanel(userId: number): Promise<{ candidates: CryptoPromotionCandidate[]; promotions: CryptoShadowPromotion[]; aiJudge: AiJudgeStat[] }> {
+export async function getCryptoPromotionPanel(userId: number): Promise<{ candidates: CryptoPromotionCandidate[]; promotions: CryptoShadowPromotion[]; aiJudge: AiJudgeStat[]; aiWatchPlans: CryptoWatchPlansSummary }> {
   const [stats, promotions, aiJudge] = await Promise.all([
     computeCryptoShadowStats(userId), getCryptoPromotions(userId),
     // The AI judge scoreboard rides this panel payload (its section sits
@@ -104,7 +107,11 @@ export async function getCryptoPromotionPanel(userId: number): Promise<{ candida
     .filter((s) => s.verdict === 'avoid')
     .map((s) => ({ ...s, alreadyGuarded: activeKeys.has(`${s.strategy}|${s.dim}|${s.bucket}`) }))
     .sort((a, b) => b.n - a.n);
-  return { candidates, promotions, aiJudge };
+  // AI watch plans ride the same payload (their section sits under the
+  // judge scoreboard on Guards & Trails). The summary is in-process
+  // counters only — it cannot fail the panel.
+  const aiWatchPlans = cryptoWatchPlansSummary(userId);
+  return { candidates, promotions, aiJudge, aiWatchPlans };
 }
 
 // ── Promote / retire (tap-only; eligibility re-verified at promote time) ────

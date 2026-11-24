@@ -503,6 +503,54 @@ export function CryptoShadowAiJudgePanel({ className = "" }: { className?: strin
   );
 }
 
+// Crypto shadow AI watch plans (Nov 24, 2026): a deep AI study writes a
+// watch plan for a symbol + strategy — the pattern it is waiting for and
+// the exact hourly candle that confirms it. Watching is free; a shadow
+// entry now opens only when the strategy's own signal fires AND its
+// plan's trigger has formed. Signals without a triggered plan are
+// skipped on purpose. Data rides the promotions panel payload
+// (aiWatchPlans), counters for today (UTC).
+type CryptoWatchPlansT = { enabled: boolean; activePlans: number; created: number; triggered: number; expired: number; invalidated: number; structureBreaks: number; deepCalls: number; planSkips: number; fallbacks: number; entriesViaPlan: number };
+export function CryptoWatchPlansPanel({ className = "" }: { className?: string }) {
+  const { data } = useQuery<{ aiWatchPlans?: CryptoWatchPlansT }>({
+    queryKey: ["/api/engine/crypto-shadow-promotions"],
+    refetchInterval: 60000,
+  });
+  const wp = data?.aiWatchPlans;
+  if (!wp) return null;
+  return (
+    <div className={`rounded-md border border-white/10 bg-white/[0.03] p-2 overflow-hidden ${className}`}>
+      <PanelHeader
+        compact
+        icon={<Brain className="w-3.5 h-3.5" />}
+        tint="bg-violet-500/15 text-violet-300"
+        title="Crypto shadow AI watch plans"
+        subtitle={wp.enabled ? "Entries now wait for an AI plan trigger — the strategy's signal alone no longer opens a shadow trade." : "Switched off — entries open on the mechanical signals alone, exactly as before."}
+        explainer={<InfoExplainer title="Crypto shadow AI watch plans" accent="border-l-violet-300/60">
+          <p>When a strategy flags a pair and passes every existing gate, one <b>deep AI study</b> — weighing this lane's own record for the pair and the strategy — writes a <b>watch plan</b>: the pattern worth waiting for, the exact hourly candle that confirms it, and the price that proves the idea wrong.</p>
+          <p><b>Watching is free.</b> The engine checks the plan against hourly candles it already has — no AI calls while it waits. A shadow entry opens only when the strategy's own signal fires <b>and</b> its plan's trigger has formed. Signals without a triggered plan are skipped on purpose, and a fresh study is only bought when a plan expires, breaks, or a new candidate passes the gates.</p>
+          <p>If the plan layer ever fails, entries fall back to the mechanical behavior rather than stopping — the fallback count below shows if that has happened today.</p>
+        </InfoExplainer>}
+      />
+      {wp.enabled ? (
+        <div className="text-[10px] leading-snug tabular-nums text-gray-400">
+          <span className="font-semibold text-gray-200">{wp.activePlans} plans live</span>
+          {" · "}{wp.entriesViaPlan} entries via plan today
+          {" · "}{wp.planSkips} signals skipped (no trigger)
+          {" · "}{wp.deepCalls} studies bought
+          {" · "}{wp.created} plans created
+          {" · "}{wp.triggered} triggered
+          {" · "}{wp.expired} expired
+          {" · "}{wp.invalidated} invalidated
+          {wp.fallbacks > 0 ? <>{" · "}{wp.fallbacks} plan failures fell back to mechanical entries</> : null}
+        </div>
+      ) : (
+        <div className="text-[10px] text-gray-500">Watch plans are off right now, so entries open on the mechanical signals alone, exactly as before. The lane's own gates and the AI judge still work as usual.</div>
+      )}
+    </div>
+  );
+}
+
 // Crypto go-live toggles (Nov 15, 2026): each crypto strategy practices in
 // shadow mode; when its record clears the proof bar, its toggle here flips
 // it live on the DeFi hot wallet — instantly, no deploy. The server

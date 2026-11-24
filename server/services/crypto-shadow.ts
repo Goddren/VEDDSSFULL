@@ -33,14 +33,28 @@
 // skips, sizes or otherwise changes an entry; the scoreboard
 // (computeCryptoShadowAiJudge) exists so a later build can decide, from
 // the lane's own numbers, whether AI-approved entries actually win more.
+// AI watch plans (2026-11-24, crypto-watch-plans.ts): the stewardship
+// layer — a deep AI study writes a validated watch plan per
+// symbol+strategy; watching is free and deterministic on the lane's H1
+// bars; with plans ON an entry needs the strategy's own signal AND a
+// triggered plan. Studies buy on the budget pool's PROTECTED lane,
+// metered once at 2 units; plan-layer failures fall back to the
+// mechanical entry, so the lane never halts. The judge above is
+// untouched: it still scores every recorded entry and never gates.
 // Kill switches: CRYPTO_SHADOW_ALL=off (whole lane),
 // CRYPTO_SHADOW_LESSONS=off (lesson gate only),
-// CRYPTO_SHADOW_AI_JUDGE=off (judge only).
+// CRYPTO_SHADOW_AI_JUDGE=off (judge only),
+// CRYPTO_WATCH_PLANS=off (watch plans only).
 // ─────────────────────────────────────────────────────────────────────────────
 import { pool } from '../db';
 import { cryptoShadowLessonsOn, logShadowLessonBlock, matchingAvoidBucket } from './shadow-lesson-gate';
 import { improvementThrottleBlocks, logImprovementBlock } from './improvement-loop';
 import { trailBrainConsult, trailBrainDecide, stampTrailBrainTrade } from './trail-brain';
+import {
+  cryptoWatchPlansEnabled, resolveCryptoWatchPlan, newCryptoPlanCycle, noteCryptoPlanEntry,
+  type CryptoWatchPlanAction, type CryptoPairHistory, type CryptoStrategyRecord, type CryptoBucketEvidence,
+  type CryptoPlanClosesSummary,
+} from './crypto-watch-plans';
 
 type Bar = { t: number; o: number; h: number; l: number; c: number; v: number };
 export interface ShadowRunnerResult { decision: string; reasoning: string; score: number | null; price: number | null; dailyChangePercent: number | null; strategy: string; direction?: 'BUY' | 'SELL' }
@@ -456,6 +470,51 @@ export async function collectJudgeEvidence(userId: number, args: {
   } catch { return undefined; }
 }
 
+// ── Watch-plan evidence (structured form of the judge's record) ────────────
+// The watch-plan deep study weighs the SAME lane record as the judge —
+// pair history + last-10 closes, strategy record + 14d form, bucket
+// evidence — but consumes it structured (crypto-watch-plans.ts builds
+// the prompt). Same two bounded reads as collectJudgeEvidence.
+// Fail-soft: any read failure returns undefined and the study proceeds
+// on the entry context alone.
+const toPlanSummary = (s: JudgeClosesSummary): CryptoPlanClosesSummary => s.n
+  ? { n: s.n, winRate: s.winRate, avgR: s.avgR, medianNetPct: s.medianNet }
+  : { n: 0, winRate: null, avgR: null, medianNetPct: null };
+export async function collectCryptoPlanEvidence(userId: number, args: {
+  underlying: string; strategy: string; stats: BucketStat[]; ctx: Record<string, any>;
+}): Promise<{ pairHistory: CryptoPairHistory; strategyRecord: CryptoStrategyRecord; bucketEvidence: CryptoBucketEvidence[] } | undefined> {
+  try {
+    const pairRows = (await pool.query(
+      `SELECT c.strategy, c.direction, c.net_pct, t.r_multiple FROM crypto_shadow_context c JOIN crypto_shadow_trades t ON t.id = c.trade_id
+        WHERE c.user_id=$1 AND t.underlying=$2 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL ORDER BY c.closed_at DESC`,
+      [userId, args.underlying])).rows;
+    const stratRows = (await pool.query(
+      `SELECT c.net_pct, t.r_multiple, c.closed_at FROM crypto_shadow_context c JOIN crypto_shadow_trades t ON t.id = c.trade_id
+        WHERE c.user_id=$1 AND c.strategy=$2 AND c.closed_at IS NOT NULL AND c.net_pct IS NOT NULL ORDER BY c.closed_at DESC`,
+      [userId, args.strategy])).rows;
+    const form = strategyForm(stratRows);
+    const bs = bucketsOf(args.ctx as any);
+    const bucketEvidence = args.stats
+      .filter((s) => s.strategy === args.strategy && s.verdict !== 'learning' && bs[s.dim] === s.bucket)
+      .map((s) => ({ verdict: s.verdict, dim: s.dim, bucket: s.bucket, n: s.n, medianNet: s.medianNet }));
+    return {
+      pairHistory: {
+        summary: toPlanSummary(summarizeJudgeCloses(pairRows)),
+        recent: pairRows.slice(0, 10).map((r: any) => ({
+          strategy: String(r.strategy), direction: String(r.direction),
+          netPct: Number(r.net_pct), rMultiple: r.r_multiple == null ? null : Number(r.r_multiple),
+        })),
+      },
+      strategyRecord: {
+        overall: toPlanSummary(form.overall),
+        last14d: form.last14 ? toPlanSummary(form.last14) : null,
+        prior14d: form.prior14 ? toPlanSummary(form.prior14) : null,
+      },
+      bucketEvidence,
+    };
+  } catch { return undefined; }
+}
+
 // ── resolver ────────────────────────────────────────────────────────────────
 export async function resolveCryptoShadowTrades(userId: number): Promise<number> {
   await ensureCryptoShadowTables();
@@ -530,6 +589,13 @@ export async function runCryptoShadowAll(userId: number, cfg: any, symbols: stri
   const floorMult = Number(process.env.CRYPTO_PAPER_COST_FLOOR_MULT ?? 3);
   let opened = 0;
   const shadowCfg = { ...cfg, directionFilter: 'both' };
+  // Watch plans (crypto-watch-plans.ts): the plan layer's per-cycle
+  // deep-call budget is created here, once, and shared across every
+  // candidate below; the strategy-key set is the lane's live runner
+  // keys plus the synthesized composite.
+  const plansOn = cryptoWatchPlansEnabled();
+  const planCycle = newCryptoPlanCycle();
+  const planStrategyKeys = new Set([...Object.keys(deps.runners), 'composite_autonomous']);
 
   for (const symbol of symbols) {
     if (open.length >= MAX_OPEN()) break;
@@ -624,6 +690,43 @@ export async function runCryptoShadowAll(userId: number, cfg: any, symbols: stri
       if (uni.newToken) tags.push('new_token');
       if (ctx.buy_share_h1 != null && ctx.buy_share_h1 > 0.65) tags.push('buyers_dominant');
       if (ctx.buy_share_h1 != null && ctx.buy_share_h1 < 0.45) tags.push('sellers_dominant');
+      // ── AI watch plans (crypto-watch-plans.ts): this candidate has
+      // passed EVERY existing gate above (caps, no-duplicate, re-entry
+      // cooldown, cost floor, lesson gate, improvement throttle) in its
+      // existing order. With plans ON, the entry additionally needs a
+      // live plan for this symbol+strategy whose trigger has formed on
+      // the H1 bars this cycle already fetched (free, deterministic —
+      // watching buys nothing). No triggered plan → the signal is
+      // skipped and counted by the plan layer (planSkips); that is the
+      // design. A plan-layer FAILURE degrades to today's mechanical
+      // entry for this candidate (action 'fallback', counted
+      // separately) — the lane never halts. resolveCryptoWatchPlan
+      // never throws; the try/catch is belt-and-braces with the same
+      // fallback semantics.
+      let viaPlan = false;
+      if (plansOn) {
+        let res: CryptoWatchPlanAction = { action: 'fallback' };
+        try {
+          const planEvidence = await collectCryptoPlanEvidence(userId, {
+            underlying: und, strategy: strat, stats, ctx,
+          }).catch(() => undefined);
+          res = await resolveCryptoWatchPlan({
+            userId, symbol, underlying: und, strategy: strat,
+            signalDirection: short ? 'short' : 'long', signalScore: sig.score ?? null,
+            entryPrice: price, slPct, atrPct: ctx.atr_pct,
+            h1Trend, h4Trend, htfAligned: aligned,
+            liquidityUsd: uni.liquidityUsd, buyShareH1: ctx.buy_share_h1, btcChange24h: btcChange,
+            recentCloses: closes.slice(-12),
+            pairHistory: planEvidence?.pairHistory ?? null,
+            strategyRecord: planEvidence?.strategyRecord ?? null,
+            bucketEvidence: planEvidence?.bucketEvidence ?? null,
+            candlesNewestFirst: bars.slice().reverse().map((b) => ({ o: b.o, h: b.h, l: b.l, c: b.c })),
+            currentPrice: price,
+          }, planCycle, { strategyKeys: planStrategyKeys });
+        } catch { res = { action: 'fallback' }; }
+        if (res.action === 'skip') continue;
+        viaPlan = res.action === 'triggered';
+      }
       const ins = await pool.query(
         `INSERT INTO crypto_shadow_trades (user_id, strategy, symbol, underlying, chain, token_address, pool_address, direction, entry_price, stop_loss, take_profit,
            sl_pct, notional_usd, cost_bps, score, max_hours) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
@@ -663,6 +766,7 @@ export async function runCryptoShadowAll(userId: number, cfg: any, symbols: stri
          fl?.h1.buyers ?? null, fl?.h1.sellers ?? null, ctx.market_cap_usd, ctx.token_age_hours, !!uni.newToken,
          judge?.verdict ?? null, judge?.aiDirection ?? null, judge?.confidence ?? null, judge?.reason ?? null, judge?.failure ?? null]).catch(() => {});
       open.push({ strategy: strat, underlying: und });
+      if (viaPlan) noteCryptoPlanEntry(userId);
       opened++;
     }
   }
