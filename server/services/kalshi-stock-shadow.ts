@@ -134,6 +134,10 @@ import {
   summarizeJudgeRows, strategyRecordFromRows, bucketEvidenceFor,
   type PerpAiJudgeResult, type AiJudgeScoreboard, type JudgeTickerHistory, type JudgeStrategyRecord,
 } from './kalshi-perp-ai-judge';
+import {
+  kalshiPerpWatchPlansEnabled, resolvePerpWatchPlan, newPerpPlanCycle, notePerpPlanEntry,
+  kalshiPerpWatchPlansSummary, type PerpWatchPlanAction,
+} from './kalshi-perp-watch-plans';
 
 export const stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== 'off';
 
@@ -505,6 +509,26 @@ export interface KalshiAiJudgePanelReport {
   scoreboard: AiJudgeScoreboard;
 }
 
+export interface KalshiPerpWatchPlansPanelReport {
+  enabled: boolean;
+  /** Live (unexpired) plans currently held for this user. */
+  activePlans: number;
+  /** Today's plan-layer counters (UTC day, in-process like the FX
+   *  watch-plan health counters): studies bought, plans created and
+   *  triggered, signals skipped for want of a triggered plan, plan-layer
+   *  failures that fell back to mechanical entries, and entries that
+   *  opened under a triggered plan. */
+  created: number;
+  triggered: number;
+  expired: number;
+  invalidated: number;
+  structureBreaks: number;
+  deepCalls: number;
+  planSkips: number;
+  fallbacks: number;
+  entriesViaPlan: number;
+}
+
 export interface KalshiStockShadowReport {
   days: number;
   summary: KalshiStockShadowSummary;
@@ -521,6 +545,10 @@ export interface KalshiStockShadowReport {
   // verdicts graded out against real closes. Evidence only — the judge
   // never gates entries in this build.
   aiJudge: KalshiAiJudgePanelReport;
+  // AI watch plans (kalshi-perp-watch-plans.ts): with plans ON, entries
+  // wait for an AI plan trigger on top of the mechanical signal — the
+  // counters below are the layer's evidence.
+  aiWatchPlans: KalshiPerpWatchPlansPanelReport;
 }
 
 export interface KalshiAccountSimResult {
@@ -829,11 +857,14 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
   };
   aiJudge.judgedCloses = aiJudge.scoreboard.judgedCloses;
 
+  const aiWatchPlans: KalshiPerpWatchPlansPanelReport = kalshiPerpWatchPlansSummary(userId);
+
   return {
     days: windowDays,
     ...(accountSim ? { accountSim } : {}),
     perpBrain,
     aiJudge,
+    aiWatchPlans,
     summary: {
       openCount: Number(s.open_count) || 0,
       closedCount: Number(s.closed_count) || 0,
@@ -924,6 +955,16 @@ const FX_PORTS: Array<{ id: string; tf: '5m' | '1h'; bars: number; make: (symbol
   { id: 'fx_sniper', tf: '1h', bars: 120, make: (s) => fxSpec('sniper', 'Sniper Mode', 'H1', [...emaTrend(9, 21), { id: 'rsi', kind: 'RSI' as const, period: 14 }], [emaAbove, rsiCrossUp(40)], [emaBelow, rsiCrossDown(60)], s) },
   { id: 'fx_prop_firm_sniper', tf: '1h', bars: 120, make: (s) => fxSpec('prop_firm_sniper', 'Prop Firm Sniper', 'H1', [...emaTrend(9, 21), { id: 'rsi', kind: 'RSI' as const, period: 14 }], [emaAbove, rsiCrossUp(35)], [emaBelow, rsiCrossDown(65)], s) },
 ];
+
+/** Every strategy key this lane can open under — the watch-plan layer
+ *  validates plans against this set (a plan sharpens one of these; it is
+ *  never a new signal source). */
+const PERP_STRATEGY_KEYS: ReadonlySet<string> = new Set<string>([
+  ...CRYPTO_PORTS,
+  ...OPTIONS_PORTS.map((k) => `opt_${k}`),
+  ...FX_PORTS.map((f) => f.id),
+  'orb', 'composite_autonomous', 'funding_fade',
+]);
 
 // ── options adapter: AlpacaService-shaped reads over Kalshi bars ───────────
 function optionsAdapter(ticker: string): any {
@@ -1159,9 +1200,15 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
   // bounded read (500 newest valid closes), fail-soft: no history simply
   // means the judge sees a thinner prompt, never a blocked entry.
   const judgeOn = kalshiPerpAiJudgeEnabled();
+  // Watch plans (kalshi-perp-watch-plans.ts) weigh the SAME evidence
+  // base as the judge, so the per-cycle gather runs when either layer
+  // is on. The plan layer's per-cycle deep-call budget is created here,
+  // once, and shared across every candidate below.
+  const plansOn = kalshiPerpWatchPlansEnabled();
+  const planCycle = newPerpPlanCycle();
   const judgeRowsByUnderlying = new Map<string, any[]>();
   const judgeRowsByStrategy = new Map<string, any[]>();
-  if (judgeOn) {
+  if (judgeOn || plansOn) {
     const { rows: judgeRows } = await pool.query(
       `SELECT underlying, strategy, direction, return_pct, r_multiple, closed_at
          FROM kalshi_perp_shadow_trades
@@ -1441,37 +1488,71 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
       // calendar KNOWS (see earningsStampValue); NULL when unknown or
       // the feature is off — the column's original stub semantics.
       const earnings48 = perpEarningsEnabled() && eInfo ? earningsStampValue(eInfo, now) : null;
+      // The lane's collected evidence for this candidate — weighed by
+      // BOTH AI layers below (watch-plan study and judge): this ticker's
+      // history (aggregates + last 10 closes), this strategy's record
+      // and recent form, and the candidate's own bucket evidence — all
+      // from the per-cycle gather above and the bucket stats the brain
+      // gate already computed. Aggregates only; the prompt builders cap
+      // every section.
+      const tickerRows = judgeRowsByUnderlying.get(mkt.underlying) || [];
+      const tickerHistory: JudgeTickerHistory = {
+        summary: summarizeJudgeRows(tickerRows.map((r: any) => ({ netPct: r.return_pct, rMultiple: r.r_multiple }))),
+        recent: tickerRows.slice(0, 10).map((r: any) => ({
+          strategy: String(r.strategy), direction: String(r.direction),
+          netPct: Number(r.return_pct), rMultiple: r.r_multiple == null ? null : Number(r.r_multiple),
+        })),
+      };
+      const strategyRows = judgeRowsByStrategy.get(sig.strategy) || [];
+      const strategyRecord: JudgeStrategyRecord = strategyRecordFromRows(
+        strategyRows.map((r: any) => ({
+          netPct: r.return_pct, rMultiple: r.r_multiple,
+          closedAtMs: new Date(r.closed_at).getTime(),
+        })), now);
+      const bucketEvidence = bucketEvidenceFor(stats, sig.strategy, kalshiBucketsOf(ctx));
+      // ── AI watch plans (kalshi-perp-watch-plans.ts): this candidate
+      // has passed EVERY existing gate above (earnings, brain,
+      // improvement throttle, VP veto) in its existing order. With plans
+      // ON, the entry additionally needs a live plan for this
+      // ticker+strategy whose trigger has formed on the H1 bars this
+      // cycle already fetched (free, deterministic — watching buys
+      // nothing). No triggered plan → the signal is skipped and counted
+      // by the plan layer (planSkips); that is the design. A plan-layer
+      // FAILURE degrades to today's mechanical entry for this candidate
+      // (action 'fallback', counted separately) — the lane never halts.
+      // resolvePerpWatchPlan never throws; the try/catch is
+      // belt-and-braces with the same fallback semantics.
+      let viaPlan = false;
+      if (plansOn) {
+        let res: PerpWatchPlanAction = { action: 'fallback' };
+        try {
+          res = await resolvePerpWatchPlan({
+            userId, ticker: mkt.ticker, underlying: mkt.underlying, strategy: sig.strategy,
+            signalDirection: sig.direction, signalScore: sig.score,
+            entryPrice: entry, slPct, atrPct,
+            fundingRate: fundEst?.rate ?? null, h1Trend, h4Trend, vpPosition: vpPos,
+            earningsWithin48h: earnings48,
+            recentCloses: h1Bars.slice(-12).map((b) => b.c),
+            tickerHistory, strategyRecord, bucketEvidence,
+            candlesNewestFirst: h1Bars.slice().reverse().map((b) => ({ o: b.o, h: b.h, l: b.l, c: b.c })),
+            currentPrice: lastClose,
+          }, planCycle, { strategyKeys: PERP_STRATEGY_KEYS });
+        } catch { res = { action: 'fallback' }; }
+        if (res.action === 'skip') continue;
+        viaPlan = res.action === 'triggered';
+      }
       // ── AI judge (kalshi-perp-ai-judge.ts): this candidate has passed
       // EVERY gate above (earnings, brain, improvement throttle, VP
-      // veto) and is about to open — only now is it judged, so blocked
-      // candidates never spend from the shared AI pool. The verdict is
-      // stamped on the context row below and scored against the outcome
-      // later; it is NEVER consulted here — no branch below reads it,
-      // and the entry proceeds identically whatever it says (including
-      // 'no_verdict' on any AI failure: judgeKalshiPerpCandidate never
-      // throws, and the .catch is belt-and-braces).
+      // veto — and, when plans are on, the plan trigger) and is about to
+      // open — only now is it judged, so blocked candidates never spend
+      // from the shared AI pool. The verdict is stamped on the context
+      // row below and scored against the outcome later; it is NEVER
+      // consulted here — no branch below reads it, and the entry
+      // proceeds identically whatever it says (including 'no_verdict' on
+      // any AI failure: judgeKalshiPerpCandidate never throws, and the
+      // .catch is belt-and-braces).
       let judge: PerpAiJudgeResult | null = null;
       if (judgeOn) {
-        // The judge weighs this candidate against the lane's collected
-        // evidence: this ticker's history (aggregates + last 10 closes),
-        // this strategy's record and recent form, and the candidate's
-        // own bucket evidence — all from the per-cycle gather above and
-        // the bucket stats the brain gate already computed. Aggregates
-        // only; the prompt builder caps every section.
-        const tickerRows = judgeRowsByUnderlying.get(mkt.underlying) || [];
-        const tickerHistory: JudgeTickerHistory = {
-          summary: summarizeJudgeRows(tickerRows.map((r: any) => ({ netPct: r.return_pct, rMultiple: r.r_multiple }))),
-          recent: tickerRows.slice(0, 10).map((r: any) => ({
-            strategy: String(r.strategy), direction: String(r.direction),
-            netPct: Number(r.return_pct), rMultiple: r.r_multiple == null ? null : Number(r.r_multiple),
-          })),
-        };
-        const strategyRows = judgeRowsByStrategy.get(sig.strategy) || [];
-        const strategyRecord: JudgeStrategyRecord = strategyRecordFromRows(
-          strategyRows.map((r: any) => ({
-            netPct: r.return_pct, rMultiple: r.r_multiple,
-            closedAtMs: new Date(r.closed_at).getTime(),
-          })), now);
         judge = await judgeKalshiPerpCandidate({
           userId, strategy: sig.strategy, ticker: mkt.ticker, underlying: mkt.underlying,
           direction: sig.direction, entryPrice: entry, score: sig.score,
@@ -1507,6 +1588,7 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
          judge?.verdict ?? null, judge?.confidence ?? null, judge?.reason ?? null,
          judge?.model ?? null, judge?.failure ?? null, judge ? judge.metered : null]).catch(() => {});
       open.push({ strategy: sig.strategy, underlying: mkt.underlying });
+      if (viaPlan) notePerpPlanEntry(userId);
       opened++;
     }
   }

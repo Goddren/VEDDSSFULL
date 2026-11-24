@@ -124,6 +124,20 @@ interface KalshiAiJudge {
   };
 }
 
+interface KalshiPerpWatchPlans {
+  enabled: boolean;
+  activePlans: number;
+  created: number;
+  triggered: number;
+  expired: number;
+  invalidated: number;
+  structureBreaks: number;
+  deepCalls: number;
+  planSkips: number;
+  fallbacks: number;
+  entriesViaPlan: number;
+}
+
 interface KalshiShadowReport {
   days: number;
   summary: KalshiShadowSummary;
@@ -133,6 +147,7 @@ interface KalshiShadowReport {
   accountSim?: KalshiAccountSim;
   perpBrain?: KalshiPerpBrain;
   aiJudge?: KalshiAiJudge;
+  aiWatchPlans?: KalshiPerpWatchPlans;
 }
 
 const DAY_OPTIONS = [7, 30, 90] as const;
@@ -661,6 +676,37 @@ export function KalshiShadowPanel({ className = "" }: { className?: string }) {
                 </>
               ) : (
                 <p className="mt-1 text-[10px] leading-snug text-gray-500">The AI judge is off right now, so new trades are opening without a verdict. The lane's own brain still gates as usual.</p>
+              )}
+            </div>
+          ) : null}
+
+          {data.aiWatchPlans ? (
+            <div className="mt-2 rounded-lg bg-black/20 px-3 py-2.5">
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <h3 className="text-[11px] font-bold text-gray-100">AI watch plans</h3>
+                <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">
+                  {data.aiWatchPlans.enabled ? "entries now wait for an AI plan trigger" : "switched off"}
+                </span>
+              </div>
+              {data.aiWatchPlans.enabled ? (
+                <>
+                  <p className="mt-1 text-[10px] leading-snug text-gray-400">
+                    An AI study writes a watch plan for a ticker + strategy — the pattern it is waiting for and the exact candle that confirms it. Watching is free; a shadow entry now opens only when the strategy's own signal fires <b className="text-gray-200">and</b> its plan's trigger has formed. Signals without a triggered plan are skipped on purpose.
+                  </p>
+                  <p className="mt-1.5 text-[10px] leading-snug tabular-nums text-gray-400">
+                    <span className="font-semibold text-gray-200">{data.aiWatchPlans.activePlans} plans live</span>
+                    {" · "}{data.aiWatchPlans.entriesViaPlan} entries via plan today
+                    {" · "}{data.aiWatchPlans.planSkips} signals skipped (no trigger)
+                    {" · "}{data.aiWatchPlans.deepCalls} studies bought
+                    {" · "}{data.aiWatchPlans.created} plans created
+                    {" · "}{data.aiWatchPlans.triggered} triggered
+                    {" · "}{data.aiWatchPlans.expired} expired
+                    {" · "}{data.aiWatchPlans.invalidated} invalidated
+                    {data.aiWatchPlans.fallbacks > 0 ? <>{" · "}{data.aiWatchPlans.fallbacks} plan failures fell back to mechanical entries</> : null}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-1 text-[10px] leading-snug text-gray-500">Watch plans are off right now, so entries open on the mechanical signals alone, exactly as before. The lane's own brain and the AI judge still work as usual.</p>
               )}
             </div>
           ) : null}
