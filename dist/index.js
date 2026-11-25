@@ -53124,6 +53124,7 @@ __export(kalshi_trading_exports, {
   getKalshiMarginPositions: () => getKalshiMarginPositions,
   getKalshiOrders: () => getKalshiOrders,
   getKalshiPositions: () => getKalshiPositions,
+  kalshiMarginBalanceBreakdown: () => kalshiMarginBalanceBreakdown,
   loadKalshiCredentials: () => loadKalshiCredentials,
   marginBodySnippet: () => marginBodySnippet,
   marginCallDiagnosticFromError: () => marginCallDiagnosticFromError,
@@ -53388,26 +53389,27 @@ function pickFp(obj, keys) {
 function nullMarginBalance() {
   return { cashUsd: null, positionValueUsd: null, equityUsd: null, maintenanceMarginUsd: null, availableUsd: null };
 }
-function normalizeKalshiMarginBalanceCurrent(data) {
+function parseKalshiMarginBalanceCurrent(data) {
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
   const hasSubs = Array.isArray(data.subaccount_balances);
   const hasSettled = data.settled_funds != null && data.settled_funds !== "";
   if (!hasSubs && !hasSettled) return null;
   const settled = hasSettled ? fpNum(data.settled_funds) : null;
-  if (hasSettled && settled == null) return nullMarginBalance();
+  if (hasSettled && settled == null) return { balance: nullMarginBalance(), breakdown: null };
   let subsSeen = false;
   let equitySum = 0;
   let positionValueSum = 0;
   let maintenanceMarginSum = 0;
   let reportedAvailableSum = 0;
   let derivedFreeSum = 0;
+  const rows = [];
   if (hasSubs) {
     for (const s of data.subaccount_balances) {
-      if (!s || typeof s !== "object" || Array.isArray(s)) return nullMarginBalance();
+      if (!s || typeof s !== "object" || Array.isArray(s)) return { balance: nullMarginBalance(), breakdown: null };
       const vals = {};
       for (const f of MARGIN_SUBACCOUNT_FIELDS) {
         const v = fpNum(s[f]);
-        if (v == null) return nullMarginBalance();
+        if (v == null) return { balance: nullMarginBalance(), breakdown: null };
         vals[f] = v;
       }
       subsSeen = true;
@@ -53415,7 +53417,19 @@ function normalizeKalshiMarginBalanceCurrent(data) {
       positionValueSum += vals.position_value;
       maintenanceMarginSum += vals.maintenance_margin;
       reportedAvailableSum += vals.available_balance;
-      derivedFreeSum += Math.max(0, vals.account_equity - vals.initial_margin - vals.resting_orders_margin);
+      const derivedFree = Math.max(0, vals.account_equity - vals.initial_margin - vals.resting_orders_margin);
+      derivedFreeSum += derivedFree;
+      rows.push({
+        subaccount: fpNum(s.subaccount),
+        subaccountType: typeof s.subaccount_type === "string" ? s.subaccount_type : null,
+        accountEquityUsd: vals.account_equity,
+        initialMarginUsd: vals.initial_margin,
+        maintenanceMarginUsd: vals.maintenance_margin,
+        restingOrdersMarginUsd: vals.resting_orders_margin,
+        positionValueUsd: vals.position_value,
+        availableBalanceRawUsd: vals.available_balance,
+        derivedFreeMarginUsd: derivedFree
+      });
     }
   }
   const views = [];
@@ -53427,13 +53441,29 @@ function normalizeKalshiMarginBalanceCurrent(data) {
     const unallocatedSettled = settled != null ? Math.max(0, settled - equitySum) : 0;
     availableUsd = Math.min(equityUsd, Math.max(reportedAvailableSum, derivedFreeSum) + unallocatedSettled);
   }
-  return {
+  const balance = {
     cashUsd: settled,
     positionValueUsd: subsSeen ? positionValueSum : null,
     equityUsd,
     maintenanceMarginUsd: subsSeen ? maintenanceMarginSum : null,
     availableUsd
   };
+  const breakdown = {
+    settledFundsUsd: settled,
+    subaccounts: rows,
+    sumSubaccountEquityUsd: subsSeen ? equitySum : null,
+    equityUsd,
+    availableUsd
+  };
+  return { balance, breakdown };
+}
+function normalizeKalshiMarginBalanceCurrent(data) {
+  const parsed = parseKalshiMarginBalanceCurrent(data);
+  return parsed ? parsed.balance : null;
+}
+function kalshiMarginBalanceBreakdown(data) {
+  const parsed = parseKalshiMarginBalanceCurrent(data) ?? parseKalshiMarginBalanceCurrent(data?.balance);
+  return parsed ? parsed.breakdown : null;
 }
 function normalizeMarginBalance(data) {
   const current2 = normalizeKalshiMarginBalanceCurrent(data) ?? normalizeKalshiMarginBalanceCurrent(data?.balance);
@@ -53512,7 +53542,8 @@ async function getKalshiMarginDiagnostic(userId) {
     enabled: enabledRes.call,
     enabledParsed: enabledRes.call.ok && enabledRes.data !== void 0 ? parseMarginEnabledOrNull(enabledRes.data) : null,
     balance: balanceRes.call,
-    balanceParsed: balanceRes.call.ok && balanceRes.data !== void 0 ? normalizeMarginBalance(balanceRes.data) : null
+    balanceParsed: balanceRes.call.ok && balanceRes.data !== void 0 ? normalizeMarginBalance(balanceRes.data) : null,
+    balanceBreakdown: balanceRes.call.ok && balanceRes.data !== void 0 ? kalshiMarginBalanceBreakdown(balanceRes.data) : null
   };
 }
 function normalizeMarginPosition(raw) {
@@ -66448,349 +66479,46 @@ var init_crypto_shadow_promotions = __esm({
   }
 });
 
-// server/services/shadow-live-toggles.ts
-var shadow_live_toggles_exports = {};
-__export(shadow_live_toggles_exports, {
-  CRYPTO_LIVE_BAR: () => CRYPTO_LIVE_BAR,
-  CRYPTO_LIVE_STRATEGIES: () => CRYPTO_LIVE_STRATEGIES,
-  KALSHI_PERP_BAR: () => KALSHI_PERP_BAR,
-  cryptoLiveToggleOn: () => cryptoLiveToggleOn,
-  ensureLiveToggleAuditTable: () => ensureLiveToggleAuditTable,
-  evaluateCryptoBar: () => evaluateCryptoBar,
-  evaluateKalshiBar: () => evaluateKalshiBar,
-  flipCryptoLiveToggle: () => flipCryptoLiveToggle,
-  getCryptoLiveTogglePanel: () => getCryptoLiveTogglePanel,
-  getCryptoLiveToggles: () => getCryptoLiveToggles,
-  getCryptoStrategyBar: () => getCryptoStrategyBar,
-  getKalshiPerpArmingPanel: () => getKalshiPerpArmingPanel,
-  getKalshiPerpArms: () => getKalshiPerpArms,
-  getKalshiStrategyBar: () => getKalshiStrategyBar,
-  isCryptoStrategyLiveEnabled: () => isCryptoStrategyLiveEnabled,
-  kalshiPerpArmOn: () => kalshiPerpArmOn,
-  lastTwoWeeks: () => lastTwoWeeks,
-  maxDrawdownPctFromReturns: () => maxDrawdownPctFromReturns,
-  setKalshiPerpArmed: () => setKalshiPerpArmed,
-  summarizeCloses: () => summarizeCloses,
-  weekStartUtc: () => weekStartUtc
-});
-function cryptoLiveToggleOn() {
-  return process.env.CRYPTO_LIVE_TOGGLE !== "off";
-}
-function kalshiPerpArmOn() {
-  return process.env.KALSHI_PERP_ARM !== "off";
-}
-function ensureLiveToggleAuditTable() {
-  if (!_auditEnsured) {
-    _auditEnsured = pool.query(`CREATE TABLE IF NOT EXISTS shadow_live_toggle_audit (
-      id serial PRIMARY KEY, user_id int NOT NULL, lane text NOT NULL, strategy text NOT NULL,
-      action text NOT NULL, ok boolean NOT NULL, meets_bar boolean,
-      missing jsonb, bar_snapshot jsonb, created_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS shadow_live_toggle_audit_user ON shadow_live_toggle_audit (user_id, created_at)`)).then(() => void 0).catch((e) => {
-      _auditEnsured = null;
+// server/services/ensure-kalshi-perp-live-tables.ts
+function ensureKalshiPerpLiveTables() {
+  if (!_ensured11) {
+    _ensured11 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_live_trades (
+      id serial PRIMARY KEY, user_id int NOT NULL,
+      shadow_trade_id int NOT NULL UNIQUE,
+      strategy text NOT NULL, ticker text NOT NULL, underlying text NOT NULL,
+      direction text NOT NULL,
+      contracts double precision NOT NULL DEFAULT 0,
+      entry_price double precision, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
+      sl_pct double precision NOT NULL, notional_usd double precision NOT NULL DEFAULT 0,
+      max_hours double precision NOT NULL,
+      entry_order_id text, entry_client_order_id text,
+      status text NOT NULL DEFAULT 'pending_entry',
+      exit_price double precision, exit_reason text,
+      gross_pnl_usd double precision, funding_usd double precision, net_pnl_usd double precision,
+      return_pct double precision, r_multiple double precision,
+      opened_at timestamptz, closed_at timestamptz,
+      last_reconciled_at timestamptz, notes text,
+      created_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_live_trades_user_status ON kalshi_perp_live_trades (user_id, status)`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_live_orders (
+      id serial PRIMARY KEY, user_id int NOT NULL, live_trade_id int,
+      kind text NOT NULL, client_order_id text NOT NULL UNIQUE,
+      order_id text, ticker text NOT NULL, side text NOT NULL,
+      count double precision NOT NULL, price double precision NOT NULL,
+      status text NOT NULL DEFAULT 'sending',
+      fill_count double precision, remaining_count double precision, avg_fill_price double precision,
+      error text, reconcile_attempts int NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now())`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_live_orders_trade ON kalshi_perp_live_orders (live_trade_id)`)).then(() => pool.query(`ALTER TABLE kalshi_perp_live_trades ADD COLUMN IF NOT EXISTS fees_usd double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_live_trades ADD COLUMN IF NOT EXISTS cost_model text`)).then(() => void 0).catch((e) => {
+      _ensured11 = null;
       throw e;
     });
   }
-  return _auditEnsured;
+  return _ensured11;
 }
-async function auditFlip(row) {
-  try {
-    await ensureLiveToggleAuditTable();
-    await pool.query(
-      `INSERT INTO shadow_live_toggle_audit (user_id, lane, strategy, action, ok, meets_bar, missing, bar_snapshot)
-       VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb)`,
-      [
-        row.userId,
-        row.lane,
-        row.strategy,
-        row.action,
-        row.ok,
-        row.meetsBar,
-        JSON.stringify(row.missing),
-        row.bar ? JSON.stringify(row.bar) : null
-      ]
-    );
-  } catch (e) {
-    console.error("[live-toggles] audit write failed (non-fatal):", e?.message ?? e);
-  }
-}
-function weekStartUtc(d) {
-  const t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-  const dow = new Date(t).getUTCDay();
-  return t - (dow + 6) % 7 * 864e5;
-}
-function lastTwoWeeks(closes, pick3, now) {
-  const windowStart = weekStartUtc(now) - 7 * 864e5;
-  const byWeek = /* @__PURE__ */ new Map();
-  for (const c of closes) {
-    const t = new Date(c.closedAt).getTime();
-    if (!Number.isFinite(t) || t < windowStart) continue;
-    const v = pick3(c);
-    if (v == null || !Number.isFinite(v)) continue;
-    const wk = weekStartUtc(new Date(t));
-    byWeek.set(wk, (byWeek.get(wk) ?? 0) + v);
-  }
-  const weeks = Array.from(byWeek.entries()).sort((a, b) => a[0] - b[0]).map(([wk, sum]) => ({ weekStart: new Date(wk).toISOString(), sum }));
-  return { losingWeek: weeks.some((w) => w.sum < 0), weeks };
-}
-function maxDrawdownPctFromReturns(pcts) {
-  let balance = 100, peak = 100, maxDd = 0;
-  for (const pct3 of pcts) {
-    if (!Number.isFinite(pct3)) continue;
-    balance += balance * pct3 / 100;
-    if (balance > peak) peak = balance;
-    if (peak > 0) maxDd = Math.max(maxDd, (peak - balance) / peak * 100);
-  }
-  return maxDd;
-}
-function summarizeCloses(closes, now, weekUnit) {
-  const pcts = closes.map((c) => c.returnPct).filter((v) => Number.isFinite(v));
-  const trades = pcts.length;
-  const meanNetPct = trades ? pcts.reduce((a, b) => a + b, 0) / trades : null;
-  const winRate2 = trades ? pcts.filter((v) => v > 0).length / trades : null;
-  const rs = closes.map((c) => c.rMultiple).filter((v) => v != null && Number.isFinite(v));
-  const avgR = rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : null;
-  const { losingWeek, weeks } = lastTwoWeeks(closes, weekUnit === "r" ? (c) => c.rMultiple ?? null : (c) => c.returnPct, now);
-  return { trades, meanNetPct, avgR, winRate: winRate2, maxDrawdownPct: maxDrawdownPctFromReturns(pcts), losingWeek, weeks };
-}
-function evaluateCryptoBar(s) {
-  const missing = [];
-  if (s.trades < CRYPTO_LIVE_BAR.minTrades) missing.push(`${s.trades}/${CRYPTO_LIVE_BAR.minTrades} shadow trades`);
-  if (!(s.meanNetPct != null && s.meanNetPct > 0)) missing.push(`mean net ${s.meanNetPct == null ? "\u2014" : signedPct(s.meanNetPct)} (needs above 0%)`);
-  if (!(s.winRate != null && s.winRate >= CRYPTO_LIVE_BAR.minWinRate)) missing.push(`win rate ${s.winRate == null ? "\u2014" : wrPct(s.winRate)} (needs \u2265 ${wrPct(CRYPTO_LIVE_BAR.minWinRate)})`);
-  if (s.losingWeek) missing.push("a losing week in the last two weeks");
-  if (s.maxDrawdownPct > CRYPTO_LIVE_BAR.maxDrawdownPct) missing.push(`shadow drawdown ${pct1(s.maxDrawdownPct)} (needs \u2264 ${CRYPTO_LIVE_BAR.maxDrawdownPct}%)`);
-  return { meetsBar: missing.length === 0, missing };
-}
-async function cryptoStrategyCloses(userId, strategy) {
-  await ensureCryptoShadowTables();
-  const { rows } = await pool.query(
-    `SELECT return_pct, closed_at FROM crypto_shadow_trades
-      WHERE user_id=$1 AND strategy=$2 AND status='closed' AND return_pct IS NOT NULL
-        AND closed_at >= now() - interval '${CRYPTO_LIVE_BAR.windowDays} days'
-      ORDER BY closed_at ASC`,
-    [userId, strategy]
-  );
-  return rows.map((r) => ({ returnPct: Number(r.return_pct), closedAt: r.closed_at }));
-}
-async function getCryptoStrategyBar(userId, strategy) {
-  const stats = summarizeCloses(await cryptoStrategyCloses(userId, strategy), /* @__PURE__ */ new Date(), "pct");
-  const { weeks: _weeks, ...snapshot } = stats;
-  return { ...snapshot, ...evaluateCryptoBar(snapshot) };
-}
-async function getCryptoLiveToggles(userId) {
-  const hit = _cryptoCache.get(userId);
-  if (hit && Date.now() - hit.at < CACHE_MS6) return hit.toggles;
-  let toggles = {};
-  try {
-    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-    const v = await getRuntimeStateStrict2(CRYPTO_SCOPE, String(userId));
-    if (v && typeof v === "object") toggles = v;
-  } catch {
-  }
-  _cryptoCache.set(userId, { at: Date.now(), toggles });
-  return toggles;
-}
-async function storeCryptoLiveToggles(userId, toggles) {
-  await ensureRuntimeStateTable();
-  await pool.query(
-    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
-     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-    [CRYPTO_SCOPE, String(userId), JSON.stringify(toggles)]
-  );
-  _cryptoCache.set(userId, { at: Date.now(), toggles });
-}
-async function getCryptoLiveTogglePanel(userId) {
-  const toggles = await getCryptoLiveToggles(userId);
-  const strategies = [];
-  for (const strategy of CRYPTO_LIVE_STRATEGIES) {
-    const bar = await getCryptoStrategyBar(userId, strategy).catch(() => ({
-      trades: 0,
-      meanNetPct: null,
-      avgR: null,
-      winRate: null,
-      maxDrawdownPct: 0,
-      losingWeek: false,
-      ...evaluateCryptoBar({ trades: 0, meanNetPct: null, avgR: null, winRate: null, maxDrawdownPct: 0, losingWeek: false })
-    }));
-    strategies.push({ strategy, on: toggles[strategy]?.on === true, updatedAt: toggles[strategy]?.updatedAt ?? null, bar });
-  }
-  return { enabled: cryptoLiveToggleOn(), strategies };
-}
-async function flipCryptoLiveToggle(userId, strategy, on) {
-  if (!CRYPTO_LIVE_STRATEGIES.includes(strategy)) {
-    return { ok: false, status: 400, error: `"${strategy}" is not a strategy that can trade on the DeFi hot wallet.` };
-  }
-  if (!on) {
-    const toggles2 = await getCryptoLiveToggles(userId);
-    toggles2[strategy] = { on: false, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), bar: toggles2[strategy]?.bar ?? null };
-    await storeCryptoLiveToggles(userId, toggles2);
-    void auditFlip({ userId, lane: "crypto", strategy, action: "off", ok: true, meetsBar: null, missing: [], bar: null });
-    return { ok: true };
-  }
-  if (!cryptoLiveToggleOn()) {
-    void auditFlip({ userId, lane: "crypto", strategy, action: "on", ok: false, meetsBar: null, missing: [], bar: null });
-    return { ok: false, status: 403, error: "Go-live toggles are switched off right now (CRYPTO_LIVE_TOGGLE=off). The DeFi arm is running on its existing engine switches." };
-  }
-  const bar = await getCryptoStrategyBar(userId, strategy);
-  const cleanBar = {
-    trades: bar.trades,
-    meanNetPct: bar.meanNetPct,
-    avgR: bar.avgR,
-    winRate: bar.winRate,
-    maxDrawdownPct: bar.maxDrawdownPct,
-    losingWeek: bar.losingWeek
-  };
-  if (!bar.meetsBar) {
-    void auditFlip({ userId, lane: "crypto", strategy, action: "on", ok: false, meetsBar: false, missing: bar.missing, bar: cleanBar });
-    return { ok: false, status: 422, error: `${strategy} has not cleared the go-live bar yet: ${bar.missing.join(" \xB7 ")}.`, missing: bar.missing, bar: cleanBar };
-  }
-  const toggles = await getCryptoLiveToggles(userId);
-  toggles[strategy] = { on: true, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), bar: cleanBar };
-  await storeCryptoLiveToggles(userId, toggles);
-  void auditFlip({ userId, lane: "crypto", strategy, action: "on", ok: true, meetsBar: true, missing: [], bar: cleanBar });
-  return { ok: true, bar: cleanBar };
-}
-async function isCryptoStrategyLiveEnabled(userId, strategy) {
-  if (!cryptoLiveToggleOn()) return true;
-  try {
-    return (await getCryptoLiveToggles(userId))[strategy]?.on === true;
-  } catch {
-    return false;
-  }
-}
-function evaluateKalshiBar(s) {
-  const missing = [];
-  if (s.trades < KALSHI_PERP_BAR.minTrades) missing.push(`${s.trades}/${KALSHI_PERP_BAR.minTrades} shadow trades`);
-  if (!(s.avgR != null && s.avgR >= KALSHI_PERP_BAR.minAvgR)) missing.push(`avg ${s.avgR == null ? "\u2014" : `${s.avgR >= 0 ? "+" : ""}${s.avgR.toFixed(2)}R`} (needs \u2265 +${KALSHI_PERP_BAR.minAvgR.toFixed(2)}R)`);
-  if (!(s.winRate != null && s.winRate >= KALSHI_PERP_BAR.minWinRate)) missing.push(`win rate ${s.winRate == null ? "\u2014" : wrPct(s.winRate)} (needs \u2265 ${wrPct(KALSHI_PERP_BAR.minWinRate)})`);
-  if (s.losingWeek) missing.push("a losing week in the last two weeks");
-  if (s.maxDrawdownPct > KALSHI_PERP_BAR.maxDrawdownPct) missing.push(`shadow drawdown ${pct1(s.maxDrawdownPct)} (needs \u2264 ${KALSHI_PERP_BAR.maxDrawdownPct}%)`);
-  return { meetsBar: missing.length === 0, missing };
-}
-async function kalshiStrategyCloses(userId, strategy) {
-  await ensureKalshiPerpShadowTables();
-  const { rows } = await pool.query(
-    `SELECT return_pct, r_multiple, closed_at FROM kalshi_perp_shadow_trades
-      WHERE user_id=$1 AND strategy=$2 AND status='closed' AND return_pct IS NOT NULL
-        AND exclude_from_stats IS NOT TRUE
-      ORDER BY closed_at ASC`,
-    [userId, strategy]
-  );
-  return rows.map((r) => ({
-    returnPct: Number(r.return_pct),
-    rMultiple: r.r_multiple == null ? null : Number(r.r_multiple),
-    closedAt: r.closed_at
-  }));
-}
-async function getKalshiStrategyBar(userId, strategy) {
-  const stats = summarizeCloses(await kalshiStrategyCloses(userId, strategy), /* @__PURE__ */ new Date(), "r");
-  const { weeks: _weeks, ...snapshot } = stats;
-  return { ...snapshot, ...evaluateKalshiBar(snapshot) };
-}
-async function getKalshiPerpArms(userId) {
-  const hit = _kalshiCache.get(userId);
-  if (hit && Date.now() - hit.at < CACHE_MS6) return hit.arms;
-  let arms = {};
-  try {
-    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
-    const v = await getRuntimeStateStrict2(KALSHI_SCOPE, String(userId));
-    if (v && typeof v === "object") arms = v;
-  } catch {
-  }
-  _kalshiCache.set(userId, { at: Date.now(), arms });
-  return arms;
-}
-async function storeKalshiPerpArms(userId, arms) {
-  await ensureRuntimeStateTable();
-  await pool.query(
-    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
-     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-    [KALSHI_SCOPE, String(userId), JSON.stringify(arms)]
-  );
-  _kalshiCache.set(userId, { at: Date.now(), arms });
-}
-async function getKalshiPerpArmingPanel(userId) {
-  await ensureKalshiPerpShadowTables();
-  const arms = await getKalshiPerpArms(userId);
-  const { rows } = await pool.query(
-    `SELECT DISTINCT strategy FROM kalshi_perp_shadow_trades WHERE user_id=$1`,
-    [userId]
-  ).catch(() => ({ rows: [] }));
-  const names = /* @__PURE__ */ new Set([...rows.map((r) => String(r.strategy)), ...Object.keys(arms)]);
-  const strategies = [];
-  for (const strategy of Array.from(names)) {
-    const bar = await getKalshiStrategyBar(userId, strategy).catch(() => ({
-      trades: 0,
-      meanNetPct: null,
-      avgR: null,
-      winRate: null,
-      maxDrawdownPct: 0,
-      losingWeek: false,
-      ...evaluateKalshiBar({ trades: 0, meanNetPct: null, avgR: null, winRate: null, maxDrawdownPct: 0, losingWeek: false })
-    }));
-    strategies.push({ strategy, armed: arms[strategy]?.armed === true, updatedAt: arms[strategy]?.updatedAt ?? null, bar });
-  }
-  strategies.sort((a, b) => Number(b.armed) - Number(a.armed) || b.bar.trades - a.bar.trades || a.strategy.localeCompare(b.strategy));
-  return { enabled: kalshiPerpArmOn(), readiness: { marginStatus: "unknown", livePathBuilt: false }, strategies };
-}
-async function setKalshiPerpArmed(userId, strategy, armed) {
-  if (!strategy || typeof strategy !== "string") return { ok: false, status: 400, error: "strategy is required" };
-  if (armed && !kalshiPerpArmOn()) {
-    void auditFlip({ userId, lane: "kalshi_perp", strategy, action: "arm", ok: false, meetsBar: null, missing: [], bar: null });
-    return { ok: false, status: 403, error: "Arming is switched off right now (KALSHI_PERP_ARM=off)." };
-  }
-  const bar = await getKalshiStrategyBar(userId, strategy).catch(() => null);
-  const cleanBar = bar ? {
-    trades: bar.trades,
-    meanNetPct: bar.meanNetPct,
-    avgR: bar.avgR,
-    winRate: bar.winRate,
-    maxDrawdownPct: bar.maxDrawdownPct,
-    losingWeek: bar.losingWeek
-  } : null;
-  const arms = await getKalshiPerpArms(userId);
-  arms[strategy] = { armed, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), bar: cleanBar };
-  await storeKalshiPerpArms(userId, arms);
-  void auditFlip({
-    userId,
-    lane: "kalshi_perp",
-    strategy,
-    action: armed ? "arm" : "disarm",
-    ok: true,
-    meetsBar: bar ? bar.meetsBar : null,
-    missing: bar ? bar.missing : [],
-    bar: cleanBar
-  });
-  return { ok: true, bar: cleanBar ?? void 0 };
-}
-var _auditEnsured, pct1, signedPct, wrPct, CRYPTO_LIVE_BAR, CRYPTO_LIVE_STRATEGIES, CRYPTO_SCOPE, _cryptoCache, CACHE_MS6, KALSHI_PERP_BAR, KALSHI_SCOPE, _kalshiCache;
-var init_shadow_live_toggles = __esm({
-  "server/services/shadow-live-toggles.ts"() {
+var _ensured11;
+var init_ensure_kalshi_perp_live_tables = __esm({
+  "server/services/ensure-kalshi-perp-live-tables.ts"() {
     "use strict";
     init_db();
-    init_runtime_state();
-    init_crypto_shadow();
-    init_ensure_kalshi_perp_shadow_tables();
-    _auditEnsured = null;
-    pct1 = (v) => `${v.toFixed(1)}%`;
-    signedPct = (v) => `${v >= 0 ? "+" : "\u2212"}${pct1(Math.abs(v))}`;
-    wrPct = (v) => `${Math.round(v * 100)}%`;
-    CRYPTO_LIVE_BAR = { minTrades: 50, minWinRate: 0.4, maxDrawdownPct: 10, windowDays: 90 };
-    CRYPTO_LIVE_STRATEGIES = [
-      "trend_following",
-      "momentum",
-      "order_flow",
-      "volume_profile",
-      "breakout",
-      "structure",
-      "divergence",
-      "composite_autonomous"
-    ];
-    CRYPTO_SCOPE = "crypto_live_toggles";
-    _cryptoCache = /* @__PURE__ */ new Map();
-    CACHE_MS6 = 3e4;
-    KALSHI_PERP_BAR = { minTrades: 50, minAvgR: 0.2, minWinRate: 0.4, maxDrawdownPct: 10 };
-    KALSHI_SCOPE = "kalshi_perp_armed";
-    _kalshiCache = /* @__PURE__ */ new Map();
+    _ensured11 = null;
   }
 });
 
@@ -66883,17 +66611,17 @@ function vpValueEdgeBlock(direction, entry, profile, atr3) {
   return direction === "short" ? entry - profile.val <= tol : profile.vah - entry <= tol;
 }
 function ensurePerpBrainTables() {
-  if (!_ensured11) {
-    _ensured11 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_brain_blocks (
+  if (!_ensured12) {
+    _ensured12 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_brain_blocks (
       id serial PRIMARY KEY, user_id int NOT NULL, strategy text NOT NULL, ticker text NOT NULL, underlying text,
       direction text, reason text NOT NULL, bucket_dim text, bucket_value text,
       median_net_pct double precision, bucket_n int,
       created_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_brain_blocks_user_created ON kalshi_perp_brain_blocks (user_id, created_at)`)).then(() => void 0).catch((e) => {
-      _ensured11 = null;
+      _ensured12 = null;
       throw e;
     });
   }
-  return _ensured11;
+  return _ensured12;
 }
 async function logPerpBrainBlocks(userId, rows) {
   if (!rows.length) return;
@@ -66966,7 +66694,7 @@ async function getPerpBrainBlockSummary(userId, days) {
     }))
   };
 }
-var perpBrainEnabled, perpVpEnabled, VP_EDGE_TOL_ATR_MULT, _ensured11;
+var perpBrainEnabled, perpVpEnabled, VP_EDGE_TOL_ATR_MULT, _ensured12;
 var init_kalshi_perp_brain = __esm({
   "server/services/kalshi-perp-brain.ts"() {
     "use strict";
@@ -66974,7 +66702,7 @@ var init_kalshi_perp_brain = __esm({
     perpBrainEnabled = () => process.env.KALSHI_PERP_BRAIN !== "off";
     perpVpEnabled = () => process.env.KALSHI_PERP_VP !== "off";
     VP_EDGE_TOL_ATR_MULT = 0.25;
-    _ensured11 = null;
+    _ensured12 = null;
   }
 });
 
@@ -75140,49 +74868,6 @@ var init_kalshi_stock_shadow = __esm({
   }
 });
 
-// server/services/ensure-kalshi-perp-live-tables.ts
-function ensureKalshiPerpLiveTables() {
-  if (!_ensured12) {
-    _ensured12 = pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_live_trades (
-      id serial PRIMARY KEY, user_id int NOT NULL,
-      shadow_trade_id int NOT NULL UNIQUE,
-      strategy text NOT NULL, ticker text NOT NULL, underlying text NOT NULL,
-      direction text NOT NULL,
-      contracts double precision NOT NULL DEFAULT 0,
-      entry_price double precision, stop_loss double precision NOT NULL, take_profit double precision NOT NULL,
-      sl_pct double precision NOT NULL, notional_usd double precision NOT NULL DEFAULT 0,
-      max_hours double precision NOT NULL,
-      entry_order_id text, entry_client_order_id text,
-      status text NOT NULL DEFAULT 'pending_entry',
-      exit_price double precision, exit_reason text,
-      gross_pnl_usd double precision, funding_usd double precision, net_pnl_usd double precision,
-      return_pct double precision, r_multiple double precision,
-      opened_at timestamptz, closed_at timestamptz,
-      last_reconciled_at timestamptz, notes text,
-      created_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_live_trades_user_status ON kalshi_perp_live_trades (user_id, status)`)).then(() => pool.query(`CREATE TABLE IF NOT EXISTS kalshi_perp_live_orders (
-      id serial PRIMARY KEY, user_id int NOT NULL, live_trade_id int,
-      kind text NOT NULL, client_order_id text NOT NULL UNIQUE,
-      order_id text, ticker text NOT NULL, side text NOT NULL,
-      count double precision NOT NULL, price double precision NOT NULL,
-      status text NOT NULL DEFAULT 'sending',
-      fill_count double precision, remaining_count double precision, avg_fill_price double precision,
-      error text, reconcile_attempts int NOT NULL DEFAULT 0,
-      created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now())`)).then(() => pool.query(`CREATE INDEX IF NOT EXISTS kalshi_perp_live_orders_trade ON kalshi_perp_live_orders (live_trade_id)`)).then(() => pool.query(`ALTER TABLE kalshi_perp_live_trades ADD COLUMN IF NOT EXISTS fees_usd double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_live_trades ADD COLUMN IF NOT EXISTS cost_model text`)).then(() => void 0).catch((e) => {
-      _ensured12 = null;
-      throw e;
-    });
-  }
-  return _ensured12;
-}
-var _ensured12;
-var init_ensure_kalshi_perp_live_tables = __esm({
-  "server/services/ensure-kalshi-perp-live-tables.ts"() {
-    "use strict";
-    init_db();
-    _ensured12 = null;
-  }
-});
-
 // server/services/kalshi-perp-live.ts
 var kalshi_perp_live_exports = {};
 __export(kalshi_perp_live_exports, {
@@ -76105,6 +75790,366 @@ var init_kalshi_perp_live = __esm({
     _livePeakEnsured = null;
     _ownerId2 = null;
     _started7 = false;
+  }
+});
+
+// server/services/shadow-live-toggles.ts
+var shadow_live_toggles_exports = {};
+__export(shadow_live_toggles_exports, {
+  CRYPTO_LIVE_BAR: () => CRYPTO_LIVE_BAR,
+  CRYPTO_LIVE_STRATEGIES: () => CRYPTO_LIVE_STRATEGIES,
+  KALSHI_PERP_BAR: () => KALSHI_PERP_BAR,
+  cryptoLiveToggleOn: () => cryptoLiveToggleOn,
+  ensureLiveToggleAuditTable: () => ensureLiveToggleAuditTable,
+  evaluateCryptoBar: () => evaluateCryptoBar,
+  evaluateKalshiBar: () => evaluateKalshiBar,
+  flipCryptoLiveToggle: () => flipCryptoLiveToggle,
+  getCryptoLiveTogglePanel: () => getCryptoLiveTogglePanel,
+  getCryptoLiveToggles: () => getCryptoLiveToggles,
+  getCryptoStrategyBar: () => getCryptoStrategyBar,
+  getKalshiPerpArmingPanel: () => getKalshiPerpArmingPanel,
+  getKalshiPerpArms: () => getKalshiPerpArms,
+  getKalshiPerpReadiness: () => getKalshiPerpReadiness,
+  getKalshiStrategyBar: () => getKalshiStrategyBar,
+  isCryptoStrategyLiveEnabled: () => isCryptoStrategyLiveEnabled,
+  kalshiPerpArmOn: () => kalshiPerpArmOn,
+  lastTwoWeeks: () => lastTwoWeeks,
+  maxDrawdownPctFromReturns: () => maxDrawdownPctFromReturns,
+  setKalshiPerpArmed: () => setKalshiPerpArmed,
+  summarizeCloses: () => summarizeCloses,
+  weekStartUtc: () => weekStartUtc
+});
+function cryptoLiveToggleOn() {
+  return process.env.CRYPTO_LIVE_TOGGLE !== "off";
+}
+function kalshiPerpArmOn() {
+  return process.env.KALSHI_PERP_ARM !== "off";
+}
+function ensureLiveToggleAuditTable() {
+  if (!_auditEnsured) {
+    _auditEnsured = pool.query(`CREATE TABLE IF NOT EXISTS shadow_live_toggle_audit (
+      id serial PRIMARY KEY, user_id int NOT NULL, lane text NOT NULL, strategy text NOT NULL,
+      action text NOT NULL, ok boolean NOT NULL, meets_bar boolean,
+      missing jsonb, bar_snapshot jsonb, created_at timestamptz NOT NULL DEFAULT now())`).then(() => pool.query(`CREATE INDEX IF NOT EXISTS shadow_live_toggle_audit_user ON shadow_live_toggle_audit (user_id, created_at)`)).then(() => void 0).catch((e) => {
+      _auditEnsured = null;
+      throw e;
+    });
+  }
+  return _auditEnsured;
+}
+async function auditFlip(row) {
+  try {
+    await ensureLiveToggleAuditTable();
+    await pool.query(
+      `INSERT INTO shadow_live_toggle_audit (user_id, lane, strategy, action, ok, meets_bar, missing, bar_snapshot)
+       VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb)`,
+      [
+        row.userId,
+        row.lane,
+        row.strategy,
+        row.action,
+        row.ok,
+        row.meetsBar,
+        JSON.stringify(row.missing),
+        row.bar ? JSON.stringify(row.bar) : null
+      ]
+    );
+  } catch (e) {
+    console.error("[live-toggles] audit write failed (non-fatal):", e?.message ?? e);
+  }
+}
+function weekStartUtc(d) {
+  const t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const dow = new Date(t).getUTCDay();
+  return t - (dow + 6) % 7 * 864e5;
+}
+function lastTwoWeeks(closes, pick3, now) {
+  const windowStart = weekStartUtc(now) - 7 * 864e5;
+  const byWeek = /* @__PURE__ */ new Map();
+  for (const c of closes) {
+    const t = new Date(c.closedAt).getTime();
+    if (!Number.isFinite(t) || t < windowStart) continue;
+    const v = pick3(c);
+    if (v == null || !Number.isFinite(v)) continue;
+    const wk = weekStartUtc(new Date(t));
+    byWeek.set(wk, (byWeek.get(wk) ?? 0) + v);
+  }
+  const weeks = Array.from(byWeek.entries()).sort((a, b) => a[0] - b[0]).map(([wk, sum]) => ({ weekStart: new Date(wk).toISOString(), sum }));
+  return { losingWeek: weeks.some((w) => w.sum < 0), weeks };
+}
+function maxDrawdownPctFromReturns(pcts) {
+  let balance = 100, peak = 100, maxDd = 0;
+  for (const pct3 of pcts) {
+    if (!Number.isFinite(pct3)) continue;
+    balance += balance * pct3 / 100;
+    if (balance > peak) peak = balance;
+    if (peak > 0) maxDd = Math.max(maxDd, (peak - balance) / peak * 100);
+  }
+  return maxDd;
+}
+function summarizeCloses(closes, now, weekUnit) {
+  const pcts = closes.map((c) => c.returnPct).filter((v) => Number.isFinite(v));
+  const trades = pcts.length;
+  const meanNetPct = trades ? pcts.reduce((a, b) => a + b, 0) / trades : null;
+  const winRate2 = trades ? pcts.filter((v) => v > 0).length / trades : null;
+  const rs = closes.map((c) => c.rMultiple).filter((v) => v != null && Number.isFinite(v));
+  const avgR = rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : null;
+  const { losingWeek, weeks } = lastTwoWeeks(closes, weekUnit === "r" ? (c) => c.rMultiple ?? null : (c) => c.returnPct, now);
+  return { trades, meanNetPct, avgR, winRate: winRate2, maxDrawdownPct: maxDrawdownPctFromReturns(pcts), losingWeek, weeks };
+}
+function evaluateCryptoBar(s) {
+  const missing = [];
+  if (s.trades < CRYPTO_LIVE_BAR.minTrades) missing.push(`${s.trades}/${CRYPTO_LIVE_BAR.minTrades} shadow trades`);
+  if (!(s.meanNetPct != null && s.meanNetPct > 0)) missing.push(`mean net ${s.meanNetPct == null ? "\u2014" : signedPct(s.meanNetPct)} (needs above 0%)`);
+  if (!(s.winRate != null && s.winRate >= CRYPTO_LIVE_BAR.minWinRate)) missing.push(`win rate ${s.winRate == null ? "\u2014" : wrPct(s.winRate)} (needs \u2265 ${wrPct(CRYPTO_LIVE_BAR.minWinRate)})`);
+  if (s.losingWeek) missing.push("a losing week in the last two weeks");
+  if (s.maxDrawdownPct > CRYPTO_LIVE_BAR.maxDrawdownPct) missing.push(`shadow drawdown ${pct1(s.maxDrawdownPct)} (needs \u2264 ${CRYPTO_LIVE_BAR.maxDrawdownPct}%)`);
+  return { meetsBar: missing.length === 0, missing };
+}
+async function cryptoStrategyCloses(userId, strategy) {
+  await ensureCryptoShadowTables();
+  const { rows } = await pool.query(
+    `SELECT return_pct, closed_at FROM crypto_shadow_trades
+      WHERE user_id=$1 AND strategy=$2 AND status='closed' AND return_pct IS NOT NULL
+        AND closed_at >= now() - interval '${CRYPTO_LIVE_BAR.windowDays} days'
+      ORDER BY closed_at ASC`,
+    [userId, strategy]
+  );
+  return rows.map((r) => ({ returnPct: Number(r.return_pct), closedAt: r.closed_at }));
+}
+async function getCryptoStrategyBar(userId, strategy) {
+  const stats = summarizeCloses(await cryptoStrategyCloses(userId, strategy), /* @__PURE__ */ new Date(), "pct");
+  const { weeks: _weeks, ...snapshot } = stats;
+  return { ...snapshot, ...evaluateCryptoBar(snapshot) };
+}
+async function getCryptoLiveToggles(userId) {
+  const hit = _cryptoCache.get(userId);
+  if (hit && Date.now() - hit.at < CACHE_MS6) return hit.toggles;
+  let toggles = {};
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const v = await getRuntimeStateStrict2(CRYPTO_SCOPE, String(userId));
+    if (v && typeof v === "object") toggles = v;
+  } catch {
+  }
+  _cryptoCache.set(userId, { at: Date.now(), toggles });
+  return toggles;
+}
+async function storeCryptoLiveToggles(userId, toggles) {
+  await ensureRuntimeStateTable();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [CRYPTO_SCOPE, String(userId), JSON.stringify(toggles)]
+  );
+  _cryptoCache.set(userId, { at: Date.now(), toggles });
+}
+async function getCryptoLiveTogglePanel(userId) {
+  const toggles = await getCryptoLiveToggles(userId);
+  const strategies = [];
+  for (const strategy of CRYPTO_LIVE_STRATEGIES) {
+    const bar = await getCryptoStrategyBar(userId, strategy).catch(() => ({
+      trades: 0,
+      meanNetPct: null,
+      avgR: null,
+      winRate: null,
+      maxDrawdownPct: 0,
+      losingWeek: false,
+      ...evaluateCryptoBar({ trades: 0, meanNetPct: null, avgR: null, winRate: null, maxDrawdownPct: 0, losingWeek: false })
+    }));
+    strategies.push({ strategy, on: toggles[strategy]?.on === true, updatedAt: toggles[strategy]?.updatedAt ?? null, bar });
+  }
+  return { enabled: cryptoLiveToggleOn(), strategies };
+}
+async function flipCryptoLiveToggle(userId, strategy, on) {
+  if (!CRYPTO_LIVE_STRATEGIES.includes(strategy)) {
+    return { ok: false, status: 400, error: `"${strategy}" is not a strategy that can trade on the DeFi hot wallet.` };
+  }
+  if (!on) {
+    const toggles2 = await getCryptoLiveToggles(userId);
+    toggles2[strategy] = { on: false, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), bar: toggles2[strategy]?.bar ?? null };
+    await storeCryptoLiveToggles(userId, toggles2);
+    void auditFlip({ userId, lane: "crypto", strategy, action: "off", ok: true, meetsBar: null, missing: [], bar: null });
+    return { ok: true };
+  }
+  if (!cryptoLiveToggleOn()) {
+    void auditFlip({ userId, lane: "crypto", strategy, action: "on", ok: false, meetsBar: null, missing: [], bar: null });
+    return { ok: false, status: 403, error: "Go-live toggles are switched off right now (CRYPTO_LIVE_TOGGLE=off). The DeFi arm is running on its existing engine switches." };
+  }
+  const bar = await getCryptoStrategyBar(userId, strategy);
+  const cleanBar = {
+    trades: bar.trades,
+    meanNetPct: bar.meanNetPct,
+    avgR: bar.avgR,
+    winRate: bar.winRate,
+    maxDrawdownPct: bar.maxDrawdownPct,
+    losingWeek: bar.losingWeek
+  };
+  if (!bar.meetsBar) {
+    void auditFlip({ userId, lane: "crypto", strategy, action: "on", ok: false, meetsBar: false, missing: bar.missing, bar: cleanBar });
+    return { ok: false, status: 422, error: `${strategy} has not cleared the go-live bar yet: ${bar.missing.join(" \xB7 ")}.`, missing: bar.missing, bar: cleanBar };
+  }
+  const toggles = await getCryptoLiveToggles(userId);
+  toggles[strategy] = { on: true, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), bar: cleanBar };
+  await storeCryptoLiveToggles(userId, toggles);
+  void auditFlip({ userId, lane: "crypto", strategy, action: "on", ok: true, meetsBar: true, missing: [], bar: cleanBar });
+  return { ok: true, bar: cleanBar };
+}
+async function isCryptoStrategyLiveEnabled(userId, strategy) {
+  if (!cryptoLiveToggleOn()) return true;
+  try {
+    return (await getCryptoLiveToggles(userId))[strategy]?.on === true;
+  } catch {
+    return false;
+  }
+}
+function evaluateKalshiBar(s) {
+  const missing = [];
+  if (s.trades < KALSHI_PERP_BAR.minTrades) missing.push(`${s.trades}/${KALSHI_PERP_BAR.minTrades} shadow trades`);
+  if (!(s.avgR != null && s.avgR >= KALSHI_PERP_BAR.minAvgR)) missing.push(`avg ${s.avgR == null ? "\u2014" : `${s.avgR >= 0 ? "+" : ""}${s.avgR.toFixed(2)}R`} (needs \u2265 +${KALSHI_PERP_BAR.minAvgR.toFixed(2)}R)`);
+  if (!(s.winRate != null && s.winRate >= KALSHI_PERP_BAR.minWinRate)) missing.push(`win rate ${s.winRate == null ? "\u2014" : wrPct(s.winRate)} (needs \u2265 ${wrPct(KALSHI_PERP_BAR.minWinRate)})`);
+  if (s.losingWeek) missing.push("a losing week in the last two weeks");
+  if (s.maxDrawdownPct > KALSHI_PERP_BAR.maxDrawdownPct) missing.push(`shadow drawdown ${pct1(s.maxDrawdownPct)} (needs \u2264 ${KALSHI_PERP_BAR.maxDrawdownPct}%)`);
+  return { meetsBar: missing.length === 0, missing };
+}
+async function kalshiStrategyCloses(userId, strategy) {
+  await ensureKalshiPerpShadowTables();
+  const { rows } = await pool.query(
+    `SELECT return_pct, r_multiple, closed_at FROM kalshi_perp_shadow_trades
+      WHERE user_id=$1 AND strategy=$2 AND status='closed' AND return_pct IS NOT NULL
+        AND exclude_from_stats IS NOT TRUE
+      ORDER BY closed_at ASC`,
+    [userId, strategy]
+  );
+  return rows.map((r) => ({
+    returnPct: Number(r.return_pct),
+    rMultiple: r.r_multiple == null ? null : Number(r.r_multiple),
+    closedAt: r.closed_at
+  }));
+}
+async function getKalshiStrategyBar(userId, strategy) {
+  const stats = summarizeCloses(await kalshiStrategyCloses(userId, strategy), /* @__PURE__ */ new Date(), "r");
+  const { weeks: _weeks, ...snapshot } = stats;
+  return { ...snapshot, ...evaluateKalshiBar(snapshot) };
+}
+async function getKalshiPerpArms(userId) {
+  const hit = _kalshiCache.get(userId);
+  if (hit && Date.now() - hit.at < CACHE_MS6) return hit.arms;
+  let arms = {};
+  try {
+    const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+    const v = await getRuntimeStateStrict2(KALSHI_SCOPE, String(userId));
+    if (v && typeof v === "object") arms = v;
+  } catch {
+  }
+  _kalshiCache.set(userId, { at: Date.now(), arms });
+  return arms;
+}
+async function storeKalshiPerpArms(userId, arms) {
+  await ensureRuntimeStateTable();
+  await pool.query(
+    `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+     ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [KALSHI_SCOPE, String(userId), JSON.stringify(arms)]
+  );
+  _kalshiCache.set(userId, { at: Date.now(), arms });
+}
+async function getKalshiPerpReadiness(userId) {
+  try {
+    const { getKalshiPerpLiveReport: getKalshiPerpLiveReport2 } = await Promise.resolve().then(() => (init_kalshi_perp_live(), kalshi_perp_live_exports));
+    const report = await getKalshiPerpLiveReport2(userId);
+    return {
+      marginStatus: report.marginEnabled === true ? "enabled" : report.marginEnabled === false ? "disabled" : "unknown",
+      livePathBuilt: true
+    };
+  } catch {
+    return { marginStatus: "unknown", livePathBuilt: false };
+  }
+}
+async function getKalshiPerpArmingPanel(userId) {
+  await ensureKalshiPerpShadowTables();
+  const arms = await getKalshiPerpArms(userId);
+  const { rows } = await pool.query(
+    `SELECT DISTINCT strategy FROM kalshi_perp_shadow_trades WHERE user_id=$1`,
+    [userId]
+  ).catch(() => ({ rows: [] }));
+  const names = /* @__PURE__ */ new Set([...rows.map((r) => String(r.strategy)), ...Object.keys(arms)]);
+  const strategies = [];
+  for (const strategy of Array.from(names)) {
+    const bar = await getKalshiStrategyBar(userId, strategy).catch(() => ({
+      trades: 0,
+      meanNetPct: null,
+      avgR: null,
+      winRate: null,
+      maxDrawdownPct: 0,
+      losingWeek: false,
+      ...evaluateKalshiBar({ trades: 0, meanNetPct: null, avgR: null, winRate: null, maxDrawdownPct: 0, losingWeek: false })
+    }));
+    strategies.push({ strategy, armed: arms[strategy]?.armed === true, updatedAt: arms[strategy]?.updatedAt ?? null, bar });
+  }
+  strategies.sort((a, b) => Number(b.armed) - Number(a.armed) || b.bar.trades - a.bar.trades || a.strategy.localeCompare(b.strategy));
+  const readiness = await getKalshiPerpReadiness(userId);
+  return { enabled: kalshiPerpArmOn(), readiness, strategies };
+}
+async function setKalshiPerpArmed(userId, strategy, armed) {
+  if (!strategy || typeof strategy !== "string") return { ok: false, status: 400, error: "strategy is required" };
+  if (armed && !kalshiPerpArmOn()) {
+    void auditFlip({ userId, lane: "kalshi_perp", strategy, action: "arm", ok: false, meetsBar: null, missing: [], bar: null });
+    return { ok: false, status: 403, error: "Arming is switched off right now (KALSHI_PERP_ARM=off)." };
+  }
+  const bar = await getKalshiStrategyBar(userId, strategy).catch(() => null);
+  const cleanBar = bar ? {
+    trades: bar.trades,
+    meanNetPct: bar.meanNetPct,
+    avgR: bar.avgR,
+    winRate: bar.winRate,
+    maxDrawdownPct: bar.maxDrawdownPct,
+    losingWeek: bar.losingWeek
+  } : null;
+  const arms = await getKalshiPerpArms(userId);
+  arms[strategy] = { armed, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), bar: cleanBar };
+  await storeKalshiPerpArms(userId, arms);
+  void auditFlip({
+    userId,
+    lane: "kalshi_perp",
+    strategy,
+    action: armed ? "arm" : "disarm",
+    ok: true,
+    meetsBar: bar ? bar.meetsBar : null,
+    missing: bar ? bar.missing : [],
+    bar: cleanBar
+  });
+  return { ok: true, bar: cleanBar ?? void 0 };
+}
+var _auditEnsured, pct1, signedPct, wrPct, CRYPTO_LIVE_BAR, CRYPTO_LIVE_STRATEGIES, CRYPTO_SCOPE, _cryptoCache, CACHE_MS6, KALSHI_PERP_BAR, KALSHI_SCOPE, _kalshiCache;
+var init_shadow_live_toggles = __esm({
+  "server/services/shadow-live-toggles.ts"() {
+    "use strict";
+    init_db();
+    init_runtime_state();
+    init_crypto_shadow();
+    init_ensure_kalshi_perp_shadow_tables();
+    _auditEnsured = null;
+    pct1 = (v) => `${v.toFixed(1)}%`;
+    signedPct = (v) => `${v >= 0 ? "+" : "\u2212"}${pct1(Math.abs(v))}`;
+    wrPct = (v) => `${Math.round(v * 100)}%`;
+    CRYPTO_LIVE_BAR = { minTrades: 50, minWinRate: 0.4, maxDrawdownPct: 10, windowDays: 90 };
+    CRYPTO_LIVE_STRATEGIES = [
+      "trend_following",
+      "momentum",
+      "order_flow",
+      "volume_profile",
+      "breakout",
+      "structure",
+      "divergence",
+      "composite_autonomous"
+    ];
+    CRYPTO_SCOPE = "crypto_live_toggles";
+    _cryptoCache = /* @__PURE__ */ new Map();
+    CACHE_MS6 = 3e4;
+    KALSHI_PERP_BAR = { minTrades: 50, minAvgR: 0.2, minWinRate: 0.4, maxDrawdownPct: 10 };
+    KALSHI_SCOPE = "kalshi_perp_armed";
+    _kalshiCache = /* @__PURE__ */ new Map();
   }
 });
 
@@ -91921,9 +91966,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "6463cf01-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-25T11:43:43.257Z";
+var BUILD_COMMIT = "e0045939";
+var BUILD_BRANCH = "feat/kalshi-margin-breakdown-checklist";
+var BUILT_AT = "2026-11-25T12:39:17.393Z";
 
 // server/stripe.ts
 init_db();
