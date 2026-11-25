@@ -262,11 +262,34 @@ interface KalshiPerpLiveBar {
   reasons: string[];
 }
 
+interface KalshiMarginCallDiagnostic {
+  endpoint: string;
+  ok: boolean;
+  httpStatus: number | null;
+  bodySnippet: string | null;
+  errorMessage: string | null;
+}
+
+interface KalshiMarginDiagnostic {
+  checkedAt: string;
+  host: "prod" | "demo";
+  enabled: KalshiMarginCallDiagnostic;
+  enabledParsed: boolean | null;
+  balance: KalshiMarginCallDiagnostic;
+  balanceParsed: {
+    cashUsd: number | null;
+    positionValueUsd: number | null;
+    equityUsd: number | null;
+    maintenanceMarginUsd: number | null;
+  } | null;
+}
+
 interface KalshiPerpLiveReport {
   enabled: boolean;
   host: "prod" | "demo";
   hasCredentials: boolean;
   marginEnabled: boolean | null;
+  marginDiagnostic: KalshiMarginDiagnostic | null;
   paused: { active: boolean; reason: string | null; until: string | null };
   lastBlockReason: string | null;
   lastCycleAt: string | null;
@@ -286,6 +309,12 @@ interface KalshiPerpLiveReport {
     entry_price: number | null; exit_price: number | null; net_pnl_usd: number | null;
     return_pct: number | null; exit_reason: string | null; closed_at: string | null;
   }>;
+}
+
+/** One raw margin answer, compact: "→ 404 {body…}" or "→ no answer (error)". */
+function fmtMarginCall(call: KalshiMarginCallDiagnostic): string {
+  if (call.errorMessage) return `→ no answer (${call.errorMessage})`;
+  return `→ ${call.httpStatus ?? "?"}${call.bodySnippet ? ` ${call.bodySnippet}` : ""}`;
 }
 
 function KalshiPerpLiveSection() {
@@ -327,6 +356,16 @@ function KalshiPerpLiveSection() {
             <p className="mt-1.5 text-[10px] leading-snug text-amber-200/90">Kalshi margin is <b>not enabled</b> for this account, so no live perp orders can be placed. The lane checks again every cycle.</p>
           ) : data.marginEnabled === null ? (
             <p className="mt-1.5 text-[10px] leading-snug text-amber-200/90">Kalshi's margin check didn't answer just now — the lane treats that as <b>not enabled</b> and places nothing until it answers yes.</p>
+          ) : null}
+
+          {data.marginDiagnostic ? (
+            <p className="mt-1.5 break-words text-[10px] leading-snug text-gray-500">
+              Kalshi answered: /margin/enabled {fmtMarginCall(data.marginDiagnostic.enabled)}
+              {data.marginDiagnostic.enabledParsed !== null ? ` (enabled: ${data.marginDiagnostic.enabledParsed ? "yes" : "no"})` : ""}
+              {" · "}/margin/balance {fmtMarginCall(data.marginDiagnostic.balance)}
+              {data.marginDiagnostic.balanceParsed?.equityUsd != null ? ` · equity ${fmtMoney(data.marginDiagnostic.balanceParsed.equityUsd)}` : ""}
+              {" · "}checked {fmtDateTime(data.marginDiagnostic.checkedAt)}
+            </p>
           ) : null}
 
           {data.paused.active ? (
