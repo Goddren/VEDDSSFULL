@@ -53128,6 +53128,7 @@ __export(kalshi_trading_exports, {
   marginBodySnippet: () => marginBodySnippet,
   marginCallDiagnosticFromError: () => marginCallDiagnosticFromError,
   marginCallDiagnosticFromHttp: () => marginCallDiagnosticFromHttp,
+  normalizeKalshiMarginBalanceCurrent: () => normalizeKalshiMarginBalanceCurrent,
   normalizeMarginBalance: () => normalizeMarginBalance,
   normalizeMarginOrder: () => normalizeMarginOrder,
   normalizeMarginPosition: () => normalizeMarginPosition,
@@ -53384,7 +53385,59 @@ function pickFp(obj, keys) {
   }
   return null;
 }
+function nullMarginBalance() {
+  return { cashUsd: null, positionValueUsd: null, equityUsd: null, maintenanceMarginUsd: null, availableUsd: null };
+}
+function normalizeKalshiMarginBalanceCurrent(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const hasSubs = Array.isArray(data.subaccount_balances);
+  const hasSettled = data.settled_funds != null && data.settled_funds !== "";
+  if (!hasSubs && !hasSettled) return null;
+  const settled = hasSettled ? fpNum(data.settled_funds) : null;
+  if (hasSettled && settled == null) return nullMarginBalance();
+  let subsSeen = false;
+  let equitySum = 0;
+  let positionValueSum = 0;
+  let maintenanceMarginSum = 0;
+  let reportedAvailableSum = 0;
+  let derivedFreeSum = 0;
+  if (hasSubs) {
+    for (const s of data.subaccount_balances) {
+      if (!s || typeof s !== "object" || Array.isArray(s)) return nullMarginBalance();
+      const vals = {};
+      for (const f of MARGIN_SUBACCOUNT_FIELDS) {
+        const v = fpNum(s[f]);
+        if (v == null) return nullMarginBalance();
+        vals[f] = v;
+      }
+      subsSeen = true;
+      equitySum += vals.account_equity;
+      positionValueSum += vals.position_value;
+      maintenanceMarginSum += vals.maintenance_margin;
+      reportedAvailableSum += vals.available_balance;
+      derivedFreeSum += Math.max(0, vals.account_equity - vals.initial_margin - vals.resting_orders_margin);
+    }
+  }
+  const views = [];
+  if (settled != null) views.push(settled);
+  if (subsSeen) views.push(equitySum);
+  const equityUsd = views.length ? Math.max(...views) : null;
+  let availableUsd = null;
+  if (equityUsd != null) {
+    const unallocatedSettled = settled != null ? Math.max(0, settled - equitySum) : 0;
+    availableUsd = Math.min(equityUsd, Math.max(reportedAvailableSum, derivedFreeSum) + unallocatedSettled);
+  }
+  return {
+    cashUsd: settled,
+    positionValueUsd: subsSeen ? positionValueSum : null,
+    equityUsd,
+    maintenanceMarginUsd: subsSeen ? maintenanceMarginSum : null,
+    availableUsd
+  };
+}
 function normalizeMarginBalance(data) {
+  const current2 = normalizeKalshiMarginBalanceCurrent(data) ?? normalizeKalshiMarginBalanceCurrent(data?.balance);
+  if (current2) return current2;
   let src = data?.balance ?? data ?? null;
   if (Array.isArray(data?.subaccounts)) {
     src = data.subaccounts.find((s) => Number(s?.subaccount ?? 0) === 0) ?? data.subaccounts[0] ?? src;
@@ -53396,7 +53449,8 @@ function normalizeMarginBalance(data) {
   const reportedEquity = pickFp(src, ["portfolio_value", "equity", "total_equity", "account_value", "net_liquidation_value"]);
   const equityUsd = reportedEquity ?? (cashUsd != null && positionValueUsd != null ? cashUsd + positionValueUsd : cashUsd);
   const maintenanceMarginUsd = pickFp(src, ["maintenance_margin", "maintenance_margin_requirement", "maintenance_requirement"]);
-  return { cashUsd, positionValueUsd, equityUsd, maintenanceMarginUsd };
+  const availableUsd = pickFp(src, ["available_balance", "available_cash"]);
+  return { cashUsd, positionValueUsd, equityUsd, maintenanceMarginUsd, availableUsd };
 }
 async function getKalshiMarginBalance(userId) {
   const data = await kalshiMarginGet(userId, "/margin/balance");
@@ -53639,7 +53693,7 @@ async function getKalshiMarginFeeTiers(userId) {
   _feeTierCache.set(userId, { at: Date.now(), schedule });
   return schedule;
 }
-var KALSHI_BASE, KALSHI_PATH_PREFIX, CREDS_FILE, _sessions, fpNum, MARGIN_DIAG_SNIPPET_MAX, _feeTierCache, FEE_TIER_TTL_MS;
+var KALSHI_BASE, KALSHI_PATH_PREFIX, CREDS_FILE, _sessions, fpNum, MARGIN_SUBACCOUNT_FIELDS, MARGIN_DIAG_SNIPPET_MAX, _feeTierCache, FEE_TIER_TTL_MS;
 var init_kalshi_trading = __esm({
   "server/services/kalshi-trading.ts"() {
     "use strict";
@@ -53655,6 +53709,7 @@ var init_kalshi_trading = __esm({
       const n = typeof v === "string" ? parseFloat(v) : Number(v);
       return Number.isFinite(n) ? n : null;
     };
+    MARGIN_SUBACCOUNT_FIELDS = ["account_equity", "available_balance", "position_value", "initial_margin", "maintenance_margin", "resting_orders_margin"];
     MARGIN_DIAG_SNIPPET_MAX = 300;
     _feeTierCache = /* @__PURE__ */ new Map();
     FEE_TIER_TTL_MS = 10 * 6e4;
@@ -75136,6 +75191,7 @@ __export(kalshi_perp_live_exports, {
   getArmedPerpStrategies: () => getArmedPerpStrategies,
   getKalshiPerpLiveReport: () => getKalshiPerpLiveReport,
   isoWeekKey: () => isoWeekKey,
+  marginCoverageBlock: () => marginCoverageBlock,
   parseArmedStrategies: () => parseArmedStrategies,
   perpLiveContractsFor: () => perpLiveContractsFor,
   perpLiveEnabled: () => perpLiveEnabled,
@@ -75208,6 +75264,14 @@ function sizeLiveEntry(equityUsd, price) {
     return { contracts: 0, notionalUsd: 0, targetUsd, reason: `price ${price} leaves no whole contract inside the $${targetUsd.toFixed(0)} target` };
   }
   return { contracts, notionalUsd: contracts * price, targetUsd, reason: null };
+}
+function marginCoverageBlock(balance, notionalUsd, leverage) {
+  if (!balance || !(notionalUsd > 0) || !(leverage > 0)) return null;
+  const usableUsd = balance.availableUsd ?? balance.equityUsd;
+  if (usableUsd == null) return null;
+  const requiredUsd = notionalUsd / leverage;
+  if (usableUsd >= requiredUsd) return null;
+  return `margin balance too low \u2014 $${usableUsd.toFixed(2)} available, needs ~$${requiredUsd.toFixed(2)} for $${notionalUsd.toFixed(0)} notional`;
 }
 function exitLevelsFor(direction, fillPrice, slPct) {
   const short = direction === "short";
@@ -75684,13 +75748,17 @@ async function processLiveEntries(userId, state, markets, pendingCa) {
   }
   if (!marginEnabled) return block("Kalshi margin is not enabled for this account (/margin/enabled is not true)");
   let equityUsd = null;
+  let marginBalance = null;
   try {
-    equityUsd = (await getKalshiMarginBalance(userId)).equityUsd;
+    marginBalance = await getKalshiMarginBalance(userId);
+    equityUsd = marginBalance.equityUsd;
   } catch (e) {
     state.consecutiveApiErrors++;
     return block(`margin balance read failed: ${e?.message ?? e}`);
   }
   if (equityUsd == null || !(equityUsd > 0)) return block("margin balance unreadable \u2014 cannot size safely");
+  const coverageBlock = marginCoverageBlock(marginBalance, NOTIONAL3(), ASSUMED_LEVERAGE());
+  if (coverageBlock) return block(coverageBlock);
   const today = utcDayKey(Date.now());
   if (state.dayAnchorDate !== today || state.dayAnchorEquityUsd == null) {
     state.dayAnchorDate = today;
@@ -75989,7 +76057,7 @@ function startKalshiPerpLive() {
   setInterval(tick3, 6e4).unref?.();
   console.log(perpLiveEnabled() ? "[kalshi-perp-live] started \u2014 LIVE perp lane: entries require arm + promotion bar + margin-enabled, re-verified every cycle." : "[kalshi-perp-live] started with KALSHI_PERP_LIVE=off \u2014 entries disabled; exit monitoring + reconciliation active.");
 }
-var num13, perpLiveEnabled, NOTIONAL3, MAX_OPEN3, MAX_PER_STRAT3, MAX_ORDERS_DAY, MAX_EQUITY_PCT, DAILY_LOSS_PCT, SIGNAL_MAX_AGE_MIN, EXIT_SLIPPAGE_PCT, ERROR_STORM_LIMIT, ERROR_PAUSE_MS, AMBIGUOUS_ABANDON_MS, ARM_SCOPES, STATE_SCOPE2, defaultState, utcDayKey, _exitWatermark, _livePeakEnsured, _ownerId2, _started7;
+var num13, perpLiveEnabled, NOTIONAL3, MAX_OPEN3, MAX_PER_STRAT3, MAX_ORDERS_DAY, MAX_EQUITY_PCT, ASSUMED_LEVERAGE, DAILY_LOSS_PCT, SIGNAL_MAX_AGE_MIN, EXIT_SLIPPAGE_PCT, ERROR_STORM_LIMIT, ERROR_PAUSE_MS, AMBIGUOUS_ABANDON_MS, ARM_SCOPES, STATE_SCOPE2, defaultState, utcDayKey, _exitWatermark, _livePeakEnsured, _ownerId2, _started7;
 var init_kalshi_perp_live = __esm({
   "server/services/kalshi-perp-live.ts"() {
     "use strict";
@@ -76013,6 +76081,7 @@ var init_kalshi_perp_live = __esm({
     MAX_PER_STRAT3 = () => Math.max(1, Math.floor(num13("KALSHI_PERP_LIVE_MAX_PER_STRATEGY", 2)));
     MAX_ORDERS_DAY = () => Math.max(1, Math.floor(num13("KALSHI_PERP_LIVE_MAX_ORDERS_PER_DAY", 10)));
     MAX_EQUITY_PCT = () => num13("KALSHI_PERP_LIVE_MAX_EQUITY_PCT_PER_TRADE", 25);
+    ASSUMED_LEVERAGE = () => num13("KALSHI_PERP_LIVE_ASSUMED_LEVERAGE", 5);
     DAILY_LOSS_PCT = () => num13("KALSHI_PERP_LIVE_DAILY_LOSS_PCT", 5);
     SIGNAL_MAX_AGE_MIN = () => num13("KALSHI_PERP_LIVE_SIGNAL_MAX_AGE_MIN", 10);
     EXIT_SLIPPAGE_PCT = () => num13("KALSHI_PERP_LIVE_EXIT_SLIPPAGE_PCT", 0.5);
@@ -91852,9 +91921,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "705e52e4-dirty";
+var BUILD_COMMIT = "6463cf01-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-25T10:53:44.590Z";
+var BUILT_AT = "2026-11-25T11:43:43.257Z";
 
 // server/stripe.ts
 init_db();

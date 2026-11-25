@@ -20,7 +20,12 @@
 //   4. GET /margin/enabled answers an explicit TRUE for the account
 //      (any error or any other answer → no orders).
 //   5. The margin balance reads successfully and yields an equity figure
-//      (sizing is impossible without it → no orders).
+//      (sizing is impossible without it → no orders), AND the usable
+//      balance covers the margin the lane's standard notional needs at
+//      the assumed leverage (env KALSHI_PERP_LIVE_ASSUMED_LEVERAGE,
+//      default 5x): an account funded below one standard trade would
+//      only ever dribble out sub-contract sizes or be rejected by
+//      Kalshi for insufficient margin → no orders.
 //   6. The strategy is ARMED via the in-app toggle (getArmedPerpStrategies
 //      — default NOT armed; an unreadable arm state reads as not armed).
 //   7. The strategy meets the EXISTING promotion bar on FRESH shadow
@@ -73,7 +78,7 @@ import {
   loadKalshiCredentials, getKalshiMarginEnabled, getKalshiMarginBalance, getKalshiMarginPositions,
   placeKalshiMarginOrder, findKalshiMarginOrderByClientId, getKalshiMarginFills, getKalshiMarginFundingHistoryUsd,
   getKalshiMarginFeeTiers, getKalshiMarginDiagnostic,
-  type KalshiMarginPosition, type KalshiMarginDiagnostic,
+  type KalshiMarginPosition, type KalshiMarginDiagnostic, type KalshiMarginBalance,
 } from './kalshi-trading';
 import { accountReplay } from './kalshi-stock-shadow';
 import {
@@ -87,6 +92,7 @@ const MAX_OPEN = () => Math.max(1, Math.floor(num('KALSHI_PERP_LIVE_MAX_OPEN', 3
 const MAX_PER_STRAT = () => Math.max(1, Math.floor(num('KALSHI_PERP_LIVE_MAX_PER_STRATEGY', 2)));
 const MAX_ORDERS_DAY = () => Math.max(1, Math.floor(num('KALSHI_PERP_LIVE_MAX_ORDERS_PER_DAY', 10)));
 const MAX_EQUITY_PCT = () => num('KALSHI_PERP_LIVE_MAX_EQUITY_PCT_PER_TRADE', 25);
+const ASSUMED_LEVERAGE = () => num('KALSHI_PERP_LIVE_ASSUMED_LEVERAGE', 5);
 const DAILY_LOSS_PCT = () => num('KALSHI_PERP_LIVE_DAILY_LOSS_PCT', 5);
 const SIGNAL_MAX_AGE_MIN = () => num('KALSHI_PERP_LIVE_SIGNAL_MAX_AGE_MIN', 10);
 const EXIT_SLIPPAGE_PCT = () => num('KALSHI_PERP_LIVE_EXIT_SLIPPAGE_PCT', 0.5);
@@ -190,6 +196,24 @@ export function sizeLiveEntry(equityUsd: number | null, price: number): { contra
     return { contracts: 0, notionalUsd: 0, targetUsd, reason: `price ${price} leaves no whole contract inside the $${targetUsd.toFixed(0)} target` };
   }
   return { contracts, notionalUsd: contracts * price, targetUsd, reason: null };
+}
+
+/** Gate 5b — margin coverage for the lane's STANDARD trade. Sizing alone
+ *  cannot stop an underfunded order: the 25%-of-equity cap shrinks the
+ *  target until a cheap contract fits, so a $2.61 account would otherwise
+ *  send Kalshi an order it must reject (or fill a meaningless size).
+ *  The account's usable balance (available when the balance parse knows
+ *  it, else equity) must cover the required margin for the configured
+ *  notional at the assumed leverage. Pure; returns the block reason or
+ *  null. An unreadable balance yields null here — gate 5 already blocked
+ *  on that; this gate only judges a balance that WAS read. */
+export function marginCoverageBlock(balance: KalshiMarginBalance | null, notionalUsd: number, leverage: number): string | null {
+  if (!balance || !(notionalUsd > 0) || !(leverage > 0)) return null;
+  const usableUsd = balance.availableUsd ?? balance.equityUsd;
+  if (usableUsd == null) return null;
+  const requiredUsd = notionalUsd / leverage;
+  if (usableUsd >= requiredUsd) return null;
+  return `margin balance too low — $${usableUsd.toFixed(2)} available, needs ~$${requiredUsd.toFixed(2)} for $${notionalUsd.toFixed(0)} notional`;
 }
 
 /** Stop/target from the ACTUAL live fill, same geometry as the shadow
@@ -768,9 +792,14 @@ async function processLiveEntries(
   if (!marginEnabled) return block('Kalshi margin is not enabled for this account (/margin/enabled is not true)');
   // Gate 5 — balance/equity readable (sizing depends on it).
   let equityUsd: number | null = null;
-  try { equityUsd = (await getKalshiMarginBalance(userId)).equityUsd; }
+  let marginBalance: KalshiMarginBalance | null = null;
+  try { marginBalance = await getKalshiMarginBalance(userId); equityUsd = marginBalance.equityUsd; }
   catch (e: any) { state.consecutiveApiErrors++; return block(`margin balance read failed: ${e?.message ?? e}`); }
   if (equityUsd == null || !(equityUsd > 0)) return block('margin balance unreadable — cannot size safely');
+  // Gate 5b — the usable balance must cover the margin for the lane's
+  // standard notional at the assumed leverage (see marginCoverageBlock).
+  const coverageBlock = marginCoverageBlock(marginBalance, NOTIONAL(), ASSUMED_LEVERAGE());
+  if (coverageBlock) return block(coverageBlock);
   // Day anchor + Gate 2b — daily-loss halt (Ruin Guard daily leg shape).
   const today = utcDayKey(Date.now());
   if (state.dayAnchorDate !== today || state.dayAnchorEquityUsd == null) {
