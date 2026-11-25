@@ -429,6 +429,12 @@ export interface KalshiMarginBalance {
   /** cash + position value, or the account's own reported equity figure. */
   equityUsd: number | null;
   maintenanceMarginUsd: number | null;
+  /** Funds usable for NEW margin right now — never above equity. On
+   *  Kalshi's current shape this is derived conservatively (see
+   *  normalizeKalshiMarginBalanceCurrent); on legacy shapes it is an
+   *  explicitly reported available figure, else null (unknown — callers
+   *  fall back to equity, the pre-existing bias). */
+  availableUsd: number | null;
 }
 
 function pickFp(obj: any, keys: string[]): number | null {
@@ -437,10 +443,88 @@ function pickFp(obj: any, keys: string[]): number | null {
   return null;
 }
 
+function nullMarginBalance(): KalshiMarginBalance {
+  return { cashUsd: null, positionValueUsd: null, equityUsd: null, maintenanceMarginUsd: null, availableUsd: null };
+}
+
+const MARGIN_SUBACCOUNT_FIELDS = ['account_equity', 'available_balance', 'position_value', 'initial_margin', 'maintenance_margin', 'resting_orders_margin'] as const;
+
+/** Kalshi's CURRENT /margin/balance shape (docs.kalshi.com "Get Balance",
+ *  updated 2026-11-22; verified live Nov 25, 2026): top-level
+ *  `settled_funds` — "Total settled funds across all subaccounts in
+ *  fixed-point dollars" (a STRING; omitted for subaccount-restricted keys)
+ *  — plus a `subaccount_balances` array whose amounts are fixed-point
+ *  STRINGS. Returns null when the payload is not this shape at all; a
+ *  payload that IS this shape but carries a malformed entry (missing or
+ *  non-numeric field) returns the all-null balance instead — fail closed,
+ *  never a fabricated number and never a fall-through to legacy guessing.
+ *
+ *  Semantics (conservative — usable margin is never overstated):
+ *  settled_funds is the account-wide settled-cash TOTAL and each
+ *  subaccount's account_equity already contains that subaccount's cash,
+ *  so equity is the MAX of the two views, never their sum (a sum would
+ *  double-count cash whenever both describe the same money; when they
+ *  are disjoint the max understates, which is the safe direction).
+ *  available_balance is documented to be 0 unless the caller passes
+ *  compute_available_balance=true (this client does not), so availability
+ *  also counts derived free margin per subaccount (account_equity −
+ *  initial_margin − resting_orders_margin, floored at 0) and settled cash
+ *  sitting outside every subaccount's equity — capped at equity. */
+export function normalizeKalshiMarginBalanceCurrent(data: any): KalshiMarginBalance | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const hasSubs = Array.isArray(data.subaccount_balances);
+  const hasSettled = data.settled_funds != null && data.settled_funds !== '';
+  if (!hasSubs && !hasSettled) return null;
+  const settled = hasSettled ? fpNum(data.settled_funds) : null;
+  if (hasSettled && settled == null) return nullMarginBalance();
+  let subsSeen = false;
+  let equitySum = 0;
+  let positionValueSum = 0;
+  let maintenanceMarginSum = 0;
+  let reportedAvailableSum = 0;
+  let derivedFreeSum = 0;
+  if (hasSubs) {
+    for (const s of data.subaccount_balances) {
+      if (!s || typeof s !== 'object' || Array.isArray(s)) return nullMarginBalance();
+      const vals = {} as Record<(typeof MARGIN_SUBACCOUNT_FIELDS)[number], number>;
+      for (const f of MARGIN_SUBACCOUNT_FIELDS) {
+        const v = fpNum(s[f]);
+        if (v == null) return nullMarginBalance();
+        vals[f] = v;
+      }
+      subsSeen = true;
+      equitySum += vals.account_equity;
+      positionValueSum += vals.position_value;
+      maintenanceMarginSum += vals.maintenance_margin;
+      reportedAvailableSum += vals.available_balance;
+      derivedFreeSum += Math.max(0, vals.account_equity - vals.initial_margin - vals.resting_orders_margin);
+    }
+  }
+  const views: number[] = [];
+  if (settled != null) views.push(settled);
+  if (subsSeen) views.push(equitySum);
+  const equityUsd = views.length ? Math.max(...views) : null;
+  let availableUsd: number | null = null;
+  if (equityUsd != null) {
+    const unallocatedSettled = settled != null ? Math.max(0, settled - equitySum) : 0;
+    availableUsd = Math.min(equityUsd, Math.max(reportedAvailableSum, derivedFreeSum) + unallocatedSettled);
+  }
+  return {
+    cashUsd: settled,
+    positionValueUsd: subsSeen ? positionValueSum : null,
+    equityUsd,
+    maintenanceMarginUsd: subsSeen ? maintenanceMarginSum : null,
+    availableUsd,
+  };
+}
+
 /** Normalize the /margin/balance payload (flat, wrapped, or per-subaccount
  *  shapes all occur across Kalshi API generations). Unparseable → nulls;
  *  callers treat a null equity as "cannot size" and fail closed. */
 export function normalizeMarginBalance(data: any): KalshiMarginBalance {
+  // Kalshi's current shape first (top level, or under a `balance` wrapper).
+  const current = normalizeKalshiMarginBalanceCurrent(data) ?? normalizeKalshiMarginBalanceCurrent(data?.balance);
+  if (current) return current;
   let src: any = data?.balance ?? data ?? null;
   if (Array.isArray(data?.subaccounts)) {
     src = data.subaccounts.find((s: any) => Number(s?.subaccount ?? 0) === 0) ?? data.subaccounts[0] ?? src;
@@ -452,7 +536,8 @@ export function normalizeMarginBalance(data: any): KalshiMarginBalance {
   const reportedEquity = pickFp(src, ['portfolio_value', 'equity', 'total_equity', 'account_value', 'net_liquidation_value']);
   const equityUsd = reportedEquity ?? (cashUsd != null && positionValueUsd != null ? cashUsd + positionValueUsd : cashUsd);
   const maintenanceMarginUsd = pickFp(src, ['maintenance_margin', 'maintenance_margin_requirement', 'maintenance_requirement']);
-  return { cashUsd, positionValueUsd, equityUsd, maintenanceMarginUsd };
+  const availableUsd = pickFp(src, ['available_balance', 'available_cash']);
+  return { cashUsd, positionValueUsd, equityUsd, maintenanceMarginUsd, availableUsd };
 }
 
 export async function getKalshiMarginBalance(userId: number): Promise<KalshiMarginBalance> {
