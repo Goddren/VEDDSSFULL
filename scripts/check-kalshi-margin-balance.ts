@@ -29,14 +29,21 @@
  *   F. Source pins: gate 5b wiring order, leverage env, parser presence,
  *      and the service-worker version (v295 since the margin-breakdown
  *      PR touched client code).
+ *   G. Parser audit + breakdown: a reconstructed plausible FULL body
+ *      behind the Nov 25 live trio (settled $2.6063 / equity $2.81 /
+ *      available $0.34) reproduces all three figures from its parts,
+ *      and kalshiMarginBalanceBreakdown exposes those parts with totals
+ *      identical to the parsed balance.
  *
  * Semantics source: docs.kalshi.com "Get Balance" (updated 2026-11-22) —
  * settled_funds is the "Total settled funds across all subaccounts", and
  * available_balance is 0 unless compute_available_balance=true is passed.
  */
 import { readFileSync } from 'node:fs';
-import { normalizeMarginBalance, normalizeKalshiMarginBalanceCurrent } from '../server/services/kalshi-trading';
+import { normalizeMarginBalance, normalizeKalshiMarginBalanceCurrent, kalshiMarginBalanceBreakdown } from '../server/services/kalshi-trading';
 import { marginCoverageBlock } from '../server/services/kalshi-perp-live';
+
+const approx = (a: number, b: number, eps = 1e-9) => Math.abs(a - b) < eps;
 
 let failures = 0;
 let total = 0;
@@ -188,6 +195,59 @@ const zeroSub = (subaccount: number, extra: Record<string, string> = {}) => ({
   check('F3 current-shape parser present + reached from normalizeMarginBalance',
     trading.includes('export function normalizeKalshiMarginBalanceCurrent') && trading.includes('normalizeKalshiMarginBalanceCurrent(data)'));
   check('F4 sw at vedd-v295 (bumped by the margin-breakdown PR, which changed client code)', sw.includes("CACHE_VERSION = 'vedd-v295'"));
+}
+
+// ── G. Parser audit + breakdown (the Nov 25, 2026 live numbers) ─────────────
+// The 5:50 AM CT acceptance read showed settled_funds "2.606300", panel
+// equity $2.81, and gate 5b available $0.34 — while the 300-char snippet
+// truncated inside the SECOND subaccount, whose account_equity visibly
+// also starts "0.00000". So the $2.81 cannot sit in either visible
+// subaccount: the plausible full body carries it in a later subaccount,
+// with $2.47 of initial margin committed — exactly what leaves $0.34
+// free. This fixture reconstructs that body and pins that the parser's
+// math reproduces the live trio from its parts (audit verdict: the
+// parser is self-consistent; no bug — the breakdown now exposes the
+// real parts on the panel so the next read is auditable directly).
+{
+  const plausible = {
+    settled_funds: '2.606300',
+    subaccount_balances: [
+      zeroSub(64),
+      zeroSub(65),
+      zeroSub(0, { account_equity: '2.810000', initial_margin: '2.4700' }),
+    ],
+  };
+  const bal = normalizeMarginBalance(plausible);
+  check('G1 audit: the plausible full body reproduces live equity $2.81', bal.equityUsd === 2.81);
+  check('G2 audit: the plausible full body reproduces live available $0.34', bal.availableUsd != null && approx(bal.availableUsd, 0.34));
+  const bd = kalshiMarginBalanceBreakdown(plausible);
+  check('G3 breakdown present for the current shape', bd !== null);
+  check('G4 breakdown totals ARE the parser totals (single source of truth)',
+    bd !== null && bd.equityUsd === bal.equityUsd && bd.availableUsd === bal.availableUsd && bd.settledFundsUsd === bal.cashUsd);
+  check('G5 breakdown sums: Σ subaccount equity = 0 + 0 + 2.81', bd !== null && bd.sumSubaccountEquityUsd === 2.81);
+  check('G6 per-subaccount rows carry the parts (equity / initial / resting / derived free)',
+    bd !== null && bd.subaccounts.length === 3
+    && bd.subaccounts[0].subaccount === 64 && bd.subaccounts[0].subaccountType === 'isolated' && bd.subaccounts[0].derivedFreeMarginUsd === 0
+    && bd.subaccounts[2].initialMarginUsd === 2.47 && bd.subaccounts[2].restingOrdersMarginUsd === 0
+    && approx(bd.subaccounts[2].derivedFreeMarginUsd, 0.34));
+  check('G7 equity identity: equity = max(settled, Σ subaccount equity)',
+    bd !== null && bd.equityUsd === Math.max(bd.settledFundsUsd!, bd.sumSubaccountEquityUsd!));
+  check('G8 available identity: Σ derived free + settled cash outside subaccount equity, capped at equity',
+    bd !== null && approx(bd.availableUsd!, Math.min(bd.equityUsd!,
+      bd.subaccounts.reduce((a, s) => a + s.derivedFreeMarginUsd, 0) + Math.max(0, bd.settledFundsUsd! - bd.sumSubaccountEquityUsd!))));
+  check('G9 breakdown reads the current shape under a balance wrapper',
+    kalshiMarginBalanceBreakdown({ balance: plausible })?.equityUsd === 2.81);
+  check('G10 breakdown is null for legacy shapes (nothing to break down)',
+    kalshiMarginBalanceBreakdown({ cash_balance: '12.34' }) === null && kalshiMarginBalanceBreakdown(null) === null);
+  check('G11 breakdown is null when the current shape is malformed (the balance fails closed instead)',
+    kalshiMarginBalanceBreakdown({ settled_funds: '10.0000', subaccount_balances: [zeroSub(64, { account_equity: 'x' })] }) === null);
+  const settledOnlyBd = kalshiMarginBalanceBreakdown({ settled_funds: '7.2500' });
+  check('G12 settled-only breakdown: settled funds, no rows, Σ equity unknown (null, not 0)',
+    settledOnlyBd !== null && settledOnlyBd.settledFundsUsd === 7.25 && settledOnlyBd.subaccounts.length === 0
+    && settledOnlyBd.sumSubaccountEquityUsd === null && settledOnlyBd.equityUsd === 7.25 && settledOnlyBd.availableUsd === 7.25);
+  const observedBd = kalshiMarginBalanceBreakdown({ settled_funds: '2.606300', subaccount_balances: [zeroSub(64), zeroSub(65)] });
+  check('G13 observed-shape breakdown: settled cash outside $0 subaccounts is the available $2.6063',
+    observedBd !== null && observedBd.sumSubaccountEquityUsd === 0 && observedBd.equityUsd === 2.6063 && observedBd.availableUsd === 2.6063);
 }
 
 console.log(`\n${total - failures}/${total} checks passed`);

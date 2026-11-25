@@ -17,7 +17,9 @@
  *   A. summarizeCloses / drawdown / weekly window (pure math).
  *   B. Crypto bar verdicts — pass case + each missing piece, worded.
  *   C. Kalshi bar verdicts — pass case + each missing piece, worded.
- *   D. Kill switches + fail-closed consult with no reachable store.
+ *   D. Kill switches + fail-closed consult with no reachable store;
+ *      the ARM readiness read also fails closed (unknown / not built)
+ *      when the perp live report cannot be read.
  *   E. Strategy-list parity with the scanner's AUTO_STRATEGIES.
  *   F. Source pins — wiring, honesty, audit, isolation.
  */
@@ -26,6 +28,7 @@ import {
   CRYPTO_LIVE_STRATEGIES, cryptoLiveToggleOn, kalshiPerpArmOn,
   evaluateCryptoBar, evaluateKalshiBar, summarizeCloses, lastTwoWeeks,
   maxDrawdownPctFromReturns, weekStartUtc, isCryptoStrategyLiveEnabled,
+  getKalshiPerpReadiness,
   type BarSnapshot, type ShadowClose,
 } from '../server/services/shadow-live-toggles';
 
@@ -122,6 +125,11 @@ delete process.env.KALSHI_PERP_ARM;
   const closed = await isCryptoStrategyLiveEnabled(1, 'momentum').then((v) => v, () => 'rejected' as const);
   check('D4 consult fails CLOSED (not live, never rejects) with the store unreachable', closed === false);
 }
+{
+  const readiness = await getKalshiPerpReadiness(1).then((v) => v, () => 'rejected' as const);
+  check('D5 ARM readiness fails CLOSED (unknown / not built, never rejects) when the live report is unreadable',
+    readiness !== 'rejected' && readiness.marginStatus === 'unknown' && readiness.livePathBuilt === false);
+}
 
 // ── E. Strategy-list parity ───────────────────────────────────────────────
 {
@@ -158,9 +166,13 @@ check('F3 flip OFF writes without any bar check (instant, unconditional)',
 check('F4 kill switches gate flips and consult', mod.includes("process.env.CRYPTO_LIVE_TOGGLE !== 'off'") && mod.includes("process.env.KALSHI_PERP_ARM !== 'off'") && flipFn.includes('status: 403'));
 check('F5 every flip is audited with its bar snapshot', mod.includes('shadow_live_toggle_audit') && (mod.match(/auditFlip\(/g) || []).length >= 5);
 check('F6 state lives in runtime_state scopes (FX-Models shape)', mod.includes("const CRYPTO_SCOPE = 'crypto_live_toggles'") && mod.includes("const KALSHI_SCOPE = 'kalshi_perp_armed'"));
-check('F7 the Kalshi side references NO order path (arming only)',
+check('F7 the Kalshi side references NO order path (arming only); readiness is derived from the live report, fail-closed, never hard-coded',
   !/defiEntryBuy|executeSignal|placeOrder|submitOrder/.test(mod)
-  && mod.includes("livePathBuilt: false") && mod.includes("marginStatus: 'unknown'"));
+  && mod.includes("await import('./kalshi-perp-live')")
+  && mod.includes("marginStatus: report.marginEnabled === true ? 'enabled' : report.marginEnabled === false ? 'disabled' : 'unknown'")
+  && mod.includes('const readiness = await getKalshiPerpReadiness(userId);')
+  && mod.includes("return { marginStatus: 'unknown', livePathBuilt: false };")
+  && !mod.includes("readiness: { marginStatus: 'unknown', livePathBuilt: false }"));
 check('F8 crypto bar numbers are the directed ones (50 / >0 / 40% / ≤10% / 90d)',
   mod.includes('minTrades: 50') && mod.includes('minWinRate: 0.4') && mod.includes('maxDrawdownPct: 10') && mod.includes('windowDays: 90'));
 check('F9 Kalshi bar numbers are the lane’s existing ones (50 / +0.2R / 40% / ≤10%)',
@@ -185,6 +197,10 @@ check('F15 Kalshi arming is labeled ARM, never LIVE, and says arming places no t
 check('F16 the arming section renders inside the Kalshi shadow panel', kalshiPanel.includes('<KalshiPerpArmingSection />'));
 check('F17 service worker bumped to vedd-v295', sw.includes("CACHE_VERSION = 'vedd-v295'"));
 check('F18 no timers in the module — nothing can auto-flip or auto-arm', !/setInterval|setTimeout/.test(mod));
+check('F19 the arming checklist copy follows the readiness values (no stale "no live path" claim)',
+  arming.includes('enabled — Kalshi verified it on the live report just now')
+  && arming.includes('connected — the live lane reads these arms')
+  && !arming.includes('There is no live order path for Kalshi stock perps yet'));
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nALL CHECKS PASSED');
 process.exit(failures ? 1 : 0);
