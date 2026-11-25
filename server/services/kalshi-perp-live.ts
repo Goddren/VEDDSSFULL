@@ -72,8 +72,8 @@ import {
 import {
   loadKalshiCredentials, getKalshiMarginEnabled, getKalshiMarginBalance, getKalshiMarginPositions,
   placeKalshiMarginOrder, findKalshiMarginOrderByClientId, getKalshiMarginFills, getKalshiMarginFundingHistoryUsd,
-  getKalshiMarginFeeTiers,
-  type KalshiMarginPosition,
+  getKalshiMarginFeeTiers, getKalshiMarginDiagnostic,
+  type KalshiMarginPosition, type KalshiMarginDiagnostic,
 } from './kalshi-trading';
 import { accountReplay } from './kalshi-stock-shadow';
 import {
@@ -952,6 +952,10 @@ export interface KalshiPerpLiveReport {
   host: 'prod' | 'demo';
   hasCredentials: boolean;
   marginEnabled: boolean | null;
+  /** Kalshi's RAW margin answers (status + body snippet + parsed values),
+   *  panel display only — populated by one diagnostic read when credentials
+   *  exist, null otherwise. Never consulted by any gate. */
+  marginDiagnostic: KalshiMarginDiagnostic | null;
   paused: { active: boolean; reason: string | null; until: string | null };
   lastBlockReason: string | null;
   lastCycleAt: string | null;
@@ -978,8 +982,10 @@ export async function getKalshiPerpLiveReport(userId: number): Promise<KalshiPer
   const state = await loadPerpLiveState(userId);
   const hasCredentials = !!loadKalshiCredentials(userId);
   let marginEnabled: boolean | null = null;
+  let marginDiagnostic: KalshiMarginDiagnostic | null = null;
   if (hasCredentials) {
     marginEnabled = await getKalshiMarginEnabled(userId).catch(() => null);
+    marginDiagnostic = await getKalshiMarginDiagnostic(userId).catch(() => null);
   }
   const armed = await getArmedPerpStrategies(userId).catch(() => new Set<string>());
   const closesByStrategy = await loadShadowClosesByStrategy(userId).catch(() => new Map<string, PerpPromotionCloses[]>());
@@ -1012,6 +1018,7 @@ export async function getKalshiPerpLiveReport(userId: number): Promise<KalshiPer
     host: perpHost().includes('demo') ? 'demo' : 'prod',
     hasCredentials,
     marginEnabled,
+    marginDiagnostic,
     paused: {
       active: state.pausedUntilMs > Date.now(),
       reason: state.pauseReason,
