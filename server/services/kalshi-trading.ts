@@ -387,14 +387,23 @@ const fpNum = (v: any): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-async function kalshiMarginGet<T>(userId: number, endpoint: string): Promise<T> {
+/** One signed margin GET, raw: resolves with the HTTP status + body text
+ *  for ANY HTTP answer (error statuses included); rejects only on a
+ *  transport/auth failure. Shared by the throwing client below and the
+ *  never-throwing panel diagnostic — same URL, same headers, same timeout. */
+async function kalshiMarginFetchRaw(userId: number, endpoint: string): Promise<{ status: number; bodyText: string }> {
   const headers = await getAuthHeaders(userId, 'GET', endpoint);
   const res = await fetch(`${perpHost()}${endpoint}`, { headers, signal: AbortSignal.timeout(10000) });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Kalshi margin GET ${endpoint} failed (${res.status}): ${body.slice(0, 200)}`);
+  const bodyText = await res.text();
+  return { status: res.status, bodyText };
+}
+
+async function kalshiMarginGet<T>(userId: number, endpoint: string): Promise<T> {
+  const { status, bodyText } = await kalshiMarginFetchRaw(userId, endpoint);
+  if (status < 200 || status >= 300) {
+    throw new Error(`Kalshi margin GET ${endpoint} failed (${status}): ${bodyText.slice(0, 200)}`);
   }
-  return res.json() as Promise<T>;
+  return JSON.parse(bodyText) as T;
 }
 
 // ── /margin/enabled ─────────────────────────────────────────────────────────
@@ -449,6 +458,113 @@ export function normalizeMarginBalance(data: any): KalshiMarginBalance {
 export async function getKalshiMarginBalance(userId: number): Promise<KalshiMarginBalance> {
   const data = await kalshiMarginGet<any>(userId, '/margin/balance');
   return normalizeMarginBalance(data);
+}
+
+// ── Margin diagnostic (panel display ONLY — never throws, never gates) ─────
+//
+// The lane's gates read /margin/enabled + /margin/balance through the
+// throwing client above and fail closed on any error — correct for trading,
+// but it swallows the one fact needed to fix a stuck "margin unknown": what
+// Kalshi actually answered. This read performs the same two signed GETs via
+// the same raw path and captures the raw outcome (HTTP status + a short
+// body snippet + the parsed values) for the perp live panel. It carries
+// ONLY Kalshi's response data — never request headers, the signature, the
+// key id, or the private key. Nothing in the trading path calls this.
+export interface KalshiMarginCallDiagnostic {
+  endpoint: string;
+  ok: boolean;
+  /** HTTP status, or null when the fetch itself failed before any answer. */
+  httpStatus: number | null;
+  /** Response body, whitespace-collapsed and truncated; null when no answer. */
+  bodySnippet: string | null;
+  /** Transport/auth failure message; null when Kalshi answered. */
+  errorMessage: string | null;
+}
+
+export interface KalshiMarginDiagnostic {
+  checkedAt: string;
+  host: 'prod' | 'demo';
+  enabled: KalshiMarginCallDiagnostic;
+  /** Parsed /margin/enabled answer — null when the call failed or the body
+   *  carried no explicit enabled flag to parse. */
+  enabledParsed: boolean | null;
+  balance: KalshiMarginCallDiagnostic;
+  /** Parsed /margin/balance — null when the call failed or the body was
+   *  not JSON. */
+  balanceParsed: KalshiMarginBalance | null;
+}
+
+const MARGIN_DIAG_SNIPPET_MAX = 300;
+
+/** Collapse whitespace and truncate a response body for panel display. */
+export function marginBodySnippet(bodyText: string): string {
+  const collapsed = bodyText.replace(/\s+/g, ' ').trim();
+  return collapsed.length > MARGIN_DIAG_SNIPPET_MAX ? `${collapsed.slice(0, MARGIN_DIAG_SNIPPET_MAX)}…` : collapsed;
+}
+
+/** Build one call's diagnostic from an HTTP answer. Pure — exported for checks. */
+export function marginCallDiagnosticFromHttp(endpoint: string, httpStatus: number, bodyText: string): KalshiMarginCallDiagnostic {
+  return {
+    endpoint,
+    ok: httpStatus >= 200 && httpStatus < 300,
+    httpStatus,
+    bodySnippet: marginBodySnippet(bodyText),
+    errorMessage: null,
+  };
+}
+
+/** Build one call's diagnostic from a transport/auth failure. Pure. */
+export function marginCallDiagnosticFromError(endpoint: string, err: unknown): KalshiMarginCallDiagnostic {
+  return {
+    endpoint,
+    ok: false,
+    httpStatus: null,
+    bodySnippet: null,
+    errorMessage: err instanceof Error ? err.message : String(err),
+  };
+}
+
+/** The enabled flag ONLY when the payload explicitly carries one. Unlike
+ *  parseMarginEnabled (false for anything unproven — the right bias for a
+ *  gate), the diagnostic distinguishes "Kalshi answered false" from "no
+ *  parseable answer". */
+export function parseMarginEnabledOrNull(data: any): boolean | null {
+  if (data === true || data === false) return data;
+  if (!data || typeof data !== 'object') return null;
+  for (const k of ['enabled', 'margin_enabled', 'is_enabled']) {
+    if (typeof data[k] === 'boolean') return data[k];
+  }
+  return null;
+}
+
+function tryParseJson(text: string): any {
+  try { return JSON.parse(text); } catch { return undefined; }
+}
+
+async function runMarginDiagnosticCall(userId: number, endpoint: string): Promise<{ call: KalshiMarginCallDiagnostic; data: any }> {
+  try {
+    const { status, bodyText } = await kalshiMarginFetchRaw(userId, endpoint);
+    return { call: marginCallDiagnosticFromHttp(endpoint, status, bodyText), data: tryParseJson(bodyText) };
+  } catch (e: any) {
+    return { call: marginCallDiagnosticFromError(endpoint, e), data: undefined };
+  }
+}
+
+/** Kalshi's raw margin answers for the panel. NEVER throws: every failure
+ *  mode lands in the per-call errorMessage instead. */
+export async function getKalshiMarginDiagnostic(userId: number): Promise<KalshiMarginDiagnostic> {
+  const [enabledRes, balanceRes] = await Promise.all([
+    runMarginDiagnosticCall(userId, '/margin/enabled'),
+    runMarginDiagnosticCall(userId, '/margin/balance'),
+  ]);
+  return {
+    checkedAt: new Date().toISOString(),
+    host: perpHost().includes('demo') ? 'demo' : 'prod',
+    enabled: enabledRes.call,
+    enabledParsed: enabledRes.call.ok && enabledRes.data !== undefined ? parseMarginEnabledOrNull(enabledRes.data) : null,
+    balance: balanceRes.call,
+    balanceParsed: balanceRes.call.ok && balanceRes.data !== undefined ? normalizeMarginBalance(balanceRes.data) : null,
+  };
 }
 
 // ── /margin/positions ───────────────────────────────────────────────────────

@@ -53115,6 +53115,7 @@ __export(kalshi_trading_exports, {
   formatMarginPrice: () => formatMarginPrice,
   getKalshiBalance: () => getKalshiBalance,
   getKalshiMarginBalance: () => getKalshiMarginBalance,
+  getKalshiMarginDiagnostic: () => getKalshiMarginDiagnostic,
   getKalshiMarginEnabled: () => getKalshiMarginEnabled,
   getKalshiMarginFeeTiers: () => getKalshiMarginFeeTiers,
   getKalshiMarginFills: () => getKalshiMarginFills,
@@ -53124,11 +53125,15 @@ __export(kalshi_trading_exports, {
   getKalshiOrders: () => getKalshiOrders,
   getKalshiPositions: () => getKalshiPositions,
   loadKalshiCredentials: () => loadKalshiCredentials,
+  marginBodySnippet: () => marginBodySnippet,
+  marginCallDiagnosticFromError: () => marginCallDiagnosticFromError,
+  marginCallDiagnosticFromHttp: () => marginCallDiagnosticFromHttp,
   normalizeMarginBalance: () => normalizeMarginBalance,
   normalizeMarginOrder: () => normalizeMarginOrder,
   normalizeMarginPosition: () => normalizeMarginPosition,
   normalizeMarginPositions: () => normalizeMarginPositions,
   parseMarginEnabled: () => parseMarginEnabled,
+  parseMarginEnabledOrNull: () => parseMarginEnabledOrNull,
   placeKalshiMarginOrder: () => placeKalshiMarginOrder,
   placeKalshiOrder: () => placeKalshiOrder,
   saveKalshiApiKey: () => saveKalshiApiKey,
@@ -53349,14 +53354,18 @@ async function cancelKalshiOrder(userId, orderId) {
     return false;
   }
 }
-async function kalshiMarginGet(userId, endpoint) {
+async function kalshiMarginFetchRaw(userId, endpoint) {
   const headers = await getAuthHeaders(userId, "GET", endpoint);
   const res2 = await fetch(`${perpHost()}${endpoint}`, { headers, signal: AbortSignal.timeout(1e4) });
-  if (!res2.ok) {
-    const body = await res2.text();
-    throw new Error(`Kalshi margin GET ${endpoint} failed (${res2.status}): ${body.slice(0, 200)}`);
+  const bodyText = await res2.text();
+  return { status: res2.status, bodyText };
+}
+async function kalshiMarginGet(userId, endpoint) {
+  const { status, bodyText } = await kalshiMarginFetchRaw(userId, endpoint);
+  if (status < 200 || status >= 300) {
+    throw new Error(`Kalshi margin GET ${endpoint} failed (${status}): ${bodyText.slice(0, 200)}`);
   }
-  return res2.json();
+  return JSON.parse(bodyText);
 }
 function parseMarginEnabled(data) {
   if (data === true) return true;
@@ -53392,6 +53401,65 @@ function normalizeMarginBalance(data) {
 async function getKalshiMarginBalance(userId) {
   const data = await kalshiMarginGet(userId, "/margin/balance");
   return normalizeMarginBalance(data);
+}
+function marginBodySnippet(bodyText) {
+  const collapsed = bodyText.replace(/\s+/g, " ").trim();
+  return collapsed.length > MARGIN_DIAG_SNIPPET_MAX ? `${collapsed.slice(0, MARGIN_DIAG_SNIPPET_MAX)}\u2026` : collapsed;
+}
+function marginCallDiagnosticFromHttp(endpoint, httpStatus, bodyText) {
+  return {
+    endpoint,
+    ok: httpStatus >= 200 && httpStatus < 300,
+    httpStatus,
+    bodySnippet: marginBodySnippet(bodyText),
+    errorMessage: null
+  };
+}
+function marginCallDiagnosticFromError(endpoint, err) {
+  return {
+    endpoint,
+    ok: false,
+    httpStatus: null,
+    bodySnippet: null,
+    errorMessage: err instanceof Error ? err.message : String(err)
+  };
+}
+function parseMarginEnabledOrNull(data) {
+  if (data === true || data === false) return data;
+  if (!data || typeof data !== "object") return null;
+  for (const k2 of ["enabled", "margin_enabled", "is_enabled"]) {
+    if (typeof data[k2] === "boolean") return data[k2];
+  }
+  return null;
+}
+function tryParseJson(text3) {
+  try {
+    return JSON.parse(text3);
+  } catch {
+    return void 0;
+  }
+}
+async function runMarginDiagnosticCall(userId, endpoint) {
+  try {
+    const { status, bodyText } = await kalshiMarginFetchRaw(userId, endpoint);
+    return { call: marginCallDiagnosticFromHttp(endpoint, status, bodyText), data: tryParseJson(bodyText) };
+  } catch (e) {
+    return { call: marginCallDiagnosticFromError(endpoint, e), data: void 0 };
+  }
+}
+async function getKalshiMarginDiagnostic(userId) {
+  const [enabledRes, balanceRes] = await Promise.all([
+    runMarginDiagnosticCall(userId, "/margin/enabled"),
+    runMarginDiagnosticCall(userId, "/margin/balance")
+  ]);
+  return {
+    checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    host: perpHost().includes("demo") ? "demo" : "prod",
+    enabled: enabledRes.call,
+    enabledParsed: enabledRes.call.ok && enabledRes.data !== void 0 ? parseMarginEnabledOrNull(enabledRes.data) : null,
+    balance: balanceRes.call,
+    balanceParsed: balanceRes.call.ok && balanceRes.data !== void 0 ? normalizeMarginBalance(balanceRes.data) : null
+  };
 }
 function normalizeMarginPosition(raw) {
   if (!raw || typeof raw !== "object") return null;
@@ -53571,7 +53639,7 @@ async function getKalshiMarginFeeTiers(userId) {
   _feeTierCache.set(userId, { at: Date.now(), schedule });
   return schedule;
 }
-var KALSHI_BASE, KALSHI_PATH_PREFIX, CREDS_FILE, _sessions, fpNum, _feeTierCache, FEE_TIER_TTL_MS;
+var KALSHI_BASE, KALSHI_PATH_PREFIX, CREDS_FILE, _sessions, fpNum, MARGIN_DIAG_SNIPPET_MAX, _feeTierCache, FEE_TIER_TTL_MS;
 var init_kalshi_trading = __esm({
   "server/services/kalshi-trading.ts"() {
     "use strict";
@@ -53587,6 +53655,7 @@ var init_kalshi_trading = __esm({
       const n = typeof v === "string" ? parseFloat(v) : Number(v);
       return Number.isFinite(n) ? n : null;
     };
+    MARGIN_DIAG_SNIPPET_MAX = 300;
     _feeTierCache = /* @__PURE__ */ new Map();
     FEE_TIER_TTL_MS = 10 * 6e4;
   }
@@ -75803,8 +75872,10 @@ async function getKalshiPerpLiveReport(userId) {
   const state = await loadPerpLiveState(userId);
   const hasCredentials = !!loadKalshiCredentials(userId);
   let marginEnabled = null;
+  let marginDiagnostic = null;
   if (hasCredentials) {
     marginEnabled = await getKalshiMarginEnabled(userId).catch(() => null);
+    marginDiagnostic = await getKalshiMarginDiagnostic(userId).catch(() => null);
   }
   const armed = await getArmedPerpStrategies(userId).catch(() => /* @__PURE__ */ new Set());
   const closesByStrategy = await loadShadowClosesByStrategy(userId).catch(() => /* @__PURE__ */ new Map());
@@ -75837,6 +75908,7 @@ async function getKalshiPerpLiveReport(userId) {
     host: perpHost().includes("demo") ? "demo" : "prod",
     hasCredentials,
     marginEnabled,
+    marginDiagnostic,
     paused: {
       active: state.pausedUntilMs > Date.now(),
       reason: state.pauseReason,
@@ -91780,9 +91852,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "0e9fe146-dirty";
+var BUILD_COMMIT = "705e52e4-dirty";
 var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-24T16:42:00.921Z";
+var BUILT_AT = "2026-11-25T10:53:44.590Z";
 
 // server/stripe.ts
 init_db();
