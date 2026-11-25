@@ -23,7 +23,7 @@
  *      pinned unchanged on the same mocked fetch.
  *   E. Source pins: the report gains marginDiagnostic ONLY inside the
  *      hasCredentials branch; the trading cycle never references the
- *      diagnostic; the panel renders the raw answers; sw vedd-v294.
+ *      diagnostic; the panel renders the raw answers; sw vedd-v295.
  *
  * Mocked-fetch section D writes a THROWAWAY credential (a freshly generated
  * RSA key for a synthetic user id) into the local creds file ONLY when no
@@ -192,7 +192,7 @@ async function main(): Promise<void> {
     cyclePart.includes('marginEnabled = await getKalshiMarginEnabled(userId)') && cyclePart.includes('Kalshi margin is not enabled for this account (/margin/enabled is not true)'));
   check('E5 panel renders the raw answers beside the margin line',
     panel.includes('Kalshi answered:') && panel.includes('data.marginDiagnostic') && panel.includes('fmtMarginCall'));
-  check('E6 sw bumped to vedd-v294', sw.includes("CACHE_VERSION = 'vedd-v294'"));
+  check('E6 sw bumped to vedd-v295', sw.includes("CACHE_VERSION = 'vedd-v295'"));
 
   console.log(`\n${total - failures}/${total} checks passed`);
   if (failures > 0) process.exit(1);

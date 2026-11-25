@@ -27,7 +27,8 @@
  *      the exact reason; funded/boundary accounts pass; an unreadable
  *      balance is gate 5's job, not this gate's.
  *   F. Source pins: gate 5b wiring order, leverage env, parser presence,
- *      and NO service-worker bump (server-only change).
+ *      and the service-worker version (v295 since the margin-breakdown
+ *      PR touched client code).
  *
  * Semantics source: docs.kalshi.com "Get Balance" (updated 2026-11-22) —
  * settled_funds is the "Total settled funds across all subaccounts", and
@@ -186,7 +187,7 @@ const zeroSub = (subaccount: number, extra: Record<string, string> = {}) => ({
   check('F2 assumed leverage env with 5x default', live.includes("KALSHI_PERP_LIVE_ASSUMED_LEVERAGE', 5"));
   check('F3 current-shape parser present + reached from normalizeMarginBalance',
     trading.includes('export function normalizeKalshiMarginBalanceCurrent') && trading.includes('normalizeKalshiMarginBalanceCurrent(data)'));
-  check('F4 server-only change: sw stays vedd-v294', sw.includes("CACHE_VERSION = 'vedd-v294'"));
+  check('F4 sw at vedd-v295 (bumped by the margin-breakdown PR, which changed client code)', sw.includes("CACHE_VERSION = 'vedd-v295'"));
 }
 
 console.log(`\n${total - failures}/${total} checks passed`);

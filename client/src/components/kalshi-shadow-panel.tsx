@@ -270,6 +270,26 @@ interface KalshiMarginCallDiagnostic {
   errorMessage: string | null;
 }
 
+interface KalshiMarginSubaccountBreakdown {
+  subaccount: number | null;
+  subaccountType: string | null;
+  accountEquityUsd: number;
+  initialMarginUsd: number;
+  maintenanceMarginUsd: number;
+  restingOrdersMarginUsd: number;
+  positionValueUsd: number;
+  availableBalanceRawUsd: number;
+  derivedFreeMarginUsd: number;
+}
+
+interface KalshiMarginBalanceBreakdown {
+  settledFundsUsd: number | null;
+  subaccounts: KalshiMarginSubaccountBreakdown[];
+  sumSubaccountEquityUsd: number | null;
+  equityUsd: number | null;
+  availableUsd: number | null;
+}
+
 interface KalshiMarginDiagnostic {
   checkedAt: string;
   host: "prod" | "demo";
@@ -281,7 +301,9 @@ interface KalshiMarginDiagnostic {
     positionValueUsd: number | null;
     equityUsd: number | null;
     maintenanceMarginUsd: number | null;
+    availableUsd: number | null;
   } | null;
+  balanceBreakdown: KalshiMarginBalanceBreakdown | null;
 }
 
 interface KalshiPerpLiveReport {
@@ -315,6 +337,12 @@ interface KalshiPerpLiveReport {
 function fmtMarginCall(call: KalshiMarginCallDiagnostic): string {
   if (call.errorMessage) return `→ no answer (${call.errorMessage})`;
   return `→ ${call.httpStatus ?? "?"}${call.bodySnippet ? ` ${call.bodySnippet}` : ""}`;
+}
+
+/** Money for a figure that may be genuinely unknown: a dash, never $0.00 —
+ *  an unreadable number must not dress up as a zero balance. */
+function fmtMoneyOrDash(value: number | null): string {
+  return value == null ? "—" : fmtMoney(value);
 }
 
 function KalshiPerpLiveSection() {
@@ -366,6 +394,24 @@ function KalshiPerpLiveSection() {
               {data.marginDiagnostic.balanceParsed?.equityUsd != null ? ` · equity ${fmtMoney(data.marginDiagnostic.balanceParsed.equityUsd)}` : ""}
               {" · "}checked {fmtDateTime(data.marginDiagnostic.checkedAt)}
             </p>
+          ) : null}
+
+          {data.marginDiagnostic?.balanceBreakdown ? (
+            <div className="mt-1 space-y-0.5 text-[10px] leading-snug tabular-nums text-gray-500" data-testid="kalshi-margin-breakdown">
+              {data.marginDiagnostic.balanceBreakdown.subaccounts.map((s, i) => (
+                <p key={s.subaccount ?? `sub-${i}`}>
+                  Sub #{s.subaccount ?? "?"} ({s.subaccountType ?? "type unknown"}): equity {fmtMoney(s.accountEquityUsd)}
+                  {" · "}held {fmtMoney(s.initialMarginUsd + s.restingOrdersMarginUsd)} (initial {fmtMoney(s.initialMarginUsd)} + resting {fmtMoney(s.restingOrdersMarginUsd)})
+                  {" · "}free {fmtMoney(s.derivedFreeMarginUsd)}
+                </p>
+              ))}
+              <p>
+                Settled {fmtMoneyOrDash(data.marginDiagnostic.balanceBreakdown.settledFundsUsd)}
+                {" · "}Σ sub equity {fmtMoneyOrDash(data.marginDiagnostic.balanceBreakdown.sumSubaccountEquityUsd)}
+                {" · "}equity {fmtMoneyOrDash(data.marginDiagnostic.balanceBreakdown.equityUsd)}
+                {" · "}available {fmtMoneyOrDash(data.marginDiagnostic.balanceBreakdown.availableUsd)}
+              </p>
+            </div>
           ) : null}
 
           {data.paused.active ? (

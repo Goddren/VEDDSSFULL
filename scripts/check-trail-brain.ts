@@ -197,7 +197,7 @@ check('G12 routes + panel + boot wiring present',
   && /app\.post\("\/api\/engine\/trail-brain\/reset"/.test(routes)
   && /TrailBrainSection/.test(panel) && /\/api\/engine\/trail-brain/.test(panel)
   && /startTrailBrainLearning\(\)/.test(index));
-check('G13 sw bumped for the client change', sw.includes("CACHE_VERSION = 'vedd-v294'"));
+check('G13 sw bumped for the client change', sw.includes("CACHE_VERSION = 'vedd-v295'"));
 check('G14 stamp-column ensures are non-rejecting + memoized (2026-11-13 pattern)',
   /stamp-column ensure failed for \$\{table\} \(non-fatal, will retry\)/.test(core) && /_colsEnsured\.delete\(table\)/.test(core));
 check('G15 FX brain respects the engine master trailing switch',
