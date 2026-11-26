@@ -11621,7 +11621,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
             if (!tradeAllowed) {
               const reason = _budgetDegraded
-                ? `${_budgetDegrade.AI_BUDGET_DEGRADED_REASON}: ${_degradedDecision.blockReason}`
+                ? _degradedDecision.blockReason
                 : _aiErrored
                 ? `AI confirmation unavailable (${(aiConfirmation as any).aiErrorStatus ?? 'error'}) — refusing to trade an unverified signal`
                 : consensusLabel === 'STRONG_SKIP'
@@ -11634,7 +11634,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)`
                   : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`);
               console.log(`[AI Vision Confirmation] BLOCKED trade on ${sanitizedSymbol} - ${reason}: ${aiConfirmation.reasoning}`);
-              analysis.alerts.push(`TRADE BLOCKED [${consensusLabel}]: ${reason} - ${aiConfirmation.reasoning}`);
+              // Degraded (budget) blocks: the plain playbook text stands
+              // alone — the budget gate's own verdict text ("…no trade
+              // will be taken on an unverified signal") is never appended
+              // to it in the feed or the alert. Non-degraded blocks keep
+              // the composed reason + verdict text exactly as before.
+              const _feedReasoning = _budgetDegraded ? reason : `${reason} | ${aiConfirmation.reasoning}`;
+              analysis.alerts.push(_budgetDegraded ? `TRADE BLOCKED [${consensusLabel}]: ${reason}` : `TRADE BLOCKED [${consensusLabel}]: ${reason} - ${aiConfirmation.reasoning}`);
               aiConfirmation.confirmed = false;
               analysis.tradePlan = null;
               analysis.signal = 'NEUTRAL';
@@ -11644,7 +11650,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 proposedSignal: preConfirmSignal, proposedConfidence: preConfirmConfidence,
                 proposedEntry: preConfirmEntry, proposedSL: preConfirmSL, proposedTP: preConfirmTP,
                 aiDecision: 'REJECTED', aiDirection: aiConfirmation.aiDirection,
-                aiConfidence: aiConfirmation.aiConfidence, reasoning: `${reason} | ${aiConfirmation.reasoning}`,
+                aiConfidence: aiConfirmation.aiConfidence, reasoning: _feedReasoning,
                 ictMacroValid: aiConfirmation.ictMacroValid,
                 ictMacroReason: aiConfirmation.ictMacroReason,
                 smcVerdict: aiConfirmation.smcVerdict,
@@ -11718,7 +11724,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               // as a clean approval (verdict fidelity; =off restores the old
               // labels along with the old confidence rewrite).
               const _advisoryLabel = _verdictFidelity.verdictFidelityEnabled() && _advisoryOverride;
-              const approvalLabel = _budgetDegraded ? 'RULES ONLY (BUDGET)' : _advisoryLabel ? 'ADVISORY OVERRIDE' : consensusLabel === 'STRONG_CONFIRM' ? 'STRONG CONFIRM' : isAiOverride ? 'AI OVERRIDE' : 'APPROVED';
+              const approvalLabel = _budgetDegraded ? 'SOLO PLAYBOOK' : _advisoryLabel ? 'ADVISORY OVERRIDE' : consensusLabel === 'STRONG_CONFIRM' ? 'STRONG CONFIRM' : isAiOverride ? 'AI OVERRIDE' : 'APPROVED';
               if (_budgetDegraded) {
                 // Honest degraded stamp BEFORE anything renders the
                 // verdict: the budget gate's reasoning ("no trade will be
@@ -11728,7 +11734,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 // trade and the record says so.
                 (aiConfirmation as any).budgetDegraded = true;
                 (aiConfirmation as any).aiMode = _budgetDegrade.AI_BUDGET_DEGRADED_MODE;
-                aiConfirmation.reasoning = `${_budgetDegrade.AI_BUDGET_DEGRADED_REASON} (quant CONFIRM ${quantResult.score}/100, EA ${_propConf}% ≥ ${_budgetDegrade.FX_DEGRADED_EA_FLOOR}% floor)`;
+                aiConfirmation.reasoning = _budgetDegrade.fxBudgetDegradedGoText(_propConf);
               }
               console.log(`[AI Vision Confirmation] ${approvalLabel} [${consensusLabel}] trade on ${sanitizedSymbol} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}% | Quant: ${quantResult.score})${isAiOverride ? ' - AI overriding low EA' : ''}: ${aiConfirmation.reasoning}`);
               analysis.alerts.push(`TRADE ${approvalLabel} [${consensusLabel}] (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}% | Quant: ${quantResult.score}/100)${isAiOverride ? ' [AI overrode low EA]' : ''} - ${aiConfirmation.reasoning}`);
