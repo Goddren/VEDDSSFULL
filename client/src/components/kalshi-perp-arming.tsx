@@ -5,15 +5,14 @@ import { ShadowLiveToggleRow, type ShadowBarItem } from "@/components/shadow-liv
 import { strategyLabel } from "@/components/kalshi-strategy-labels";
 
 // ── Kalshi stock perps — "Arm for live" (2026-11-15) ────────────────────────
-// HONEST BY CONSTRUCTION: this lane is shadow-only. There is NO live order
-// path for Kalshi stock perps in the app yet, and the account's Kalshi
-// margin status has never been verified — so this section does NOT offer a
-// "Live" toggle. It offers ARMING: mark the strategies you want first in
-// line, watch each one's progress toward the promotion bar, and see the
-// readiness checklist exactly as it stands. Arming places no trades and
-// changes nothing about how the lane runs; when a live execution path is
-// connected (a separate build), only armed strategies that clear the bar
-// at that time can trade.
+// HONEST BY CONSTRUCTION: this section does NOT offer a "Live" toggle. It
+// offers ARMING: mark the strategies you want first in line, watch each
+// one's progress toward the promotion bar, and see the readiness checklist
+// exactly as it stands. Arming places no trades by itself. The live lane
+// (a separate module) reads these arms and can trade ONLY an armed
+// strategy that clears the bar — and it re-verifies the bar, the account's
+// margin state, and its own gates every cycle. The checklist's margin and
+// live-path lines come from that lane's live report, not from copy here.
 
 type KalshiBarT = { trades: number; meanNetPct: number | null; avgR: number | null; winRate: number | null; maxDrawdownPct: number; losingWeek: boolean; meetsBar: boolean; missing: string[] };
 type KalshiArmStrategyT = { strategy: string; armed: boolean; updatedAt: string | null; bar: KalshiBarT };
@@ -57,9 +56,9 @@ export function KalshiPerpArmingSection() {
       </div>
       <div className="rounded-lg border border-amber-400/25 bg-amber-500/[0.06] px-2.5 py-2">
         <p className="text-[10px] leading-snug text-amber-200/90 break-words">
-          <b>Arming does not place trades.</b> There is no live order path for Kalshi stock perps yet, so an armed strategy
-          will <b>not</b> trade real money. Arming just records which proven strategies you want first in line for the day
-          the live path is connected — that connection is a separate step, and the bar is re-checked then.
+          <b>Arming does not place trades.</b> Arming records which proven strategies you want first in line. The live
+          lane trades real money only for an armed strategy that has cleared the promotion bar, and it re-checks the
+          bar, the margin state, and its own gates every cycle before any order.
         </p>
         <div className="mt-1.5 space-y-0.5 text-[10px] tabular-nums">
           <div className="flex flex-wrap gap-x-2">
@@ -67,12 +66,16 @@ export function KalshiPerpArmingSection() {
             <span className="text-gray-400">{readyCount} of {data.strategies.length} strategies have cleared it so far{armedCount > 0 ? ` · ${armedCount} armed` : ""}</span>
           </div>
           <div className="flex flex-wrap gap-x-2">
-            <span className="text-gray-400">✗ Kalshi margin</span>
-            <span className="text-gray-400">{data.readiness.marginStatus === "unknown" ? "status unknown — stock perps trade on margin and the app has never verified it is enabled" : data.readiness.marginStatus}</span>
+            <span className={data.readiness.marginStatus === "enabled" ? "text-emerald-300" : "text-gray-400"}>{data.readiness.marginStatus === "enabled" ? "✓" : "✗"} Kalshi margin</span>
+            <span className="text-gray-400">{data.readiness.marginStatus === "enabled"
+              ? "enabled — Kalshi verified it on the live report just now"
+              : data.readiness.marginStatus === "disabled"
+                ? "not enabled on this account — Kalshi answered no, so the live lane places nothing"
+                : "status unknown — the live report couldn't verify it just now, so the lane treats it as not enabled"}</span>
           </div>
           <div className="flex flex-wrap gap-x-2">
-            <span className="text-gray-400">✗ Live execution path</span>
-            <span className="text-gray-400">{data.readiness.livePathBuilt ? "connected" : "not built yet — this lane can only practice until it is"}</span>
+            <span className={data.readiness.livePathBuilt ? "text-emerald-300" : "text-gray-400"}>{data.readiness.livePathBuilt ? "✓" : "✗"} Live execution path</span>
+            <span className="text-gray-400">{data.readiness.livePathBuilt ? "connected — the live lane reads these arms and re-checks every gate each cycle" : "not verified — the live lane's report couldn't be read just now"}</span>
           </div>
         </div>
       </div>
@@ -95,7 +98,7 @@ export function KalshiPerpArmingSection() {
               flipping={flip.isPending && flip.variables?.strategy === s.strategy}
               barItems={barItems(s.bar)}
               note={s.armed
-                ? `Armed${s.updatedAt ? ` ${new Date(s.updatedAt).toLocaleDateString()}` : ""} — first in line when the live path connects${s.bar.meetsBar ? ", and it has cleared the bar" : ", once it clears the bar"}. Still shadow-only today.`
+                ? `Armed${s.updatedAt ? ` ${new Date(s.updatedAt).toLocaleDateString()}` : ""} — first in line for the live lane${s.bar.meetsBar ? ", and it has cleared the bar — the lane may trade it while every gate passes" : ", once it clears the bar"}.`
                 : s.bar.meetsBar
                   ? "Cleared the promotion bar — arm it to put it first in line for live."
                   : `Still proving itself: ${s.bar.missing.join(" · ")}.`}

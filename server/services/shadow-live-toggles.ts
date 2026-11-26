@@ -24,17 +24,18 @@
 // (the DeFi arm runs on its existing engine switches, exactly as before
 // this module existed) and renders the panel toggles disabled.
 //
-// KALSHI STOCK PERPS (arming only — read this before touching it): the
-// perp lane is shadow-only BY CONSTRUCTION. There is NO live order path
-// for Kalshi stock perps in this codebase and the account's margin status
-// is unknown, so this module deliberately builds NO execution: the toggle
-// records an ARMING intent ("Arm for live") plus live progress toward the
-// lane's existing promotion bar (per strategy ≥50 shadow trades net of
-// fees+funding, avg ≥ +0.2R, win rate ≥ 40%, no losing week in the last
-// two calendar weeks, drawdown ≤ 10%). Arming places no trades and
-// changes no engine behavior; it exists so that when a live execution
-// path is connected (a separate, explicit build), the strategies Chris
-// already chose are first in line. Kill switch KALSHI_PERP_ARM=off.
+// KALSHI STOCK PERPS (arming — read this before touching it): this
+// module deliberately builds NO execution — the toggle records an ARMING
+// intent ("Arm for live") plus live progress toward the lane's existing
+// promotion bar (per strategy ≥50 shadow trades net of fees+funding,
+// avg ≥ +0.2R, win rate ≥ 40%, no losing week in the last two calendar
+// weeks, drawdown ≤ 10%). Arming itself places no trades and changes no
+// engine behavior. The live execution path is a SEPARATE module
+// (kalshi-perp-live.ts, built after this one), which reads these arms
+// and re-verifies the bar, the margin state, and its own gates every
+// cycle before any order. The panel's readiness lines are read from that
+// lane's live report — never hard-coded — and fail closed to 'unknown'
+// when the report cannot be read. Kill switch KALSHI_PERP_ARM=off.
 //
 // Every flip on either lane (attempted, refused, or applied) is audited
 // to shadow_live_toggle_audit with the bar snapshot at flip time.
@@ -370,15 +371,35 @@ async function storeKalshiPerpArms(userId: number, arms: Record<string, KalshiPe
   _kalshiCache.set(userId, { at: Date.now(), arms });
 }
 
+/** The arming panel's readiness lines, derived from the perp LIVE lane's
+ *  own report (kalshi-perp-live.ts) — the same read the live panel shows.
+ *  marginStatus is 'enabled'/'disabled' only when Kalshi actually
+ *  answered; 'unknown' when there are no credentials or the read failed
+ *  (fail closed — an unreadable answer is never dressed up as a state).
+ *  livePathBuilt is true when the live lane's report was read at all:
+ *  the report existing IS the live path existing. A failed read reports
+ *  false rather than claiming a path it could not see. The import is
+ *  dynamic — this module's established pattern for cross-service reads —
+ *  so no import cycle with the live lane can form. */
+export async function getKalshiPerpReadiness(userId: number): Promise<{ marginStatus: 'enabled' | 'disabled' | 'unknown'; livePathBuilt: boolean }> {
+  try {
+    const { getKalshiPerpLiveReport } = await import('./kalshi-perp-live');
+    const report = await getKalshiPerpLiveReport(userId);
+    return {
+      marginStatus: report.marginEnabled === true ? 'enabled' : report.marginEnabled === false ? 'disabled' : 'unknown',
+      livePathBuilt: true,
+    };
+  } catch {
+    return { marginStatus: 'unknown', livePathBuilt: false };
+  }
+}
+
 /** Panel payload: every strategy with shadow activity (plus any armed
- *  strategy), its bar progress, and the lane's honest readiness state.
- *  `livePathBuilt` is FALSE and `marginStatus` is 'unknown' — there is no
- *  live order path for Kalshi stock perps in this codebase and margin has
- *  never been verified from the app. If a future build connects one, it
- *  updates this payload in the same change that wires execution. */
+ *  strategy), its bar progress, and the lane's readiness state read from
+ *  the live lane's report (see getKalshiPerpReadiness). */
 export async function getKalshiPerpArmingPanel(userId: number): Promise<{
   enabled: boolean;
-  readiness: { marginStatus: 'unknown'; livePathBuilt: false };
+  readiness: { marginStatus: 'enabled' | 'disabled' | 'unknown'; livePathBuilt: boolean };
   strategies: Array<{ strategy: string; armed: boolean; updatedAt: string | null; bar: BarSnapshot & { meetsBar: boolean; missing: string[] } }>;
 }> {
   await ensureKalshiPerpShadowTables();
@@ -395,7 +416,8 @@ export async function getKalshiPerpArmingPanel(userId: number): Promise<{
     strategies.push({ strategy, armed: arms[strategy]?.armed === true, updatedAt: arms[strategy]?.updatedAt ?? null, bar });
   }
   strategies.sort((a, b) => Number(b.armed) - Number(a.armed) || b.bar.trades - a.bar.trades || a.strategy.localeCompare(b.strategy));
-  return { enabled: kalshiPerpArmOn(), readiness: { marginStatus: 'unknown', livePathBuilt: false }, strategies };
+  const readiness = await getKalshiPerpReadiness(userId);
+  return { enabled: kalshiPerpArmOn(), readiness, strategies };
 }
 
 /** Arm / disarm. Arming is an intent flag only — it is NOT refused when

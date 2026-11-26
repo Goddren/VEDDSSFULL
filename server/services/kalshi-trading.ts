@@ -470,26 +470,62 @@ const MARGIN_SUBACCOUNT_FIELDS = ['account_equity', 'available_balance', 'positi
  *  also counts derived free margin per subaccount (account_equity −
  *  initial_margin − resting_orders_margin, floored at 0) and settled cash
  *  sitting outside every subaccount's equity — capped at equity. */
-export function normalizeKalshiMarginBalanceCurrent(data: any): KalshiMarginBalance | null {
+/** One subaccount's row in the auditable balance breakdown — every figure
+ *  is the parser's own, captured during the same pass that produces the
+ *  totals, so the panel can show its work instead of a bare number. */
+export interface KalshiMarginSubaccountBreakdown {
+  subaccount: number | null;
+  subaccountType: string | null;
+  accountEquityUsd: number;
+  initialMarginUsd: number;
+  maintenanceMarginUsd: number;
+  restingOrdersMarginUsd: number;
+  positionValueUsd: number;
+  /** Kalshi's own available_balance field — documented to be 0 unless the
+   *  caller passes compute_available_balance=true (this client does not). */
+  availableBalanceRawUsd: number;
+  /** Free margin the parser derives for this subaccount: equity −
+   *  initial_margin − resting_orders_margin, floored at 0. */
+  derivedFreeMarginUsd: number;
+}
+
+/** The current-shape parse with its parts exposed: settled funds, one row
+ *  per subaccount, and the parser's totals (equityUsd / availableUsd are
+ *  the SAME values normalizeMarginBalance reports for the payload). */
+export interface KalshiMarginBalanceBreakdown {
+  settledFundsUsd: number | null;
+  subaccounts: KalshiMarginSubaccountBreakdown[];
+  /** Σ account_equity across subaccounts; null when none were reported. */
+  sumSubaccountEquityUsd: number | null;
+  equityUsd: number | null;
+  availableUsd: number | null;
+}
+
+/** The single current-shape parse. Returns null when the payload is not
+ *  this shape at all; a payload that IS this shape but malformed returns
+ *  the all-null balance with a null breakdown (nothing trustworthy to
+ *  break down). */
+function parseKalshiMarginBalanceCurrent(data: any): { balance: KalshiMarginBalance; breakdown: KalshiMarginBalanceBreakdown | null } | null {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   const hasSubs = Array.isArray(data.subaccount_balances);
   const hasSettled = data.settled_funds != null && data.settled_funds !== '';
   if (!hasSubs && !hasSettled) return null;
   const settled = hasSettled ? fpNum(data.settled_funds) : null;
-  if (hasSettled && settled == null) return nullMarginBalance();
+  if (hasSettled && settled == null) return { balance: nullMarginBalance(), breakdown: null };
   let subsSeen = false;
   let equitySum = 0;
   let positionValueSum = 0;
   let maintenanceMarginSum = 0;
   let reportedAvailableSum = 0;
   let derivedFreeSum = 0;
+  const rows: KalshiMarginSubaccountBreakdown[] = [];
   if (hasSubs) {
     for (const s of data.subaccount_balances) {
-      if (!s || typeof s !== 'object' || Array.isArray(s)) return nullMarginBalance();
+      if (!s || typeof s !== 'object' || Array.isArray(s)) return { balance: nullMarginBalance(), breakdown: null };
       const vals = {} as Record<(typeof MARGIN_SUBACCOUNT_FIELDS)[number], number>;
       for (const f of MARGIN_SUBACCOUNT_FIELDS) {
         const v = fpNum(s[f]);
-        if (v == null) return nullMarginBalance();
+        if (v == null) return { balance: nullMarginBalance(), breakdown: null };
         vals[f] = v;
       }
       subsSeen = true;
@@ -497,7 +533,19 @@ export function normalizeKalshiMarginBalanceCurrent(data: any): KalshiMarginBala
       positionValueSum += vals.position_value;
       maintenanceMarginSum += vals.maintenance_margin;
       reportedAvailableSum += vals.available_balance;
-      derivedFreeSum += Math.max(0, vals.account_equity - vals.initial_margin - vals.resting_orders_margin);
+      const derivedFree = Math.max(0, vals.account_equity - vals.initial_margin - vals.resting_orders_margin);
+      derivedFreeSum += derivedFree;
+      rows.push({
+        subaccount: fpNum(s.subaccount),
+        subaccountType: typeof s.subaccount_type === 'string' ? s.subaccount_type : null,
+        accountEquityUsd: vals.account_equity,
+        initialMarginUsd: vals.initial_margin,
+        maintenanceMarginUsd: vals.maintenance_margin,
+        restingOrdersMarginUsd: vals.resting_orders_margin,
+        positionValueUsd: vals.position_value,
+        availableBalanceRawUsd: vals.available_balance,
+        derivedFreeMarginUsd: derivedFree,
+      });
     }
   }
   const views: number[] = [];
@@ -509,13 +557,36 @@ export function normalizeKalshiMarginBalanceCurrent(data: any): KalshiMarginBala
     const unallocatedSettled = settled != null ? Math.max(0, settled - equitySum) : 0;
     availableUsd = Math.min(equityUsd, Math.max(reportedAvailableSum, derivedFreeSum) + unallocatedSettled);
   }
-  return {
+  const balance: KalshiMarginBalance = {
     cashUsd: settled,
     positionValueUsd: subsSeen ? positionValueSum : null,
     equityUsd,
     maintenanceMarginUsd: subsSeen ? maintenanceMarginSum : null,
     availableUsd,
   };
+  const breakdown: KalshiMarginBalanceBreakdown = {
+    settledFundsUsd: settled,
+    subaccounts: rows,
+    sumSubaccountEquityUsd: subsSeen ? equitySum : null,
+    equityUsd,
+    availableUsd,
+  };
+  return { balance, breakdown };
+}
+
+export function normalizeKalshiMarginBalanceCurrent(data: any): KalshiMarginBalance | null {
+  const parsed = parseKalshiMarginBalanceCurrent(data);
+  return parsed ? parsed.balance : null;
+}
+
+/** The auditable breakdown behind the current-shape totals — the SAME
+ *  parse normalizeMarginBalance runs (top level, or under a `balance`
+ *  wrapper), so the rows and totals can never disagree with the balance
+ *  the gates sized on. Null when the payload is not the current shape,
+ *  and null when the shape is present but malformed. */
+export function kalshiMarginBalanceBreakdown(data: any): KalshiMarginBalanceBreakdown | null {
+  const parsed = parseKalshiMarginBalanceCurrent(data) ?? parseKalshiMarginBalanceCurrent(data?.balance);
+  return parsed ? parsed.breakdown : null;
 }
 
 /** Normalize the /margin/balance payload (flat, wrapped, or per-subaccount
@@ -577,6 +648,13 @@ export interface KalshiMarginDiagnostic {
   /** Parsed /margin/balance — null when the call failed or the body was
    *  not JSON. */
   balanceParsed: KalshiMarginBalance | null;
+  /** Per-subaccount breakdown of the parsed balance (panel display only):
+   *  the parser's own rows + totals, so the equity/available the panel
+   *  shows can be audited against their parts — the 300-char body snippet
+   *  truncates inside the second subaccount and cannot. Null when the
+   *  balance call failed, was not Kalshi's current shape, or was
+   *  malformed. Never consulted by any gate. */
+  balanceBreakdown: KalshiMarginBalanceBreakdown | null;
 }
 
 const MARGIN_DIAG_SNIPPET_MAX = 300;
@@ -649,6 +727,7 @@ export async function getKalshiMarginDiagnostic(userId: number): Promise<KalshiM
     enabledParsed: enabledRes.call.ok && enabledRes.data !== undefined ? parseMarginEnabledOrNull(enabledRes.data) : null,
     balance: balanceRes.call,
     balanceParsed: balanceRes.call.ok && balanceRes.data !== undefined ? normalizeMarginBalance(balanceRes.data) : null,
+    balanceBreakdown: balanceRes.call.ok && balanceRes.data !== undefined ? kalshiMarginBalanceBreakdown(balanceRes.data) : null,
   };
 }
 

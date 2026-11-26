@@ -20,10 +20,13 @@
  *   D. The async read NEVER throws: no-credentials, HTTP error statuses,
  *      and a throwing fetch (mocked) all resolve into per-call results;
  *      success shapes parse. The pre-existing throwing client behavior is
- *      pinned unchanged on the same mocked fetch.
+ *      pinned unchanged on the same mocked fetch. The balanceBreakdown
+ *      (the parser's per-subaccount rows + totals) rides the same read
+ *      for current-shape bodies and is null for legacy shapes.
  *   E. Source pins: the report gains marginDiagnostic ONLY inside the
  *      hasCredentials branch; the trading cycle never references the
- *      diagnostic; the panel renders the raw answers; sw vedd-v294.
+ *      diagnostic; the panel renders the raw answers and the breakdown;
+ *      sw vedd-v295.
  *
  * Mocked-fetch section D writes a THROWAWAY credential (a freshly generated
  * RSA key for a synthetic user id) into the local creds file ONLY when no
@@ -35,9 +38,12 @@ import { generateKeyPairSync } from 'node:crypto';
 import {
   marginBodySnippet, marginCallDiagnosticFromHttp, marginCallDiagnosticFromError,
   parseMarginEnabledOrNull, parseMarginEnabled, getKalshiMarginDiagnostic,
-  getKalshiMarginEnabled, getKalshiMarginBalance,
+  getKalshiMarginEnabled, getKalshiMarginBalance, kalshiMarginBalanceBreakdown,
+  normalizeMarginBalance,
   loadKalshiCredentials, saveKalshiCredentials, deleteKalshiCredentials,
 } from '../server/services/kalshi-trading';
+
+const approx = (a: number, b: number, eps = 1e-9) => Math.abs(a - b) < eps;
 
 let failures = 0;
 let total = 0;
@@ -113,8 +119,10 @@ async function main(): Promise<void> {
     check('D1 no credentials: resolves, both calls carry the auth error',
       d.enabled.errorMessage?.includes('No Kalshi credentials') === true && d.balance.errorMessage?.includes('No Kalshi credentials') === true);
     check('D2 no credentials: null status, null parsed values, checkedAt + host present',
-      d.enabled.httpStatus === null && d.enabledParsed === null && d.balanceParsed === null
+      d.enabled.httpStatus === null && d.enabledParsed === null && d.balanceParsed === null && d.balanceBreakdown === null
       && Number.isFinite(Date.parse(d.checkedAt)) && (d.host === 'prod' || d.host === 'demo'));
+    check('D2b diagnostic carries exactly the declared top-level fields (breakdown included, nothing else rides along)',
+      JSON.stringify(Object.keys(d).sort()) === JSON.stringify(['balance', 'balanceBreakdown', 'balanceParsed', 'checkedAt', 'enabled', 'enabledParsed', 'host']));
   } else {
     check('D1/D2 skipped: synthetic user unexpectedly has credentials', false);
   }
@@ -162,6 +170,36 @@ async function main(): Promise<void> {
       check('D10 happy path: enabledParsed true, equity from reported portfolio_value',
         d3.enabledParsed === true && d3.balanceParsed?.equityUsd === 150);
       check('D11 happy path through the throwing client still answers true', (await getKalshiMarginEnabled(testId)) === true);
+      check('D12 legacy-shape balance carries NO breakdown (current shape only)', d3.balanceBreakdown === null);
+
+      // The live-plausible current-shape body (Nov 25, 2026): settled
+      // $2.6063, two visible all-zero subaccounts, and a later subaccount
+      // holding $2.81 of equity with $2.47 of initial margin — the body
+      // behind the panel's equity $2.81 / available $0.34.
+      const plausibleBody = JSON.stringify({
+        settled_funds: '2.606300',
+        subaccount_balances: [
+          { account_equity: '0.00000', available_balance: '0.00000', initial_margin: '0.0000', maintenance_margin: '0.0000', position_value: '0.00000', resting_orders_margin: '0.0000', subaccount: 64, subaccount_type: 'isolated' },
+          { account_equity: '0.00000', available_balance: '0.00000', initial_margin: '0.0000', maintenance_margin: '0.0000', position_value: '0.00000', resting_orders_margin: '0.0000', subaccount: 65, subaccount_type: 'isolated' },
+          { account_equity: '2.810000', available_balance: '0.00000', initial_margin: '2.4700', maintenance_margin: '0.0000', position_value: '0.00000', resting_orders_margin: '0.0000', subaccount: 0, subaccount_type: 'cross' },
+        ],
+      });
+      stubFetch(async (url) => url.endsWith('/margin/enabled') ? resp(200, '{"enabled":true}') : resp(200, plausibleBody));
+      const d4 = await getKalshiMarginDiagnostic(testId);
+      const bd = d4.balanceBreakdown;
+      check('D13 breakdown present on the current-shape read, settled funds carried',
+        bd !== null && bd.settledFundsUsd === 2.6063 && bd.subaccounts.length === 3);
+      check('D14 breakdown reproduces the live trio from its parts (equity $2.81, available $0.34)',
+        bd !== null && bd.equityUsd === 2.81 && bd.availableUsd != null && approx(bd.availableUsd, 0.34)
+        && bd.subaccounts[2].accountEquityUsd === 2.81 && approx(bd.subaccounts[2].derivedFreeMarginUsd, 0.34));
+      check('D15 breakdown totals are the parsed balance totals (single source of truth)',
+        bd !== null && d4.balanceParsed !== null && bd.equityUsd === d4.balanceParsed.equityUsd && bd.availableUsd === d4.balanceParsed.availableUsd);
+      check('D16 breakdown helper agrees with the diagnostic on the same body',
+        JSON.stringify(kalshiMarginBalanceBreakdown(JSON.parse(plausibleBody))) === JSON.stringify(bd)
+        && JSON.stringify(normalizeMarginBalance(JSON.parse(plausibleBody))) === JSON.stringify(d4.balanceParsed));
+      const serializedBd = JSON.stringify(d4);
+      check('D17 serialized diagnostic with breakdown still contains NO key id or key material',
+        !serializedBd.includes('diagnostic-test-key') && !serializedBd.includes('PRIVATE KEY') && !serializedBd.includes('KALSHI-ACCESS'));
     } finally {
       globalThis.fetch = realFetch;
       deleteKalshiCredentials(testId);
@@ -192,7 +230,14 @@ async function main(): Promise<void> {
     cyclePart.includes('marginEnabled = await getKalshiMarginEnabled(userId)') && cyclePart.includes('Kalshi margin is not enabled for this account (/margin/enabled is not true)'));
   check('E5 panel renders the raw answers beside the margin line',
     panel.includes('Kalshi answered:') && panel.includes('data.marginDiagnostic') && panel.includes('fmtMarginCall'));
-  check('E6 sw bumped to vedd-v294', sw.includes("CACHE_VERSION = 'vedd-v294'"));
+  check('E6 sw bumped to vedd-v295', sw.includes("CACHE_VERSION = 'vedd-v295'"));
+  check('E7 diagnostic populates the breakdown only from an OK balance answer, via the parser helper',
+    trading.includes('balanceBreakdown: balanceRes.call.ok && balanceRes.data !== undefined ? kalshiMarginBalanceBreakdown(balanceRes.data) : null'));
+  check('E8 panel renders the breakdown (per-subaccount rows + totals) under the raw answers',
+    panel.includes('data.marginDiagnostic?.balanceBreakdown') && panel.includes('kalshi-margin-breakdown')
+    && panel.includes('Σ sub equity') && panel.includes('derivedFreeMarginUsd'));
+  check('E9 breakdown comes from the parser single source (no second parse in the diagnostic path)',
+    trading.includes('function parseKalshiMarginBalanceCurrent') && trading.includes('export function kalshiMarginBalanceBreakdown'));
 
   console.log(`\n${total - failures}/${total} checks passed`);
   if (failures > 0) process.exit(1);
