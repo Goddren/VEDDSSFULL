@@ -74,6 +74,7 @@ import { computePips, getPipSize, getPipValue } from "./utils/pipUtils";
 import { confirmationCacheStats as aiConfirmationCacheStats } from "./services/ai-confirmation-cache";
 import { normalizeCandles, countReadableCloses } from "./utils/candleNormalize";
 import { getTLRisk } from "./services/tl-risk-settings";
+import { sizeFanoutAccountLot, fanoutVolatileCapLot, estimateFanoutMarginUsd, fanoutMarginSkipReason, fanoutPerAccountRiskEnabled, fanoutAssumedLeverage } from "./services/fanout-per-account-risk";
 import { AlpacaService, encryptApiSecret } from "./alpaca";
 import { TastyTradeService, encryptPassword as encryptTastytradePassword } from "./tastytrade";
 import { CryptoComService, encryptApiSecret as encryptCryptocomSecret } from "./cryptocom";
@@ -12944,6 +12945,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               // Resolve copyMode from live engine config (proportional = scale lots by TL account balance)
               const _eaCopyMode = _liveState?.config?.copyMode ?? 'proportional';
 
+              // Per-account risk gate for this fan-out (own-balance sizing
+              // fallback, own-balance volatile cap, free-margin gate). Kill
+              // switch: FANOUT_PER_ACCOUNT_RISK=off reverts all three to the
+              // historical behavior. See services/fanout-per-account-risk.ts.
+              const _fanoutRiskOn = fanoutPerAccountRiskEnabled(process.env);
+
               // Execute on ALL active TradeLocker connections
               // Tracks whether ANY connection has recorded this signal into brain
               // learning yet. The old guard compared identity to tlActiveConns[0]
@@ -12982,11 +12989,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 }
 
                 // Per-account sizing: size each TL account to ITS OWN value, not the MT5 lot.
+                // The cascade lives in services/fanout-per-account-risk.ts (pure,
+                // pinned by scripts/check-fanout-per-account-risk.ts):
                 //   1. Risk-% (if enabled): lots = (equity × risk%) / (slPips × pipValue)
                 //   2. Proportional:        lots = mt5Lot × (TL equity / MT5 reference balance)
-                //   3. Fallback:            exact MT5 lot (only when account value unavailable)
-                let connLot = tradeVolume;
-                let _sizeLabel = 'exact MT5 copy';
+                //   3. TL-direct / fallback: sized from the account's OWN equity —
+                //      the MT5 lot is never copied lot-for-lot (kill switch
+                //      FANOUT_PER_ACCOUNT_RISK=off restores the historical copy).
                 const _tlVal = await getTLAccountValue(token.userId, tlConn);
                 const _tlBal = _tlVal.balance > 0 ? _tlVal.balance : null;
                 const _tlEq  = _tlVal.equity  > 0 ? _tlVal.equity  : _tlBal;
@@ -12998,48 +13007,43 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const _eaSlDist = (_entryPrice && analysis.tradePlan?.stopLoss)
                   ? Math.abs(_entryPrice - analysis.tradePlan.stopLoss) : 0;
 
-                if (_eaRisk.useRiskPercent && _tlEq) {
-                  const _pipSize  = getPipSize(sanitizedSymbol);
-                  const _pipValue = getPipValue(sanitizedSymbol);
-                  const _slPips   = _eaSlDist > 0 && _pipSize > 0 ? _eaSlDist / _pipSize : 0;
-                  const _riskUsd  = _tlEq * (_eaRisk.riskPercent / 100);
-                  if (_slPips > 0 && _pipValue > 0) {
-                    connLot = Math.max(0.01, Math.round((_riskUsd / (_slPips * _pipValue)) * 100) / 100);
-                    _sizeLabel = `risk ${_eaRisk.riskPercent}% of $${_tlEq.toLocaleString()}`;
-                  } else if (_pipValue > 0) {
-                    // No SL — default 20-pip assumption so large accounts still get proper size
-                    connLot = Math.max(0.01, Math.round((_riskUsd / (20 * _pipValue)) * 100) / 100);
-                    _sizeLabel = `risk ${_eaRisk.riskPercent}% of $${_tlEq.toLocaleString()} (default 20pip)`;
-                  }
-                } else if (_eaCopyMode === 'proportional' && _tlEq && accountBalance > 0) {
-                  const _ratio = _tlEq / accountBalance;
-                  connLot = Math.max(0.01, Math.round(tradeVolume * _ratio * 100) / 100);
-                  _sizeLabel = `proportional ${_ratio.toFixed(2)}× ($${_tlEq.toLocaleString()}/$${accountBalance.toLocaleString()})`;
-                  console.log(`[ProportionalSizing] ${tlConn.accountId}: base=${tradeVolume} × (${_tlEq}/${accountBalance}) = ${connLot} lots`);
-                } else if (_eaCopyMode === 'proportional' && _tlEq && _tlEq > 0) {
-                  // No MT5 reference balance (MT5 EA not connected) — size directly from TL equity
-                  // using risk-% or a sensible default (1%) so lots scale with account size.
-                  const _fbPipSize  = getPipSize(sanitizedSymbol);
-                  const _fbPipValue = getPipValue(sanitizedSymbol);
-                  const _fbRiskPct  = _eaRisk.riskPercent > 0 ? _eaRisk.riskPercent : 1.0;
-                  const _fbRiskUsd  = _tlEq * (_fbRiskPct / 100);
-                  const _fbSlDist   = (_entryPrice && analysis.tradePlan?.stopLoss)
-                    ? Math.abs(_entryPrice - analysis.tradePlan.stopLoss) : 0;
-                  const _fbSlPips   = _fbSlDist > 0 && _fbPipSize > 0
-                    ? _fbSlDist / _fbPipSize
-                    : (_fbPipSize > 0 ? 20 : 0); // default 20 pip assumption
-                  if (_fbSlPips > 0 && _fbPipValue > 0) {
-                    connLot = Math.max(0.01, Math.round((_fbRiskUsd / (_fbSlPips * _fbPipValue)) * 100) / 100);
-                    _sizeLabel = `TL-direct risk ${_fbRiskPct}% of $${_tlEq.toLocaleString()} (no MT5 ref)`;
-                    console.log(`[ProportionalSizing] ${tlConn.accountId}: no MT5 ref → TL risk-based ${connLot} lots (${_fbRiskPct}% of $${_tlEq})`);
-                  } else {
-                    console.warn(`[ProportionalSizing] ${tlConn.accountId}: pip values unavailable — using base lot ${tradeVolume}`);
-                  }
-                } else if (_eaCopyMode === 'proportional') {
-                  console.warn(`[ProportionalSizing] ${tlConn.accountId}: could not size proportionally (TL value=${_tlEq}, MT5 ref=${accountBalance}) — using exact MT5 lot ${tradeVolume}`);
+                const _sized = sizeFanoutAccountLot({
+                  copyMode: _eaCopyMode,
+                  useRiskPercent: _eaRisk.useRiskPercent,
+                  riskPercent: _eaRisk.riskPercent,
+                  tlEquity: _tlEq,
+                  mt5RefBalance: accountBalance,
+                  mt5Lot: tradeVolume,
+                  slPips: _eaSlDist > 0 && getPipSize(sanitizedSymbol) > 0 ? _eaSlDist / getPipSize(sanitizedSymbol) : 0,
+                  pipSizeKnown: getPipSize(sanitizedSymbol) > 0,
+                  pipValue: getPipValue(sanitizedSymbol),
+                  perAccountRiskEnabled: _fanoutRiskOn,
+                  accountId: String(tlConn.accountId),
+                });
+                for (const _sl of _sized.logs) {
+                  if (_sl.level === 'warn') console.warn(_sl.text); else console.log(_sl.text);
                 }
+                if (_sized.lot == null) {
+                  // The fallback could not derive a size from this account's own
+                  // balance — skip it rather than hand it the MT5 lot (fail closed).
+                  _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} — per-account risk: could not derive a position size from this account's own balance, trade not sent.`);
+                  continue;
+                }
+                let connLot = _sized.lot;
+                const _sizeLabel = _sized.label;
                 // Re-apply volatile cap after scaling so a large TL account can't exceed risk cap
                 if (_eaVolCap) connLot = Math.min(connLot, _eaVolCap.hardMaxLot);
+                // Per-account volatile cap: the ceiling above is derived from the
+                // MT5 SOURCE balance (a $500K demo makes it meaningless for a
+                // small prop account), so ALSO cap by the same formula run on
+                // THIS account's own equity.
+                if (_fanoutRiskOn && _tlEq) {
+                  const _ownVolCap = fanoutVolatileCapLot(sanitizedSymbol, _tlEq, getPipValue(sanitizedSymbol));
+                  if (_ownVolCap != null && connLot > _ownVolCap) {
+                    console.log(`[FanoutRisk] ${tlConn.accountId}: volatile cap from own balance $${_tlEq.toLocaleString()}: ${connLot} → ${_ownVolCap} lots`);
+                    connLot = _ownVolCap;
+                  }
+                }
                 console.log(`[TL sizing] ${tlConn.accountId}: ${connLot} lots — ${_sizeLabel}`);
 
                 // ── Per-trade 5% max-loss backstop, PER DESTINATION ACCOUNT ──────
@@ -13258,6 +13262,45 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 }
               } catch (_thrErr: any) {
                 console.error(`[Re-entry THROTTLE] check failed for ${tlConn.accountId} (non-fatal, trade proceeds):`, _thrErr?.message);
+              }
+
+              // ── Per-account MARGIN gate (fan-out) ──────────────────────────
+              // Every check above judges this account's equity, P&L and
+              // exposure — but nothing compared the order's MARGIN
+              // REQUIREMENT with the account's own FREE margin. A wide-
+              // notional order (indices, gold) can pass the 5% stop-risk cap
+              // on a tight stop distance yet need more margin than the
+              // account has free. Read THIS account's free margin live from
+              // TradeLocker and skip it — durably, like every other
+              // per-account skip — when the requirement (estimated at a
+              // conservative assumed leverage, default 1:50) exceeds it.
+              // Fails closed: an unreadable free margin or an unestimable
+              // requirement skips the account. Kill switch:
+              // FANOUT_PER_ACCOUNT_RISK=off.
+              if (_fanoutRiskOn) {
+                let _mgSkip: string | null = null;
+                try {
+                  const _mgSvc = await tlGetOrCreateService(tlConn);
+                  const _mgInfo: any = await _mgSvc.getAccountInfo();
+                  const _mgFree = typeof _mgInfo?.freeMargin === 'number' && Number.isFinite(_mgInfo.freeMargin) ? _mgInfo.freeMargin : null;
+                  const _mgPrice = _entryPrice ?? _currentPrice ?? null;
+                  const _mgReq = _mgPrice != null
+                    ? estimateFanoutMarginUsd({ lots: connLot, contractSize: TradeLockerService.contractSize(sanitizedSymbol), price: _mgPrice, leverage: fanoutAssumedLeverage(process.env) })
+                    : null;
+                  if (_mgFree == null || _mgReq == null) {
+                    _mgSkip = `RISK SKIP: ${tlConn.accountId} — per-account risk: free margin unreadable, trade not sent.`;
+                  } else if (_mgReq > _mgFree) {
+                    _mgSkip = fanoutMarginSkipReason(String(tlConn.accountId), _mgReq, _mgFree);
+                  }
+                } catch (_mgErr: any) {
+                  _mgSkip = `RISK SKIP: ${tlConn.accountId} — per-account risk: margin check errored (${_mgErr?.message ?? 'unknown'}), trade not sent.`;
+                }
+                if (_mgSkip) {
+                  console.warn(`[FanoutRisk] ${_mgSkip}`);
+                  analysis.alerts.push(_mgSkip);
+                  _markTlSkip(String(tlConn.accountId), _mgSkip);
+                  continue;
+                }
               }
 
               // Defense-in-depth (F4): never send a stopless / level-less plan to
