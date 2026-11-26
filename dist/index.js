@@ -91921,9 +91921,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "fde753cc-dirty";
-var BUILD_BRANCH = "feat/tradelocker-fanout-per-account-gating";
-var BUILT_AT = "2026-11-26T06:05:24.286Z";
+var BUILD_COMMIT = "ac1973c0";
+var BUILD_BRANCH = "main";
+var BUILT_AT = "2026-11-26T06:13:03.387Z";
 
 // server/stripe.ts
 init_db();
