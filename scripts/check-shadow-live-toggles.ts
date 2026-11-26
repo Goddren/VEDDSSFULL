@@ -195,7 +195,7 @@ check('F14 crypto panel queries its endpoint and sits on the Guards & Trails pag
 check('F15 Kalshi arming is labeled ARM, never LIVE, and says arming places no trades',
   arming.includes('onText="ARMED"') && !arming.includes('onText="LIVE"') && arming.includes('Arming does not place trades'));
 check('F16 the arming section renders inside the Kalshi shadow panel', kalshiPanel.includes('<KalshiPerpArmingSection />'));
-check('F17 service worker bumped to vedd-v298', sw.includes("CACHE_VERSION = 'vedd-v298'"));
+check('F17 service worker bumped to vedd-v299', sw.includes("CACHE_VERSION = 'vedd-v299'"));
 check('F18 no timers in the module — nothing can auto-flip or auto-arm', !/setInterval|setTimeout/.test(mod));
 check('F19 the arming checklist copy follows the readiness values (no stale "no live path" claim)',
   arming.includes('enabled — Kalshi verified it on the live report just now')

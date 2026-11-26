@@ -80,9 +80,12 @@ async function main(): Promise<void> {
     check('A2 the budget module\'s own thrown refusal IS detected (typed markers)',
       degrade.isBudgetRefusalError(budgetErr) && budgetErr.budgetBlocked === true && budgetErr.aiErrorStatus === 'budget');
     const verdict = budget.engineAiBudgetVerdict();
-    check('A3 the budget module\'s own verdict IS a refusal — and its shape is unchanged (fail-closed, 0 confidence)',
+    check('A3 the budget module\'s own verdict IS a refusal — and its DETECTION SHAPE is byte-identical after the wording pass (fail-closed, 0 confidence, budget markers intact)',
       degrade.isBudgetRefusalVerdict(verdict) && verdict.confirmed === false && verdict.aiConfidence === 0 &&
-      verdict.modelUsed === 'ai-budget-gate');
+      verdict.aiDirection === 'NEUTRAL' && verdict.aiError === true && verdict.aiErrorStatus === 'budget' &&
+      verdict.modelUsed === 'ai-budget-gate' && verdict.providerUsed === 'budget');
+    check('A3b the thrown budget error\'s markers are byte-identical (status 402 + budgetBlocked + aiErrorStatus budget)',
+      budgetErr.status === 402 && budgetErr.budgetBlocked === true && budgetErr.aiErrorStatus === 'budget');
     check('A4 provider failures are NOT refusals (numeric status, bare 402, null, plain Error)',
       !degrade.isBudgetRefusalError(Object.assign(new Error('Insufficient credits'), { status: 402 })) &&
       !degrade.isBudgetRefusalError(new Error('network down')) &&
@@ -90,9 +93,12 @@ async function main(): Promise<void> {
       !degrade.isBudgetRefusalVerdict({ aiError: true, aiErrorStatus: 402 }) &&
       !degrade.isBudgetRefusalVerdict({ aiError: true, aiErrorStatus: null }) &&
       !degrade.isBudgetRefusalVerdict({ confirmed: true, aiConfidence: 80 }));
-    check('A5 honest labels: mode marker + reason text are the agreed strings',
+    check('A5 honest labels: mode marker UNCHANGED (stored enum) + the plain-voice label/opener/activity/Kalshi strings are the agreed ones',
       degrade.AI_BUDGET_DEGRADED_MODE === 'rules_only_budget' &&
-      degrade.AI_BUDGET_DEGRADED_REASON === 'no AI (budget out) — rules decided');
+      degrade.AI_BUDGET_DEGRADED_REASON === 'AI money tapped out — the playbook ran it solo, no AI' &&
+      degrade.AI_BUDGET_DEGRADED_OPENER === "AI money tapped out for today — the AI didn't touch this one. The playbook (VEDD's built-in rules) ran it by itself." &&
+      degrade.FX_ENGINE_DEGRADED_ACTIVITY === 'AI money tapped out — the rules ran this whole scan by themselves, no AI. It refills at midnight UTC.' &&
+      degrade.KALSHI_PERP_DEGRADED_CONTEXT_LINE === "AI money tapped out — couldn't buy a study, so this entry ran on the strategy's own signal. Playbook rules only.");
   }
 
   // ── B. FX degraded decision (the pure gate the route calls) ────────
@@ -102,14 +108,34 @@ async function main(): Promise<void> {
     check('B1 quant CONFIRM + EA above the floor → rules ALLOW', d().allowed === true);
     check('B2 EA exactly at the 74% floor → rules ALLOW (floor is inclusive)', d({ eaConfidence: 74 }).allowed === true);
     const below = d({ eaConfidence: 73 });
-    check('B3 EA below the floor → still BLOCKED, and the reason names the 74% execution floor',
-      below.allowed === false && below.blockReason.includes('74% execution floor'));
-    const weakQuant = d({ quantVerdict: 'WATCH', eaConfidence: 95 });
-    check('B4 quant not CONFIRM → BLOCKED even at EA 95 (no AI-style override exists in degraded mode)',
-      weakQuant.allowed === false && weakQuant.blockReason.includes('not CONFIRM'));
+    check('B3 EA below the floor → still BLOCKED, and the text says so plainly (scored 73%, needs 74% to play)',
+      below.allowed === false &&
+      below.blockReason === `${degrade.AI_BUDGET_DEGRADED_OPENER} The setup only scored 73% confidence and it needs 74% to play. Too weak — we not forcing it. No trade. AI money's back at midnight UTC.`);
+    const weakQuant = d({ quantVerdict: 'WATCH', quantScore: 45, eaConfidence: 95 });
+    check('B4 quant WATCH → BLOCKED even at EA 95 (no AI-style override exists in degraded mode), plain WATCH text',
+      weakQuant.allowed === false &&
+      weakQuant.blockReason === `${degrade.AI_BUDGET_DEGRADED_OPENER} Playbook says WATCH (45) — that's a 'hold on, not yet,' not a green light. We sitting this one out till it looks right. AI money's back at midnight UTC.`);
+    const skip = d({ quantVerdict: 'SKIP', quantScore: 20 });
+    check('B4b quant SKIP → BLOCKED with the plain SKIP text',
+      skip.allowed === false &&
+      skip.blockReason === `${degrade.AI_BUDGET_DEGRADED_OPENER} Playbook says SKIP (20) — that's a straight pass. No trade — we not forcing nothing. AI money's back at midnight UTC.`);
     const conflict = d({ confluenceConflicts: true });
-    check('B5 deterministic structure conflict → BLOCKED', conflict.allowed === false && conflict.blockReason.includes('structure'));
+    check('B5 deterministic structure conflict → BLOCKED with the plain fighting-chart text',
+      conflict.allowed === false &&
+      conflict.blockReason === `${degrade.AI_BUDGET_DEGRADED_OPENER} The chart's moving one way and the signal's saying another — they fighting each other. Playbook said nah. No trade. AI money's back at midnight UTC.`);
     check('B6 the floor constant is the live engine\'s 74', degrade.FX_DEGRADED_EA_FLOOR === 74);
+    check('B7 the degraded GO text is the agreed plain string (setup confidence over the 74% bar, playbook\'s call)',
+      degrade.fxBudgetDegradedGoText(88) === `${degrade.AI_BUDGET_DEGRADED_OPENER} And it said GO. The setup came in at 88% confidence, over the 74% it needs to play. Trade's on — just know this is the playbook's call, not the AI's. AI money's back at midnight UTC.`);
+    const allDegradedTexts = [
+      below.blockReason, weakQuant.blockReason, skip.blockReason, conflict.blockReason,
+      degrade.fxBudgetDegradedGoText(88),
+      degrade.cryptoBudgetDegradedText('CONFIRM', 82), degrade.cryptoBudgetDegradedText('WATCH', 40),
+      degrade.AI_BUDGET_DEGRADED_OPENER, degrade.AI_BUDGET_DEGRADED_REASON,
+      degrade.FX_ENGINE_DEGRADED_ACTIVITY, degrade.KALSHI_PERP_DEGRADED_CONTEXT_LINE,
+    ];
+    check('B8 NO degraded composition carries the old budget-gate tail ("no trade will be taken on an unverified signal" / "refusing to trade") — the plain text stands alone',
+      allDegradedTexts.every((t) => !t.includes('no trade will be taken on an unverified signal') && !t.includes('refusing to trade')) &&
+      allDegradedTexts.every((t) => t.includes('AI money tapped out')));
   }
 
   // ── C. FX wiring pins ──────────────────────────────────────────────
@@ -119,23 +145,27 @@ async function main(): Promise<void> {
       routes.includes('_budgetRefused && _budgetDegrade.aiBudgetDegradeEnabled()'));
     check('C2 the degraded decision feeds tradeAllowed alongside (never instead of) the AI paths',
       routes.includes('|| _advisoryOverride || _degradedDecision.allowed'));
-    check('C3 degraded BLOCK reason replaces the budget refusal text; the refusal text survives for kill-off/provider paths',
-      routes.includes('${_budgetDegrade.AI_BUDGET_DEGRADED_REASON}: ${_degradedDecision.blockReason}') &&
+    check('C3 degraded BLOCK text stands alone in the feed (blockReason verbatim; the budget tail is never appended); the refusal text survives ONLY on the non-degraded provider/kill-off path',
+      routes.includes('? _degradedDecision.blockReason') &&
+      routes.includes('const _feedReasoning = _budgetDegraded ? reason :') &&
+      routes.includes('reasoning: _feedReasoning,') &&
       routes.includes('refusing to trade an unverified signal'));
-    check('C4 durable stamps: aiMode in the raw-verdict log fields; RULES_ONLY_BUDGET on BOTH the feed log and the outcome row',
+    check('C4 durable stamps UNCHANGED: aiMode in the raw-verdict log fields; stored aiDecision RULES_ONLY_BUDGET on BOTH the feed log and the outcome row; display label is now SOLO PLAYBOOK and the approval reasoning is the GO text',
       routes.includes("aiMode: _budgetDegrade.AI_BUDGET_DEGRADED_MODE") &&
       count(routes, "'RULES_ONLY_BUDGET'") === 2 &&
-      routes.includes("approvalLabel = _budgetDegraded ? 'RULES ONLY (BUDGET)'"));
+      routes.includes("approvalLabel = _budgetDegraded ? 'SOLO PLAYBOOK'") &&
+      routes.includes('aiConfirmation.reasoning = _budgetDegrade.fxBudgetDegradedGoText(_propConf);'));
     check('C5 advisory override still cannot fire on an errored verdict (budget verdict has aiError=true → no override in degraded mode)',
       routes.includes('&& !_aiErrored;') && routes.includes('const _aiErrored = (aiConfirmation as any).aiError === true;'));
     check('C6 no new confidence manufacture: aiConfirmation.aiConfidence is assigned exactly once in routes.ts (the pre-existing fidelity-off advisory rewrite)',
       count(routes, 'aiConfirmation.aiConfidence =') === 1);
     check('C7 degraded telemetry stage is distinct from the block stage',
       routes.includes("_cdiag.stage = 'ai_budget_degraded';") && routes.includes("_cdiag.stage = 'ai_budget_blocked';"));
-    check('C8 live engine: budget refusal in ai mode falls back to the rules lane through actOnRulesPicks, stamped + kill-switched',
+    check('C8 live engine: budget refusal in ai mode falls back to the rules lane through actOnRulesPicks, stamped + kill-switched; the activity line is the plain FX_ENGINE_DEGRADED_ACTIVITY string',
       liveEngine.includes('isBudgetRefusalError(err) && aiBudgetDegradeEnabled()') &&
       liveEngine.includes('await actOnRulesPicks(userId, _scanId, _fxMode, picks, newsContext, AI_BUDGET_DEGRADED_REASON)') &&
-      liveEngine.includes('(p.decision as any).aiMode = AI_BUDGET_DEGRADED_MODE'));
+      liveEngine.includes('(p.decision as any).aiMode = AI_BUDGET_DEGRADED_MODE') &&
+      liveEngine.includes('message: FX_ENGINE_DEGRADED_ACTIVITY'));
     check('C9 live engine: hybrid fallback semantics untouched (any-failure fallback still runs through _aiFailed)',
       liveEngine.includes("if (_fxMode !== 'hybrid' || !_rulesP) return;") &&
       liveEngine.includes('await actOnRulesPicks(userId, _scanId, _fxMode, await _rulesP, newsContext, `hybrid fallback — AI ${status}`)'));
@@ -169,10 +199,17 @@ async function main(): Promise<void> {
       scanner.includes('budgetBlocked: true };'));
     check('D4 lite fallback propagates the typed marker from its own catch',
       scanner.includes('...(isBudgetRefusalError(err) ? { budgetBlocked: true } : {})'));
-    check('D5 assembleConsensus degrades on the marker: quant decides, result.reasoning stamped for trade records',
+    check('D5 assembleConsensus degrades on the marker: quant decides, the plain degraded text STANDS ALONE on the consensus row and stamps result.reasoning for trade records',
       scanner.includes('(ai as any).budgetBlocked === true && aiBudgetDegradeEnabled()') &&
       scanner.includes('tradeAllowed = cryptoBudgetDegradedAllowed(quantVerdict);') &&
-      scanner.includes('[${AI_BUDGET_DEGRADED_REASON}]'));
+      scanner.includes('const _degradedText = cryptoBudgetDegradedText(quantVerdict, result.score ?? 0);') &&
+      scanner.includes('aiReasoningOut = _degradedText;') &&
+      scanner.includes('${_degradedText}`.trim();') &&
+      !scanner.includes('[${AI_BUDGET_DEGRADED_REASON}]'));
+    check('D5b crypto degraded texts are the agreed plain strings (GO with score / pass with score)',
+      degrade.cryptoBudgetDegradedText('CONFIRM', 82) === 'AI money tapped out — the scanner ran this one by itself, no AI second look. Scanner said GO (82). This entry is all scanner, no AI.' &&
+      degrade.cryptoBudgetDegradedText('WATCH', 40) === 'AI money tapped out — the scanner ran this one by itself, no AI second look. Scanner said pass (40). No trade.' &&
+      degrade.cryptoBudgetDegradedText('SKIP', 10) === 'AI money tapped out — the scanner ran this one by itself, no AI second look. Scanner said pass (10). No trade.');
     check('D6 PR #120 intact: consensus THROW still fails closed (helper default + caller wiring unchanged)',
       fixPack.consensusThrowAllowsTrade({}) === false &&
       fixPack.consensusThrowAllowsTrade({ CRYPTO_CONSENSUS_FAIL_CLOSED: 'off' }) === true &&
@@ -222,8 +259,11 @@ async function main(): Promise<void> {
     check('E4 plan-layer ERROR fallback preserved — and NOT flagged budgetDegraded (malfunction ≠ budget state)',
       r5.action === 'fallback' && (r5 as any).budgetDegraded !== true);
     wp.__setPerpWatchPlanStoreForCheck(null);
-    check('E5 lane stamps the context row: budgetDegraded fallback pushes the rules_only_budget tag; plain fallback does not',
-      perpLane.includes('res.budgetDegraded') && perpLane.includes('tags.push(AI_BUDGET_DEGRADED_MODE)'));
+    check('E5 lane stamps the context row: budgetDegraded fallback pushes the rules_only_budget tag (UNCHANGED) AND records the plain context line on the row\'s text record; plain fallback does neither',
+      perpLane.includes('res.budgetDegraded') && perpLane.includes('tags.push(AI_BUDGET_DEGRADED_MODE)') &&
+      perpLane.includes('budgetDegradedEntry = true;') &&
+      perpLane.includes('${KALSHI_PERP_DEGRADED_CONTEXT_LINE}') &&
+      perpLane.includes('tags, adviceAtEntry,'));
     check('E6 judge unchanged: budget failure classifies as budget → no_verdict (fail-open, never gates)',
       judge.classifyJudgeFailure(budget.engineAiBudgetError()) === 'budget' &&
       perpPlans.includes("from './kalshi-perp-ai-judge'"));
@@ -286,7 +326,7 @@ async function main(): Promise<void> {
   }
 
   // ── I. sw pin ──────────────────────────────────────────────────────
-  check('I1 sw bumped to vedd-v298', src('client/public/sw.js').includes("CACHE_VERSION = 'vedd-v298'"));
+  check('I1 sw bumped to vedd-v299', src('client/public/sw.js').includes("CACHE_VERSION = 'vedd-v299'"));
 
   wp.__setPerpWatchPlanStoreForCheck(null);
   console.log(`\n${total - failures}/${total} checks passed`);
