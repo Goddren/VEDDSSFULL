@@ -11,7 +11,17 @@
 import { pool } from '../db';
 import { getAggregatedQuote } from './crypto-market-data';
 import { executeDefiSwap, isTokenTradeable, rpcUrlFor, DEFI_CHAINS } from './defi-swap';
+import { fillPriceFromSwap, gasUsdFromNative, quoteBandLimitPct } from './crypto-fix-pack';
 import { baseCoin } from './cefi-executor';
+
+/** Native gas (from a swap result) → USD, via the same native-price source
+ *  the gas manager uses (crypto fix pack #5). Undefined when unknown. */
+async function gasUsdFor(chainKey: string, gasNative?: number): Promise<number | undefined> {
+  if (gasNative == null) return undefined;
+  const coin = chainKey === 'polygon' ? 'MATIC' : 'ETH';
+  const q = await getAggregatedQuote(coin).catch(() => null);
+  return gasUsdFromNative(gasNative, q?.best?.price ?? null);
+}
 
 /** Whether the engine can swap this symbol's base coin on the given chain. */
 export async function defiTokenAvailable(chainKey: string, symbol: string): Promise<boolean> {
@@ -47,7 +57,18 @@ async function readUsdcBalance(chainKey: string, address: string): Promise<numbe
   }
 }
 
-export interface DefiEntryResult { ok: boolean; token: string; qtyBase: number; entryPrice: number; txHash?: string; reason?: string; pending?: boolean; }
+export interface DefiEntryResult {
+  ok: boolean; token: string; qtyBase: number;
+  /** The ACTUAL fill price (USDC spent ÷ tokens received) — crypto fix
+   *  pack #4. Downstream R / trail math reads this, so it must be the
+   *  fill, not the pre-swap hint. */
+  entryPrice: number;
+  /** The pre-swap signal/pool price the entry was decided on. */
+  hintPrice?: number;
+  /** Native gas paid for this entry (approval + swap), in USD. */
+  gasUsd?: number;
+  txHash?: string; reason?: string; pending?: boolean;
+}
 
 /** Open a DeFi long: swap `notionalUsd` of USDC -> token for `base` on the wallet's chain. */
 /** A 0x contract address must pass through untouched; only tickers get normalised. */
@@ -102,13 +123,20 @@ export async function defiEntryBuy(userId: number, chainKey: string, base: strin
     encryptedPrivateKey: hw.encryptedKey, chainKey: chain,
     sellToken: 'USDC', buyToken: token, sellAmountHuman: notionalUsd, slippageBps,
     confirm: true, // wait for on-chain success — no phantom entries on a revert
+    // Quote sanity band (fix pack #9): the quote's implied price may not
+    // wander beyond slippage + 2% from the price the signal decided on.
+    // Kill switch CRYPTO_QUOTE_BAND=off.
+    ...(process.env.CRYPTO_QUOTE_BAND !== 'off' && price > 0
+      ? { referencePriceUsd: price, maxPriceDeviationPct: quoteBandLimitPct(slippageBps) }
+      : {}),
   });
+  const gasUsd = await gasUsdFor(chain, r.gasNative);
   if (!r.ok) {
     // A broadcast-but-unconfirmed swap keeps its hash and its expected size, so
     // the caller can record it and reconcile against the chain later.
     const qtyHint = (r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0)
       ? r.buyAmountHuman : (price > 0 ? notionalUsd / price : 0);
-    return { ok: false, pending: !!r.pending, token, qtyBase: r.pending ? qtyHint : 0, entryPrice: price, txHash: r.txHash, reason: r.reason };
+    return { ok: false, pending: !!r.pending, token, qtyBase: r.pending ? qtyHint : 0, entryPrice: price, hintPrice: price, gasUsd, txHash: r.txHash, reason: r.reason };
   }
 
   // Prefer the actual on-chain amount received (decimals-correct); fall back to
@@ -116,11 +144,15 @@ export async function defiEntryBuy(userId: number, chainKey: string, base: strin
   let qtyBase = notionalUsd / price;
   if (r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0) qtyBase = r.buyAmountHuman;
   qtyBase = Math.max(0, Math.round(qtyBase * 1e8) / 1e8);
-  return { ok: true, token, qtyBase, entryPrice: price, txHash: r.txHash };
+  // Fix pack #4: the entry price is the FILL — USDC spent ÷ tokens actually
+  // received — not the pre-swap hint. When the received amount is unknown
+  // qtyBase IS notional/hint, so the fill price reduces to the hint.
+  const entryPrice = fillPriceFromSwap(notionalUsd, qtyBase, price);
+  return { ok: true, token, qtyBase, entryPrice, hintPrice: price, gasUsd, txHash: r.txHash };
 }
 
 /** Close a DeFi long: swap `qtyBase` of token -> USDC on the wallet's chain. */
-export async function defiExitSell(userId: number, chainKey: string, base: string, qtyBase: number, slippageBps: number, priceHint?: number): Promise<{ ok: boolean; exitPrice: number; proceedsUsd?: number; txHash?: string; reason?: string; phantom?: boolean; soldQty?: number }> {
+export async function defiExitSell(userId: number, chainKey: string, base: string, qtyBase: number, slippageBps: number, priceHint?: number): Promise<{ ok: boolean; exitPrice: number; proceedsUsd?: number; gasUsd?: number; txHash?: string; reason?: string; phantom?: boolean; soldQty?: number }> {
   const token = tokenRef(base);
   const hw = await loadHotWallet(userId);
   if (!hw) return { ok: false, exitPrice: 0, reason: 'no active DeFi hot wallet connected' };
@@ -176,5 +208,5 @@ export async function defiExitSell(userId: number, chainKey: string, base: strin
   // A8: buyAmountHuman is the ACTUAL USDC received from the swap (after
   // slippage + fees). Return it so realized P&L is computed from real proceeds,
   // not the pre-swap quote price.
-  return { ok: true, exitPrice: price, proceedsUsd: (r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0) ? r.buyAmountHuman : undefined, txHash: r.txHash, soldQty: sellQty };
+  return { ok: true, exitPrice: price, proceedsUsd: (r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0) ? r.buyAmountHuman : undefined, gasUsd: await gasUsdFor(chainKey || hw.chain, r.gasNative), txHash: r.txHash, soldQty: sellQty };
 }
