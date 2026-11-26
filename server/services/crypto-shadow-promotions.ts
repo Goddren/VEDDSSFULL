@@ -40,7 +40,7 @@
 
 import { getRuntimeStateStrict, saveRuntimeState } from './runtime-state';
 import { computeCryptoShadowStats, computeCryptoShadowAiJudge, type BucketStat, type AiJudgeStat } from './crypto-shadow';
-import { cryptoWatchPlansSummary, type CryptoWatchPlanCounters } from './crypto-watch-plans';
+import { cryptoWatchPlansSummary, cryptoWatchPlansSummaryAsync, type CryptoWatchPlanCounters } from './crypto-watch-plans';
 
 export type CryptoWatchPlansSummary = CryptoWatchPlanCounters & { enabled: boolean; activePlans: number };
 
@@ -108,9 +108,11 @@ export async function getCryptoPromotionPanel(userId: number): Promise<{ candida
     .map((s) => ({ ...s, alreadyGuarded: activeKeys.has(`${s.strategy}|${s.dim}|${s.bucket}`) }))
     .sort((a, b) => b.n - a.n);
   // AI watch plans ride the same payload (their section sits under the
-  // judge scoreboard on Guards & Trails). The summary is in-process
-  // counters only — it cannot fail the panel.
-  const aiWatchPlans = cryptoWatchPlansSummary(userId);
+  // judge scoreboard on Guards & Trails). The summary is the
+  // cross-process one (fix pack #6 — the lane runs in cron, this panel
+  // is served by web); it falls back to the in-process summary and
+  // cannot fail the panel.
+  const aiWatchPlans = await cryptoWatchPlansSummaryAsync(userId).catch(() => cryptoWatchPlansSummary(userId));
   return { candidates, promotions, aiJudge, aiWatchPlans };
 }
 

@@ -462,6 +462,32 @@ function currentCounters(userId: number): CryptoWatchPlanCounters {
  *  (mechanical) ones. */
 export function noteCryptoPlanEntry(userId: number): void {
   currentCounters(userId).entriesViaPlan += 1;
+  void persistCryptoWatchPlanCounters(userId);
+}
+
+// ── Cross-process reporting (crypto fix pack #6, 2026-11-26) ─────────────
+// The counters above and the plan cache live in THIS process's memory,
+// but the lane runs in the cron process while the panel is served by the
+// web process — so the panel read empty maps forever and showed 0 no
+// matter how well the lane worked. The counters + active-plan count are
+// now ALSO persisted to runtime_state (same scope as the plan blob,
+// key `${userId}:counters`) whenever the blob is persisted and at the
+// end of every resolve, and the panel summary reads them back.
+interface CryptoCounterRecord { day: string; c: CryptoWatchPlanCounters; activePlans: number; at: number }
+
+async function persistCryptoWatchPlanCounters(userId: number): Promise<void> {
+  try {
+    const rec: CryptoCounterRecord = {
+      day: utcDay(), c: { ...currentCounters(userId) },
+      activePlans: countActiveCryptoPlans(userId), at: Date.now(),
+    };
+    await ensureRuntimeStateTable();
+    await pool.query(
+      `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+       ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+      ['crypto_watch_plans', `${userId}:counters`, JSON.stringify(rec)],
+    );
+  } catch { /* reporting is best-effort; the in-process counters remain */ }
 }
 
 /** Today's counters for one user (report payload). */
@@ -521,15 +547,22 @@ async function getBlob(userId: number): Promise<CryptoWatchPlanBlob> {
 
 async function persist(userId: number, blob: CryptoWatchPlanBlob): Promise<void> {
   try { await store.save(userId, blob); } catch { /* in-process cache stays authoritative; next mutation retries */ }
+  // Fix pack #6: the counters ride along with every blob write, so the
+  // web process can report what the cron process did.
+  await persistCryptoWatchPlanCounters(userId);
+}
+
+function countActiveInBlob(blob: CryptoWatchPlanBlob, now: number): number {
+  let n = 0;
+  for (const p of Object.values(blob.plans)) if (p && p.expiresAt > now) n += 1;
+  return n;
 }
 
 /** Live (unexpired) plans currently held for a user — report payload. */
 export function countActiveCryptoPlans(userId: number, now = Date.now()): number {
   const blob = cache.get(userId);
   if (!blob) return 0;
-  let n = 0;
-  for (const p of Object.values(blob.plans)) if (p && p.expiresAt > now) n += 1;
-  return n;
+  return countActiveInBlob(blob, now);
 }
 
 // ── Deep call ───────────────────────────────────────────────────────────────
@@ -625,7 +658,7 @@ export interface CryptoWatchPlanResolveInput extends CryptoDeepStudyInput {
  *    stewardship outcome), 'fallback' only on plan-layer ERRORS (store
  *    throw, unexpected exception) — the lane then enters mechanically.
  */
-export async function resolveCryptoWatchPlan(
+async function resolveCryptoWatchPlanInner(
   input: CryptoWatchPlanResolveInput,
   cycle: CryptoPlanCycle,
   deps: CryptoWatchPlanDeps = {},
@@ -742,13 +775,58 @@ export async function resolveCryptoWatchPlan(
   }
 }
 
-/** Panel view for the shadow report: today's counters + live plans. */
+/** The resolver the lane calls. Identical behavior to the inner function;
+ *  the wrapper exists so EVERY outcome (triggered, skip, fallback) leaves
+ *  a persisted counters record the web process can report (fix pack #6). */
+export async function resolveCryptoWatchPlan(
+  input: CryptoWatchPlanResolveInput,
+  cycle: CryptoPlanCycle,
+  deps: CryptoWatchPlanDeps = {},
+): Promise<CryptoWatchPlanAction> {
+  const out = await resolveCryptoWatchPlanInner(input, cycle, deps);
+  await persistCryptoWatchPlanCounters(input.userId);
+  return out;
+}
+
+/** Panel view for the shadow report: today's counters + live plans.
+ *  IN-PROCESS ONLY — in the web process this reads empty maps (the lane
+ *  runs in cron). Panels must use cryptoWatchPlansSummaryAsync; this
+ *  stays as its fallback and for same-process callers. */
 export function cryptoWatchPlansSummary(userId: number): CryptoWatchPlanCounters & { enabled: boolean; activePlans: number } {
   return {
     enabled: cryptoWatchPlansEnabled(),
     activePlans: countActiveCryptoPlans(userId),
     ...cryptoWatchPlanCountersToday(userId),
   };
+}
+
+/** Cross-process panel view (fix pack #6): merges the persisted counters
+ *  record (written by whichever process ran the lane) with this process's
+ *  own counters — element-wise max, since counters only grow within a
+ *  day — and counts active plans from the persisted plan blob when this
+ *  process has never loaded it. Falls back to the in-process summary on
+ *  any read failure. */
+export async function cryptoWatchPlansSummaryAsync(userId: number, now = Date.now()): Promise<CryptoWatchPlanCounters & { enabled: boolean; activePlans: number }> {
+  const local = cryptoWatchPlansSummary(userId);
+  try {
+    const saved: any = await getRuntimeStateStrict('crypto_watch_plans', `${userId}:counters`);
+    let activePlans = local.activePlans;
+    if (!cache.has(userId)) {
+      const blob = await store.load(userId).catch(() => null);
+      if (blob) activePlans = countActiveInBlob(blob, now);
+      else if (saved && typeof saved.activePlans === 'number') activePlans = saved.activePlans;
+    }
+    if (saved && saved.day === utcDay() && saved.c && typeof saved.c === 'object') {
+      const merged = emptyCounters();
+      for (const k of Object.keys(merged) as Array<keyof CryptoWatchPlanCounters>) {
+        merged[k] = Math.max(Number(saved.c[k]) || 0, Number(local[k]) || 0);
+      }
+      return { enabled: local.enabled, activePlans, ...merged };
+    }
+    return { ...local, activePlans };
+  } catch {
+    return local;
+  }
 }
 
 /** Check-script seam: wipe in-process state between scenarios. */
