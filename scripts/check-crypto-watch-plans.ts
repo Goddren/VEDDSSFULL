@@ -24,7 +24,7 @@
  *   F. Kill switches + wiring pins: lane consults plans only when on,
  *      after every existing gate, before the judge + INSERT; report and
  *      panel expose aiWatchPlans; judge 'shadow-h1' namespace untouched;
- *      live DeFi files have zero plan references; sw vedd-v298.
+ *      live DeFi files have zero plan references; sw vedd-v299.
  *   G. Part B — live confirmation cache: same question inside its bar =
  *      one purchase (live 5m bar, judge H1 bar); a new bar re-asks;
  *      CRYPTO_BAR_CACHE=off restores the fixed TTL; namespaces unchanged.
@@ -326,7 +326,7 @@ async function main(): Promise<void> {
     check('F9 live-lane isolation: live scanner + DeFi execution files have zero watch-plan references',
       !scanner.includes('crypto-watch-plans') && !scanner.includes('resolveCryptoWatchPlan') &&
       !defiExec.includes('crypto-watch-plans') && !defiSwap.includes('crypto-watch-plans'));
-    check('F10 sw bumped to vedd-v298', src('client/public/sw.js').includes("CACHE_VERSION = 'vedd-v298'"));
+    check('F10 sw bumped to vedd-v299', src('client/public/sw.js').includes("CACHE_VERSION = 'vedd-v299'"));
     check('F11 plan layer reuses the FX trigger evaluator (no forked logic)',
       svcSrc.includes("from './ai-watch-plans'") && svcSrc.includes('evaluateWatchPlan'));
     check('F12 one plan per user+symbol+strategy; store scope is crypto_watch_plans',

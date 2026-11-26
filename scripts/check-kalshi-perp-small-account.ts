@@ -206,7 +206,7 @@ async function main(): Promise<void> {
     && panel.includes('· risk {data.smallAccount.riskPct}%/trade') && panel.includes('· virtual shadow wallet {fmtMoney(virtualWalletEquityUsd)}')
     && panel.includes('loss-streak pause active') && panel.includes('below the equity floor — entries paused')
     && panel.includes('<KalshiPerpLiveSection virtualWalletEquityUsd={data?.summary.virtualWalletEquityUsd ?? null} />'));
-  check('H17 sw bumped to vedd-v298', sw.includes("CACHE_VERSION = 'vedd-v298'"));
+  check('H17 sw bumped to vedd-v299', sw.includes("CACHE_VERSION = 'vedd-v299'"));
 
   console.log(`\n${total - failures}/${total} checks passed`);
   if (failures) process.exit(1);

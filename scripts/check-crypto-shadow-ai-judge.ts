@@ -169,7 +169,7 @@ check('F4 judge scoreboard panel exists with honest framing',
 const pageSrc = src('../client/src/pages/guards-trails.tsx');
 check('F5 panel is placed on Guards & Trails', pageSrc.includes('<CryptoShadowAiJudgePanel />'));
 const sw = src('../client/public/sw.js');
-check('F6 sw bumped for the client change', sw.includes("CACHE_VERSION = 'vedd-v298'"));
+check('F6 sw bumped for the client change', sw.includes("CACHE_VERSION = 'vedd-v299'"));
 
 // ── G. Lane evidence — the judge sees the collected record ────────────────
 const evInput = (over: Partial<JudgeEvidenceInput> = {}): JudgeEvidenceInput => ({

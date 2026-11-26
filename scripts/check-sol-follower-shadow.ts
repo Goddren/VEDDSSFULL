@@ -176,7 +176,7 @@ check('G12 poller started at boot', index.includes('startSolFollowerShadow'));
 check('G13 panel mounted on the Sol engine page', scannerPage.includes('SolFollowerPanel') && panel.includes('data-testid="sol-follower-panel"'));
 check('G14 backstops present (TP / SL / max hold)', follower.includes("closePositionFully(pos, gross, 'tp')") && follower.includes("closePositionFully(pos, gross, 'sl')") && follower.includes("'max_hold'"));
 check('G15 entry lag is a recorded, reported stat', follower.includes('entry_lag_sec') && follower.includes('avgEntryLagSec'));
-check('G16 sw bumped for the client change', sw.includes("CACHE_VERSION = 'vedd-v298'"));
+check('G16 sw bumped for the client change', sw.includes("CACHE_VERSION = 'vedd-v299'"));
 
 // ── H. Go-live bar shape ─────────────────────────────────────────────────
 check('H1 the bar matches the other lanes (50 trades, 40% wins)', FOLLOWER_LIVE_BAR.trades === 50 && FOLLOWER_LIVE_BAR.winRate === 0.4);

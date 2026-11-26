@@ -15579,11 +15579,16 @@ var init_ai_confirmation_cache = __esm({
 var ai_budget_degrade_exports = {};
 __export(ai_budget_degrade_exports, {
   AI_BUDGET_DEGRADED_MODE: () => AI_BUDGET_DEGRADED_MODE,
+  AI_BUDGET_DEGRADED_OPENER: () => AI_BUDGET_DEGRADED_OPENER,
   AI_BUDGET_DEGRADED_REASON: () => AI_BUDGET_DEGRADED_REASON,
   FX_DEGRADED_EA_FLOOR: () => FX_DEGRADED_EA_FLOOR,
+  FX_ENGINE_DEGRADED_ACTIVITY: () => FX_ENGINE_DEGRADED_ACTIVITY,
+  KALSHI_PERP_DEGRADED_CONTEXT_LINE: () => KALSHI_PERP_DEGRADED_CONTEXT_LINE,
   aiBudgetDegradeEnabled: () => aiBudgetDegradeEnabled,
   cryptoBudgetDegradedAllowed: () => cryptoBudgetDegradedAllowed,
+  cryptoBudgetDegradedText: () => cryptoBudgetDegradedText,
   fxBudgetDegradedDecision: () => fxBudgetDegradedDecision,
+  fxBudgetDegradedGoText: () => fxBudgetDegradedGoText,
   isBudgetRefusalError: () => isBudgetRefusalError,
   isBudgetRefusalVerdict: () => isBudgetRefusalVerdict
 });
@@ -15599,25 +15604,37 @@ function isBudgetRefusalVerdict(verdict) {
 function fxBudgetDegradedDecision(input) {
   if (input.quantVerdict !== "CONFIRM") {
     const score = typeof input.quantScore === "number" ? ` (${input.quantScore})` : "";
-    return { allowed: false, blockReason: `quant rules verdict ${input.quantVerdict}${score} is not CONFIRM` };
+    if (input.quantVerdict === "WATCH") {
+      return { allowed: false, blockReason: `${AI_BUDGET_DEGRADED_OPENER} Playbook says WATCH${score} \u2014 that's a 'hold on, not yet,' not a green light. We sitting this one out till it looks right. AI money's back at midnight UTC.` };
+    }
+    return { allowed: false, blockReason: `${AI_BUDGET_DEGRADED_OPENER} Playbook says ${input.quantVerdict}${score} \u2014 that's a straight pass. No trade \u2014 we not forcing nothing. AI money's back at midnight UTC.` };
   }
   if (!(input.eaConfidence >= FX_DEGRADED_EA_FLOOR)) {
-    return { allowed: false, blockReason: `EA confidence ${input.eaConfidence}% is below the ${FX_DEGRADED_EA_FLOOR}% execution floor` };
+    return { allowed: false, blockReason: `${AI_BUDGET_DEGRADED_OPENER} The setup only scored ${input.eaConfidence}% confidence and it needs ${FX_DEGRADED_EA_FLOOR}% to play. Too weak \u2014 we not forcing it. No trade. AI money's back at midnight UTC.` };
   }
   if (input.confluenceConflicts) {
-    return { allowed: false, blockReason: "deterministic structure check conflicts with the signal direction" };
+    return { allowed: false, blockReason: `${AI_BUDGET_DEGRADED_OPENER} The chart's moving one way and the signal's saying another \u2014 they fighting each other. Playbook said nah. No trade. AI money's back at midnight UTC.` };
   }
   return { allowed: true, blockReason: "" };
+}
+function fxBudgetDegradedGoText(eaConfidence) {
+  return `${AI_BUDGET_DEGRADED_OPENER} And it said GO. The setup came in at ${eaConfidence}% confidence, over the ${FX_DEGRADED_EA_FLOOR}% it needs to play. Trade's on \u2014 just know this is the playbook's call, not the AI's. AI money's back at midnight UTC.`;
 }
 function cryptoBudgetDegradedAllowed(quantVerdict) {
   return quantVerdict === "CONFIRM";
 }
-var AI_BUDGET_DEGRADED_MODE, AI_BUDGET_DEGRADED_REASON, FX_DEGRADED_EA_FLOOR;
+function cryptoBudgetDegradedText(quantVerdict, score) {
+  return quantVerdict === "CONFIRM" ? `AI money tapped out \u2014 the scanner ran this one by itself, no AI second look. Scanner said GO (${score}). This entry is all scanner, no AI.` : `AI money tapped out \u2014 the scanner ran this one by itself, no AI second look. Scanner said pass (${score}). No trade.`;
+}
+var AI_BUDGET_DEGRADED_MODE, AI_BUDGET_DEGRADED_REASON, AI_BUDGET_DEGRADED_OPENER, FX_ENGINE_DEGRADED_ACTIVITY, KALSHI_PERP_DEGRADED_CONTEXT_LINE, FX_DEGRADED_EA_FLOOR;
 var init_ai_budget_degrade = __esm({
   "server/services/ai-budget-degrade.ts"() {
     "use strict";
     AI_BUDGET_DEGRADED_MODE = "rules_only_budget";
-    AI_BUDGET_DEGRADED_REASON = "no AI (budget out) \u2014 rules decided";
+    AI_BUDGET_DEGRADED_REASON = "AI money tapped out \u2014 the playbook ran it solo, no AI";
+    AI_BUDGET_DEGRADED_OPENER = "AI money tapped out for today \u2014 the AI didn't touch this one. The playbook (VEDD's built-in rules) ran it by itself.";
+    FX_ENGINE_DEGRADED_ACTIVITY = "AI money tapped out \u2014 the rules ran this whole scan by themselves, no AI. It refills at midnight UTC.";
+    KALSHI_PERP_DEGRADED_CONTEXT_LINE = "AI money tapped out \u2014 couldn't buy a study, so this entry ran on the strategy's own signal. Playbook rules only.";
     FX_DEGRADED_EA_FLOOR = 74;
   }
 });
@@ -30754,7 +30771,7 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
       try {
         const picks = await (_rulesP ?? buildRulesPicks(userId, { ...marketAnalysis }, htfMarketData, newsContext).catch(() => []));
         for (const p2 of picks) p2.decision.aiMode = AI_BUDGET_DEGRADED_MODE;
-        addActivity(userId, { type: "info", message: `\u{1F4A4} ${AI_BUDGET_DEGRADED_REASON} \u2014 the AI analysis call was not bought this scan; the deterministic rules lane decides through the normal gates.` });
+        addActivity(userId, { type: "info", message: FX_ENGINE_DEGRADED_ACTIVITY });
         await actOnRulesPicks(userId, _scanId, _fxMode, picks, newsContext, AI_BUDGET_DEGRADED_REASON);
         _budgetDegradedScan = true;
       } catch {
@@ -70686,9 +70703,10 @@ async function assembleConsensus(userId, symbol, result, cfg) {
   let aiReasoningOut = ai.reasoning || "";
   if (ai.budgetBlocked === true && aiBudgetDegradeEnabled()) {
     tradeAllowed = cryptoBudgetDegradedAllowed(quantVerdict);
-    aiReasoningOut = `${aiReasoningOut} \u2014 ${AI_BUDGET_DEGRADED_REASON} (quant ${quantVerdict} ${result.score ?? 0}/100)`.trim();
+    const _degradedText = cryptoBudgetDegradedText(quantVerdict, result.score ?? 0);
+    aiReasoningOut = _degradedText;
     if (tradeAllowed) {
-      result.reasoning = `${result.reasoning || ""} [${AI_BUDGET_DEGRADED_REASON}]`.trim();
+      result.reasoning = `${result.reasoning || ""} ${_degradedText}`.trim();
     }
   }
   pushConsensus(userId, { symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0, aiVerdict, aiConfidence: ai.confidence, aiReasoning: aiReasoningOut + procTag, consensus, tradeAllowed, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
@@ -75159,6 +75177,7 @@ async function runKalshiStockShadowCycle(userId) {
       );
       const bucketEvidence = bucketEvidenceFor(stats, sig.strategy, kalshiBucketsOf(ctx));
       let viaPlan = false;
+      let budgetDegradedEntry = false;
       if (plansOn) {
         let res2 = { action: "fallback" };
         try {
@@ -75192,6 +75211,7 @@ async function runKalshiStockShadowCycle(userId) {
         viaPlan = res2.action === "triggered";
         if (res2.action === "fallback" && res2.budgetDegraded) {
           tags.push(AI_BUDGET_DEGRADED_MODE);
+          budgetDegradedEntry = true;
         }
       }
       let judge = null;
@@ -75229,6 +75249,7 @@ async function runKalshiStockShadowCycle(userId) {
       );
       const id = ins.rows[0]?.id;
       if (!id) continue;
+      const adviceAtEntry = budgetDegradedEntry ? `${adviceFor3(stats, sig.strategy, ctx)} | ${KALSHI_PERP_DEGRADED_CONTEXT_LINE}` : adviceFor3(stats, sig.strategy, ctx);
       await pool.query(
         `INSERT INTO kalshi_perp_shadow_context (trade_id, user_id, strategy, ticker, direction, spread_bps, volume_24h_usd, open_interest,
            atr_pct, h1_trend, h4_trend, htf_aligned, funding_rate_at_entry, session_et, hour_utc, hour_et, day_of_week,
@@ -75260,7 +75281,7 @@ async function runKalshiStockShadowCycle(userId) {
           agreeing < 2,
           mkt.leverageEstimate,
           tags,
-          adviceFor3(stats, sig.strategy, ctx),
+          adviceAtEntry,
           vpProfile?.poc ?? null,
           vpProfile?.vah ?? null,
           vpProfile?.val ?? null,
@@ -92604,9 +92625,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "c690fba1";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-26T19:46:30.911Z";
+var BUILD_COMMIT = "47d2f3b9";
+var BUILD_BRANCH = "feat/degraded-wording";
+var BUILT_AT = "2026-11-26T20:14:26.053Z";
 
 // server/stripe.ts
 init_db();
@@ -105496,9 +105517,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               analysis.alerts.push(`\u2696\uFE0F ADVISORY ENTRY: strong ${preConfirmConfidence}% signal, no structural conflict \u2014 traded at reduced size despite low ICT confluence.`);
             }
             if (!tradeAllowed) {
-              const reason = _budgetDegraded ? `${_budgetDegrade.AI_BUDGET_DEGRADED_REASON}: ${_degradedDecision.blockReason}` : _aiErrored ? `AI confirmation unavailable (${aiConfirmation.aiErrorStatus ?? "error"}) \u2014 refusing to trade an unverified signal` : consensusLabel === "STRONG_SKIP" ? `Dual-agent STRONG_SKIP \u2014 Quant:${quantResult.verdict}(${quantResult.score}) + AI:${aiVerdict}(${aiConfirmation.aiConfidence}%) both reject` : overrideTooWeak ? `AI override blocked \u2014 weak confluence (Grade ${breakoutGrade || "?"}${Number.isFinite(_alignedVotes) ? `, ${_alignedVotes} aligned` : ""}); override requires Grade B / \u22652 aligned. EA ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%` : useBreakoutMode ? `Breakout grade insufficient (Grade ${breakoutGrade || "PASS"} \u2014 Grade A (\u226570%) or B (\u226550%) required to CONFIRM)` : !eaPasses ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)` : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`;
+              const reason = _budgetDegraded ? _degradedDecision.blockReason : _aiErrored ? `AI confirmation unavailable (${aiConfirmation.aiErrorStatus ?? "error"}) \u2014 refusing to trade an unverified signal` : consensusLabel === "STRONG_SKIP" ? `Dual-agent STRONG_SKIP \u2014 Quant:${quantResult.verdict}(${quantResult.score}) + AI:${aiVerdict}(${aiConfirmation.aiConfidence}%) both reject` : overrideTooWeak ? `AI override blocked \u2014 weak confluence (Grade ${breakoutGrade || "?"}${Number.isFinite(_alignedVotes) ? `, ${_alignedVotes} aligned` : ""}); override requires Grade B / \u22652 aligned. EA ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%` : useBreakoutMode ? `Breakout grade insufficient (Grade ${breakoutGrade || "PASS"} \u2014 Grade A (\u226570%) or B (\u226550%) required to CONFIRM)` : !eaPasses ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)` : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`;
               console.log(`[AI Vision Confirmation] BLOCKED trade on ${sanitizedSymbol} - ${reason}: ${aiConfirmation.reasoning}`);
-              analysis.alerts.push(`TRADE BLOCKED [${consensusLabel}]: ${reason} - ${aiConfirmation.reasoning}`);
+              const _feedReasoning = _budgetDegraded ? reason : `${reason} | ${aiConfirmation.reasoning}`;
+              analysis.alerts.push(_budgetDegraded ? `TRADE BLOCKED [${consensusLabel}]: ${reason}` : `TRADE BLOCKED [${consensusLabel}]: ${reason} - ${aiConfirmation.reasoning}`);
               aiConfirmation.confirmed = false;
               analysis.tradePlan = null;
               analysis.signal = "NEUTRAL";
@@ -105514,7 +105536,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 aiDecision: "REJECTED",
                 aiDirection: aiConfirmation.aiDirection,
                 aiConfidence: aiConfirmation.aiConfidence,
-                reasoning: `${reason} | ${aiConfirmation.reasoning}`,
+                reasoning: _feedReasoning,
                 ictMacroValid: aiConfirmation.ictMacroValid,
                 ictMacroReason: aiConfirmation.ictMacroReason,
                 smcVerdict: aiConfirmation.smcVerdict,
@@ -105572,11 +105594,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             } else {
               const isAiOverride = aiPasses && !eaPasses;
               const _advisoryLabel = _verdictFidelity.verdictFidelityEnabled() && _advisoryOverride;
-              const approvalLabel = _budgetDegraded ? "RULES ONLY (BUDGET)" : _advisoryLabel ? "ADVISORY OVERRIDE" : consensusLabel === "STRONG_CONFIRM" ? "STRONG CONFIRM" : isAiOverride ? "AI OVERRIDE" : "APPROVED";
+              const approvalLabel = _budgetDegraded ? "SOLO PLAYBOOK" : _advisoryLabel ? "ADVISORY OVERRIDE" : consensusLabel === "STRONG_CONFIRM" ? "STRONG CONFIRM" : isAiOverride ? "AI OVERRIDE" : "APPROVED";
               if (_budgetDegraded) {
                 aiConfirmation.budgetDegraded = true;
                 aiConfirmation.aiMode = _budgetDegrade.AI_BUDGET_DEGRADED_MODE;
-                aiConfirmation.reasoning = `${_budgetDegrade.AI_BUDGET_DEGRADED_REASON} (quant CONFIRM ${quantResult.score}/100, EA ${_propConf}% \u2265 ${_budgetDegrade.FX_DEGRADED_EA_FLOOR}% floor)`;
+                aiConfirmation.reasoning = _budgetDegrade.fxBudgetDegradedGoText(_propConf);
               }
               console.log(`[AI Vision Confirmation] ${approvalLabel} [${consensusLabel}] trade on ${sanitizedSymbol} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}% | Quant: ${quantResult.score})${isAiOverride ? " - AI overriding low EA" : ""}: ${aiConfirmation.reasoning}`);
               analysis.alerts.push(`TRADE ${approvalLabel} [${consensusLabel}] (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}% | Quant: ${quantResult.score}/100)${isAiOverride ? " [AI overrode low EA]" : ""} - ${aiConfirmation.reasoning}`);
