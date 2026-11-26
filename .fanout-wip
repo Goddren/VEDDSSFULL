@@ -1,3 +1,0 @@
-WIP scaffold — feat/tradelocker-fanout-per-account-gating
-Base: origin/main aa813ac1
-Plan: trace fan-out -> per-account risk gate + per-account sizing -> checks.

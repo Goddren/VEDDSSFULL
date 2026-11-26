@@ -84661,15 +84661,15 @@ function finalizeMoments(seeds, ctx) {
     if (end - start < 3) continue;
     const subscores = normalizeSubscores(seed.subscores);
     cleaned.push({
-      startSec: round23(start),
-      endSec: round23(end),
+      startSec: round24(start),
+      endSec: round24(end),
       hook: String(seed.hook || "").slice(0, 90).trim() || "Untitled clip",
       reason: String(seed.reason || "").slice(0, 240).trim(),
       category: String(seed.category || "moment").slice(0, 40).trim() || "moment",
       caption: String(seed.caption || "").slice(0, 500).trim(),
       subscores,
       viralityScore: viralityScore(subscores),
-      durationSec: round23(end - start),
+      durationSec: round24(end - start),
       rank: 0,
       belowThreshold: false
     });
@@ -85004,7 +85004,7 @@ function clipperStepProgress(stepIndex) {
   const bands = [5, 25, 50, 68, 92];
   return bands[Math.max(0, Math.min(bands.length - 1, stepIndex))];
 }
-var LENGTH_PRESETS, CAPTION_STYLES, PLATFORM_ASPECT, DEFAULT_CLIPPER_SETTINGS, YT_ID, clampScore, round23, has, CAPTION_LIMITS, YTDLP_DEFAULT_CLIENTS, YT_CLIENT_OK, CLIPPER_UPLOAD_MAX_BYTES, CLIPPER_UPLOAD_MIMES, CLIPPER_UPLOAD_EXTS, CLIPPER_STEPS;
+var LENGTH_PRESETS, CAPTION_STYLES, PLATFORM_ASPECT, DEFAULT_CLIPPER_SETTINGS, YT_ID, clampScore, round24, has, CAPTION_LIMITS, YTDLP_DEFAULT_CLIENTS, YT_CLIENT_OK, CLIPPER_UPLOAD_MAX_BYTES, CLIPPER_UPLOAD_MIMES, CLIPPER_UPLOAD_EXTS, CLIPPER_STEPS;
 var init_clipper_core = __esm({
   "server/services/clipper-core.ts"() {
     "use strict";
@@ -85082,7 +85082,7 @@ var init_clipper_core = __esm({
       const v = Number(n);
       return Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : 0;
     };
-    round23 = (n) => Math.round(n * 100) / 100;
+    round24 = (n) => Math.round(n * 100) / 100;
     has = (env, ...keys) => keys.every((k2) => !!(env[k2] || "").trim());
     CAPTION_LIMITS = {
       youtube: 1e3,
@@ -91921,9 +91921,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "6463cf01-dirty";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-25T11:43:43.257Z";
+var BUILD_COMMIT = "fde753cc-dirty";
+var BUILD_BRANCH = "feat/tradelocker-fanout-per-account-gating";
+var BUILT_AT = "2026-11-26T06:05:24.286Z";
 
 // server/stripe.ts
 init_db();
@@ -92916,6 +92916,97 @@ init_pipUtils();
 init_ai_confirmation_cache();
 init_candleNormalize();
 init_tl_risk_settings();
+
+// server/services/fanout-per-account-risk.ts
+var round23 = (n) => Math.round(n * 100) / 100;
+function riskLot(equity, riskPercent, slPips, pipValue) {
+  const riskUsd = equity * (riskPercent / 100);
+  return Math.max(0.01, round23(riskUsd / (slPips * pipValue)));
+}
+function sizeFanoutAccountLot(input) {
+  const {
+    copyMode,
+    useRiskPercent,
+    riskPercent,
+    tlEquity,
+    mt5RefBalance,
+    mt5Lot,
+    slPips,
+    pipValue,
+    pipSizeKnown,
+    perAccountRiskEnabled,
+    accountId
+  } = input;
+  const logs = [];
+  let lot = mt5Lot;
+  let label = "exact MT5 copy";
+  if (useRiskPercent && tlEquity) {
+    if (slPips > 0 && pipValue > 0) {
+      lot = riskLot(tlEquity, riskPercent, slPips, pipValue);
+      label = `risk ${riskPercent}% of $${tlEquity.toLocaleString()}`;
+    } else if (pipValue > 0) {
+      lot = riskLot(tlEquity, riskPercent, 20, pipValue);
+      label = `risk ${riskPercent}% of $${tlEquity.toLocaleString()} (default 20pip)`;
+    }
+  } else if (copyMode === "proportional" && tlEquity && mt5RefBalance > 0) {
+    const ratio = tlEquity / mt5RefBalance;
+    lot = Math.max(0.01, round23(mt5Lot * ratio));
+    label = `proportional ${ratio.toFixed(2)}\xD7 ($${tlEquity.toLocaleString()}/$${mt5RefBalance.toLocaleString()})`;
+    logs.push({ level: "log", text: `[ProportionalSizing] ${accountId}: base=${mt5Lot} \xD7 (${tlEquity}/${mt5RefBalance}) = ${lot} lots` });
+  } else if (copyMode === "proportional" && tlEquity && tlEquity > 0) {
+    const fbRiskPct = riskPercent > 0 ? riskPercent : 1;
+    const fbSlPips = slPips > 0 ? slPips : pipSizeKnown ? 20 : 0;
+    if (fbSlPips > 0 && pipValue > 0) {
+      lot = riskLot(tlEquity, fbRiskPct, fbSlPips, pipValue);
+      label = `TL-direct risk ${fbRiskPct}% of $${tlEquity.toLocaleString()} (no MT5 ref)`;
+      logs.push({ level: "log", text: `[ProportionalSizing] ${accountId}: no MT5 ref \u2192 TL risk-based ${lot} lots (${fbRiskPct}% of $${tlEquity})` });
+    } else {
+      logs.push({ level: "warn", text: `[ProportionalSizing] ${accountId}: pip values unavailable \u2014 using base lot ${mt5Lot}` });
+    }
+  } else if (copyMode === "proportional") {
+    logs.push({ level: "warn", text: `[ProportionalSizing] ${accountId}: could not size proportionally (TL value=${tlEquity}, MT5 ref=${mt5RefBalance}) \u2014 using exact MT5 lot ${mt5Lot}` });
+  } else if (perAccountRiskEnabled && tlEquity && tlEquity > 0) {
+    const fbRiskPct = riskPercent > 0 ? riskPercent : 1;
+    const fbSlPips = slPips > 0 ? slPips : pipSizeKnown ? 20 : 0;
+    if (fbSlPips > 0 && pipValue > 0) {
+      lot = riskLot(tlEquity, fbRiskPct, fbSlPips, pipValue);
+      label = `own-risk ${fbRiskPct}% of $${tlEquity.toLocaleString()} (fan-out fallback \u2014 MT5 lot not copied)`;
+      logs.push({ level: "log", text: `[FanoutRisk] ${accountId}: copyMode=${copyMode} does not size this account \u2014 sized from its own equity instead: ${lot} lots (${fbRiskPct}% of $${tlEquity})` });
+    } else {
+      lot = null;
+      label = "own-risk fallback unavailable";
+      logs.push({ level: "warn", text: `[FanoutRisk] ${accountId}: cannot derive an own-balance size (pip model unavailable) \u2014 account will be skipped rather than handed the MT5 lot ${mt5Lot}` });
+    }
+  }
+  return { lot, label, logs };
+}
+function fanoutVolatileCapLot(symbol, balance, pipValue) {
+  const s = (symbol || "").toUpperCase();
+  const spec = s.includes("XAU") || s.includes("GOLD") ? { minSlPips: 500, slBreath: 1.5 } : s.includes("BTC") || s.includes("XBT") ? { minSlPips: 500, slBreath: 2 } : s.includes("US30") || s.includes("DOW") || s.includes("WALLST") ? { minSlPips: 300, slBreath: 1.5 } : s.includes("NAS100") || s.includes("USTEC") || s.includes("US100") ? { minSlPips: 300, slBreath: 1.5 } : s.includes("US500") || s.includes("SPX") ? { minSlPips: 300, slBreath: 1.5 } : null;
+  if (!spec) return null;
+  if (!(pipValue > 0)) return null;
+  if (!(balance > 0)) return 0.1;
+  const maxRisk = balance * 0.015;
+  const slRiskPerLot = spec.minSlPips * spec.slBreath * pipValue;
+  return Math.max(0.01, Math.floor(maxRisk / slRiskPerLot * 100) / 100);
+}
+function fanoutPerAccountRiskEnabled(env) {
+  return env.FANOUT_PER_ACCOUNT_RISK !== "off";
+}
+function fanoutAssumedLeverage(env) {
+  const n = Number(env.FANOUT_ASSUMED_LEVERAGE ?? 50);
+  return Number.isFinite(n) && n > 0 ? n : 50;
+}
+function estimateFanoutMarginUsd(input) {
+  const { lots, contractSize: contractSize2, price, leverage } = input;
+  if (!(lots > 0) || !(contractSize2 > 0) || !(price > 0) || !(leverage > 0)) return null;
+  return lots * contractSize2 * price / leverage;
+}
+function fanoutMarginSkipReason(accountId, requiredUsd, freeUsd) {
+  return `RISK SKIP: ${accountId} \u2014 per-account risk: needs $${requiredUsd.toFixed(2)} margin, account has $${freeUsd.toFixed(2)} free.`;
+}
+
+// server/routes.ts
 init_alpaca();
 init_tastytrade();
 init_cryptocom();
@@ -105727,6 +105818,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                   return "market";
                 })();
                 const _eaCopyMode = _liveState?.config?.copyMode ?? "proportional";
+                const _fanoutRiskOn = fanoutPerAccountRiskEnabled(process.env);
                 let _confirmationOutcomeRecorded = false;
                 let _tlOpenedCount = 0;
                 for (const tlConn of tlActiveConns) {
@@ -105744,8 +105836,6 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                       continue;
                     }
                   }
-                  let connLot = tradeVolume;
-                  let _sizeLabel = "exact MT5 copy";
                   const _tlVal = await getTLAccountValue(token.userId, tlConn);
                   const _tlBal = _tlVal.balance > 0 ? _tlVal.balance : null;
                   const _tlEq = _tlVal.equity > 0 ? _tlVal.equity : _tlBal;
@@ -105753,41 +105843,37 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                   const _jsonRisk2 = getTLRisk(tlConn.id);
                   const _eaRisk = _dbRisk2.useRiskPercent || _dbRisk2.riskPercent !== 1 ? _dbRisk2 : _jsonRisk2;
                   const _eaSlDist = _entryPrice && analysis.tradePlan?.stopLoss ? Math.abs(_entryPrice - analysis.tradePlan.stopLoss) : 0;
-                  if (_eaRisk.useRiskPercent && _tlEq) {
-                    const _pipSize = getPipSize(sanitizedSymbol);
-                    const _pipValue = getPipValue(sanitizedSymbol);
-                    const _slPips = _eaSlDist > 0 && _pipSize > 0 ? _eaSlDist / _pipSize : 0;
-                    const _riskUsd = _tlEq * (_eaRisk.riskPercent / 100);
-                    if (_slPips > 0 && _pipValue > 0) {
-                      connLot = Math.max(0.01, Math.round(_riskUsd / (_slPips * _pipValue) * 100) / 100);
-                      _sizeLabel = `risk ${_eaRisk.riskPercent}% of $${_tlEq.toLocaleString()}`;
-                    } else if (_pipValue > 0) {
-                      connLot = Math.max(0.01, Math.round(_riskUsd / (20 * _pipValue) * 100) / 100);
-                      _sizeLabel = `risk ${_eaRisk.riskPercent}% of $${_tlEq.toLocaleString()} (default 20pip)`;
-                    }
-                  } else if (_eaCopyMode === "proportional" && _tlEq && accountBalance > 0) {
-                    const _ratio = _tlEq / accountBalance;
-                    connLot = Math.max(0.01, Math.round(tradeVolume * _ratio * 100) / 100);
-                    _sizeLabel = `proportional ${_ratio.toFixed(2)}\xD7 ($${_tlEq.toLocaleString()}/$${accountBalance.toLocaleString()})`;
-                    console.log(`[ProportionalSizing] ${tlConn.accountId}: base=${tradeVolume} \xD7 (${_tlEq}/${accountBalance}) = ${connLot} lots`);
-                  } else if (_eaCopyMode === "proportional" && _tlEq && _tlEq > 0) {
-                    const _fbPipSize = getPipSize(sanitizedSymbol);
-                    const _fbPipValue = getPipValue(sanitizedSymbol);
-                    const _fbRiskPct = _eaRisk.riskPercent > 0 ? _eaRisk.riskPercent : 1;
-                    const _fbRiskUsd = _tlEq * (_fbRiskPct / 100);
-                    const _fbSlDist = _entryPrice && analysis.tradePlan?.stopLoss ? Math.abs(_entryPrice - analysis.tradePlan.stopLoss) : 0;
-                    const _fbSlPips = _fbSlDist > 0 && _fbPipSize > 0 ? _fbSlDist / _fbPipSize : _fbPipSize > 0 ? 20 : 0;
-                    if (_fbSlPips > 0 && _fbPipValue > 0) {
-                      connLot = Math.max(0.01, Math.round(_fbRiskUsd / (_fbSlPips * _fbPipValue) * 100) / 100);
-                      _sizeLabel = `TL-direct risk ${_fbRiskPct}% of $${_tlEq.toLocaleString()} (no MT5 ref)`;
-                      console.log(`[ProportionalSizing] ${tlConn.accountId}: no MT5 ref \u2192 TL risk-based ${connLot} lots (${_fbRiskPct}% of $${_tlEq})`);
-                    } else {
-                      console.warn(`[ProportionalSizing] ${tlConn.accountId}: pip values unavailable \u2014 using base lot ${tradeVolume}`);
-                    }
-                  } else if (_eaCopyMode === "proportional") {
-                    console.warn(`[ProportionalSizing] ${tlConn.accountId}: could not size proportionally (TL value=${_tlEq}, MT5 ref=${accountBalance}) \u2014 using exact MT5 lot ${tradeVolume}`);
+                  const _sized = sizeFanoutAccountLot({
+                    copyMode: _eaCopyMode,
+                    useRiskPercent: _eaRisk.useRiskPercent,
+                    riskPercent: _eaRisk.riskPercent,
+                    tlEquity: _tlEq,
+                    mt5RefBalance: accountBalance,
+                    mt5Lot: tradeVolume,
+                    slPips: _eaSlDist > 0 && getPipSize(sanitizedSymbol) > 0 ? _eaSlDist / getPipSize(sanitizedSymbol) : 0,
+                    pipSizeKnown: getPipSize(sanitizedSymbol) > 0,
+                    pipValue: getPipValue(sanitizedSymbol),
+                    perAccountRiskEnabled: _fanoutRiskOn,
+                    accountId: String(tlConn.accountId)
+                  });
+                  for (const _sl of _sized.logs) {
+                    if (_sl.level === "warn") console.warn(_sl.text);
+                    else console.log(_sl.text);
                   }
+                  if (_sized.lot == null) {
+                    _markTlSkip(String(tlConn.accountId), `RISK SKIP: ${tlConn.accountId} \u2014 per-account risk: could not derive a position size from this account's own balance, trade not sent.`);
+                    continue;
+                  }
+                  let connLot = _sized.lot;
+                  const _sizeLabel = _sized.label;
                   if (_eaVolCap) connLot = Math.min(connLot, _eaVolCap.hardMaxLot);
+                  if (_fanoutRiskOn && _tlEq) {
+                    const _ownVolCap = fanoutVolatileCapLot(sanitizedSymbol, _tlEq, getPipValue(sanitizedSymbol));
+                    if (_ownVolCap != null && connLot > _ownVolCap) {
+                      console.log(`[FanoutRisk] ${tlConn.accountId}: volatile cap from own balance $${_tlEq.toLocaleString()}: ${connLot} \u2192 ${_ownVolCap} lots`);
+                      connLot = _ownVolCap;
+                    }
+                  }
                   console.log(`[TL sizing] ${tlConn.accountId}: ${connLot} lots \u2014 ${_sizeLabel}`);
                   {
                     const _capEq = _tlEq ?? _tlBal;
@@ -105954,6 +106040,29 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                     }
                   } catch (_thrErr) {
                     console.error(`[Re-entry THROTTLE] check failed for ${tlConn.accountId} (non-fatal, trade proceeds):`, _thrErr?.message);
+                  }
+                  if (_fanoutRiskOn) {
+                    let _mgSkip = null;
+                    try {
+                      const _mgSvc = await getOrCreateService(tlConn);
+                      const _mgInfo = await _mgSvc.getAccountInfo();
+                      const _mgFree = typeof _mgInfo?.freeMargin === "number" && Number.isFinite(_mgInfo.freeMargin) ? _mgInfo.freeMargin : null;
+                      const _mgPrice = _entryPrice ?? _currentPrice ?? null;
+                      const _mgReq = _mgPrice != null ? estimateFanoutMarginUsd({ lots: connLot, contractSize: TradeLockerService.contractSize(sanitizedSymbol), price: _mgPrice, leverage: fanoutAssumedLeverage(process.env) }) : null;
+                      if (_mgFree == null || _mgReq == null) {
+                        _mgSkip = `RISK SKIP: ${tlConn.accountId} \u2014 per-account risk: free margin unreadable, trade not sent.`;
+                      } else if (_mgReq > _mgFree) {
+                        _mgSkip = fanoutMarginSkipReason(String(tlConn.accountId), _mgReq, _mgFree);
+                      }
+                    } catch (_mgErr) {
+                      _mgSkip = `RISK SKIP: ${tlConn.accountId} \u2014 per-account risk: margin check errored (${_mgErr?.message ?? "unknown"}), trade not sent.`;
+                    }
+                    if (_mgSkip) {
+                      console.warn(`[FanoutRisk] ${_mgSkip}`);
+                      analysis.alerts.push(_mgSkip);
+                      _markTlSkip(String(tlConn.accountId), _mgSkip);
+                      continue;
+                    }
                   }
                   if (analysis.tradePlan?._noLevels || !(Number(analysis.tradePlan?.stopLoss) > 0)) {
                     console.warn(`[TL fan-out] ${tlConn.accountId} ${sanitizedSymbol}: skipped \u2014 no valid stop loss on the plan (no naked entries).`);
