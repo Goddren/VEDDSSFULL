@@ -20,7 +20,7 @@ import { cryptoTrailGuardFor, stampCryptoTradeTrailGuard, type CryptoTrailProfil
 import { trailBrainConsult, trailBrainDecide, stampTrailBrainTrade, logTrailBrainDecision } from './trail-brain';
 import { cefiEntryBuy, cefiExitSell, baseCoin, type CefiVenue } from './cefi-executor';
 import { consensusThrowAllowsTrade, promotionErrorSkipsEntry, evaluateCostFloor, realizedPnlAfterGas, partialCloseSplit, mergePeakEquity } from './crypto-fix-pack';
-import { aiBudgetDegradeEnabled, isBudgetRefusalError, cryptoBudgetDegradedAllowed, AI_BUDGET_DEGRADED_REASON } from './ai-budget-degrade';
+import { aiBudgetDegradeEnabled, isBudgetRefusalError, cryptoBudgetDegradedAllowed, cryptoBudgetDegradedText } from './ai-budget-degrade';
 // NOTE: defi-executor is imported LAZILY (dynamic import at the two call sites
 // below) — it pulls in defi-swap → ethers, a heavy stack. Keeping it out of the
 // module's static graph means the crypto scanner boots without loading ethers,
@@ -1398,12 +1398,17 @@ async function assembleConsensus(userId: number, symbol: string, result: Strateg
   // AI_BUDGET_DEGRADE=off restores the block above.
   if ((ai as any).budgetBlocked === true && aiBudgetDegradeEnabled()) {
     tradeAllowed = cryptoBudgetDegradedAllowed(quantVerdict);
-    aiReasoningOut = `${aiReasoningOut} — ${AI_BUDGET_DEGRADED_REASON} (quant ${quantVerdict} ${result.score ?? 0}/100)`.trim();
+    // Plain voice (2026-11-26): the degraded text STANDS ALONE on the
+    // consensus row — it replaces the budget error text the confirmation
+    // carried ("Crypto AI confirmation error: 402 … daily AI budget
+    // reached"), never appends to it.
+    const _degradedText = cryptoBudgetDegradedText(quantVerdict, result.score ?? 0);
+    aiReasoningOut = _degradedText;
     if (tradeAllowed) {
       // Stamp the strategy result itself: every trade record and
       // execution activity row downstream is built from result.reasoning,
       // so the degraded approval reads honestly wherever it lands.
-      result.reasoning = `${result.reasoning || ''} [${AI_BUDGET_DEGRADED_REASON}]`.trim();
+      result.reasoning = `${result.reasoning || ''} ${_degradedText}`.trim();
     }
   }
   // Tag even a blank/empty ai.reasoning -- the tag itself is never empty, so a

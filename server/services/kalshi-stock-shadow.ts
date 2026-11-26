@@ -145,7 +145,7 @@ import {
   type PerpAccountContext, type PerpShadowWallet,
 } from './kalshi-perp-small-account';
 import { loadKalshiCredentials, getKalshiMarginBalance } from './kalshi-trading';
-import { AI_BUDGET_DEGRADED_MODE } from './ai-budget-degrade';
+import { AI_BUDGET_DEGRADED_MODE, KALSHI_PERP_DEGRADED_CONTEXT_LINE } from './ai-budget-degrade';
 
 export const stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== 'off';
 
@@ -1663,6 +1663,7 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
       // resolvePerpWatchPlan never throws; the try/catch is
       // belt-and-braces with the same fallback semantics.
       let viaPlan = false;
+      let budgetDegradedEntry = false;
       if (plansOn) {
         let res: PerpWatchPlanAction = { action: 'fallback' };
         try {
@@ -1689,6 +1690,7 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
           // marker (the lane's plan-error fallback stays untagged: that
           // one is a malfunction, not a budget state).
           tags.push(AI_BUDGET_DEGRADED_MODE);
+          budgetDegradedEntry = true;
         }
       }
       // ── AI judge (kalshi-perp-ai-judge.ts): this candidate has passed
@@ -1725,6 +1727,12 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
         [userId, sig.strategy, mkt.ticker, mkt.underlying, sig.direction, entry, bid, ask, stop, target, slPct, contracts, notional, costBps, costModel, exactEra ? COST_MODEL_EXACT : 'legacy', sig.score, paperMaxHoursFor(sig.strategy)]);
       const id = ins.rows[0]?.id;
       if (!id) continue;
+      // Degraded entries also carry the plain-voice context line on the
+      // context row's text record, next to the rules_only_budget tag —
+      // so the record says in plain words why no plan was involved.
+      const adviceAtEntry = budgetDegradedEntry
+        ? `${adviceFor(stats, sig.strategy, ctx)} | ${KALSHI_PERP_DEGRADED_CONTEXT_LINE}`
+        : adviceFor(stats, sig.strategy, ctx);
       await pool.query(
         `INSERT INTO kalshi_perp_shadow_context (trade_id, user_id, strategy, ticker, direction, spread_bps, volume_24h_usd, open_interest,
            atr_pct, h1_trend, h4_trend, htf_aligned, funding_rate_at_entry, session_et, hour_utc, hour_et, day_of_week,
@@ -1735,7 +1743,7 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35) ON CONFLICT (trade_id) DO NOTHING`,
         [id, userId, sig.strategy, mkt.ticker, sig.direction, spreadBps, mkt.volume24hNotionalUsd, mkt.openInterest,
          atrPct, h1Trend, h4Trend, aligned, fundEst?.rate ?? null, ctx.session_et, new Date(now).getUTCHours(), et.hour, et.dow,
-         earnings48, pendingCa.has(mkt.ticker), agreeing < 2, mkt.leverageEstimate, tags, adviceFor(stats, sig.strategy, ctx),
+         earnings48, pendingCa.has(mkt.ticker), agreeing < 2, mkt.leverageEstimate, tags, adviceAtEntry,
          vpProfile?.poc ?? null, vpProfile?.vah ?? null, vpProfile?.val ?? null, vpPos,
          judge?.verdict ?? null, judge?.confidence ?? null, judge?.reason ?? null,
          judge?.model ?? null, judge?.failure ?? null, judge ? judge.metered : null,

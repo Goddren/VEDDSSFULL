@@ -10,7 +10,7 @@ import { recordShadow, resolveShadows, getShadowSessionStat, SHADOW_WEIGHT } fro
 import { getPacePlan, paceWindowFor, pacePromptSection, computePacePlan } from './goal-pace';
 import { getAiLevelSync } from './ai-level';
 import { scoreFxPair, fxDecisionMode, fxRulesShadowOn, fxRulesMinScore, type RulesScore } from './fx-rules-score';
-import { aiBudgetDegradeEnabled, isBudgetRefusalError, AI_BUDGET_DEGRADED_MODE, AI_BUDGET_DEGRADED_REASON } from './ai-budget-degrade';
+import { aiBudgetDegradeEnabled, isBudgetRefusalError, AI_BUDGET_DEGRADED_MODE, AI_BUDGET_DEGRADED_REASON, FX_ENGINE_DEGRADED_ACTIVITY } from './ai-budget-degrade';
 import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection, getTLAccountValue, getOrCreateService as getTradeLockerService, setUsdJpyRate } from '../tradelocker';
 import { refreshTlAfterTrade } from './tradelocker-sync';
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
@@ -5466,7 +5466,7 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
       try {
         const picks = await (_rulesP ?? buildRulesPicks(userId, { ...marketAnalysis }, htfMarketData, newsContext).catch(() => [] as RulesPick[]));
         for (const p of picks) (p.decision as any).aiMode = AI_BUDGET_DEGRADED_MODE;
-        addActivity(userId, { type: 'info', message: `💤 ${AI_BUDGET_DEGRADED_REASON} — the AI analysis call was not bought this scan; the deterministic rules lane decides through the normal gates.` });
+        addActivity(userId, { type: 'info', message: FX_ENGINE_DEGRADED_ACTIVITY });
         await actOnRulesPicks(userId, _scanId, _fxMode, picks, newsContext, AI_BUDGET_DEGRADED_REASON);
         _budgetDegradedScan = true;
       } catch { /* degrade is best-effort — fall through to the normal error tail */ }
