@@ -79,13 +79,37 @@ export function CryptoPaperCard() {
               </div>
             ))}
           </div>
-          <div>
-            <div className="flex justify-between text-[10px] text-gray-400 mb-1">
-              <span>Ready for live? {rd.ready ? "✅ Yes — the record clears the bar" : `needs ${rd.bar.trades}+ trades, ${Math.round(rd.bar.winRate * 100)}%+ wins, +${rd.bar.avgR}R avg, no losing week`}</span>
-              <span>{Math.min(st.trades, rd.bar.trades)}/{rd.bar.trades}</span>
-            </div>
-            <div className="h-1.5 rounded bg-gray-800 overflow-hidden"><div className="h-full bg-sky-500" style={{ width: `${Math.round((rd.progressTrades || 0) * 100)}%` }} /></div>
-          </div>
+          {(() => {
+            // Readiness reflects ALL FOUR bar conditions (fix pack UX) —
+            // the old bar filled on trade count alone while win rate and
+            // avg R were still below the bar. `ready` itself is computed
+            // server-side from the same four conditions.
+            const conds = [
+              { label: `${rd.bar.trades}+ trades`, value: `${Math.min(st.trades, rd.bar.trades)}/${rd.bar.trades}`, met: st.trades >= rd.bar.trades },
+              { label: `${Math.round(rd.bar.winRate * 100)}%+ wins`, value: st.trades ? `${Math.round(st.winRate * 100)}%` : "—", met: st.trades > 0 && st.winRate >= rd.bar.winRate },
+              { label: `+${rd.bar.avgR}R avg`, value: st.trades ? `${st.avgR >= 0 ? "+" : ""}${Number(st.avgR).toFixed(2)}R` : "—", met: st.trades > 0 && st.avgR >= rd.bar.avgR },
+              { label: "No losing week", value: rd.noLosingWeek === false ? "a losing week" : "clear", met: rd.noLosingWeek !== false },
+            ];
+            const metCount = conds.filter(c => c.met).length;
+            return (
+              <div>
+                <div className="flex justify-between text-[10px] text-gray-400 mb-1">
+                  <span>Ready for live? {rd.ready ? "✅ Yes — the record clears the bar" : "Not yet — every condition below has to pass"}</span>
+                  <span>{metCount}/4 conditions</span>
+                </div>
+                <div className="h-1.5 rounded bg-gray-800 overflow-hidden"><div className="h-full bg-sky-500" style={{ width: `${Math.round((metCount / conds.length) * 100)}%` }} /></div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-1.5">
+                  {conds.map(c => (
+                    <div key={c.label} className="rounded bg-black/20 px-2 py-1 text-[10px]">
+                      <span className={c.met ? "text-emerald-300" : "text-amber-300"}>{c.met ? "✓" : "✗"} {c.label}</span>
+                      <span className="block text-gray-400">{c.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+          <p className="text-[10px] text-gray-500">Shadow trades model costs their own way — the two aren&apos;t directly comparable.</p>
           {(data?.open || []).length > 0 && (
             <div className="space-y-1">
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Open paper trades</p>
