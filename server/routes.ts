@@ -10907,6 +10907,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           // just its confidence number. AI_VERDICT_FIDELITY=off restores
           // the pre-fix confidence-only semantics.
           const _verdictFidelity = await import('./services/ai-verdict-fidelity');
+          // AI budget degrade (services/ai-budget-degrade.ts): when the
+          // pool REFUSES a confirmation (typed budget refusal only), the
+          // deterministic stack decides instead of the trade blocking —
+          // the pool caps spend, never trading. AI_BUDGET_DEGRADE=off
+          // restores block-on-budget.
+          const _budgetDegrade = await import('./services/ai-budget-degrade');
           const _logBudgetBlock = () => {
             if (!_costDiscipline.shouldLogBudgetBlock(token.userId)) return;
             void import('./services/guard-events').then(({ logGuard }) => logGuard(
@@ -11523,6 +11529,32 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             if (consensusLabel === 'STRONG_SKIP') {
               console.log(`[Advisory] ${sanitizedSymbol} STRONG_SKIP inputs: breakout=${useBreakoutMode} propConf=${_propConf} conflict=${_confluenceConflicts} smcBOS=${smcContext?.bosCHOCH?.detected ?? 'null'} → override=${_advisoryOverride}`);
             }
+            // ── AI budget degrade (2026-11-26) ─────────────────────────
+            // The pool REFUSED this confirmation: the verdict in hand is
+            // the budget gate's own (aiErrorStatus 'budget' — produced
+            // ONLY by engineAiBudgetVerdict; provider-error verdicts carry
+            // a numeric status and keep the fail-closed path below). The
+            // pool caps SPEND, never trading, so the deterministic stack
+            // decides: quant CONFIRM + EA at/above the 74% execution
+            // floor on its own + no structure conflict. Verdict fidelity
+            // holds throughout: aiPasses stays false (no AI pass is
+            // manufactured), the advisory override above already cannot
+            // fire (_aiErrored suppresses it), the raw verdict snapshot
+            // in _modelVerdict is untouched, and the degraded outcome is
+            // stamped rules_only_budget on every durable row below.
+            const _budgetRefused = _budgetDegrade.isBudgetRefusalVerdict(aiConfirmation);
+            const _budgetDegraded = _budgetRefused && _budgetDegrade.aiBudgetDegradeEnabled();
+            const _degradedDecision = _budgetDegraded
+              ? _budgetDegrade.fxBudgetDegradedDecision({
+                  quantVerdict: quantResult.verdict, quantScore: quantResult.score,
+                  eaConfidence: _propConf, confluenceConflicts: _confluenceConflicts,
+                })
+              : { allowed: false, blockReason: '' };
+            if (_budgetDegraded) {
+              _cdiag.stage = 'ai_budget_degraded';
+              (ssConsensusEntry as any).aiMode = _budgetDegrade.AI_BUDGET_DEGRADED_MODE;
+              console.log(`[AI Budget Degrade] ${sanitizedSymbol} — ${_budgetDegrade.AI_BUDGET_DEGRADED_REASON}: quant=${quantResult.verdict}(${quantResult.score}) EA=${_propConf}% → ${_degradedDecision.allowed ? 'rules ALLOW' : `rules BLOCK (${_degradedDecision.blockReason})`}`);
+            }
             // ── The model's OWN verdict is binding ──────────────────────────
             // Measured 2026-09-21: the gate approved 286 of 286 confirmations —
             // including 271 where the model returned smcVerdict='PASS', which its
@@ -11557,10 +11589,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const _rawVerdictLog = {
               modelConfirmed: _modelVerdict.confirmed,
               confidenceDefaulted: _modelVerdict.confidenceDefaulted,
+              ...(_budgetDegraded ? { aiMode: _budgetDegrade.AI_BUDGET_DEGRADED_MODE } : {}),
               ...(_wpDiag ? { watchPlanId: String(_wpDiag.id), watchPlanTriggered: !!_wpDiag.triggered } : {}),
             };
             const tradeAllowed = !_smcSaysNo
-              && ((consensusLabel !== 'STRONG_SKIP' && aiPasses && !overrideTooWeak) || _advisoryOverride);
+              && ((consensusLabel !== 'STRONG_SKIP' && aiPasses && !overrideTooWeak) || _advisoryOverride || _degradedDecision.allowed);
             if (_advisoryOverride) {
               // Trade proceeds on the strong signal-gen call; confluence was absent
               // (not conflicting). Confirm + temper the sizing confidence since it
@@ -11587,7 +11620,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
 
             if (!tradeAllowed) {
-              const reason = _aiErrored
+              const reason = _budgetDegraded
+                ? `${_budgetDegrade.AI_BUDGET_DEGRADED_REASON}: ${_degradedDecision.blockReason}`
+                : _aiErrored
                 ? `AI confirmation unavailable (${(aiConfirmation as any).aiErrorStatus ?? 'error'}) — refusing to trade an unverified signal`
                 : consensusLabel === 'STRONG_SKIP'
                 ? `Dual-agent STRONG_SKIP — Quant:${quantResult.verdict}(${quantResult.score}) + AI:${aiVerdict}(${aiConfirmation.aiConfidence}%) both reject`
@@ -11683,7 +11718,18 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               // as a clean approval (verdict fidelity; =off restores the old
               // labels along with the old confidence rewrite).
               const _advisoryLabel = _verdictFidelity.verdictFidelityEnabled() && _advisoryOverride;
-              const approvalLabel = _advisoryLabel ? 'ADVISORY OVERRIDE' : consensusLabel === 'STRONG_CONFIRM' ? 'STRONG CONFIRM' : isAiOverride ? 'AI OVERRIDE' : 'APPROVED';
+              const approvalLabel = _budgetDegraded ? 'RULES ONLY (BUDGET)' : _advisoryLabel ? 'ADVISORY OVERRIDE' : consensusLabel === 'STRONG_CONFIRM' ? 'STRONG CONFIRM' : isAiOverride ? 'AI OVERRIDE' : 'APPROVED';
+              if (_budgetDegraded) {
+                // Honest degraded stamp BEFORE anything renders the
+                // verdict: the budget gate's reasoning ("no trade will be
+                // taken on an unverified signal") must never ride on a
+                // trade the rules DID take. aiConfidence stays 0 and the
+                // raw model snapshot stays untouched — no AI saw this
+                // trade and the record says so.
+                (aiConfirmation as any).budgetDegraded = true;
+                (aiConfirmation as any).aiMode = _budgetDegrade.AI_BUDGET_DEGRADED_MODE;
+                aiConfirmation.reasoning = `${_budgetDegrade.AI_BUDGET_DEGRADED_REASON} (quant CONFIRM ${quantResult.score}/100, EA ${_propConf}% ≥ ${_budgetDegrade.FX_DEGRADED_EA_FLOOR}% floor)`;
+              }
               console.log(`[AI Vision Confirmation] ${approvalLabel} [${consensusLabel}] trade on ${sanitizedSymbol} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}% | Quant: ${quantResult.score})${isAiOverride ? ' - AI overriding low EA' : ''}: ${aiConfirmation.reasoning}`);
               analysis.alerts.push(`TRADE ${approvalLabel} [${consensusLabel}] (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}% | Quant: ${quantResult.score}/100)${isAiOverride ? ' [AI overrode low EA]' : ''} - ${aiConfirmation.reasoning}`);
               aiConfirmation.confirmed = true;
@@ -11842,7 +11888,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 symbol: sanitizedSymbol, timeframe: sanitizedTimeframe,
                 proposedSignal: preConfirmSignal, proposedConfidence: preConfirmConfidence,
                 proposedEntry: preConfirmEntry, proposedSL: preConfirmSL, proposedTP: preConfirmTP,
-                aiDecision: _advisoryLabel ? 'ADVISORY_OVERRIDE' : isAiOverride ? 'AI_OVERRIDE' : (hasAdjustments ? 'ADJUSTED' : 'APPROVED'),
+                aiDecision: _budgetDegraded ? 'RULES_ONLY_BUDGET' : _advisoryLabel ? 'ADVISORY_OVERRIDE' : isAiOverride ? 'AI_OVERRIDE' : (hasAdjustments ? 'ADJUSTED' : 'APPROVED'),
                 aiDirection: aiConfirmation.aiDirection,
                 aiConfidence: aiConfirmation.aiConfidence, reasoning: aiConfirmation.reasoning,
                 adjustedEntry: aiConfirmation.adjustedEntry, adjustedSL: aiConfirmation.adjustedStopLoss,
@@ -11892,7 +11938,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   timeframe: sanitizedTimeframe,
                   direction: analysis.signal,
                   session: confirmSession,
-                  aiDecision: _advisoryLabel ? 'ADVISORY_OVERRIDE' : isAiOverride ? 'AI_OVERRIDE' : (hasAdjustments ? 'ADJUSTED' : 'APPROVED'),
+                  aiDecision: _budgetDegraded ? 'RULES_ONLY_BUDGET' : _advisoryLabel ? 'ADVISORY_OVERRIDE' : isAiOverride ? 'AI_OVERRIDE' : (hasAdjustments ? 'ADJUSTED' : 'APPROVED'),
                   aiConfidence: _n(aiConfirmation.aiConfidence),
                   proposedConfidence: _n(preConfirmConfidence),
                   confluenceScore: _n(aiConfirmation.confluenceScore),

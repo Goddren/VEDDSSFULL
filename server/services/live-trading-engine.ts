@@ -10,6 +10,7 @@ import { recordShadow, resolveShadows, getShadowSessionStat, SHADOW_WEIGHT } fro
 import { getPacePlan, paceWindowFor, pacePromptSection, computePacePlan } from './goal-pace';
 import { getAiLevelSync } from './ai-level';
 import { scoreFxPair, fxDecisionMode, fxRulesShadowOn, fxRulesMinScore, type RulesScore } from './fx-rules-score';
+import { aiBudgetDegradeEnabled, isBudgetRefusalError, AI_BUDGET_DEGRADED_MODE, AI_BUDGET_DEGRADED_REASON } from './ai-budget-degrade';
 import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection, getTLAccountValue, getOrCreateService as getTradeLockerService, setUsdJpyRate } from '../tradelocker';
 import { refreshTlAfterTrade } from './tradelocker-sync';
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
@@ -5447,6 +5448,30 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
     }
     if (_fxShadow) logAiShadow(userId, _scanId, _fxMode, usedMultiModel ? 'ok:multi' : 'ok', decisions.decisions || null, _gate);
   } catch (err: any) {
+    // ── AI budget degrade (2026-11-26) ───────────────────────────────
+    // The pool REFUSED the analysis call — the typed budget refusal only
+    // (engineAiBudgetError's markers; provider/API errors keep the
+    // handling below, untouched). In 'ai' mode a dry pool used to mean
+    // NO decisions this scan at all; now the deterministic rules lane
+    // decides instead, through the same processDecision gates (74%
+    // floor, Gate 0 port, brain guards), stamped rules_only_budget.
+    // Hybrid mode already falls back on ANY AI failure via _aiFailed —
+    // unchanged. Kill switch AI_BUDGET_DEGRADE=off restores the old
+    // dry-pool silence.
+    let _budgetDegradedScan = false;
+    if (_fxMode === 'ai' && !scanCtl?.cancelled && !scanCtl?.fallbackDone
+        && isBudgetRefusalError(err) && aiBudgetDegradeEnabled()) {
+      if (scanCtl) scanCtl.fallbackDone = true;
+      if (_fxShadow) logAiShadow(userId, _scanId, _fxMode, 'budget_degraded', null);
+      try {
+        const picks = _rulesP ?? await buildRulesPicks(userId, { ...marketAnalysis }, htfMarketData, newsContext).catch(() => [] as RulesPick[]);
+        for (const p of picks) (p.decision as any).aiMode = AI_BUDGET_DEGRADED_MODE;
+        addActivity(userId, { type: 'info', message: `💤 ${AI_BUDGET_DEGRADED_REASON} — the AI analysis call was not bought this scan; the deterministic rules lane decides through the normal gates.` });
+        await actOnRulesPicks(userId, _scanId, _fxMode, picks, newsContext, AI_BUDGET_DEGRADED_REASON);
+        _budgetDegradedScan = true;
+      } catch { /* degrade is best-effort — fall through to the normal error tail */ }
+    }
+    if (_budgetDegradedScan) return;
     if (_fxMode !== 'ai' || _fxShadow) { try { await _aiFailed(`failed:${String(err?.status || err?.statusCode || '')} ${String(err?.message || '').slice(0, 60)}`); } catch { /* never mask the original error */ } }
     const errMsg = err.message || '';
     const errStatus = err.status || err.statusCode || 0;
