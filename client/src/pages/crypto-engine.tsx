@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FxModelsPanel } from "@/components/fx-models-panel";
 import { CryptoPaperCard } from "@/components/crypto-paper-card";
+import { stripProcTags, verdictPlain, isBudgetExhaustedText, slippagePctLabel, CONSENSUS_EXPLAINER } from "@/lib/crypto-display";
 import {
   ArrowLeft, RefreshCw, Eye, EyeOff, AlertCircle, CheckCircle2, XCircle, Trash2, TrendingUp,
   TrendingDown, Radar, Ban, Brain, Swords, Settings2, Coins, ExternalLink, Wallet,
@@ -566,6 +567,14 @@ export default function CryptoEnginePage() {
     refetchInterval: config?.isActive ? 15000 : false,
   });
 
+  // ── Per-strategy go-live toggles (status checklist) ─────────────────────
+  // Same endpoint the safeguards panel uses; the status line needs to know
+  // whether any strategy is actually flipped live on the DeFi hot wallet.
+  const { data: liveToggles } = useQuery<{ enabled: boolean; strategies: Array<{ strategy: string; on: boolean }> }>({
+    queryKey: ['/api/engine/crypto-live-toggles'],
+    refetchInterval: 60000,
+  });
+
   return (
     <div className="min-h-screen bg-black text-white pb-24">
       <div className="max-w-4xl mx-auto px-4 pt-6">
@@ -576,6 +585,10 @@ export default function CryptoEnginePage() {
         {/* ══════════════ GAMIFIED MISSION-CONTROL HERO ══════════════ */}
         {(() => {
           const active = !!config?.isActive;
+          // Honest state (fix pack UX): if today's votes/feed say the AI
+          // layer is out of budget, the header must not claim "hunting".
+          const budgetHit = (consensusData?.consensus ?? []).some(c => isBudgetExhaustedText(c.aiReasoning))
+            || activity.some(a => isBudgetExhaustedText(a.reasoning));
           const walletTotal = (cbData?.totalUsd ?? 0) + (krData?.totalUsd ?? 0) + (gmData?.totalUsd ?? 0) + (dfData?.totalUsd ?? 0);
           const settled = closedTrades.filter(t => t.realizedPnl != null);
           const netPnl = settled.reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
@@ -598,8 +611,8 @@ export default function CryptoEnginePage() {
                   <div className="min-w-0">
                     <h1 className="text-lg sm:text-xl font-bold leading-tight">Crypto AI Engine</h1>
                     <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className={`w-2 h-2 rounded-full ${active ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
-                      <span className={`text-[11px] font-semibold uppercase tracking-wide ${active ? 'text-emerald-400' : 'text-gray-500'}`}>{active ? 'Live · hunting setups' : 'Paused'}</span>
+                      <span className={`w-2 h-2 rounded-full ${active && !budgetHit ? 'bg-emerald-400 animate-pulse' : active ? 'bg-amber-400' : 'bg-gray-600'}`} />
+                      <span className={`text-[11px] font-semibold uppercase tracking-wide ${active && !budgetHit ? 'text-emerald-400' : active ? 'text-amber-300' : 'text-gray-500'}`}>{!active ? 'Paused' : budgetHit ? 'Not trading — AI budget used up for today' : 'Live · hunting setups'}</span>
                     </div>
                   </div>
                 </div>
@@ -629,6 +642,68 @@ export default function CryptoEnginePage() {
                   {config.cryptoBrainEnabled && <Badge variant="outline" className="border-purple-600/40 text-purple-300 flex items-center gap-1"><Brain className="w-3 h-3" /> Brain</Badge>}
                 </div>
               )}
+              <p className="text-[10px] text-gray-500 mt-2">{'Live P&L includes swap fees, slippage and network gas.'}</p>
+            </div>
+          );
+        })()}
+
+        {/* ══════════════ STATUS — is it trading, and if not, why not ══════════════ */}
+        {config && (() => {
+          const budgetHit = (consensusData?.consensus ?? []).some(c => isBudgetExhaustedText(c.aiReasoning))
+            || activity.some(a => isBudgetExhaustedText(a.reasoning));
+          const venue = config.executionVenue;
+          const venueAutoOn = venue === 'defi' ? config.defiAutoTradeEnabled
+            : venue === 'hyperliquid' ? !!hlData?.autoTradeEnabled
+            : venue === 'cryptocom' ? (cryptocomConnections || []).some((c: any) => c.autoExecute)
+            : config.cefiAutoTradeEnabled;
+          const venueAutoLabel = venue === 'defi' ? 'DeFi auto-swap (hot wallet)'
+            : venue === 'hyperliquid' ? 'Hyperliquid auto-trade'
+            : venue === 'cryptocom' ? 'Crypto.com connection auto-execute'
+            : 'CeFi spot auto-trade';
+          const connOn = (cryptocomConnections || []).filter((c: any) => c.autoExecute).length;
+          const connTotal = (cryptocomConnections || []).length;
+          const stratOn = liveToggles ? liveToggles.strategies.filter(s => s.on).length : null;
+          const stratTotal = liveToggles ? liveToggles.strategies.length : null;
+          // DeFi live entries also need at least one strategy flipped live
+          // (when the toggle system itself is enabled and loaded).
+          const stratGateOk = venue !== 'defi' || !liveToggles || !liveToggles.enabled || (stratOn ?? 0) > 0;
+          const trading = !!config.isActive && !!config.enableAutoExecution && venueAutoOn && stratGateOk && !budgetHit;
+          const statusLine = budgetHit && config.isActive
+            ? 'Not trading — AI budget used up for today (resets 00:00 UTC)'
+            : trading ? 'Trading' : 'Not trading';
+          const lastSkip = activity.find(a => a.decision === 'skipped');
+          const rows: Array<{ label: string; state: string; on: boolean | null; where: string }> = [
+            { label: 'Master engine', state: config.isActive ? 'On' : 'Off', on: !!config.isActive, where: 'The switch at the top of this page' },
+            { label: 'Connection auto-execute (Crypto.com perps)', state: connTotal === 0 ? 'No connection yet' : `${connOn} of ${connTotal} on`, on: connTotal === 0 ? null : connOn > 0, where: 'Checkbox on each connection under Wallets & connections' },
+            { label: `Venue auto-trade — ${venueAutoLabel}`, state: venueAutoOn ? 'On' : 'Off', on: venueAutoOn, where: 'Auto-execution section in Setup' },
+            { label: 'Strategy go-live toggles (DeFi hot wallet)', state: !liveToggles ? 'Couldn’t load' : !liveToggles.enabled ? 'Toggle system off — engine switches rule' : `${stratOn} of ${stratTotal} live`, on: !liveToggles ? null : !liveToggles.enabled ? null : (stratOn ?? 0) > 0, where: '“Crypto strategies — go live” panel' },
+          ];
+          return (
+            <div className="rounded-2xl border border-gray-800 bg-gray-900 p-4 sm:p-5 mb-5" data-testid="crypto-status-panel">
+              <div className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${trading ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                <p className={`text-base font-bold ${trading ? 'text-emerald-300' : 'text-amber-200'}`}>{statusLine}</p>
+              </div>
+              {defiWallet?.connected ? (
+                <p className="text-xs text-gray-300 mt-2">
+                  DeFi hot wallet ≈ <span className="font-bold text-white">${Number(defiWallet.walletUsd ?? 0).toFixed(2)} on-chain</span>
+                  <span className="text-gray-400"> — ${Number(defiWallet.usdc ?? 0).toFixed(2)} USDC to trade + {Number(defiWallet.native ?? 0).toFixed(4)} {defiWallet.nativeSymbol} for gas ({defiWallet.chain})</span>
+                </p>
+              ) : (
+                <p className="text-xs text-gray-500 mt-2">No DeFi hot wallet connected — connect a burner under Wallets &amp; connections to trade on-chain.</p>
+              )}
+              <div className="mt-3 space-y-1.5">
+                {rows.map(r => (
+                  <div key={r.label} className="flex items-start justify-between gap-2 text-xs rounded-lg bg-black/20 px-2.5 py-1.5">
+                    <span className="text-gray-300">{r.on === false ? '✗' : r.on === true ? '✓' : '•'} {r.label}<span className="block text-[10px] text-gray-500">Change it: {r.where}</span></span>
+                    <span className={`font-semibold shrink-0 ${r.on === false ? 'text-amber-300' : r.on === true ? 'text-emerald-300' : 'text-gray-400'}`}>{r.state}</span>
+                  </div>
+                ))}
+              </div>
+              {!trading && lastSkip && (
+                <p className="text-[11px] text-gray-400 mt-3">Most recent skip: <span className="text-gray-200">{stripProcTags(lastSkip.reasoning)}</span></p>
+              )}
+              <p className="text-[10px] text-gray-500 mt-2">Rotation: when a strong new signal can’t be funded, the engine can sell its most stagnant open position to fund it instead of sitting on dead weight (server setting, on unless turned off).</p>
             </div>
           );
         })()}
@@ -978,7 +1053,7 @@ export default function CryptoEnginePage() {
                         <Input placeholder="Sell (USDC / WETH / 0x…)" value={swap.sellToken} onChange={(e) => setSwap(p => ({ ...p, sellToken: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
                         <Input placeholder="Buy (WETH / USDC / 0x…)" value={swap.buyToken} onChange={(e) => setSwap(p => ({ ...p, buyToken: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
                         <Input placeholder="Sell amount" value={swap.sellAmount} onChange={(e) => setSwap(p => ({ ...p, sellAmount: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
-                        <Input placeholder="Slippage bps (100=1%)" value={swap.slippageBps} onChange={(e) => setSwap(p => ({ ...p, slippageBps: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                        <Input placeholder="Slippage tolerance (100 = 1%)" value={swap.slippageBps} onChange={(e) => setSwap(p => ({ ...p, slippageBps: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
                       </div>
                       {swapMut.isError && <p className="text-[11px] text-red-400">{(swapMut.error as Error)?.message}</p>}
                       {swapMut.isSuccess && <p className="text-[11px] text-emerald-400">Swap sent ✓ tx {(swapMut.data as any)?.txHash?.slice(0, 12)}…</p>}
@@ -1441,7 +1516,7 @@ export default function CryptoEnginePage() {
                             <div className="grid grid-cols-3 gap-2">
                               <div className="space-y-1"><Label className="text-[11px] text-gray-400">TP %</Label><Input type="number" step="0.5" defaultValue={config.cefiTakeProfitPct} onBlur={(e) => updateConfigMutation.mutate({ cefiTakeProfitPct: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
                               <div className="space-y-1"><Label className="text-[11px] text-gray-400">SL %</Label><Input type="number" step="0.5" defaultValue={config.cefiStopLossPct} onBlur={(e) => updateConfigMutation.mutate({ cefiStopLossPct: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
-                              <div className="space-y-1"><Label className="text-[11px] text-gray-400">Slippage bps</Label><Input type="number" defaultValue={config.defiSlippageBps} onBlur={(e) => updateConfigMutation.mutate({ defiSlippageBps: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
+                              <div className="space-y-1"><Label className="text-[11px] text-gray-400">Slippage tolerance</Label><Input type="number" defaultValue={config.defiSlippageBps} onBlur={(e) => updateConfigMutation.mutate({ defiSlippageBps: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /><p className="text-[10px] text-gray-500">Currently {slippagePctLabel(config.defiSlippageBps)} (entered in hundredths of a percent: 100 = 1%) — the most the price can move against you before a swap is refused.</p></div>
                             </div>
                             <p className="text-[10px] text-red-300/70 md:col-span-2">⚠️ Unattended on-chain swaps from your burner wallet. Long-only, USDC↔token. Trades any token that exists on {config.defiChain} (resolved from the canonical token list — ETH→WETH, BTC→WBTC/cbBTC); tokens not on the chain are skipped. Needs ZEROX_API_KEY set + USDC funded on {config.defiChain}. Validate a manual swap first, then keep "USD per swap" small.</p>
                           </>
@@ -1458,11 +1533,11 @@ export default function CryptoEnginePage() {
                           <Switch checked={config.cryptoBrainEnabled} onCheckedChange={(v) => updateConfigMutation.mutate({ cryptoBrainEnabled: v })} />
                         </div>
                         <div className="flex items-center justify-between rounded-lg border border-gray-800 bg-black/20 px-3 py-2">
-                          <div><Label className="text-xs text-white">Brain gating</Label><p className="text-[10px] text-gray-500">Hard-block proven-losing symbols/hours</p></div>
+                          <div><Label className="text-xs text-white">Brain gating</Label><p className="text-[10px] text-gray-500">The brain hard-blocks the symbols and hours that have proven to lose money, so the engine stops feeding proven losers.</p></div>
                           <Switch checked={config.cryptoBrainGating} onCheckedChange={(v) => updateConfigMutation.mutate({ cryptoBrainGating: v })} />
                         </div>
                         <div className="flex items-center justify-between rounded-lg border border-gray-800 bg-black/20 px-3 py-2">
-                          <div><Label className="text-xs text-white">Composite autonomous</Label><p className="text-[10px] text-gray-500">Trade multi-strategy consensus</p></div>
+                          <div><Label className="text-xs text-white">Composite autonomous</Label><p className="text-[10px] text-gray-500">Several strategies vote together — a trade needs their combined score to clear the bar, not just one strategy's say-so.</p></div>
                           <Switch checked={config.enableCompositeAutonomous} onCheckedChange={(v) => updateConfigMutation.mutate({ enableCompositeAutonomous: v })} />
                         </div>
                         <div className="space-y-1">
@@ -1474,7 +1549,7 @@ export default function CryptoEnginePage() {
                           <Switch checked={config.ruinGuardEnabled} onCheckedChange={(v) => updateConfigMutation.mutate({ ruinGuardEnabled: v })} />
                         </div>
                         <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-1"><Label className="text-[11px] text-gray-400">Daily loss %</Label><Input type="number" step="0.5" defaultValue={config.dailyLossLimitPct} onBlur={(e) => updateConfigMutation.mutate({ dailyLossLimitPct: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
+                          <div className="space-y-1"><Label className="text-[11px] text-gray-400">Daily loss % — Ruin Guard hard halt</Label><Input type="number" step="0.5" defaultValue={config.dailyLossLimitPct} onBlur={(e) => updateConfigMutation.mutate({ dailyLossLimitPct: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
                           <div className="space-y-1"><Label className="text-[11px] text-gray-400">Max DD %</Label><Input type="number" step="0.5" defaultValue={config.maxDrawdownLimitPct} onBlur={(e) => updateConfigMutation.mutate({ maxDrawdownLimitPct: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
                         </div>
                       </div>
@@ -1493,7 +1568,7 @@ export default function CryptoEnginePage() {
                           <Input type="number" step="0.5" value={config.leverage} onChange={(e) => updateConfigMutation.mutate({ leverage: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" />
                         </div>
                         <div className="space-y-2">
-                          <Label className="text-xs text-gray-400">Account balance (for sizing)</Label>
+                          <Label className="text-xs text-gray-400">Balance the engine uses for position sizing — set by you</Label>
                           <Input type="number" value={config.accountBalance} onChange={(e) => updateConfigMutation.mutate({ accountBalance: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" />
                         </div>
                         <div className="space-y-2">
@@ -1509,7 +1584,7 @@ export default function CryptoEnginePage() {
                           <Input type="number" value={config.maxDailyTrades} onChange={(e) => updateConfigMutation.mutate({ maxDailyTrades: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" />
                         </div>
                         <div className="space-y-2">
-                          <Label className="text-xs text-gray-400">Daily loss limit (% of account)</Label>
+                          <Label className="text-xs text-gray-400">Daily loss limit (% of account — everyday entry gate)</Label>
                           <Input type="number" step="0.5" value={config.dailyLossLimit} onChange={(e) => updateConfigMutation.mutate({ dailyLossLimit: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" />
                         </div>
                         <div className="space-y-2">
@@ -1601,7 +1676,7 @@ export default function CryptoEnginePage() {
                     <span className="text-[10px] text-gray-500 font-normal">Last signal: {new Date(consensusData.updatedAt).toLocaleTimeString()}</span>
                   )}
                 </CardTitle>
-                <CardDescription>Quant Rules Agent + AI Agent — both must agree to fire a trade (unless the engine is set to rule-based mode).</CardDescription>
+                <CardDescription>Quant Rules Agent + AI Agent — both must agree to fire a trade (unless the engine is set to rule-based mode). {CONSENSUS_EXPLAINER}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {consensusLoading ? (
@@ -1610,10 +1685,10 @@ export default function CryptoEnginePage() {
                   <>
                     <div className="grid grid-cols-4 gap-2">
                       {[
-                        { n: consensusData?.summary.strongConfirm ?? 0, label: 'Strong Confirm', emoji: '✅', ring: 'border-emerald-600/40 bg-emerald-500/[0.08]', text: 'text-emerald-400' },
-                        { n: consensusData?.summary.caution ?? 0, label: 'Caution', emoji: '⚠️', ring: 'border-amber-600/40 bg-amber-500/[0.08]', text: 'text-amber-400' },
-                        { n: consensusData?.summary.watch ?? 0, label: 'Watch', emoji: '👁️', ring: 'border-cyan-600/40 bg-cyan-500/[0.08]', text: 'text-cyan-400' },
-                        { n: consensusData?.summary.strongSkip ?? 0, label: 'Strong Skip', emoji: '🚫', ring: 'border-red-600/40 bg-red-500/[0.08]', text: 'text-red-400' },
+                        { n: consensusData?.summary.strongConfirm ?? 0, label: 'Strong yes', emoji: '✅', ring: 'border-emerald-600/40 bg-emerald-500/[0.08]', text: 'text-emerald-400' },
+                        { n: consensusData?.summary.caution ?? 0, label: 'Borderline', emoji: '⚠️', ring: 'border-amber-600/40 bg-amber-500/[0.08]', text: 'text-amber-400' },
+                        { n: consensusData?.summary.watch ?? 0, label: 'Watching', emoji: '👁️', ring: 'border-cyan-600/40 bg-cyan-500/[0.08]', text: 'text-cyan-400' },
+                        { n: consensusData?.summary.strongSkip ?? 0, label: 'Strong no', emoji: '🚫', ring: 'border-red-600/40 bg-red-500/[0.08]', text: 'text-red-400' },
                       ].map((t) => (
                         <div key={t.label} className={`p-2.5 rounded-xl border text-center ${t.ring} ${t.n > 0 ? '' : 'opacity-60'}`}>
                           <p className="text-[15px] leading-none mb-1">{t.emoji}</p>
@@ -1672,7 +1747,7 @@ export default function CryptoEnginePage() {
                                 <div className="flex items-center gap-1.5">
                                   <span className="text-sm font-bold text-white">{c.symbol}</span>
                                   <span className="text-[10px] text-gray-500">{c.strategy.replace('_', ' ')}</span>
-                                  <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${badgeColor}`}>{c.consensus.replace('_', ' ')}</span>
+                                  <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${badgeColor}`}>{verdictPlain(c.consensus)}</span>
                                 </div>
                                 <span className="text-[10px] text-gray-500 shrink-0">{new Date(c.timestamp).toLocaleTimeString()}</span>
                               </div>
@@ -1698,7 +1773,7 @@ export default function CryptoEnginePage() {
                                   </span>
                                 </div>
                               </div>
-                              {c.aiReasoning && <p className="text-[10px] text-gray-500 mt-1 leading-relaxed">{c.aiReasoning}</p>}
+                              {c.aiReasoning && <p className="text-[10px] text-gray-500 mt-1 leading-relaxed">{stripProcTags(c.aiReasoning)}</p>}
                             </div>
                           );
                         })}
@@ -1752,6 +1827,7 @@ export default function CryptoEnginePage() {
                     <p className="text-[9px] text-gray-500 mt-1.5 text-center">
                       Net P&L = realized ${Number(defiWallet.realizedPnl ?? 0).toFixed(2)} ({defiWallet.closedTrades ?? 0} closed) + open {unrealizedOpenPnl >= 0 ? '+' : ''}${unrealizedOpenPnl.toFixed(2)} · wallet ≈ ${Number(defiWallet.walletUsd ?? 0).toFixed(2)} on-chain
                     </p>
+                    <p className="text-[9px] text-gray-600 mt-1 text-center">Includes swap fees, slippage and network gas.</p>
                   </div>
                 )}
                 {tradesLoading ? (
@@ -1916,7 +1992,7 @@ export default function CryptoEnginePage() {
                             </div>
                             <span className="text-[10px] text-gray-500 shrink-0">{new Date(a.createdAt).toLocaleTimeString()}</span>
                           </div>
-                          <p className="text-xs text-gray-400 leading-relaxed">{a.reasoning}</p>
+                          <p className="text-xs text-gray-400 leading-relaxed">{stripProcTags(a.reasoning)}</p>
                         </div>
                       );
                     })}

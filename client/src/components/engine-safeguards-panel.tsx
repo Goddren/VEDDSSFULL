@@ -5,6 +5,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { InfoExplainer } from "@/components/info-explainer";
 import { ShadowLiveToggleRow, type ShadowBarItem } from "@/components/shadow-live-toggle";
 import { countGuardActions, countAiFailures, countStoodDown, isAiHealthKind } from "@/lib/guard-kinds";
+import { stripProcTags } from "@/lib/crypto-display";
 
 // Aggregate CONSECUTIVE identical log entries (same kind + symbol + detail)
 // into one row with a ×N count. The guard log used to repeat the identical
@@ -433,7 +434,7 @@ export function CryptoShadowPromotionsPanel({ className = "" }: { className?: st
             <div key={p.id} className="text-gray-400 break-words">✓ Guard made: {label(p)}</div>
           ))}
           {bulkResult.skipped.map((s) => (
-            <div key={`${s.strategy}:${s.dim}:${s.bucket}`} className="text-gray-500 break-words">Skipped: {label(s)} — {s.reason}</div>
+            <div key={`${s.strategy}:${s.dim}:${s.bucket}`} className="text-gray-500 break-words">Skipped: {label(s)} — {stripProcTags(s.reason)}</div>
           ))}
         </div>
       )}
@@ -466,8 +467,11 @@ export function CryptoShadowAiJudgePanel({ className = "" }: { className?: strin
     queryKey: ["/api/engine/crypto-shadow-promotions"],
     refetchInterval: 60000,
   });
-  const stats = data?.aiJudge || [];
-  const total = stats.reduce((a, s) => a + s.n, 0);
+  // Counts can arrive as strings from the API — coerce before summing,
+  // and only rows with actual scored trades count: the "collecting
+  // evidence" line must never sit next to real rows (fix pack UX).
+  const stats = (data?.aiJudge || []).filter((s) => (Number(s.n) || 0) > 0);
+  const total = stats.reduce((a, s) => a + (Number(s.n) || 0), 0);
   return (
     <div className={`rounded-md border border-white/10 bg-white/[0.03] p-2 overflow-hidden ${className}`}>
       <PanelHeader

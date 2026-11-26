@@ -194,7 +194,7 @@ const zeroSub = (subaccount: number, extra: Record<string, string> = {}) => ({
   check('F2 assumed leverage env with 5x default', live.includes("KALSHI_PERP_LIVE_ASSUMED_LEVERAGE', 5"));
   check('F3 current-shape parser present + reached from normalizeMarginBalance',
     trading.includes('export function normalizeKalshiMarginBalanceCurrent') && trading.includes('normalizeKalshiMarginBalanceCurrent(data)'));
-  check('F4 sw at vedd-v295 (bumped by the margin-breakdown PR, which changed client code)', sw.includes("CACHE_VERSION = 'vedd-v295'"));
+  check('F4 sw at vedd-v296 (bumped by the margin-breakdown PR, which changed client code)', sw.includes("CACHE_VERSION = 'vedd-v296'"));
 }
 
 // ── G. Parser audit + breakdown (the Nov 25, 2026 live numbers) ─────────────

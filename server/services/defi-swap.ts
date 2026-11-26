@@ -8,6 +8,7 @@
 
 import { ethers } from 'ethers';
 import { decryptApiSecret } from '../cryptocom';
+import { quoteDeviationPct } from './crypto-fix-pack';
 
 /**
  * Alchemy network slugs, matching server/services/onchain-indexer.ts so there is
@@ -35,6 +36,39 @@ export function rpcUrlFor(chainKey: string): string {
   const net = ALCHEMY_NET[chainKey];
   if (key && net) return `https://${net}.g.alchemy.com/v2/${key}`;
   return DEFI_CHAINS[chainKey]?.rpc ?? '';
+}
+
+/** Every RPC URL available for a chain, best first (crypto fix pack #10).
+ *  Keyed (Alchemy) first, the public endpoint second; single-entry when
+ *  only one is configured. */
+export function rpcUrlsFor(chainKey: string): string[] {
+  const urls: string[] = [];
+  const key = (process.env.ALCHEMY_API_KEY ?? '').trim();
+  const net = ALCHEMY_NET[chainKey];
+  if (key && net) urls.push(`https://${net}.g.alchemy.com/v2/${key}`);
+  const pub = DEFI_CHAINS[chainKey]?.rpc;
+  if (pub && !urls.includes(pub)) urls.push(pub);
+  return urls;
+}
+
+/**
+ * A provider for swap/read work. When BOTH a keyed and a public endpoint
+ * exist, an ethers FallbackProvider (quorum 1) rides over a degradation
+ * of either one — the header history above is what a single endpoint
+ * costs when it has a bad day. With only one URL configured this is the
+ * plain JsonRpcProvider it replaces, byte for byte.
+ */
+export function providerFor(chainKey: string): ethers.AbstractProvider {
+  const chain = DEFI_CHAINS[chainKey];
+  const urls = rpcUrlsFor(chainKey);
+  if (urls.length > 1 && chain) {
+    return new ethers.FallbackProvider(
+      urls.map((u) => new ethers.JsonRpcProvider(u, chain.chainId)),
+      chain.chainId,
+      { quorum: 1 },
+    );
+  }
+  return new ethers.JsonRpcProvider(urls[0] ?? '', chain?.chainId);
 }
 
 /** True when swaps are going through a keyed provider rather than a public one. */
@@ -194,6 +228,10 @@ async function zeroXQuote(chainId: number, params: Record<string, string>): Prom
 
 export interface SwapResult {
   ok: boolean; txHash?: string; buyAmount?: string; buyAmountHuman?: number; approveTxHash?: string; reason?: string;
+  /** Native-token gas actually paid (approval + swap), in native units —
+   *  set only when receipts were in hand (the confirm path). Feeds the
+   *  gas-in-P&L accounting (crypto fix pack #5). */
+  gasNative?: number;
   /**
    * The swap was BROADCAST but not confirmed before the wait expired. It is
    * neither a success nor a failure — the transaction is live and will very
@@ -211,6 +249,12 @@ export interface SwapResult {
 export async function executeDefiSwap(opts: {
   encryptedPrivateKey: string; chainKey: string; sellToken: string; buyToken: string;
   sellAmountHuman: number; slippageBps: number;
+  // Quote sanity band (crypto fix pack #9): when set, the final quote's
+  // implied price of one unit of the BUY token (sellAmountHuman ÷ quoted
+  // buy amount — pass ONLY for USD→token entries) may not deviate from
+  // referencePriceUsd by more than maxPriceDeviationPct, or the swap is
+  // refused before broadcast.
+  referencePriceUsd?: number; maxPriceDeviationPct?: number;
   // When true (unattended cron/engine path), WAIT for the tx receipt and only
   // return ok:true if it actually succeeded on-chain (status===1). Prevents
   // phantom positions from a broadcast-but-reverted swap. The HTTP manual-swap
@@ -221,7 +265,11 @@ export async function executeDefiSwap(opts: {
   const chain = DEFI_CHAINS[opts.chainKey];
   if (!chain) return { ok: false, reason: `unsupported chain ${opts.chainKey}` };
 
-  const provider = new ethers.JsonRpcProvider(rpcUrlFor(opts.chainKey), chain.chainId);
+  const provider = providerFor(opts.chainKey);
+  // Gas actually paid, accumulated from receipts (approval + swap) so the
+  // caller can book it against the trade's P&L (crypto fix pack #5).
+  let gasWeiPaid = BigInt(0);
+  const gasNativePaid = (): number | undefined => gasWeiPaid > BigInt(0) ? Number(ethers.formatEther(gasWeiPaid)) : undefined;
   try {
   const wallet = new ethers.Wallet(decryptApiSecret(opts.encryptedPrivateKey), provider);
   let sellToken: string, buyToken: string;
@@ -323,6 +371,7 @@ export async function executeDefiSwap(opts: {
         if (aRcpt.status !== 1) {
           return { ok: false, approveTxHash, reason: `token approval REVERTED on-chain (tx ${aTx.hash})` };
         }
+        gasWeiPaid += BigInt(aRcpt.gasUsed) * BigInt(aRcpt.gasPrice);
         // Confirm the allowance really is in place before spending gas on a swap
         // that would otherwise revert.
         const after: bigint = await erc.allowance(wallet.address, spender).catch(() => BigInt(0));
@@ -358,6 +407,19 @@ export async function executeDefiSwap(opts: {
     } catch { /* leave undefined; caller falls back to notional/price */ }
   }
 
+  // ── Quote sanity band (crypto fix pack #9) ─────────────────────────────
+  // The quote is the price the wallet will actually pay; the signal's pool
+  // price is what the strategy decided on. If the two disagree by more
+  // than the band, something is wrong (thin pool moved, quote anomaly,
+  // wrong contract) — refuse BEFORE broadcast rather than fill blind.
+  if (opts.referencePriceUsd && opts.referencePriceUsd > 0 && opts.maxPriceDeviationPct != null && buyAmountHuman && buyAmountHuman > 0) {
+    const implied = opts.sellAmountHuman / buyAmountHuman;
+    const dev = quoteDeviationPct(implied, opts.referencePriceUsd);
+    if (dev > opts.maxPriceDeviationPct) {
+      return { ok: false, reason: `quote sanity: the 0x quote implies $${implied.toFixed(6)} per token vs the signal's pool price $${opts.referencePriceUsd.toFixed(6)} — ${dev.toFixed(1)}% off, beyond the ${opts.maxPriceDeviationPct.toFixed(1)}% band (slippage + 2%). Skipped rather than filled at an unverified price.` };
+    }
+  }
+
   const t = quote.transaction;
   if (!t?.to || !t?.data) return { ok: false, reason: 'quote returned no transaction' };
   const txResp = await wallet.sendTransaction({
@@ -375,11 +437,12 @@ export async function executeDefiSwap(opts: {
       // throws "exceeded maximum retry limit". The transaction is already
       // broadcast and unstoppable, so report it as PENDING and hand back the
       // hash for reconciliation rather than pretending it never happened.
-      return { ok: false, pending: true, txHash: txResp.hash, buyAmount: quote.buyAmount, buyAmountHuman,
+      return { ok: false, pending: true, txHash: txResp.hash, buyAmount: quote.buyAmount, buyAmountHuman, gasNative: gasNativePaid(),
         reason: `swap BROADCAST but unconfirmed after 90s (tx ${txResp.hash}) — treated as PENDING, not failed` };
     }
-    if (rcpt.status !== 1) return { ok: false, txHash: txResp.hash, reason: 'swap reverted on-chain (no tokens received)' };
-    return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman };
+    gasWeiPaid += rcpt.gasUsed * rcpt.gasPrice;
+    if (rcpt.status !== 1) return { ok: false, txHash: txResp.hash, gasNative: gasNativePaid(), reason: 'swap reverted on-chain (no tokens received)' };
+    return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman, gasNative: gasNativePaid() };
   }
   // HTTP path: return as soon as the swap is BROADCAST — awaiting full confirmation
   // overran the gateway timeout (→ 502). Best-effort short wait; verify on explorer.
@@ -411,7 +474,7 @@ export async function executeDefiSwap(opts: {
 export async function getWalletTokenBalance(chainKey: string, walletAddress: string, token: string): Promise<number> {
   const chain = DEFI_CHAINS[chainKey];
   if (!chain) throw new Error(`unsupported chain ${chainKey}`);
-  const provider = new ethers.JsonRpcProvider(rpcUrlFor(chainKey), chain.chainId);
+  const provider = providerFor(chainKey);
   try {
     const addr = await resolveToken(chainKey, token);
     if (addr === NATIVE_PSEUDO) return Number(ethers.formatEther(await provider.getBalance(walletAddress)));

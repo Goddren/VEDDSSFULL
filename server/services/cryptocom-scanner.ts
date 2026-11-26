@@ -19,6 +19,7 @@ import { PROCESS_BOOT_ID } from './process-fingerprint';
 import { cryptoTrailGuardFor, stampCryptoTradeTrailGuard, type CryptoTrailProfile } from './trail-guards';
 import { trailBrainConsult, trailBrainDecide, stampTrailBrainTrade, logTrailBrainDecision } from './trail-brain';
 import { cefiEntryBuy, cefiExitSell, baseCoin, type CefiVenue } from './cefi-executor';
+import { consensusThrowAllowsTrade, promotionErrorSkipsEntry, evaluateCostFloor, realizedPnlAfterGas, partialCloseSplit, mergePeakEquity } from './crypto-fix-pack';
 // NOTE: defi-executor is imported LAZILY (dynamic import at the two call sites
 // below) — it pulls in defi-swap → ethers, a heavy stack. Keeping it out of the
 // module's static graph means the crypto scanner boots without loading ethers,
@@ -932,6 +933,12 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
   // Any path that does NOT complete the close must hand the claim back, or the
   // trade is stranded in 'closing' where nothing monitors it.
   let finished = false;
+  // Crypto fix pack #8/#5: the quantity this close actually books (less
+  // than trade.quantity on a partial DeFi exit), the exit swap's gas in
+  // USD, and a note appended to the close activity row.
+  let bookedQty = trade.quantity;
+  let exitGasUsd: number | null | undefined = undefined;
+  let closeNote = '';
   try {
     const venue = trade.venue && trade.venue !== 'cryptocom' ? trade.venue : null;
     if (venue === 'hyperliquid') {
@@ -983,9 +990,33 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
         return;
       }
       if (exit.exitPrice) currentPrice = exit.exitPrice;
-      // A8: prefer the REALIZED effective fill price (actual USDC received ÷ qty)
-      // over the pre-swap quote, so booked P&L reflects real slippage + fees.
-      if ((exit as any).proceedsUsd && trade.quantity > 0) currentPrice = (exit as any).proceedsUsd / trade.quantity;
+      exitGasUsd = (exit as any).gasUsd ?? null;
+      // A8 + fix pack #8 (2026-11-26): the realized fill price is actual
+      // USDC received ÷ quantity SOLD. A shortfall sale (the wallet held
+      // less than this trade's booked quantity — the balance is shared
+      // across the token's trades) used to divide by the FULL quantity
+      // and book a full close at that diluted price. Now only the sold
+      // portion closes, at its true price; the unsold remainder is parked
+      // as its own needs_reconciliation row with no P&L booked (the sale
+      // emptied the wallet, so no tokens back it and it must leave the
+      // exit loop), and the claimed row's quantity is corrected to the
+      // sold portion before it closes.
+      const split = partialCloseSplit(trade.quantity, (exit as any).soldQty);
+      if ((exit as any).proceedsUsd && split.bookedQty > 0) currentPrice = (exit as any).proceedsUsd / split.bookedQty;
+      if (split.isPartial) {
+        bookedQty = split.bookedQty;
+        await storage.createCryptocomEngineTrade({
+          userId, connectionId: trade.connectionId, venue: trade.venue, symbol: trade.symbol, strategy: trade.strategy,
+          direction: trade.direction, quantity: split.remainderQty, entryPrice: trade.entryPrice,
+          stopLoss: trade.stopLoss, takeProfit: trade.takeProfit, entryOrderId: trade.entryOrderId,
+          entryReasoning: `Unsold remainder of trade #${trade.id} after a partial exit — parked for reconciliation; no P&L booked on it.`,
+          tokenAddress: (trade as any).tokenAddress ?? null, poolAddress: (trade as any).poolAddress ?? null,
+          status: 'needs_reconciliation',
+          exitReason: `partial close of trade #${trade.id}: sold ${split.bookedQty} of ${trade.quantity}; the remainder was not in the wallet when the exit sold`,
+        } as any);
+        await storage.correctCryptocomEngineTradeQuantityForClose(trade.id, split.bookedQty);
+        closeNote = ` Partial exit: sold ${split.bookedQty} of ${trade.quantity}; the remaining ${split.remainderQty} was parked as needs_reconciliation with no P&L booked on it.`;
+      }
     } else if (venue) {
       // CeFi spot exit — sell the held base amount on the venue.
       const exit = await cefiExitSell(userId, venue as CefiVenue, baseCoin(trade.symbol), trade.quantity).catch((e: any) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) } as any));
@@ -1031,8 +1062,16 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
         return;
       }
     }
-    const realizedPnl = (trade.direction === 'long' ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.quantity;
-    const closedRow = await storage.closeCryptocomEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: reason, realizedPnl });
+    const grossPnl = (trade.direction === 'long' ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * bookedQty;
+    // Fix pack #5 (2026-11-26): realized P&L nets out the round-trip
+    // native gas (entry + exit swaps). Missing gas data counts as 0 —
+    // rows that predate gas capture are never re-scored. Kill switch
+    // CRYPTO_GAS_IN_PNL=off restores the gross math.
+    const gasInPnl = process.env.CRYPTO_GAS_IN_PNL !== 'off';
+    const totalGasUsd = (Number((trade as any).entryGasUsd) || 0) + (Number(exitGasUsd) || 0);
+    const realizedPnl = realizedPnlAfterGas(grossPnl, (trade as any).entryGasUsd, exitGasUsd, gasInPnl);
+    const gasNote = gasInPnl && totalGasUsd > 0 ? ` P&L is net of $${totalGasUsd.toFixed(2)} round-trip gas.` : '';
+    const closedRow = await storage.closeCryptocomEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: reason, realizedPnl, exitGasUsd });
     if (!closedRow) {
       // Belt-and-braces: the claim should make this unreachable, but if the row
       // is no longer in 'closing' someone else finalised it. Do NOT run the
@@ -1045,7 +1084,7 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
     finished = true;
     await storage.createCryptocomEngineActivity({
       userId, symbol: trade.symbol, decision: 'signal', strategy: trade.strategy,
-      reasoning: `${trade.symbol}: CLOSED ${trade.quantity} @ ~$${currentPrice.toFixed(2)} (${reason.replace('_', ' ')}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
+      reasoning: `${trade.symbol}: CLOSED ${bookedQty} @ ~$${currentPrice.toFixed(2)} (${reason.replace('_', ' ')}). Realized P&L: $${realizedPnl.toFixed(2)}.${closeNote}${gasNote}`,
       score: null, price: currentPrice, dailyChangePercent: null, source: 'cryptocom',
     });
     // Feed the shared prop-firm consistency ledger (no-op unless the connection
@@ -1054,7 +1093,7 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
     // own ledger rather than colliding with a Crypto.com connection's ids.
     try { await recordRealizedPnl(userId, trade.connectionId, trade.venue === 'hyperliquid' ? 'hyperliquid' : 'cryptocom', realizedPnl); } catch { /* non-critical */ }
     try {
-      const notional = (trade.entryPrice || 0) * (trade.quantity || 0);
+      const notional = (trade.entryPrice || 0) * (bookedQty || 0);
       const returnPct = notional > 0 ? (realizedPnl / notional) * 100 : 0;
       const entered = trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now();
       await recordCryptoBrainOutcome({
@@ -1123,8 +1162,26 @@ async function checkSafetyGates(userId: number, cfg: CryptocomEngineConfig, equi
     if (cfg.dailyProfitTarget > 0 && todayPnl >= (equity * cfg.dailyProfitTarget / 100)) {
       return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached`, riskMultiplier: 1 };
     }
-    const peak = Math.max(sessionPeakEquity.get(userId) ?? equity, equity);
+    // Fix pack #7 (2026-11-26): this peak used to live only in process
+    // memory, and the engine runs as a cron (a fresh process per scan),
+    // so the peak reset every run and the drawdown shield / ruin guard
+    // only ever measured from one cycle's equity. The peak is now
+    // persisted per user in runtime_state: loaded the first time this
+    // process needs it, re-saved whenever it rises. Behavior is
+    // otherwise identical (same merge rule, same thresholds).
+    let peak = mergePeakEquity(null, sessionPeakEquity.get(userId), equity);
+    if (!sessionPeakEquity.has(userId)) {
+      try {
+        const { getRuntimeStateStrict } = await import('./runtime-state');
+        const stored = await getRuntimeStateStrict('crypto_peak_equity', String(userId));
+        peak = mergePeakEquity(stored ? Number(stored.peak) : null, sessionPeakEquity.get(userId), equity);
+      } catch { /* unreadable store → in-process peak only, as before */ }
+    }
+    const prevPeak = sessionPeakEquity.get(userId);
     sessionPeakEquity.set(userId, peak);
+    if (prevPeak == null || peak > prevPeak) {
+      void import('./runtime-state').then((m) => m.saveRuntimeState('crypto_peak_equity', String(userId), { peak, at: Date.now() })).catch(() => {});
+    }
     const ddFromPeakPct = peak > 0 ? ((peak - equity) / peak) * 100 : 0;
     if (ddFromPeakPct >= cfg.drawdownShieldThreshold) riskMultiplier = Math.min(riskMultiplier, 0.25);
 
@@ -1449,8 +1506,11 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
     // (crypto-shadow.ts bucketsOf over the same fields), so a promoted
     // bucket means the same thing on both sides of the bridge. Paper is
     // practice and is never blocked — it keeps generating the evidence.
-    // Fails open: any error and the entry proceeds as before. Kill switch
-    // CRYPTO_SHADOW_PROMOTIONS=off (inside the consult).
+    // Kill switch CRYPTO_SHADOW_PROMOTIONS=off (inside the consult).
+    // Consult ERRORS fail CLOSED (crypto fix pack #2, 2026-11-26): a
+    // guard the owner promoted must never silently waive itself because
+    // a read threw — the entry is skipped with a logged reason instead.
+    // Kill switch CRYPTO_PROMOTION_FAIL_CLOSED=off restores fail-open.
     if (!(cfg as any)._paper) {
       try {
         const promo = await import('./crypto-shadow-promotions');
@@ -1492,7 +1552,13 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
             return;
           }
         }
-      } catch { /* promoted shadow guards fail open */ }
+      } catch (promoErr: any) {
+        if (promotionErrorSkipsEntry()) {
+          await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: promoted-guard check FAILED (${promoErr?.message ?? promoErr}) — entry skipped rather than traded without the guards you promoted on Guards & Trails (fail-closed).`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' }).catch(() => {});
+          return;
+        }
+        /* kill switch off: promoted shadow guards fail open, as before */
+      }
     }
     // Paper mode sizes from the paper balance (CRYPTO_PAPER_SIZE_PCT, 2%) so a
     // tiny real defiNotionalUsd (e.g. $3) doesn't push every ATR-widened paper
@@ -1659,6 +1725,25 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
         }
       }
 
+      // ── Live cost floor (crypto fix pack #3, 2026-11-26) ──────────────
+      // The shadow lane refuses entries whose stop is closer than
+      // CRYPTO_PAPER_COST_FLOOR_MULT × the modeled round-trip cost
+      // (crypto-shadow.ts) — a trade that cannot outrun its own fees is
+      // skipped before it costs anything. The live path never had the
+      // check. Same cost model (paper-costs), same multiplier env, so the
+      // two lanes judge cost identically. Kill switch
+      // CRYPTO_LIVE_COST_FLOOR=off.
+      if (process.env.CRYPTO_LIVE_COST_FLOOR !== 'off') {
+        const { estimateCryptoRoundTripBps } = await import('./paper-costs');
+        const rtBps = estimateCryptoRoundTripBps({ notionalUsd: notionalD, liquidityUsd: disc?.liquidityUsd, slippageCapBps: slip }).roundTripBps;
+        const mult = Number(process.env.CRYPTO_PAPER_COST_FLOOR_MULT ?? 3);
+        const floor = evaluateCostFloor({ stopPct: slPctD, roundTripBps: rtBps, mult, notionalUsd: notionalD });
+        if (!floor.pass) {
+          await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: cost floor: stop $${floor.stopUsd.toFixed(2)} < ${mult}× round-trip cost $${floor.floorUsd.toFixed(2)} (modeled round trip $${floor.roundTripCostUsd.toFixed(2)} on a $${notionalD.toFixed(2)} trade) — the trade cannot outrun its own fees, so it is skipped.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' }).catch(() => {});
+          return;
+        }
+      }
+
       // Hand over the price we already have: discovery's pool price, else the
       // price the strategy computed from the same on-chain candles. Without it
       // the executor asks a CEX for a contract address and gets nothing.
@@ -1678,6 +1763,7 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
             direction: 'long', quantity: r.qtyBase, entryPrice: r.entryPrice, stopLoss: slP, takeProfit: tpP,
             entryOrderId: r.txHash, entryReasoning: `UNCONFIRMED at entry: ${r.reason}. Recorded so the position is monitored; quantity reconciled from the wallet next cycle.`,
             status: 'open', tokenAddress: disc?.address ?? null, poolAddress: disc?.poolAddress ?? null,
+            entryGasUsd: (r as any).gasUsd ?? null,
           } as any);
           await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'signal', strategy: result.strategy, reasoning: `${symbol}: entry BROADCAST but unconfirmed (tx ${r.txHash.slice(0, 12)}…) — recorded OPEN so it is monitored rather than abandoned; quantity will be reconciled from the wallet.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' }).catch(() => {});
           return;
@@ -1696,6 +1782,7 @@ async function executeSignalSingle(service: CryptoComService, connection: Crypto
         // moving window; a token that falls out of it must still be priceable
         // and sellable.
         tokenAddress: disc?.address ?? null, poolAddress: disc?.poolAddress ?? null,
+        entryGasUsd: (r as any).gasUsd ?? null,
       } as any);
       await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'signal', strategy: result.strategy, reasoning: `${symbol}: EXECUTED on DeFi (${chain}) — swapped ~$${notionalD.toFixed(0)} USDC → ${r.qtyBase} ${r.token} @ ~$${r.entryPrice.toFixed(2)}. TP +${tpPctD.toFixed(1)}% / SL -${slPctD.toFixed(1)}%.${_sizeNote} tx ${r.txHash?.slice(0, 12) ?? ''}… ${result.reasoning}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
     } catch (err: any) {
@@ -1980,7 +2067,23 @@ async function scanOneUser(userId: number): Promise<void> {
             } catch { /* unreadable memory → ask the AI as before */ }
           }
         }
-        const tradeAllowed = await assembleConsensus(userId, symbol, result, config).catch(() => true);
+        // ── Consensus, fail-CLOSED (crypto fix pack #1, 2026-11-26) ──────
+        // This used to be .catch(() => true): any throw inside consensus
+        // assembly (DB, import, cache) silently became "trade allowed" and
+        // the entry proceeded with NO AI vote and no record of why. Now a
+        // throw blocks the entry and leaves a durable skipped row naming
+        // the failure. Kill switch CRYPTO_CONSENSUS_FAIL_CLOSED=off
+        // restores the legacy allow-on-throw.
+        let tradeAllowed = false;
+        try {
+          tradeAllowed = await assembleConsensus(userId, symbol, result, config);
+        } catch (consErr: any) {
+          if (consensusThrowAllowsTrade()) {
+            tradeAllowed = true;
+          } else {
+            await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: consensus check FAILED (${consErr?.message ?? consErr}) — entry skipped rather than allowed without the Dual-Vote verdict (fail-closed).`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' }).catch(() => {});
+          }
+        }
         if (!tradeAllowed) {
           void import('./runtime-state').then((m) => m.saveRuntimeState('crypto_ai_skip', `${userId}|${symbol}|${result.direction}|${result.strategy}`, { at: Date.now(), score: result.score ?? 0 })).catch(() => {});
         }

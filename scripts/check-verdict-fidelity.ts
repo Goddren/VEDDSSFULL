@@ -31,7 +31,7 @@
  *      behavior + parse sites + result/log types).
  *   E. Client: ADVISORY_OVERRIDE renders in both feeds and counts as an
  *      executed decision in weekly-strategy's isApproved enumerations;
- *      sw bumped to vedd-v295.
+ *      sw bumped to vedd-v296.
  */
 import { readFileSync } from 'node:fs';
 
@@ -185,8 +185,8 @@ const sw = src('../client/public/sw.js');
   check('E3 weekly-strategy counts ADVISORY_OVERRIDE as an executed decision in both enumerations',
     count(weeklyPage, "latest?.aiDecision === 'ADVISORY_OVERRIDE';") === 1 &&
     count(weeklyPage, "log.aiDecision === 'ADVISORY_OVERRIDE';") === 1);
-  check('E4 sw bumped to vedd-v295 for the client change',
-    sw.includes("CACHE_VERSION = 'vedd-v295'"));
+  check('E4 sw bumped to vedd-v296 for the client change',
+    sw.includes("CACHE_VERSION = 'vedd-v296'"));
 }
 
 console.log(`\n${passes} passed, ${failures} failed`);

@@ -1025,6 +1025,13 @@ export const cryptocomEngineTrades = pgTable("cryptocom_engine_trades", {
   trailGuardId: text("trail_guard_id"),
   trailGuardAction: text("trail_guard_action"),
   trailGuardProfile: jsonb("trail_guard_profile"),
+  // DeFi gas accounting (2026-11-26, crypto fix pack #5): native gas spent
+  // on the entry / exit swap, in USD at the time of the swap. NULL on rows
+  // that predate gas capture (treated as 0 — history is never re-scored)
+  // and on non-DeFi venues. Lazily added in prod by
+  // ensureCryptoTradeGasColumns() (storage.ts).
+  entryGasUsd: doublePrecision("entry_gas_usd"),
+  exitGasUsd: doublePrecision("exit_gas_usd"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
