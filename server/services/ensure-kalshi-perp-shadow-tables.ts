@@ -79,6 +79,14 @@ export function ensureKalshiPerpShadowTables(): Promise<void> {
       // Reasons: 'entry_price' | 'notional' | 'exit_price' |
       // 'gross_return' | 'funding' | 'net_return'.
       .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS stats_invalid_reason text`))
+      // Small-account brain (2026-11-26, kalshi-perp-small-account.ts):
+      // the entry-time small-account stamps on the CONTEXT row (the
+      // established place for entry stamps — VP, judge): the virtual
+      // wallet equity the mirror sized against and the ladder mode in
+      // force. NULL on every row opened with the kill switch off or
+      // before this build — no backfill is possible or attempted.
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS sa_virtual_equity_usd double precision`))
+      .then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS sa_mode text`))
       .then(() => undefined)
       .catch((e) => { _ensured = null; throw e; });
   }

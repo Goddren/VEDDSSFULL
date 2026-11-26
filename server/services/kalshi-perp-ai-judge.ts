@@ -39,6 +39,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getUniversalAIClientForUser } from '../openai';
+import { formatPerpAccountContext, type PerpAccountContext } from './kalshi-perp-small-account';
 
 export const kalshiPerpAiJudgeEnabled = () => process.env.KALSHI_PERP_AI_JUDGE !== 'off';
 
@@ -87,6 +88,12 @@ export interface PerpJudgeCandidate {
   /** The candidate's own bucket evidence — what the deterministic brain
    *  sees (verdict, n, median net per matching bucket). */
   bucketEvidence?: JudgeBucketEvidence[] | null;
+  /** Small-account context (kalshi-perp-small-account.ts): the real
+   *  margin balance (or unknown), the shadow virtual wallet, and the
+   *  ladder mode — the judge weighs the candidate as a trade on a
+   *  SMALL account whose survival outranks trade count. Absent → the
+   *  prompt is byte-identical to the pre-build prompt. */
+  accountContext?: PerpAccountContext | null;
 }
 
 // ── lane-history aggregates (pure; the lane gathers, the judge weighs) ─────
@@ -293,6 +300,7 @@ export function buildJudgePrompt(c: PerpJudgeCandidate): { system: string; user:
     formLine,
     `BUCKET EVIDENCE (the lane's record on setups like this): ${evidenceLines.length ? '' : 'no bucket has enough history yet'}`,
     ...evidenceLines.map((l) => `  ${l}`),
+    c.accountContext ? formatPerpAccountContext(c.accountContext) : null,
     `Lane advice stamp for this candidate: ${c.adviceAtEntry || 'no verdict yet (still learning)'}`,
     pattern,
     `Weigh this ${c.direction} entry against that history and pattern evidence — approve, reject, or unsure?`,
