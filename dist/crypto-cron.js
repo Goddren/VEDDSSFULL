@@ -9781,12 +9781,16 @@ function isBudgetRefusalError(err) {
 function cryptoBudgetDegradedAllowed(quantVerdict) {
   return quantVerdict === "CONFIRM";
 }
-var AI_BUDGET_DEGRADED_MODE, AI_BUDGET_DEGRADED_REASON;
+function cryptoBudgetDegradedText(quantVerdict, score) {
+  return quantVerdict === "CONFIRM" ? `AI money tapped out \u2014 the scanner ran this one by itself, no AI second look. Scanner said GO (${score}). This entry is all scanner, no AI.` : `AI money tapped out \u2014 the scanner ran this one by itself, no AI second look. Scanner said pass (${score}). No trade.`;
+}
+var AI_BUDGET_DEGRADED_MODE, AI_BUDGET_DEGRADED_REASON, FX_ENGINE_DEGRADED_ACTIVITY;
 var init_ai_budget_degrade = __esm({
   "server/services/ai-budget-degrade.ts"() {
     "use strict";
     AI_BUDGET_DEGRADED_MODE = "rules_only_budget";
-    AI_BUDGET_DEGRADED_REASON = "no AI (budget out) \u2014 rules decided";
+    AI_BUDGET_DEGRADED_REASON = "AI money tapped out \u2014 the playbook ran it solo, no AI";
+    FX_ENGINE_DEGRADED_ACTIVITY = "AI money tapped out \u2014 the rules ran this whole scan by themselves, no AI. It refills at midnight UTC.";
   }
 });
 
@@ -29585,7 +29589,7 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
       try {
         const picks = await (_rulesP ?? buildRulesPicks(userId, { ...marketAnalysis }, htfMarketData, newsContext).catch(() => []));
         for (const p of picks) p.decision.aiMode = AI_BUDGET_DEGRADED_MODE;
-        addActivity(userId, { type: "info", message: `\u{1F4A4} ${AI_BUDGET_DEGRADED_REASON} \u2014 the AI analysis call was not bought this scan; the deterministic rules lane decides through the normal gates.` });
+        addActivity(userId, { type: "info", message: FX_ENGINE_DEGRADED_ACTIVITY });
         await actOnRulesPicks(userId, _scanId, _fxMode, picks, newsContext, AI_BUDGET_DEGRADED_REASON);
         _budgetDegradedScan = true;
       } catch {
@@ -44014,9 +44018,10 @@ async function assembleConsensus(userId, symbol, result, cfg) {
   let aiReasoningOut = ai.reasoning || "";
   if (ai.budgetBlocked === true && aiBudgetDegradeEnabled()) {
     tradeAllowed = cryptoBudgetDegradedAllowed(quantVerdict);
-    aiReasoningOut = `${aiReasoningOut} \u2014 ${AI_BUDGET_DEGRADED_REASON} (quant ${quantVerdict} ${result.score ?? 0}/100)`.trim();
+    const _degradedText = cryptoBudgetDegradedText(quantVerdict, result.score ?? 0);
+    aiReasoningOut = _degradedText;
     if (tradeAllowed) {
-      result.reasoning = `${result.reasoning || ""} [${AI_BUDGET_DEGRADED_REASON}]`.trim();
+      result.reasoning = `${result.reasoning || ""} ${_degradedText}`.trim();
     }
   }
   pushConsensus(userId, { symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0, aiVerdict, aiConfidence: ai.confidence, aiReasoning: aiReasoningOut + procTag, consensus, tradeAllowed, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
