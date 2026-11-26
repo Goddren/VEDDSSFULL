@@ -63,6 +63,7 @@
 import { getUniversalAIClientForUser, getUserModelPreference } from '../openai';
 import { engineAiBudgetAllows, engineAiBudgetError, meterEngineAiConfirmation } from './ai-engine-budget';
 import { getRuntimeStateStrict, ensureRuntimeStateTable } from './runtime-state';
+import { formatPerpAccountContext, type PerpAccountContext } from './kalshi-perp-small-account';
 import { pool } from '../db';
 import {
   evaluateWatchPlan, describeTrigger, WATCH_PLAN_TRIGGER_TYPES,
@@ -269,6 +270,11 @@ export interface PerpDeepStudyInput {
   tickerHistory?: JudgeTickerHistory | null;
   strategyRecord?: JudgeStrategyRecord | null;
   bucketEvidence?: JudgeBucketEvidence[] | null;
+  /** Small-account context (kalshi-perp-small-account.ts): real margin
+   *  balance (or unknown), shadow virtual wallet, ladder mode — the
+   *  study writes plans for a SMALL account whose survival outranks
+   *  trade count. Absent → prompt byte-identical to the pre-build one. */
+  accountContext?: PerpAccountContext | null;
 }
 
 const fmt = (n: number) => {
@@ -331,6 +337,7 @@ export function buildPerpWatchPlanPrompt(input: PerpDeepStudyInput): { system: s
     formLine,
     `BUCKET EVIDENCE (the lane's record on setups like this): ${evidenceLines.length ? '' : 'no bucket has enough history yet'}`,
     ...evidenceLines.map((l) => `  ${l}`),
+    input.accountContext ? formatPerpAccountContext(input.accountContext) : null,
     pattern,
     `Write the watch plan for ${input.strategy} on ${input.underlying} now — or answer noPlan if the evidence says wait for a different day.`,
   ].filter(Boolean).join('\n');

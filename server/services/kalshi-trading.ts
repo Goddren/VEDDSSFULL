@@ -380,6 +380,7 @@ export async function cancelKalshiOrder(userId: number, orderId: string): Promis
 // ─────────────────────────────────────────────────────────────────────────────
 import { perpHost } from './kalshi-perps';
 import { parseFeeTiersPayload, type PerpFeeSchedule } from './kalshi-perp-costs';
+import { formatPerpCount } from './kalshi-perp-small-account';
 
 const fpNum = (v: any): number | null => {
   if (v == null || v === '') return null;
@@ -832,8 +833,19 @@ export interface MarginOrderBodyInput {
   ticker: string;
   clientOrderId: string;
   side: 'bid' | 'ask';
-  /** Whole contracts (stock perps trade whole contracts). */
+  /** Contract count. Whole by default; fractional (0.02 granularity)
+   *  only when `fractional` is set by the caller — the small-account
+   *  live lane (kalshi-perp-small-account.ts) for entries it sized
+   *  fractionally and for exits of fractional positions. */
   count: number;
+  /** Send the count as a fractional fixed-point string instead of the
+   *  legacy floored whole-contract string. The count field is already a
+   *  fixed-point STRING in this API (see the order-shape note above),
+   *  and Kalshi's own position/fill payloads report fractional counts
+   *  (position_fp / fill_count parse as floats below) — the fractional
+   *  form is the same field carrying the values Kalshi itself uses.
+   *  Omitted/false → byte-identical legacy body. */
+  fractional?: boolean;
   /** Limit price in dollars (perp price units). Marketable by construction:
    *  entries price at the touch, exits price through it. */
   price: number;
@@ -850,13 +862,16 @@ export function formatMarginPrice(price: number, tickSize?: number | null): stri
   return rounded.toFixed(decimals);
 }
 
-/** Build the POST /margin/orders body. Pure — the check scripts pin it. */
+/** Build the POST /margin/orders body. Pure — the check scripts pin it.
+ *  Default count handling is the legacy floor-to-whole; the fractional
+ *  form is sent only when the caller opts in per-order (see the input's
+ *  `fractional` note) — no other field changes shape either way. */
 export function buildMarginOrderBody(input: MarginOrderBodyInput): Record<string, unknown> {
   const body: Record<string, unknown> = {
     ticker: input.ticker,
     client_order_id: input.clientOrderId,
     side: input.side,
-    count: String(Math.max(1, Math.floor(input.count))),
+    count: input.fractional ? formatPerpCount(input.count) : String(Math.max(1, Math.floor(input.count))),
     price: formatMarginPrice(input.price, input.tickSize),
     time_in_force: 'immediate_or_cancel',
     self_trade_prevention_type: 'taker_at_cross',

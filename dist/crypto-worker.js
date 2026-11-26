@@ -17079,7 +17079,7 @@ function ensureKalshiPerpShadowTables() {
       funding_rate_at_entry double precision, session_et text, hour_utc int, hour_et int, day_of_week int,
       earnings_within_48h boolean, corporate_action_pending boolean, live_gate_blocked boolean,
       leverage_estimate double precision, tags text[], advice_at_entry text,
-      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision, funding_paid_usd double precision)`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_poc double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_vah double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_val double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_position text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_verdict text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_confidence double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_reason text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_model text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_failure text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_metered boolean`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_model text NOT NULL DEFAULT 'legacy'`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_estimate_usd double precision NOT NULL DEFAULT 0`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS stats_invalid_reason text`)).then(() => void 0).catch((e) => {
+      closed_at timestamptz, exit_reason text, hold_minutes double precision, net_pct double precision, funding_paid_usd double precision)`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_poc double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_vah double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_val double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS vp_position text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_verdict text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_confidence double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_reason text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_model text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_failure text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS ai_judge_metered boolean`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_model text NOT NULL DEFAULT 'legacy'`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS funding_estimate_usd double precision NOT NULL DEFAULT 0`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_trades ADD COLUMN IF NOT EXISTS stats_invalid_reason text`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS sa_virtual_equity_usd double precision`)).then(() => pool.query(`ALTER TABLE kalshi_perp_shadow_context ADD COLUMN IF NOT EXISTS sa_mode text`)).then(() => void 0).catch((e) => {
       _ensured3 = null;
       throw e;
     });
@@ -23006,7 +23006,7 @@ function logDecisionShadow(r) {
     _seen.set(k, Date.now());
     if (_seen.size > 5e3) _seen.clear();
   }
-  const num6 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  const num7 = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
   void ensureDecisionShadowTable().then(() => pool.query(
     `INSERT INTO fx_decision_shadow (user_id, scan_id, symbol, session, hour_utc, lane, mode, acted, picked, ai_status,
        direction, score, terms, entry, sl, tp, gate_result)
@@ -23023,11 +23023,11 @@ function logDecisionShadow(r) {
       !!r.picked,
       r.aiStatus ?? null,
       r.direction ?? null,
-      num6(r.score),
+      num7(r.score),
       r.terms == null ? null : JSON.stringify(r.terms),
-      num6(r.entry),
-      num6(r.sl),
-      num6(r.tp),
+      num7(r.entry),
+      num7(r.sl),
+      num7(r.tp),
       r.gateResult ?? null
     ]
   )).catch(() => {
@@ -40554,6 +40554,90 @@ var init_kalshi_perp_costs = __esm({
   }
 });
 
+// server/services/kalshi-perp-small-account.ts
+function perpSaMode(equityUsd) {
+  if (equityUsd == null || !Number.isFinite(equityUsd) || equityUsd < SA_SURVIVAL_MAX_USD()) return "survival";
+  if (equityUsd < SA_GROWTH_MAX_USD()) return "growth";
+  return "standard";
+}
+function perpSaRiskPct(mode) {
+  if (mode === "survival") return num5("KALSHI_PERP_SA_SURVIVAL_RISK_PCT", 2);
+  if (mode === "growth") return num5("KALSHI_PERP_SA_GROWTH_RISK_PCT", 3);
+  return null;
+}
+function perpSaMaxOpen(mode) {
+  if (mode === "survival") return Math.max(1, Math.floor(num5("KALSHI_PERP_SA_SURVIVAL_MAX_OPEN", 1)));
+  if (mode === "growth") return Math.max(1, Math.floor(num5("KALSHI_PERP_SA_GROWTH_MAX_OPEN", 2)));
+  return null;
+}
+function floorToIncrement(x, increment = SA_MIN_INCREMENT()) {
+  if (!(x > 0) || !(increment > 0)) return 0;
+  const v = Math.floor((x + 1e-9) / increment) * increment;
+  return Math.round(v * 1e6) / 1e6;
+}
+function formatPerpCount(count) {
+  const c = floorToIncrement(count);
+  if (!(c > 0)) return "0";
+  const s = c.toFixed(2);
+  return s.includes(".") ? s.replace(/0+$/, "").replace(/\.$/, "") : s;
+}
+function sizePerpByRisk(input) {
+  const { equityUsd, price, slPct, mode } = input;
+  const riskPct = perpSaRiskPct(mode);
+  const fail = (reason) => ({ contracts: 0, notionalUsd: 0, riskUsd: 0, targetUsd: 0, cappedBy: "risk", reason });
+  if (riskPct == null) return fail("standard mode sizes with the legacy fixed-$250 target, not the risk ladder");
+  if (!(equityUsd > 0)) return fail("no equity to size against");
+  if (!(price > 0)) return fail("no price to size against");
+  if (!(slPct > 0)) return fail("no stop distance to size against");
+  const riskUsd = equityUsd * riskPct / 100;
+  const riskPerContract = price * slPct / 100;
+  const byRisk = riskUsd / riskPerContract;
+  const byNotionalCap = SA_NOTIONAL_CAP_USD() / price;
+  const leverage = input.leverage != null && input.leverage > 0 ? input.leverage : null;
+  const byMargin = input.availableMarginUsd != null && input.availableMarginUsd >= 0 && leverage != null ? input.availableMarginUsd * leverage / price : Infinity;
+  const raw = Math.min(byRisk, byNotionalCap, byMargin);
+  const cappedBy = raw === byMargin ? "margin" : raw === byNotionalCap ? "notional_cap" : "risk";
+  const contracts = floorToIncrement(raw);
+  const increment = SA_MIN_INCREMENT();
+  if (contracts < increment) {
+    return {
+      contracts: 0,
+      notionalUsd: 0,
+      riskUsd,
+      targetUsd: raw * price,
+      cappedBy,
+      reason: `risk $${riskUsd.toFixed(2)} (${riskPct}% of $${equityUsd.toFixed(2)}) at a ${slPct.toFixed(2)}% stop on a $${price.toFixed(2)} perp sizes below the ${increment}-contract minimum`
+    };
+  }
+  return { contracts, notionalUsd: contracts * price, riskUsd, targetUsd: raw * price, cappedBy, reason: null };
+}
+function perpLossStreak(closesNewestFirst) {
+  let n = 0;
+  for (const c of closesNewestFirst) {
+    if (c.netPnlUsd != null && Number.isFinite(c.netPnlUsd) && c.netPnlUsd < 0) n++;
+    else break;
+  }
+  return n;
+}
+var num5, smallAccountEnabled, SA_SURVIVAL_MAX_USD, SA_GROWTH_MAX_USD, SA_NOTIONAL_CAP_USD, SA_EQUITY_FLOOR_USD, SA_LOSS_STREAK, SA_MIN_INCREMENT;
+var init_kalshi_perp_small_account = __esm({
+  "server/services/kalshi-perp-small-account.ts"() {
+    "use strict";
+    init_runtime_state();
+    num5 = (n, d) => {
+      const v = Number(process.env[n]);
+      return Number.isFinite(v) && v > 0 ? v : d;
+    };
+    smallAccountEnabled = () => process.env.KALSHI_PERP_SMALL_ACCOUNT !== "off";
+    SA_SURVIVAL_MAX_USD = () => num5("KALSHI_PERP_SA_SURVIVAL_MAX_USD", 100);
+    SA_GROWTH_MAX_USD = () => num5("KALSHI_PERP_SA_GROWTH_MAX_USD", 1e3);
+    SA_NOTIONAL_CAP_USD = () => num5("KALSHI_PERP_SA_NOTIONAL_CAP_USD", 250);
+    SA_EQUITY_FLOOR_USD = () => num5("KALSHI_PERP_SA_EQUITY_FLOOR_USD", 10);
+    SA_LOSS_STREAK = () => Math.max(1, Math.floor(num5("KALSHI_PERP_SA_LOSS_STREAK", 3)));
+    SA_MIN_INCREMENT = () => num5("KALSHI_PERP_SA_MIN_INCREMENT", 0.02);
+  }
+});
+
 // server/services/kalshi-trading.ts
 import * as fs2 from "fs";
 import * as path3 from "path";
@@ -40877,7 +40961,7 @@ function buildMarginOrderBody(input) {
     ticker: input.ticker,
     client_order_id: input.clientOrderId,
     side: input.side,
-    count: String(Math.max(1, Math.floor(input.count))),
+    count: input.fractional ? formatPerpCount(input.count) : String(Math.max(1, Math.floor(input.count))),
     price: formatMarginPrice(input.price, input.tickSize),
     time_in_force: "immediate_or_cancel",
     self_trade_prevention_type: "taker_at_cross"
@@ -40987,6 +41071,7 @@ var init_kalshi_trading = __esm({
     init_cred_store();
     init_kalshi_perps();
     init_kalshi_perp_costs();
+    init_kalshi_perp_small_account();
     KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2";
     KALSHI_PATH_PREFIX = "/trade-api/v2";
     CREDS_FILE = path3.join(process.cwd(), "data", "kalshi_credentials.json");
@@ -41059,6 +41144,7 @@ var init_kalshi_perp_ai_judge = __esm({
   "server/services/kalshi-perp-ai-judge.ts"() {
     "use strict";
     init_openai();
+    init_kalshi_perp_small_account();
     DEDUPE_TTL_MS = 10 * 6e4;
   }
 });
@@ -41071,6 +41157,7 @@ var init_kalshi_perp_watch_plans = __esm({
     init_openai();
     init_ai_engine_budget();
     init_runtime_state();
+    init_kalshi_perp_small_account();
     init_db();
     init_ai_watch_plans();
     PERP_PLAN_MIN_EXPIRY_MS = 1 * 36e5;
@@ -41139,6 +41226,8 @@ var init_kalshi_stock_shadow = __esm({
     init_kalshi_perp_costs();
     init_kalshi_perp_ai_judge();
     init_kalshi_perp_watch_plans();
+    init_kalshi_perp_small_account();
+    init_kalshi_trading();
     TICK_MS = 5 * 6e4;
     CRYPTO_PORTS = ["breakout", "trend_following", "structure", "divergence", "order_flow", "volume_profile"];
     OPTIONS_PORTS = ["orb", "volume_profile", "breakout", "momentum", "order_flow"];
@@ -41188,6 +41277,7 @@ __export(kalshi_perp_live_exports, {
   runKalshiPerpLiveCycle: () => runKalshiPerpLiveCycle,
   scanExitTrigger: () => scanExitTrigger,
   sizeLiveEntry: () => sizeLiveEntry,
+  sizeLiveEntrySA: () => sizeLiveEntrySA,
   startKalshiPerpLive: () => startKalshiPerpLive
 });
 function isoWeekKey(ms) {
@@ -41254,6 +41344,12 @@ function sizeLiveEntry(equityUsd, price) {
     return { contracts: 0, notionalUsd: 0, targetUsd, reason: `price ${price} leaves no whole contract inside the $${targetUsd.toFixed(0)} target` };
   }
   return { contracts, notionalUsd: contracts * price, targetUsd, reason: null };
+}
+function sizeLiveEntrySA(equityUsd, price, slPct, availableMarginUsd) {
+  const mode = perpSaMode(equityUsd);
+  if (mode === "standard" || equityUsd == null) return sizeLiveEntry(equityUsd, price);
+  const s = sizePerpByRisk({ equityUsd, price, slPct, mode, availableMarginUsd, leverage: ASSUMED_LEVERAGE() });
+  return { contracts: s.contracts, notionalUsd: s.notionalUsd, targetUsd: s.targetUsd, reason: s.reason };
 }
 function marginCoverageBlock(balance, notionalUsd, leverage) {
   if (!balance || !(notionalUsd > 0) || !(leverage > 0)) return null;
@@ -41373,7 +41469,12 @@ async function sendMarginOrderIntent(userId, intent) {
     count: intent.count,
     price: intent.price,
     tickSize: intent.tickSize,
-    reduceOnly: intent.reduceOnly
+    reduceOnly: intent.reduceOnly,
+    // Fractional counts ride the order body's opt-in only when the
+    // small-account brain is on — or when the count itself is already
+    // fractional (an exit of a fractional position must never be
+    // floored up past the position, whatever the switch says).
+    fractional: smallAccountEnabled() || !Number.isInteger(intent.count)
   });
   if (outcome.outcome === "responded") {
     const status = outcome.fillCount <= 0 ? "canceled" : outcome.remainingCount > 0 ? "partial" : "filled";
@@ -41747,8 +41848,17 @@ async function processLiveEntries(userId, state, markets, pendingCa) {
     return block(`margin balance read failed: ${e?.message ?? e}`);
   }
   if (equityUsd == null || !(equityUsd > 0)) return block("margin balance unreadable \u2014 cannot size safely");
-  const coverageBlock = marginCoverageBlock(marginBalance, NOTIONAL2(), ASSUMED_LEVERAGE());
-  if (coverageBlock) return block(coverageBlock);
+  const saOn = smallAccountEnabled();
+  const saMode = saOn ? perpSaMode(equityUsd) : null;
+  if (saOn) {
+    state.saMode = saMode;
+    state.saEquityUsd = equityUsd;
+    state.saRiskPct = saMode ? perpSaRiskPct(saMode) : null;
+  }
+  if (!saOn) {
+    const coverageBlock = marginCoverageBlock(marginBalance, NOTIONAL2(), ASSUMED_LEVERAGE());
+    if (coverageBlock) return block(coverageBlock);
+  }
   const today = utcDayKey(Date.now());
   if (state.dayAnchorDate !== today || state.dayAnchorEquityUsd == null) {
     state.dayAnchorDate = today;
@@ -41779,6 +41889,26 @@ async function processLiveEntries(userId, state, markets, pendingCa) {
   if (anchor > 0 && realizedToday + floatingToday <= -(DAILY_LOSS_PCT() / 100) * anchor) {
     return block(`daily-loss halt: realized ${realizedToday.toFixed(2)} + floating ${floatingToday.toFixed(2)} today vs \u2212${DAILY_LOSS_PCT()}% of the day's opening equity $${anchor.toFixed(2)}`);
   }
+  if (saOn) {
+    const floorUsd = SA_EQUITY_FLOOR_USD();
+    state.saFloorBlocked = equityUsd < floorUsd;
+    if (state.saFloorBlocked) {
+      return block(`small-account equity floor: margin equity $${equityUsd.toFixed(2)} is below the $${floorUsd.toFixed(2)} floor \u2014 entries paused (exits unaffected)`);
+    }
+    const { rows: streakRows } = await pool.query(
+      `SELECT net_pnl_usd, closed_at FROM kalshi_perp_live_trades
+        WHERE user_id=$1 AND status='closed' AND net_pnl_usd IS NOT NULL
+        ORDER BY closed_at DESC, id DESC LIMIT 25`,
+      [userId]
+    );
+    const streak = perpLossStreak(streakRows.map((r) => ({ netPnlUsd: r.net_pnl_usd == null ? null : Number(r.net_pnl_usd) })));
+    const lastLossDay = streakRows.length ? utcDayKey(new Date(streakRows[0].closed_at).getTime()) : null;
+    state.saLossStreak = streak;
+    state.saStreakPaused = streak >= SA_LOSS_STREAK() && lastLossDay === today;
+    if (state.saStreakPaused) {
+      return block(`small-account loss-streak pause: ${streak} consecutive live losses \u2014 entries paused until the next UTC day (exits unaffected)`);
+    }
+  }
   const armed = await getArmedPerpStrategies(userId);
   if (!armed.size) return block("no perp strategy is armed for live (toggle is off for every strategy)");
   const { rows: candidates } = await pool.query(
@@ -41799,11 +41929,12 @@ async function processLiveEntries(userId, state, markets, pendingCa) {
   let ordersToday = Number(orderCountRows[0]?.n) || 0;
   const marketByTicker = new Map(markets.map((m) => [m.ticker, m]));
   let openLive = [...openRows];
+  const maxOpenCap = (saMode ? perpSaMaxOpen(saMode) : null) ?? MAX_OPEN2();
   for (const s of candidates) {
     const strategy = String(s.strategy);
     if (!armed.has(strategy)) continue;
-    if (openLive.length >= MAX_OPEN2()) {
-      block(`live cap reached (${MAX_OPEN2()} open)`);
+    if (openLive.length >= maxOpenCap) {
+      block(`live cap reached (${maxOpenCap} open)`);
       break;
     }
     if (ordersToday >= MAX_ORDERS_DAY()) {
@@ -41829,17 +41960,37 @@ async function processLiveEntries(userId, state, markets, pendingCa) {
     const short = s.direction === "short";
     if (short ? touch.ask >= Number(s.stop_loss) : touch.bid <= Number(s.stop_loss)) continue;
     const entryBasis = short ? touch.bid : touch.ask;
-    const sizing = sizeLiveEntry(equityUsd, entryBasis);
-    if (sizing.contracts < 1) {
+    const sizing = saOn ? sizeLiveEntrySA(equityUsd, entryBasis, Number(s.sl_pct), marginBalance?.availableUsd ?? marginBalance?.equityUsd ?? null) : sizeLiveEntry(equityUsd, entryBasis);
+    if (sizing.contracts < (saOn ? SA_MIN_INCREMENT() : 1)) {
       block(`${strategy}/${s.ticker}: ${sizing.reason}`);
       continue;
     }
+    if (saOn) {
+      const cov = marginCoverageBlock(marginBalance, sizing.notionalUsd, ASSUMED_LEVERAGE());
+      if (cov) {
+        block(`${strategy}/${s.ticker}: ${cov}`);
+        continue;
+      }
+    }
     const ins = await pool.query(
       `INSERT INTO kalshi_perp_live_trades (user_id, shadow_trade_id, strategy, ticker, underlying, direction,
-         contracts, stop_loss, take_profit, sl_pct, notional_usd, max_hours, entry_client_order_id, status)
-       VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8,$9,0,$10,$11,'pending_entry')
+         contracts, stop_loss, take_profit, sl_pct, notional_usd, max_hours, entry_client_order_id, status, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8,$9,0,$10,$11,'pending_entry',$12)
        ON CONFLICT (shadow_trade_id) DO NOTHING RETURNING id`,
-      [userId, s.id, strategy, s.ticker, s.underlying, s.direction, s.stop_loss, s.take_profit, s.sl_pct, s.max_hours, `vedd-perp-e${s.id}`]
+      [
+        userId,
+        s.id,
+        strategy,
+        s.ticker,
+        s.underlying,
+        s.direction,
+        s.stop_loss,
+        s.take_profit,
+        s.sl_pct,
+        s.max_hours,
+        `vedd-perp-e${s.id}`,
+        saOn ? `small-account mode=${saMode} equity=$${equityUsd.toFixed(2)} risk=${state.saRiskPct ?? "legacy"}%/trade; ` : null
+      ]
     );
     const liveId = ins.rows[0]?.id;
     if (!liveId) continue;
@@ -41978,6 +42129,22 @@ async function getKalshiPerpLiveReport(userId) {
     todayRealizedPnlUsd: Number(pnlRes.rows[0]?.realized) || 0,
     todayOrders: Number(ordRes.rows[0]?.n) || 0,
     caps: { maxOpen: MAX_OPEN2(), maxPerStrategy: MAX_PER_STRAT2(), maxOrdersPerDay: MAX_ORDERS_DAY(), notionalUsd: NOTIONAL2(), dailyLossPct: DAILY_LOSS_PCT() },
+    smallAccount: (() => {
+      const equityUsd = state.saEquityUsd ?? marginDiagnostic?.balanceParsed?.equityUsd ?? null;
+      const mode = state.saMode ?? (smallAccountEnabled() ? perpSaMode(equityUsd) : null);
+      return {
+        enabled: smallAccountEnabled(),
+        mode,
+        equityUsd,
+        riskPct: state.saRiskPct ?? (mode ? perpSaRiskPct(mode) : null),
+        brakes: {
+          lossStreak: state.saLossStreak ?? 0,
+          streakPaused: state.saStreakPaused ?? false,
+          equityFloorUsd: SA_EQUITY_FLOOR_USD(),
+          floorBlocked: state.saFloorBlocked ?? (equityUsd != null && equityUsd < SA_EQUITY_FLOOR_USD())
+        }
+      };
+    })(),
     strategies,
     openPositions: openRes.rows.map((p) => {
       const touch = touches.get(String(p.ticker)) || null;
@@ -42047,7 +42214,7 @@ function startKalshiPerpLive() {
   setInterval(tick, 6e4).unref?.();
   console.log(perpLiveEnabled() ? "[kalshi-perp-live] started \u2014 LIVE perp lane: entries require arm + promotion bar + margin-enabled, re-verified every cycle." : "[kalshi-perp-live] started with KALSHI_PERP_LIVE=off \u2014 entries disabled; exit monitoring + reconciliation active.");
 }
-var num5, perpLiveEnabled, NOTIONAL2, MAX_OPEN2, MAX_PER_STRAT2, MAX_ORDERS_DAY, MAX_EQUITY_PCT, ASSUMED_LEVERAGE, DAILY_LOSS_PCT, SIGNAL_MAX_AGE_MIN, EXIT_SLIPPAGE_PCT, ERROR_STORM_LIMIT, ERROR_PAUSE_MS, AMBIGUOUS_ABANDON_MS, ARM_SCOPES, STATE_SCOPE, defaultState, utcDayKey, _exitWatermark, _livePeakEnsured, _ownerId, _started2;
+var num6, perpLiveEnabled, NOTIONAL2, MAX_OPEN2, MAX_PER_STRAT2, MAX_ORDERS_DAY, MAX_EQUITY_PCT, ASSUMED_LEVERAGE, DAILY_LOSS_PCT, SIGNAL_MAX_AGE_MIN, EXIT_SLIPPAGE_PCT, ERROR_STORM_LIMIT, ERROR_PAUSE_MS, AMBIGUOUS_ABANDON_MS, ARM_SCOPES, STATE_SCOPE, defaultState, utcDayKey, _exitWatermark, _livePeakEnsured, _ownerId, _started2;
 var init_kalshi_perp_live = __esm({
   "server/services/kalshi-perp-live.ts"() {
     "use strict";
@@ -42061,20 +42228,21 @@ var init_kalshi_perp_live = __esm({
     init_kalshi_trading();
     init_kalshi_stock_shadow();
     init_kalshi_perp_costs();
-    num5 = (n, d) => {
+    init_kalshi_perp_small_account();
+    num6 = (n, d) => {
       const v = Number(process.env[n]);
       return Number.isFinite(v) && v > 0 ? v : d;
     };
     perpLiveEnabled = () => process.env.KALSHI_PERP_LIVE !== "off";
-    NOTIONAL2 = () => num5("KALSHI_PERP_LIVE_NOTIONAL_USD", 250);
-    MAX_OPEN2 = () => Math.max(1, Math.floor(num5("KALSHI_PERP_LIVE_MAX_OPEN", 3)));
-    MAX_PER_STRAT2 = () => Math.max(1, Math.floor(num5("KALSHI_PERP_LIVE_MAX_PER_STRATEGY", 2)));
-    MAX_ORDERS_DAY = () => Math.max(1, Math.floor(num5("KALSHI_PERP_LIVE_MAX_ORDERS_PER_DAY", 10)));
-    MAX_EQUITY_PCT = () => num5("KALSHI_PERP_LIVE_MAX_EQUITY_PCT_PER_TRADE", 25);
-    ASSUMED_LEVERAGE = () => num5("KALSHI_PERP_LIVE_ASSUMED_LEVERAGE", 5);
-    DAILY_LOSS_PCT = () => num5("KALSHI_PERP_LIVE_DAILY_LOSS_PCT", 5);
-    SIGNAL_MAX_AGE_MIN = () => num5("KALSHI_PERP_LIVE_SIGNAL_MAX_AGE_MIN", 10);
-    EXIT_SLIPPAGE_PCT = () => num5("KALSHI_PERP_LIVE_EXIT_SLIPPAGE_PCT", 0.5);
+    NOTIONAL2 = () => num6("KALSHI_PERP_LIVE_NOTIONAL_USD", 250);
+    MAX_OPEN2 = () => Math.max(1, Math.floor(num6("KALSHI_PERP_LIVE_MAX_OPEN", 3)));
+    MAX_PER_STRAT2 = () => Math.max(1, Math.floor(num6("KALSHI_PERP_LIVE_MAX_PER_STRATEGY", 2)));
+    MAX_ORDERS_DAY = () => Math.max(1, Math.floor(num6("KALSHI_PERP_LIVE_MAX_ORDERS_PER_DAY", 10)));
+    MAX_EQUITY_PCT = () => num6("KALSHI_PERP_LIVE_MAX_EQUITY_PCT_PER_TRADE", 25);
+    ASSUMED_LEVERAGE = () => num6("KALSHI_PERP_LIVE_ASSUMED_LEVERAGE", 5);
+    DAILY_LOSS_PCT = () => num6("KALSHI_PERP_LIVE_DAILY_LOSS_PCT", 5);
+    SIGNAL_MAX_AGE_MIN = () => num6("KALSHI_PERP_LIVE_SIGNAL_MAX_AGE_MIN", 10);
+    EXIT_SLIPPAGE_PCT = () => num6("KALSHI_PERP_LIVE_EXIT_SLIPPAGE_PCT", 0.5);
     ERROR_STORM_LIMIT = 3;
     ERROR_PAUSE_MS = 30 * 6e4;
     AMBIGUOUS_ABANDON_MS = 15 * 6e4;
@@ -42088,7 +42256,13 @@ var init_kalshi_perp_live = __esm({
       dayAnchorEquityUsd: null,
       unknownPositions: [],
       lastCycleAt: null,
-      lastBlockReason: null
+      lastBlockReason: null,
+      saMode: null,
+      saEquityUsd: null,
+      saRiskPct: null,
+      saLossStreak: 0,
+      saStreakPaused: false,
+      saFloorBlocked: false
     });
     utcDayKey = (ms) => new Date(ms).toISOString().slice(0, 10);
     _exitWatermark = /* @__PURE__ */ new Map();

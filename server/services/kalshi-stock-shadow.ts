@@ -139,6 +139,12 @@ import {
   kalshiPerpWatchPlansEnabled, resolvePerpWatchPlan, newPerpPlanCycle, notePerpPlanEntry,
   kalshiPerpWatchPlansSummary, type PerpWatchPlanAction,
 } from './kalshi-perp-watch-plans';
+import {
+  smallAccountEnabled, perpSaMode, sizePerpByRisk, SA_MIN_INCREMENT,
+  getOrSeedPerpShadowWallet, loadPerpShadowWallet, adjustPerpShadowWallet,
+  type PerpAccountContext, type PerpShadowWallet,
+} from './kalshi-perp-small-account';
+import { loadKalshiCredentials, getKalshiMarginBalance } from './kalshi-trading';
 
 export const stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== 'off';
 
@@ -427,6 +433,11 @@ export interface KalshiStockShadowSummary {
   lastOpenedAt: string | null;
   lastClosedAt: string | null;
   enabled: boolean;
+  /** Small-account mirror (kalshi-perp-small-account.ts): the virtual
+   *  wallet the shadow lane sizes against and the ladder mode it is in.
+   *  Null when the kill switch is off or no wallet has seeded yet. */
+  virtualWalletEquityUsd: number | null;
+  smallAccountMode: 'survival' | 'growth' | 'standard' | null;
 }
 
 export interface KalshiStockShadowStrategyStat {
@@ -913,6 +924,10 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
 
   const aiWatchPlans: KalshiPerpWatchPlansPanelReport = kalshiPerpWatchPlansSummary(userId);
 
+  // Small-account mirror state for the panel: the virtual wallet (read
+  // only here — seeding happens on the entry path, never on a report).
+  const saWalletReport = smallAccountEnabled() ? await loadPerpShadowWallet(userId).catch(() => null) : null;
+
   const tbRow = (trailBrainRes as any)?.rows?.[0] || {};
   const trailBrain: KalshiPerpTrailBrainReport = {
     mode: kalshiPerpTrailROn() ? 'R' : 'pct',
@@ -941,6 +956,8 @@ export async function getKalshiStockShadowReport(userId: number, days = 30): Pro
       lastOpenedAt: toIso(s.last_opened_at),
       lastClosedAt: toIso(s.last_closed_at),
       enabled: stockShadowEnabled(),
+      virtualWalletEquityUsd: saWalletReport ? saWalletReport.equityUsd : null,
+      smallAccountMode: saWalletReport ? perpSaMode(saWalletReport.equityUsd) : null,
     },
     byStrategy: (byStrategyRes.rows || []).map((r: any): KalshiStockShadowStrategyStat => {
       const strategy = String(r.strategy);
@@ -1138,6 +1155,14 @@ async function closeTrade(t: any, exit: number | null, why: string, fundingUsd: 
        stats_invalid_reason=$10, closed_at=now() WHERE id=$1 AND status='open'`,
     [t.id, exit, why, gross, net, r, fundingUsd, exclude, fundingModel ?? null, invalidReason]);
   if (!upd.rowCount) return false;
+  // Small-account mirror: compound the virtual wallet by this close's
+  // net $ result (notional × net%). Excluded closes (corporate action,
+  // quarantined-invalid) book NO wallet movement — their "result" spans
+  // an adjusted series or corrupt prints, not a trade the account made.
+  // Kill switch off → the wallet is never touched.
+  if (smallAccountEnabled() && !exclude && net != null && Number(t.notional_usd) > 0) {
+    await adjustPerpShadowWallet(Number(t.user_id), (Number(t.notional_usd) * net) / 100).catch(() => {});
+  }
   const ageH = (Date.now() - new Date(t.opened_at).getTime()) / 3_600_000;
   await pool.query(`UPDATE kalshi_perp_shadow_context SET closed_at=now(), exit_reason=$2, hold_minutes=$3, net_pct=$4, funding_paid_usd=$5 WHERE trade_id=$1`,
     [t.id, why, ageH * 60, exclude ? null : net, fundingUsd]).catch(() => {});
@@ -1289,6 +1314,30 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
       const u = String(r.underlying), s = String(r.strategy);
       (judgeRowsByUnderlying.get(u) ?? judgeRowsByUnderlying.set(u, []).get(u)!).push(r);
       (judgeRowsByStrategy.get(s) ?? judgeRowsByStrategy.set(s, []).get(s)!).push(r);
+    }
+  }
+  // Small-account brain (kalshi-perp-small-account.ts): this cycle's
+  // account context — the real margin equity (ONE fail-soft read, only
+  // when credentials exist; the lane stays fully usable without them)
+  // and the virtual wallet the mirror sizes against, seeded on first
+  // use from that real figure (else $25). The resolver already ran
+  // above, so the wallet loaded here reflects this cycle's closes.
+  // Kill switch off → none of this runs and the lane is the pre-build
+  // lane exactly (fixed $250 sizing, no AI account context).
+  const saOn = smallAccountEnabled();
+  let saRealEquityUsd: number | null = null;
+  let saWallet: PerpShadowWallet | null = null;
+  let saAccountContext: PerpAccountContext | null = null;
+  if (saOn) {
+    try {
+      if (loadKalshiCredentials(userId)) {
+        const bal = await getKalshiMarginBalance(userId);
+        saRealEquityUsd = bal?.equityUsd ?? null;
+      }
+    } catch { saRealEquityUsd = null; }
+    saWallet = await getOrSeedPerpShadowWallet(userId, saRealEquityUsd).catch(() => null);
+    if (saWallet) {
+      saAccountContext = { realEquityUsd: saRealEquityUsd, virtualEquityUsd: saWallet.equityUsd, mode: perpSaMode(saWallet.equityUsd) };
     }
   }
   const markets = await getLiquidStockPerps().catch(() => [] as PerpMarket[]);
@@ -1480,8 +1529,29 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
       const entry = short ? bid : ask;
       const stop = short ? entry * (1 + slPct / 100) : entry * (1 - slPct / 100);
       const target = short ? entry * (1 - slPct * RR() / 100) : entry * (1 + slPct * RR() / 100);
-      const contracts = Math.max(1, Math.round(NOTIONAL() / entry));
-      const notional = contracts * entry;
+      // Small-account mirror sizing: the SAME ladder math the live lane
+      // runs (same bands/risks/caps, fractional contracts), against the
+      // virtual wallet — so the record this lane builds is a
+      // small-account record, not a $250 record. A candidate the ladder
+      // sizes below the minimum increment is skipped: on a tiny wallet
+      // that is the honest answer for an expensive perp. The ladder's
+      // margin cap uses the live lane's assumed leverage (5x default).
+      // Kill switch off (or an unseeded wallet) → the fixed-$250 line.
+      let contracts: number;
+      let notional: number;
+      if (saOn && saWallet) {
+        const levRaw = Number(process.env.KALSHI_PERP_LIVE_ASSUMED_LEVERAGE);
+        const sized = sizePerpByRisk({
+          equityUsd: saWallet.equityUsd, price: entry, slPct, mode: perpSaMode(saWallet.equityUsd),
+          availableMarginUsd: saWallet.equityUsd, leverage: Number.isFinite(levRaw) && levRaw > 0 ? levRaw : 5,
+        });
+        if (sized.contracts < SA_MIN_INCREMENT()) continue;
+        contracts = sized.contracts;
+        notional = sized.notionalUsd;
+      } else {
+        contracts = Math.max(1, Math.round(NOTIONAL() / entry));
+        notional = contracts * entry;
+      }
       const aligned = h4Trend == null ? null : short ? h4Trend === 'BEARISH' : h4Trend === 'BULLISH';
       const agreeing = signals.filter((s) => s.direction === sig.direction).length;
       // This candidate's volume-profile position (null when no profile
@@ -1603,6 +1673,7 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
             earningsWithin48h: earnings48,
             recentCloses: h1Bars.slice(-12).map((b) => b.c),
             tickerHistory, strategyRecord, bucketEvidence,
+            accountContext: saAccountContext,
             candlesNewestFirst: h1Bars.slice().reverse().map((b) => ({ o: b.o, h: b.h, l: b.l, c: b.c })),
             currentPrice: lastClose,
           }, planCycle, { strategyKeys: PERP_STRATEGY_KEYS });
@@ -1634,6 +1705,7 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
           tickerHistory,
           strategyRecord,
           bucketEvidence: bucketEvidenceFor(stats, sig.strategy, kalshiBucketsOf(ctx)),
+          accountContext: saAccountContext,
         }).catch(() => null);
       }
       const ins = await pool.query(
@@ -1648,14 +1720,16 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
            atr_pct, h1_trend, h4_trend, htf_aligned, funding_rate_at_entry, session_et, hour_utc, hour_et, day_of_week,
            earnings_within_48h, corporate_action_pending, live_gate_blocked, leverage_estimate, tags, advice_at_entry,
            vp_poc, vp_vah, vp_val, vp_position,
-           ai_judge_verdict, ai_judge_confidence, ai_judge_reason, ai_judge_model, ai_judge_failure, ai_judge_metered)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33) ON CONFLICT (trade_id) DO NOTHING`,
+           ai_judge_verdict, ai_judge_confidence, ai_judge_reason, ai_judge_model, ai_judge_failure, ai_judge_metered,
+           sa_virtual_equity_usd, sa_mode)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35) ON CONFLICT (trade_id) DO NOTHING`,
         [id, userId, sig.strategy, mkt.ticker, sig.direction, spreadBps, mkt.volume24hNotionalUsd, mkt.openInterest,
          atrPct, h1Trend, h4Trend, aligned, fundEst?.rate ?? null, ctx.session_et, new Date(now).getUTCHours(), et.hour, et.dow,
          earnings48, pendingCa.has(mkt.ticker), agreeing < 2, mkt.leverageEstimate, tags, adviceFor(stats, sig.strategy, ctx),
          vpProfile?.poc ?? null, vpProfile?.vah ?? null, vpProfile?.val ?? null, vpPos,
          judge?.verdict ?? null, judge?.confidence ?? null, judge?.reason ?? null,
-         judge?.model ?? null, judge?.failure ?? null, judge ? judge.metered : null]).catch(() => {});
+         judge?.model ?? null, judge?.failure ?? null, judge ? judge.metered : null,
+         saOn && saWallet ? saWallet.equityUsd : null, saOn && saWallet ? perpSaMode(saWallet.equityUsd) : null]).catch(() => {});
       open.push({ strategy: sig.strategy, underlying: mkt.underlying });
       if (viaPlan) notePerpPlanEntry(userId);
       opened++;

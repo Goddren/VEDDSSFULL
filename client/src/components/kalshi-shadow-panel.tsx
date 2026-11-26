@@ -17,6 +17,10 @@ interface KalshiShadowSummary {
   lastOpenedAt: string | null;
   lastClosedAt: string | null;
   enabled: boolean;
+  /** Small-account mirror: the virtual wallet the shadow lane sizes
+   *  against + its ladder mode (absent/null when the brain is off). */
+  virtualWalletEquityUsd?: number | null;
+  smallAccountMode?: "survival" | "growth" | "standard" | null;
 }
 
 interface KalshiShadowStrategyStat {
@@ -319,6 +323,14 @@ interface KalshiPerpLiveReport {
   todayRealizedPnlUsd: number;
   todayOrders: number;
   caps: { maxOpen: number; maxPerStrategy: number; maxOrdersPerDay: number; notionalUsd: number; dailyLossPct: number };
+  /** Small-account brain state (absent on older payloads). */
+  smallAccount?: {
+    enabled: boolean;
+    mode: "survival" | "growth" | "standard" | null;
+    equityUsd: number | null;
+    riskPct: number | null;
+    brakes: { lossStreak: number; streakPaused: boolean; equityFloorUsd: number; floorBlocked: boolean };
+  } | null;
   strategies: Array<{ strategy: string; armed: boolean; bar: KalshiPerpLiveBar }>;
   openPositions: Array<{
     id: number; strategy: string; ticker: string; underlying: string; direction: string; status: string;
@@ -345,7 +357,7 @@ function fmtMoneyOrDash(value: number | null): string {
   return value == null ? "—" : fmtMoney(value);
 }
 
-function KalshiPerpLiveSection() {
+function KalshiPerpLiveSection({ virtualWalletEquityUsd }: { virtualWalletEquityUsd?: number | null }) {
   const { data, isLoading, isError } = useQuery<KalshiPerpLiveReport>({
     queryKey: [`/api/kalshi-stock-perp-live`],
     refetchInterval: 60_000,
@@ -377,6 +389,17 @@ function KalshiPerpLiveSection() {
             and only while Kalshi reports margin enabled. Every cycle re-checks all three. Caps: {data.caps.maxOpen} open,{" "}
             {fmtMoney(data.caps.notionalUsd)} per trade, {data.caps.maxOrdersPerDay} orders a day, entries halt at −{data.caps.dailyLossPct}% on the day.
           </p>
+
+          {data.smallAccount?.enabled && data.smallAccount.mode ? (
+            <p className="mt-1.5 text-[10px] leading-snug text-gray-300" data-testid="kalshi-small-account-line">
+              Small-account mode: <b className="text-gray-100">{data.smallAccount.mode === "survival" ? "Survival" : data.smallAccount.mode === "growth" ? "Growth" : "Standard"}</b>
+              {" — wallet "}{fmtMoneyOrDash(data.smallAccount.equityUsd)}
+              {data.smallAccount.riskPct != null ? <> · risk {data.smallAccount.riskPct}%/trade</> : null}
+              {virtualWalletEquityUsd != null ? <> · virtual shadow wallet {fmtMoney(virtualWalletEquityUsd)}</> : null}
+              {data.smallAccount.brakes.streakPaused ? <> · <span className="text-red-300">loss-streak pause active</span></> : null}
+              {data.smallAccount.brakes.floorBlocked ? <> · <span className="text-red-300">below the equity floor — entries paused</span></> : null}
+            </p>
+          ) : null}
 
           {!data.hasCredentials ? (
             <p className="mt-1.5 text-[10px] leading-snug text-amber-200/90">No Kalshi credentials are saved, so the live lane is idle. Exits and monitoring have nothing to run until a position exists.</p>
@@ -905,7 +928,7 @@ export function KalshiShadowPanel({ className = "" }: { className?: string }) {
 
       <KalshiPerpArmingSection />
 
-      <KalshiPerpLiveSection />
+      <KalshiPerpLiveSection virtualWalletEquityUsd={data?.summary.virtualWalletEquityUsd ?? null} />
 
       <p className="mt-3 break-words text-[9px] leading-relaxed text-gray-600">
         The shadow results above are practice only — no orders are placed and no real money moves; net results already include modeled trading costs and the daily funding charge. The Live section is separate: it reports the live lane's own real orders and positions. Trades that spanned a stock split or similar corporate action are left out of every stat and list, because prices from before and after a split can't be compared honestly.
