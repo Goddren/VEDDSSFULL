@@ -62,6 +62,7 @@
 
 import { getUniversalAIClientForUser, getUserModelPreference } from '../openai';
 import { engineAiBudgetAllows, engineAiBudgetError, meterEngineAiConfirmation } from './ai-engine-budget';
+import { aiBudgetDegradeEnabled, isBudgetRefusalError } from './ai-budget-degrade';
 import { getRuntimeStateStrict, ensureRuntimeStateTable } from './runtime-state';
 import { formatPerpAccountContext, type PerpAccountContext } from './kalshi-perp-small-account';
 import { pool } from '../db';
@@ -580,8 +581,12 @@ export type PerpWatchPlanAction =
   /** No triggered plan — the signal is skipped BY DESIGN (counted). */
   | { action: 'skip'; plan: PerpWatchPlan | null }
   /** Plan-layer FAILURE — the lane falls back to today's mechanical
-   *  entry for this candidate (counted, distinct from 'skip'). */
-  | { action: 'fallback' };
+   *  entry for this candidate (counted, distinct from 'skip').
+   *  `budgetDegraded` marks the AI-budget degrade (2026-11-26): the
+   *  fallback happened because the STUDY was budget-refused (pool dry),
+   *  not because the layer failed — the lane stamps the context row
+   *  rules_only_budget so the record says no plan was involved. */
+  | { action: 'fallback'; budgetDegraded?: boolean };
 
 export interface PerpWatchPlanResolveInput extends PerpDeepStudyInput {
   /** H1 candles for trigger evaluation, NEWEST FIRST. */
@@ -599,10 +604,13 @@ export interface PerpWatchPlanResolveInput extends PerpDeepStudyInput {
  *    permitting) whose plan, if born triggered, returns 'triggered',
  *    otherwise 'skip'
  *  - no plan → same study path as above
- *  - budget dry / provider failure / bad JSON / invalid plan → 'skip'
- *    when the layer functioned (nothing bought or nothing usable is a
- *    stewardship outcome), 'fallback' only on plan-layer ERRORS (store
- *    throw, unexpected exception) — the lane then enters mechanically.
+ *  - provider failure / bad JSON / invalid plan → 'skip' when the layer
+ *    functioned (nothing bought or nothing usable is a stewardship
+ *    outcome), 'fallback' on plan-layer ERRORS (store throw, unexpected
+ *    exception) — the lane then enters mechanically.
+ *  - budget dry (typed refusal) → 'fallback' with budgetDegraded set
+ *    (2026-11-26 degrade: the pool caps spend, never trading), unless
+ *    AI_BUDGET_DEGRADE=off, which restores the stewardship 'skip'.
  */
 export async function resolvePerpWatchPlan(
   input: PerpWatchPlanResolveInput,
@@ -661,9 +669,22 @@ export async function resolvePerpWatchPlan(
     try {
       study = await callDeep(input);
     } catch (e: any) {
-      // Budget-dry is a stewardship outcome (skip quietly); a provider
-      // error also buys nothing usable — both are 'skip', NOT the
-      // failure-fallback: the layer worked, there is simply no plan.
+      // AI budget degrade (2026-11-26): the budget layer's TYPED refusal
+      // (engineAiBudgetError's markers only — a bare provider 402 does
+      // NOT carry them) means the pool is dry, not that the layer
+      // failed. The pool caps spend, never trading: the candidate falls
+      // back to the lane's mechanical entry (the same fallback a
+      // plan-layer error takes), counted as a fallback and flagged
+      // budgetDegraded so the context row is stamped. Kill switch
+      // AI_BUDGET_DEGRADE=off restores the skip below for refusals too.
+      if (isBudgetRefusalError(e) && aiBudgetDegradeEnabled()) {
+        counters.fallbacks += 1;
+        return { action: 'fallback', budgetDegraded: true };
+      }
+      // Budget-dry with the degrade off is a stewardship outcome (skip
+      // quietly); a provider error also buys nothing usable — both are
+      // 'skip', NOT the failure-fallback: the layer worked, there is
+      // simply no plan.
       const isBudget = e?.budgetBlocked === true || e?.aiErrorStatus === 'budget' || Number(e?.status ?? e?.statusCode) === 402;
       if (!isBudget) console.warn(`[kalshi-perp-watch-plans] study failed for ${input.ticker}/${input.strategy}: ${String(e?.message || e).slice(0, 140)}`);
       counters.planSkips += 1;

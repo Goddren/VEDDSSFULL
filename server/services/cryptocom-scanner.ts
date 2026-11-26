@@ -20,6 +20,7 @@ import { cryptoTrailGuardFor, stampCryptoTradeTrailGuard, type CryptoTrailProfil
 import { trailBrainConsult, trailBrainDecide, stampTrailBrainTrade, logTrailBrainDecision } from './trail-brain';
 import { cefiEntryBuy, cefiExitSell, baseCoin, type CefiVenue } from './cefi-executor';
 import { consensusThrowAllowsTrade, promotionErrorSkipsEntry, evaluateCostFloor, realizedPnlAfterGas, partialCloseSplit, mergePeakEquity } from './crypto-fix-pack';
+import { aiBudgetDegradeEnabled, isBudgetRefusalError, cryptoBudgetDegradedAllowed, AI_BUDGET_DEGRADED_REASON } from './ai-budget-degrade';
 // NOTE: defi-executor is imported LAZILY (dynamic import at the two call sites
 // below) — it pulls in defi-swap → ethers, a heavy stack. Keeping it out of the
 // module's static graph means the crypto scanner boots without loading ethers,
@@ -1233,7 +1234,7 @@ function quantVerdictFromScore(score: number | null): QuantVerdict {
 
 // Lightweight numeric second-opinion — used as the FALLBACK when the full SS AI
 // reasoner can't run (no candles, model error, etc.). Text-from-numbers only.
-async function getCryptocomAiConfirmationLite(userId: number, symbol: string, result: StrategyResult): Promise<{ confirmed: boolean; confidence: number; reasoning: string }> {
+async function getCryptocomAiConfirmationLite(userId: number, symbol: string, result: StrategyResult): Promise<{ confirmed: boolean; confidence: number; reasoning: string; budgetBlocked?: boolean }> {
   try {
     const { getUniversalAIClientForUser } = await import('../openai');
     const client = await getUniversalAIClientForUser(userId, { engine: true });
@@ -1261,7 +1262,10 @@ async function getCryptocomAiConfirmationLite(userId: number, symbol: string, re
       : '(lite fallback: model returned no reasoning text)';
     return { confirmed: !!parsed.confirmed, confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)), reasoning };
   } catch (err: any) {
-    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
+    // Propagate the budget layer's TYPED refusal (its markers ride the
+    // thrown error) so the consensus layer can degrade on it; every other
+    // failure keeps the plain unavailable shape it has always had.
+    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}`, ...(isBudgetRefusalError(err) ? { budgetBlocked: true } : {}) };
   }
 }
 
@@ -1279,7 +1283,7 @@ async function getCryptocomAiConfirmationLite(userId: number, symbol: string, re
 // underlying model selection/failover, a prompt built around what actually
 // matters for a perpetual (trend/momentum/volume/order-flow), explicitly
 // told not to reach for FX-only concepts.
-async function getCryptocomAiConfirmation(userId: number, symbol: string, result: StrategyResult, chain: string): Promise<{ confirmed: boolean; confidence: number; reasoning: string }> {
+async function getCryptocomAiConfirmation(userId: number, symbol: string, result: StrategyResult, chain: string): Promise<{ confirmed: boolean; confidence: number; reasoning: string; budgetBlocked?: boolean }> {
   // Priority back-off: crypto is lower priority than the FX engine and draws on
   // the same AI provider budget. When that budget is exhausted (402) or rate
   // limited (429), skip the AI confirmation (no new crypto entry this cycle) so
@@ -1304,6 +1308,15 @@ async function getCryptocomAiConfirmation(userId: number, symbol: string, result
       quantReasoning: result.reasoning ?? '', indicators, candles,
     });
     if (conf.aiError) {
+      if (conf.aiBudgetBlocked && aiBudgetDegradeEnabled()) {
+        // The budget layer's typed refusal — NOT an outage. Do not fall
+        // through to the lite call: it draws on the same dry pool, would
+        // be refused too, and its generic "unavailable" text would bury
+        // the real reason. Surface the marker; assembleConsensus degrades
+        // on it. (With AI_BUDGET_DEGRADE=off this branch is skipped and
+        // the legacy lite path below runs exactly as before.)
+        return { confirmed: false, confidence: 0, reasoning: conf.reasoning, budgetBlocked: true };
+      }
       // Same distinction fixed on the FX side: an outage is not the same as
       // the model reviewing and rejecting the setup. Fall back to the lite
       // numeric opinion rather than let the gate silently hard-block on a
@@ -1370,11 +1383,33 @@ async function assembleConsensus(userId: number, symbol: string, result: Strateg
   else if (quantVerdict === 'SKIP' && aiVerdict === 'SKIP') consensus = 'STRONG_SKIP';
   else if ((quantVerdict === 'CONFIRM' && aiVerdict === 'SKIP') || (quantVerdict === 'SKIP' && aiVerdict === 'CONFIRM')) consensus = 'CAUTION';
   else consensus = 'WATCH';
-  const tradeAllowed = consensus !== 'STRONG_SKIP' && aiVerdict === 'CONFIRM';
+  let tradeAllowed = consensus !== 'STRONG_SKIP' && aiVerdict === 'CONFIRM';
+  let aiReasoningOut = ai.reasoning || '';
+  // ── AI budget degrade (2026-11-26) ──────────────────────────────────
+  // The AI vote was REFUSED BY THE BUDGET LAYER (typed marker, not a
+  // provider error and not a consensus throw — the PR #120 fail-closed
+  // throw path in the caller is untouched). The pool caps spend, never
+  // trading: the Dual-Vote "both must agree" rule binds only when the AI
+  // actually voted, so the quant score decides alone here. aiVerdict
+  // stays SKIP — the AI gave no confirmation and the row must not claim
+  // one — while the reasoning carries the honest degraded stamp. Every
+  // deterministic gate downstream (brain guards incl. promoted shadow
+  // guards, cost floor, safety/risk gates) still runs unchanged.
+  // AI_BUDGET_DEGRADE=off restores the block above.
+  if ((ai as any).budgetBlocked === true && aiBudgetDegradeEnabled()) {
+    tradeAllowed = cryptoBudgetDegradedAllowed(quantVerdict);
+    aiReasoningOut = `${aiReasoningOut} — ${AI_BUDGET_DEGRADED_REASON} (quant ${quantVerdict} ${result.score ?? 0}/100)`.trim();
+    if (tradeAllowed) {
+      // Stamp the strategy result itself: every trade record and
+      // execution activity row downstream is built from result.reasoning,
+      // so the degraded approval reads honestly wherever it lands.
+      result.reasoning = `${result.reasoning || ''} [${AI_BUDGET_DEGRADED_REASON}]`.trim();
+    }
+  }
   // Tag even a blank/empty ai.reasoning -- the tag itself is never empty, so a
   // truly-blank-except-for-the-tag row is now unambiguous proof of which
   // process produced it, instead of an untraceable empty string.
-  pushConsensus(userId, { symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0, aiVerdict, aiConfidence: ai.confidence, aiReasoning: (ai.reasoning || '') + procTag, consensus, tradeAllowed, timestamp: new Date().toISOString() });
+  pushConsensus(userId, { symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0, aiVerdict, aiConfidence: ai.confidence, aiReasoning: aiReasoningOut + procTag, consensus, tradeAllowed, timestamp: new Date().toISOString() });
   return tradeAllowed;
 }
 
