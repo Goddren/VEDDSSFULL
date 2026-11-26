@@ -642,7 +642,7 @@ export default function CryptoEnginePage() {
                   {config.cryptoBrainEnabled && <Badge variant="outline" className="border-purple-600/40 text-purple-300 flex items-center gap-1"><Brain className="w-3 h-3" /> Brain</Badge>}
                 </div>
               )}
-              <p className="text-[10px] text-gray-500 mt-2">Live P&amp;L includes swap fees, slippage and network gas.</p>
+              <p className="text-[10px] text-gray-500 mt-2">{'Live P&L includes swap fees, slippage and network gas.'}</p>
             </div>
           );
         })()}

@@ -371,7 +371,7 @@ export async function executeDefiSwap(opts: {
         if (aRcpt.status !== 1) {
           return { ok: false, approveTxHash, reason: `token approval REVERTED on-chain (tx ${aTx.hash})` };
         }
-        gasWeiPaid += aRcpt.gasUsed * aRcpt.gasPrice;
+        gasWeiPaid += BigInt(aRcpt.gasUsed) * BigInt(aRcpt.gasPrice);
         // Confirm the allowance really is in place before spending gas on a swap
         // that would otherwise revert.
         const after: bigint = await erc.allowance(wallet.address, spender).catch(() => BigInt(0));

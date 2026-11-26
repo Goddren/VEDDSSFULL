@@ -26,7 +26,7 @@
  *   E. Source pins: the report gains marginDiagnostic ONLY inside the
  *      hasCredentials branch; the trading cycle never references the
  *      diagnostic; the panel renders the raw answers and the breakdown;
- *      sw vedd-v295.
+ *      sw vedd-v296.
  *
  * Mocked-fetch section D writes a THROWAWAY credential (a freshly generated
  * RSA key for a synthetic user id) into the local creds file ONLY when no
@@ -230,7 +230,7 @@ async function main(): Promise<void> {
     cyclePart.includes('marginEnabled = await getKalshiMarginEnabled(userId)') && cyclePart.includes('Kalshi margin is not enabled for this account (/margin/enabled is not true)'));
   check('E5 panel renders the raw answers beside the margin line',
     panel.includes('Kalshi answered:') && panel.includes('data.marginDiagnostic') && panel.includes('fmtMarginCall'));
-  check('E6 sw bumped to vedd-v295', sw.includes("CACHE_VERSION = 'vedd-v295'"));
+  check('E6 sw bumped to vedd-v296', sw.includes("CACHE_VERSION = 'vedd-v296'"));
   check('E7 diagnostic populates the breakdown only from an OK balance answer, via the parser helper',
     trading.includes('balanceBreakdown: balanceRes.call.ok && balanceRes.data !== undefined ? kalshiMarginBalanceBreakdown(balanceRes.data) : null'));
   check('E8 panel renders the breakdown (per-subaccount rows + totals) under the raw answers',

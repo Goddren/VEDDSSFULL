@@ -1491,6 +1491,13 @@ var init_schema = __esm({
       trailGuardId: text("trail_guard_id"),
       trailGuardAction: text("trail_guard_action"),
       trailGuardProfile: jsonb("trail_guard_profile"),
+      // DeFi gas accounting (2026-11-26, crypto fix pack #5): native gas spent
+      // on the entry / exit swap, in USD at the time of the swap. NULL on rows
+      // that predate gas capture (treated as 0 — history is never re-scored)
+      // and on non-DeFi venues. Lazily added in prod by
+      // ensureCryptoTradeGasColumns() (storage.ts).
+      entryGasUsd: doublePrecision("entry_gas_usd"),
+      exitGasUsd: doublePrecision("exit_gas_usd"),
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -4344,6 +4351,7 @@ var storage_exports = {};
 __export(storage_exports, {
   DatabaseStorage: () => DatabaseStorage,
   InsufficientVeddError: () => InsufficientVeddError,
+  ensureCryptoTradeGasColumns: () => ensureCryptoTradeGasColumns,
   storage: () => storage
 });
 import { eq, and, sql, desc, isNull, gte, lte, lt, inArray } from "drizzle-orm";
@@ -4378,7 +4386,18 @@ function decryptApiKey(encryptedKey) {
     return encryptedKey;
   }
 }
-var ENCRYPTION_KEY, ENCRYPTION_ALGORITHM, InsufficientVeddError, DatabaseStorage, storage;
+function ensureCryptoTradeGasColumns() {
+  if (!_gasColsEnsured) {
+    _gasColsEnsured = pool.query(`ALTER TABLE cryptocom_engine_trades
+        ADD COLUMN IF NOT EXISTS entry_gas_usd double precision,
+        ADD COLUMN IF NOT EXISTS exit_gas_usd double precision`).then(() => void 0).catch((e) => {
+      _gasColsEnsured = null;
+      console.error("[storage] crypto gas-column ensure failed (non-fatal, will retry):", e?.message || e);
+    });
+  }
+  return _gasColsEnsured;
+}
+var ENCRYPTION_KEY, ENCRYPTION_ALGORITHM, InsufficientVeddError, _gasColsEnsured, DatabaseStorage, storage;
 var init_storage = __esm({
   "server/storage.ts"() {
     "use strict";
@@ -4397,6 +4416,7 @@ var init_storage = __esm({
         this.name = "InsufficientVeddError";
       }
     };
+    _gasColsEnsured = null;
     DatabaseStorage = class {
       sessionStore;
       constructor() {
@@ -5572,6 +5592,9 @@ var init_storage = __esm({
         return db.select().from(cryptocomEngineActivity).where(eq(cryptocomEngineActivity.userId, userId)).orderBy(desc(cryptocomEngineActivity.createdAt)).limit(limit);
       }
       // ── Trail-guard stamp columns (cryptocom_engine_trades) ──────────────
+      // (The DeFi gas columns entry_gas_usd / exit_gas_usd follow the same
+      // pattern — see ensureCryptoTradeGasColumns() above the class — and
+      // every method in this section awaits both ensures.)
       // The Drizzle schema carries trail_guard_id/_action/_profile on this
       // table (PR #69), so EVERY query below — full selects and INSERT/
       // UPDATE … RETURNING alike — names those columns. They are created
@@ -5582,11 +5605,13 @@ var init_storage = __esm({
       // after the first call this is a resolved-promise await.
       async createCryptocomEngineTrade(trade) {
         await ensureTrailGuardStampColumns();
+        await ensureCryptoTradeGasColumns();
         const [result] = await db.insert(cryptocomEngineTrades).values(trade).returning();
         return result;
       }
       async getOpenCryptocomEngineTrades(userId) {
         await ensureTrailGuardStampColumns();
+        await ensureCryptoTradeGasColumns();
         return db.select().from(cryptocomEngineTrades).where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, "open")));
       }
       /**
@@ -5597,11 +5622,13 @@ var init_storage = __esm({
        */
       async getUserIdsWithOpenCryptocomTrades() {
         await ensureTrailGuardStampColumns();
+        await ensureCryptoTradeGasColumns();
         const rows = await db.selectDistinct({ userId: cryptocomEngineTrades.userId }).from(cryptocomEngineTrades).where(eq(cryptocomEngineTrades.status, "open"));
         return rows.map((r) => r.userId);
       }
       async getUserCryptocomEngineTrades(userId, limit = 50) {
         await ensureTrailGuardStampColumns();
+        await ensureCryptoTradeGasColumns();
         return db.select().from(cryptocomEngineTrades).where(eq(cryptocomEngineTrades.userId, userId)).orderBy(desc(cryptocomEngineTrades.createdAt)).limit(limit);
       }
       /**
@@ -5621,12 +5648,14 @@ var init_storage = __esm({
        */
       async claimCryptocomEngineTradeForClose(id) {
         await ensureTrailGuardStampColumns();
+        await ensureCryptoTradeGasColumns();
         const [row] = await db.update(cryptocomEngineTrades).set({ status: "closing", updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, "open"))).returning();
         return row;
       }
       /** Hand a claimed trade back to 'open' when the close could not be executed. */
       async releaseCryptocomEngineTradeClaim(id) {
         await ensureTrailGuardStampColumns();
+        await ensureCryptoTradeGasColumns();
         await db.update(cryptocomEngineTrades).set({ status: "open", updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, "closing")));
       }
       /**
@@ -5637,6 +5666,7 @@ var init_storage = __esm({
        */
       async recoverStaleCryptocomCloseClaims(olderThanMs = 5 * 60 * 1e3) {
         await ensureTrailGuardStampColumns();
+        await ensureCryptoTradeGasColumns();
         const cutoff = new Date(Date.now() - olderThanMs);
         const rows = await db.update(cryptocomEngineTrades).set({ status: "open", updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.status, "closing"), lt(cryptocomEngineTrades.updatedAt, cutoff))).returning();
         return rows.length;
@@ -5662,10 +5692,12 @@ var init_storage = __esm({
       async updateCryptocomEngineTradeQuantity(id, quantity) {
         if (!(quantity > 0)) return;
         await ensureTrailGuardStampColumns();
+        await ensureCryptoTradeGasColumns();
         await db.update(cryptocomEngineTrades).set({ quantity, updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, "open")));
       }
       async flagCryptocomEngineTradeUnreconciled(id, note) {
         await ensureTrailGuardStampColumns();
+        await ensureCryptoTradeGasColumns();
         const [row] = await db.update(cryptocomEngineTrades).set({ status: "needs_reconciliation", exitReason: note, updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), inArray(cryptocomEngineTrades.status, ["open", "closing"]))).returning();
         return row;
       }
@@ -5689,11 +5721,28 @@ var init_storage = __esm({
        */
       async closeCryptocomEngineTrade(id, data) {
         await ensureTrailGuardStampColumns();
-        const [result] = await db.update(cryptocomEngineTrades).set({ status: "closed", exitPrice: data.exitPrice, exitOrderId: data.exitOrderId, exitReason: data.exitReason, realizedPnl: data.realizedPnl, closedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, "closing"))).returning();
+        await ensureCryptoTradeGasColumns();
+        const [result] = await db.update(cryptocomEngineTrades).set({ status: "closed", exitPrice: data.exitPrice, exitOrderId: data.exitOrderId, exitReason: data.exitReason, realizedPnl: data.realizedPnl, ...data.exitGasUsd !== void 0 ? { exitGasUsd: data.exitGasUsd } : {}, closedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, "closing"))).returning();
         return result;
+      }
+      /**
+       * Correct a CLAIMED ('closing') trade's quantity to the amount an exit
+       * actually sold, immediately before closeCryptocomEngineTrade books it
+       * (crypto fix pack #8, partial closes). Scoped to 'closing' on purpose:
+       * updateCryptocomEngineTradeQuantity covers 'open' rows, and a settled
+       * 'closed' row's quantity is part of its booked P&L and must never move.
+       * Only ever called with the sold portion, after the unsold remainder has
+       * been parked as its own needs_reconciliation row.
+       */
+      async correctCryptocomEngineTradeQuantityForClose(id, quantity) {
+        if (!(quantity > 0)) return;
+        await ensureTrailGuardStampColumns();
+        await ensureCryptoTradeGasColumns();
+        await db.update(cryptocomEngineTrades).set({ quantity, updatedAt: /* @__PURE__ */ new Date() }).where(and(eq(cryptocomEngineTrades.id, id), eq(cryptocomEngineTrades.status, "closing")));
       }
       async getTodayCryptocomEngineTradeCount(userId) {
         await ensureTrailGuardStampColumns();
+        await ensureCryptoTradeGasColumns();
         const startOfDay = /* @__PURE__ */ new Date();
         startOfDay.setUTCHours(0, 0, 0, 0);
         const rows = await db.select().from(cryptocomEngineTrades).where(and(eq(cryptocomEngineTrades.userId, userId), gte(cryptocomEngineTrades.createdAt, startOfDay)));
@@ -5701,6 +5750,7 @@ var init_storage = __esm({
       }
       async getTodayCryptocomEngineRealizedPnl(userId) {
         await ensureTrailGuardStampColumns();
+        await ensureCryptoTradeGasColumns();
         const startOfDay = /* @__PURE__ */ new Date();
         startOfDay.setUTCHours(0, 0, 0, 0);
         const rows = await db.select().from(cryptocomEngineTrades).where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, "closed"), gte(cryptocomEngineTrades.closedAt, startOfDay)));
@@ -5708,6 +5758,7 @@ var init_storage = __esm({
       }
       async getCryptocomEngineTradeStats(userId) {
         await ensureTrailGuardStampColumns();
+        await ensureCryptoTradeGasColumns();
         const rows = await db.select().from(cryptocomEngineTrades).where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, "closed")));
         const totalClosed = rows.length;
         const wins = rows.filter((r) => (r.realizedPnl || 0) > 0).length;
@@ -5716,6 +5767,7 @@ var init_storage = __esm({
       }
       async getCryptocomEngineDailyPnlHistory(userId, days) {
         await ensureTrailGuardStampColumns();
+        await ensureCryptoTradeGasColumns();
         const since = /* @__PURE__ */ new Date();
         since.setUTCHours(0, 0, 0, 0);
         since.setUTCDate(since.getUTCDate() - days);
@@ -5730,6 +5782,7 @@ var init_storage = __esm({
       }
       async updateCryptocomEngineTradeTrailState(id, data) {
         await ensureTrailGuardStampColumns();
+        await ensureCryptoTradeGasColumns();
         await db.update(cryptocomEngineTrades).set({ peakRMultiple: data.peakRMultiple, trailArmed: data.trailArmed, updatedAt: /* @__PURE__ */ new Date() }).where(eq(cryptocomEngineTrades.id, id));
       }
       // ── Crypto.com Connection methods (crypto-derivatives bucket) ──────────────
@@ -9670,6 +9723,54 @@ var init_cefi_executor = __esm({
   }
 });
 
+// server/services/crypto-fix-pack.ts
+function consensusThrowAllowsTrade(env = process.env) {
+  return env.CRYPTO_CONSENSUS_FAIL_CLOSED === "off";
+}
+function promotionErrorSkipsEntry(env = process.env) {
+  return env.CRYPTO_PROMOTION_FAIL_CLOSED !== "off";
+}
+function evaluateCostFloor(i) {
+  const stopUsd = Math.max(0, i.notionalUsd) * Math.max(0, i.stopPct) / 100;
+  const roundTripCostUsd = Math.max(0, i.notionalUsd) * Math.max(0, i.roundTripBps) / 1e4;
+  const floorUsd = Math.max(0, i.mult) * roundTripCostUsd;
+  const pass = !(i.mult > 0) || stopUsd >= floorUsd;
+  return { pass, stopUsd, roundTripCostUsd, floorUsd };
+}
+function fillPriceFromSwap(spentUsd, receivedQty, fallbackPrice) {
+  if (spentUsd > 0 && receivedQty > 0) return spentUsd / receivedQty;
+  return fallbackPrice;
+}
+function gasUsdFromNative(gasNative, nativeUsdPrice2) {
+  if (gasNative == null || !(gasNative >= 0) || nativeUsdPrice2 == null || !(nativeUsdPrice2 > 0)) return void 0;
+  return gasNative * nativeUsdPrice2;
+}
+function realizedPnlAfterGas(grossPnl, entryGasUsd, exitGasUsd, enabled) {
+  if (!enabled) return grossPnl;
+  return grossPnl - (Number(entryGasUsd) || 0) - (Number(exitGasUsd) || 0);
+}
+function partialCloseSplit(quantity, soldQty) {
+  const q = Number(quantity) || 0;
+  const s = soldQty == null ? q : Number(soldQty);
+  if (q > 0 && s > 0 && s < q) return { isPartial: true, bookedQty: s, remainderQty: q - s };
+  return { isPartial: false, bookedQty: q, remainderQty: 0 };
+}
+function quoteBandLimitPct(slippageBps) {
+  return Math.max(0, slippageBps) / 100 + 2;
+}
+function quoteDeviationPct(impliedPrice, referencePrice) {
+  if (!(referencePrice > 0) || !(impliedPrice > 0)) return Infinity;
+  return Math.abs(impliedPrice - referencePrice) / referencePrice * 100;
+}
+function mergePeakEquity(storedPeak, inMemoryPeak, equity) {
+  return Math.max(Number(storedPeak) || 0, Number(inMemoryPeak) || 0, equity);
+}
+var init_crypto_fix_pack = __esm({
+  "server/services/crypto-fix-pack.ts"() {
+    "use strict";
+  }
+});
+
 // server/services/kalshi-perps.ts
 var kalshi_perps_exports = {};
 __export(kalshi_perps_exports, {
@@ -11319,8 +11420,10 @@ __export(defi_swap_exports, {
   getWalletTokenBalance: () => getWalletTokenBalance,
   isDefiSwapAvailable: () => isDefiSwapAvailable,
   isTokenTradeable: () => isTokenTradeable,
+  providerFor: () => providerFor,
   resolveToken: () => resolveToken,
   rpcUrlFor: () => rpcUrlFor,
+  rpcUrlsFor: () => rpcUrlsFor,
   usingKeyedRpc: () => usingKeyedRpc
 });
 import { ethers } from "ethers";
@@ -11329,6 +11432,27 @@ function rpcUrlFor(chainKey) {
   const net = ALCHEMY_NET[chainKey];
   if (key && net) return `https://${net}.g.alchemy.com/v2/${key}`;
   return DEFI_CHAINS[chainKey]?.rpc ?? "";
+}
+function rpcUrlsFor(chainKey) {
+  const urls = [];
+  const key = (process.env.ALCHEMY_API_KEY ?? "").trim();
+  const net = ALCHEMY_NET[chainKey];
+  if (key && net) urls.push(`https://${net}.g.alchemy.com/v2/${key}`);
+  const pub = DEFI_CHAINS[chainKey]?.rpc;
+  if (pub && !urls.includes(pub)) urls.push(pub);
+  return urls;
+}
+function providerFor(chainKey) {
+  const chain = DEFI_CHAINS[chainKey];
+  const urls = rpcUrlsFor(chainKey);
+  if (urls.length > 1 && chain) {
+    return new ethers.FallbackProvider(
+      urls.map((u) => new ethers.JsonRpcProvider(u, chain.chainId)),
+      chain.chainId,
+      { quorum: 1 }
+    );
+  }
+  return new ethers.JsonRpcProvider(urls[0] ?? "", chain?.chainId);
 }
 function usingKeyedRpc() {
   return !!(process.env.ALCHEMY_API_KEY ?? "").trim();
@@ -11423,7 +11547,9 @@ async function executeDefiSwap(opts) {
   if (!isDefiSwapAvailable()) return { ok: false, reason: "ZEROX_API_KEY not set on the server" };
   const chain = DEFI_CHAINS[opts.chainKey];
   if (!chain) return { ok: false, reason: `unsupported chain ${opts.chainKey}` };
-  const provider = new ethers.JsonRpcProvider(rpcUrlFor(opts.chainKey), chain.chainId);
+  const provider = providerFor(opts.chainKey);
+  let gasWeiPaid = BigInt(0);
+  const gasNativePaid = () => gasWeiPaid > BigInt(0) ? Number(ethers.formatEther(gasWeiPaid)) : void 0;
   try {
     const wallet = new ethers.Wallet(decryptApiSecret(opts.encryptedPrivateKey), provider);
     let sellToken, buyToken;
@@ -11494,6 +11620,7 @@ async function executeDefiSwap(opts) {
           if (aRcpt.status !== 1) {
             return { ok: false, approveTxHash, reason: `token approval REVERTED on-chain (tx ${aTx.hash})` };
           }
+          gasWeiPaid += BigInt(aRcpt.gasUsed) * BigInt(aRcpt.gasPrice);
           const after = await erc.allowance(wallet.address, spender).catch(() => BigInt(0));
           if (after < BigInt(sellAmount)) {
             return { ok: false, approveTxHash, reason: `approval mined but allowance is still ${after.toString()} < ${sellAmount} \u2014 not swapping` };
@@ -11523,6 +11650,13 @@ async function executeDefiSwap(opts) {
       } catch {
       }
     }
+    if (opts.referencePriceUsd && opts.referencePriceUsd > 0 && opts.maxPriceDeviationPct != null && buyAmountHuman && buyAmountHuman > 0) {
+      const implied = opts.sellAmountHuman / buyAmountHuman;
+      const dev = quoteDeviationPct(implied, opts.referencePriceUsd);
+      if (dev > opts.maxPriceDeviationPct) {
+        return { ok: false, reason: `quote sanity: the 0x quote implies $${implied.toFixed(6)} per token vs the signal's pool price $${opts.referencePriceUsd.toFixed(6)} \u2014 ${dev.toFixed(1)}% off, beyond the ${opts.maxPriceDeviationPct.toFixed(1)}% band (slippage + 2%). Skipped rather than filled at an unverified price.` };
+      }
+    }
     const t = quote.transaction;
     if (!t?.to || !t?.data) return { ok: false, reason: "quote returned no transaction" };
     const txResp = await wallet.sendTransaction({
@@ -11540,11 +11674,13 @@ async function executeDefiSwap(opts) {
           txHash: txResp.hash,
           buyAmount: quote.buyAmount,
           buyAmountHuman,
+          gasNative: gasNativePaid(),
           reason: `swap BROADCAST but unconfirmed after 90s (tx ${txResp.hash}) \u2014 treated as PENDING, not failed`
         };
       }
-      if (rcpt.status !== 1) return { ok: false, txHash: txResp.hash, reason: "swap reverted on-chain (no tokens received)" };
-      return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman };
+      gasWeiPaid += rcpt.gasUsed * rcpt.gasPrice;
+      if (rcpt.status !== 1) return { ok: false, txHash: txResp.hash, gasNative: gasNativePaid(), reason: "swap reverted on-chain (no tokens received)" };
+      return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman, gasNative: gasNativePaid() };
     }
     try {
       await Promise.race([txResp.wait(), new Promise((r) => setTimeout(r, 8e3))]);
@@ -11561,7 +11697,7 @@ async function executeDefiSwap(opts) {
 async function getWalletTokenBalance(chainKey, walletAddress, token) {
   const chain = DEFI_CHAINS[chainKey];
   if (!chain) throw new Error(`unsupported chain ${chainKey}`);
-  const provider = new ethers.JsonRpcProvider(rpcUrlFor(chainKey), chain.chainId);
+  const provider = providerFor(chainKey);
   try {
     const addr = await resolveToken(chainKey, token);
     if (addr === NATIVE_PSEUDO) return Number(ethers.formatEther(await provider.getBalance(walletAddress)));
@@ -11583,6 +11719,7 @@ var init_defi_swap = __esm({
   "server/services/defi-swap.ts"() {
     "use strict";
     init_cryptocom();
+    init_crypto_fix_pack();
     ALCHEMY_NET = {
       ethereum: "eth-mainnet",
       base: "base-mainnet",
@@ -11988,6 +12125,12 @@ __export(defi_executor_exports, {
   defiExitSell: () => defiExitSell,
   defiTokenAvailable: () => defiTokenAvailable
 });
+async function gasUsdFor(chainKey, gasNative) {
+  if (gasNative == null) return void 0;
+  const coin = chainKey === "polygon" ? "MATIC" : "ETH";
+  const q = await getAggregatedQuote(coin).catch(() => null);
+  return gasUsdFromNative(gasNative, q?.best?.price ?? null);
+}
 async function defiTokenAvailable(chainKey, symbol) {
   return isTokenTradeable(chainKey, baseCoin(symbol));
 }
@@ -12052,17 +12195,23 @@ async function defiEntryBuy(userId, chainKey, base, notionalUsd, slippageBps, pr
     buyToken: token,
     sellAmountHuman: notionalUsd,
     slippageBps,
-    confirm: true
+    confirm: true,
     // wait for on-chain success — no phantom entries on a revert
+    // Quote sanity band (fix pack #9): the quote's implied price may not
+    // wander beyond slippage + 2% from the price the signal decided on.
+    // Kill switch CRYPTO_QUOTE_BAND=off.
+    ...process.env.CRYPTO_QUOTE_BAND !== "off" && price > 0 ? { referencePriceUsd: price, maxPriceDeviationPct: quoteBandLimitPct(slippageBps) } : {}
   });
+  const gasUsd = await gasUsdFor(chain, r.gasNative);
   if (!r.ok) {
     const qtyHint = r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0 ? r.buyAmountHuman : price > 0 ? notionalUsd / price : 0;
-    return { ok: false, pending: !!r.pending, token, qtyBase: r.pending ? qtyHint : 0, entryPrice: price, txHash: r.txHash, reason: r.reason };
+    return { ok: false, pending: !!r.pending, token, qtyBase: r.pending ? qtyHint : 0, entryPrice: price, hintPrice: price, gasUsd, txHash: r.txHash, reason: r.reason };
   }
   let qtyBase = notionalUsd / price;
   if (r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0) qtyBase = r.buyAmountHuman;
   qtyBase = Math.max(0, Math.round(qtyBase * 1e8) / 1e8);
-  return { ok: true, token, qtyBase, entryPrice: price, txHash: r.txHash };
+  const entryPrice = fillPriceFromSwap(notionalUsd, qtyBase, price);
+  return { ok: true, token, qtyBase, entryPrice, hintPrice: price, gasUsd, txHash: r.txHash };
 }
 async function defiExitSell(userId, chainKey, base, qtyBase, slippageBps, priceHint) {
   const token = tokenRef(base);
@@ -12106,7 +12255,7 @@ async function defiExitSell(userId, chainKey, base, qtyBase, slippageBps, priceH
     // wait for on-chain success — don't book a close that reverted
   });
   if (!r.ok) return { ok: false, exitPrice: price, reason: r.reason, soldQty: sellQty };
-  return { ok: true, exitPrice: price, proceedsUsd: r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0 ? r.buyAmountHuman : void 0, txHash: r.txHash, soldQty: sellQty };
+  return { ok: true, exitPrice: price, proceedsUsd: r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0 ? r.buyAmountHuman : void 0, gasUsd: await gasUsdFor(chainKey || hw.chain, r.gasNative), txHash: r.txHash, soldQty: sellQty };
 }
 var init_defi_executor = __esm({
   "server/services/defi-executor.ts"() {
@@ -12114,6 +12263,7 @@ var init_defi_executor = __esm({
     init_db();
     init_crypto_market_data();
     init_defi_swap();
+    init_crypto_fix_pack();
     init_cefi_executor();
   }
 });
@@ -15374,6 +15524,24 @@ function currentCounters(userId) {
 }
 function noteCryptoPlanEntry(userId) {
   currentCounters(userId).entriesViaPlan += 1;
+  void persistCryptoWatchPlanCounters(userId);
+}
+async function persistCryptoWatchPlanCounters(userId) {
+  try {
+    const rec = {
+      day: utcDay4(),
+      c: { ...currentCounters(userId) },
+      activePlans: countActiveCryptoPlans(userId),
+      at: Date.now()
+    };
+    await ensureRuntimeStateTable();
+    await pool.query(
+      `INSERT INTO runtime_state (scope, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+       ON CONFLICT (scope, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+      ["crypto_watch_plans", `${userId}:counters`, JSON.stringify(rec)]
+    );
+  } catch {
+  }
 }
 function cryptoWatchPlanCountersToday(userId) {
   const s = countersByUser.get(userId);
@@ -15393,13 +15561,17 @@ async function persist(userId, blob) {
     await store.save(userId, blob);
   } catch {
   }
+  await persistCryptoWatchPlanCounters(userId);
+}
+function countActiveInBlob(blob, now) {
+  let n = 0;
+  for (const p of Object.values(blob.plans)) if (p && p.expiresAt > now) n += 1;
+  return n;
 }
 function countActiveCryptoPlans(userId, now = Date.now()) {
   const blob = cache4.get(userId);
   if (!blob) return 0;
-  let n = 0;
-  for (const p of Object.values(blob.plans)) if (p && p.expiresAt > now) n += 1;
-  return n;
+  return countActiveInBlob(blob, now);
 }
 function newCryptoPlanCycle() {
   return { deepUsed: 0, deepCap: cryptoPlanMaxDeepPerCycle() };
@@ -15432,7 +15604,7 @@ async function realDeepCall(input) {
   const client2 = await getUniversalAIClientForUser(input.userId);
   return runCryptoDeepStudy(input, client2);
 }
-async function resolveCryptoWatchPlan(input, cycle, deps = {}) {
+async function resolveCryptoWatchPlanInner(input, cycle, deps = {}) {
   const now = (deps.now ?? Date.now)();
   const userId = input.userId;
   const key = cryptoPlanKey(input.symbol, input.strategy);
@@ -15537,12 +15709,39 @@ async function resolveCryptoWatchPlan(input, cycle, deps = {}) {
     return { action: "fallback" };
   }
 }
+async function resolveCryptoWatchPlan(input, cycle, deps = {}) {
+  const out = await resolveCryptoWatchPlanInner(input, cycle, deps);
+  await persistCryptoWatchPlanCounters(input.userId);
+  return out;
+}
 function cryptoWatchPlansSummary(userId) {
   return {
     enabled: cryptoWatchPlansEnabled(),
     activePlans: countActiveCryptoPlans(userId),
     ...cryptoWatchPlanCountersToday(userId)
   };
+}
+async function cryptoWatchPlansSummaryAsync(userId, now = Date.now()) {
+  const local = cryptoWatchPlansSummary(userId);
+  try {
+    const saved = await getRuntimeStateStrict("crypto_watch_plans", `${userId}:counters`);
+    let activePlans = local.activePlans;
+    if (!cache4.has(userId)) {
+      const blob = await store.load(userId).catch(() => null);
+      if (blob) activePlans = countActiveInBlob(blob, now);
+      else if (saved && typeof saved.activePlans === "number") activePlans = saved.activePlans;
+    }
+    if (saved && saved.day === utcDay4() && saved.c && typeof saved.c === "object") {
+      const merged = emptyCounters();
+      for (const k of Object.keys(merged)) {
+        merged[k] = Math.max(Number(saved.c[k]) || 0, Number(local[k]) || 0);
+      }
+      return { enabled: local.enabled, activePlans, ...merged };
+    }
+    return { ...local, activePlans };
+  } catch {
+    return local;
+  }
 }
 var cryptoWatchPlansEnabled, cryptoWatchPlanCooldownMs, CRYPTO_PLAN_MAX_DEEP_PER_CYCLE, cryptoPlanMaxDeepPerCycle, cryptoWatchPlanTimeoutMs, CRYPTO_PLAN_MIN_EXPIRY_MS, CRYPTO_PLAN_MAX_EXPIRY_MS, CRYPTO_PLAN_PRICE_SANITY_PCT, CRYPTO_PLAN_STOP_MIN_PCT, CRYPTO_PLAN_STOP_MAX_PCT, CRYPTO_PLAN_TARGET_R, cryptoPlanKey, isPos2, fmt, fmtRec, emptyCounters, countersByUser, utcDay4, defaultStore, store, cache4, loadStarted2;
 var init_crypto_watch_plans = __esm({
@@ -42451,7 +42650,7 @@ async function getCryptoPromotionPanel(userId) {
   ]);
   const activeKeys = new Set(promotions.filter((p) => p.active).map((p) => `${p.strategy}|${p.dim}|${p.bucket}`));
   const candidates = stats.filter((s) => s.verdict === "avoid").map((s) => ({ ...s, alreadyGuarded: activeKeys.has(`${s.strategy}|${s.dim}|${s.bucket}`) })).sort((a, b) => b.n - a.n);
-  const aiWatchPlans = cryptoWatchPlansSummary(userId);
+  const aiWatchPlans = await cryptoWatchPlansSummaryAsync(userId).catch(() => cryptoWatchPlansSummary(userId));
   return { candidates, promotions, aiJudge, aiWatchPlans };
 }
 async function promoteCryptoBucket(userId, sel) {
@@ -43250,6 +43449,9 @@ async function closePosition(userId, trade, currentPrice, reason) {
     return;
   }
   let finished = false;
+  let bookedQty = trade.quantity;
+  let exitGasUsd = void 0;
+  let closeNote = "";
   try {
     const venue = trade.venue && trade.venue !== "cryptocom" ? trade.venue : null;
     if (venue === "hyperliquid") {
@@ -43293,7 +43495,32 @@ async function closePosition(userId, trade, currentPrice, reason) {
         return;
       }
       if (exit.exitPrice) currentPrice = exit.exitPrice;
-      if (exit.proceedsUsd && trade.quantity > 0) currentPrice = exit.proceedsUsd / trade.quantity;
+      exitGasUsd = exit.gasUsd ?? null;
+      const split = partialCloseSplit(trade.quantity, exit.soldQty);
+      if (exit.proceedsUsd && split.bookedQty > 0) currentPrice = exit.proceedsUsd / split.bookedQty;
+      if (split.isPartial) {
+        bookedQty = split.bookedQty;
+        await storage.createCryptocomEngineTrade({
+          userId,
+          connectionId: trade.connectionId,
+          venue: trade.venue,
+          symbol: trade.symbol,
+          strategy: trade.strategy,
+          direction: trade.direction,
+          quantity: split.remainderQty,
+          entryPrice: trade.entryPrice,
+          stopLoss: trade.stopLoss,
+          takeProfit: trade.takeProfit,
+          entryOrderId: trade.entryOrderId,
+          entryReasoning: `Unsold remainder of trade #${trade.id} after a partial exit \u2014 parked for reconciliation; no P&L booked on it.`,
+          tokenAddress: trade.tokenAddress ?? null,
+          poolAddress: trade.poolAddress ?? null,
+          status: "needs_reconciliation",
+          exitReason: `partial close of trade #${trade.id}: sold ${split.bookedQty} of ${trade.quantity}; the remainder was not in the wallet when the exit sold`
+        });
+        await storage.correctCryptocomEngineTradeQuantityForClose(trade.id, split.bookedQty);
+        closeNote = ` Partial exit: sold ${split.bookedQty} of ${trade.quantity}; the remaining ${split.remainderQty} was parked as needs_reconciliation with no P&L booked on it.`;
+      }
     } else if (venue) {
       const exit = await cefiExitSell(userId, venue, baseCoin(trade.symbol), trade.quantity).catch((e) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) }));
       if (!exit?.ok) {
@@ -43322,8 +43549,12 @@ async function closePosition(userId, trade, currentPrice, reason) {
         return;
       }
     }
-    const realizedPnl = (trade.direction === "long" ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.quantity;
-    const closedRow = await storage.closeCryptocomEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: reason, realizedPnl });
+    const grossPnl = (trade.direction === "long" ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * bookedQty;
+    const gasInPnl = process.env.CRYPTO_GAS_IN_PNL !== "off";
+    const totalGasUsd = (Number(trade.entryGasUsd) || 0) + (Number(exitGasUsd) || 0);
+    const realizedPnl = realizedPnlAfterGas(grossPnl, trade.entryGasUsd, exitGasUsd, gasInPnl);
+    const gasNote = gasInPnl && totalGasUsd > 0 ? ` P&L is net of $${totalGasUsd.toFixed(2)} round-trip gas.` : "";
+    const closedRow = await storage.closeCryptocomEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: reason, realizedPnl, exitGasUsd });
     if (!closedRow) {
       console.warn(`[cryptocom-scanner] trade ${trade.id} was already finalised elsewhere \u2014 skipping duplicate P&L/brain writes`);
       finished = true;
@@ -43335,7 +43566,7 @@ async function closePosition(userId, trade, currentPrice, reason) {
       symbol: trade.symbol,
       decision: "signal",
       strategy: trade.strategy,
-      reasoning: `${trade.symbol}: CLOSED ${trade.quantity} @ ~$${currentPrice.toFixed(2)} (${reason.replace("_", " ")}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
+      reasoning: `${trade.symbol}: CLOSED ${bookedQty} @ ~$${currentPrice.toFixed(2)} (${reason.replace("_", " ")}). Realized P&L: $${realizedPnl.toFixed(2)}.${closeNote}${gasNote}`,
       score: null,
       price: currentPrice,
       dailyChangePercent: null,
@@ -43346,7 +43577,7 @@ async function closePosition(userId, trade, currentPrice, reason) {
     } catch {
     }
     try {
-      const notional = (trade.entryPrice || 0) * (trade.quantity || 0);
+      const notional = (trade.entryPrice || 0) * (bookedQty || 0);
       const returnPct = notional > 0 ? realizedPnl / notional * 100 : 0;
       const entered = trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now();
       await recordCryptoBrainOutcome({
@@ -43406,8 +43637,21 @@ async function checkSafetyGates(userId, cfg, equity) {
     if (cfg.dailyProfitTarget > 0 && todayPnl >= equity * cfg.dailyProfitTarget / 100) {
       return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached`, riskMultiplier: 1 };
     }
-    const peak = Math.max(sessionPeakEquity.get(userId) ?? equity, equity);
+    let peak = mergePeakEquity(null, sessionPeakEquity.get(userId), equity);
+    if (!sessionPeakEquity.has(userId)) {
+      try {
+        const { getRuntimeStateStrict: getRuntimeStateStrict2 } = await Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports));
+        const stored = await getRuntimeStateStrict2("crypto_peak_equity", String(userId));
+        peak = mergePeakEquity(stored ? Number(stored.peak) : null, sessionPeakEquity.get(userId), equity);
+      } catch {
+      }
+    }
+    const prevPeak = sessionPeakEquity.get(userId);
     sessionPeakEquity.set(userId, peak);
+    if (prevPeak == null || peak > prevPeak) {
+      void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => m.saveRuntimeState("crypto_peak_equity", String(userId), { peak, at: Date.now() })).catch(() => {
+      });
+    }
     const ddFromPeakPct = peak > 0 ? (peak - equity) / peak * 100 : 0;
     if (ddFromPeakPct >= cfg.drawdownShieldThreshold) riskMultiplier = Math.min(riskMultiplier, 0.25);
     if (cfg.ruinGuardEnabled) {
@@ -43704,7 +43948,12 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
             return;
           }
         }
-      } catch {
+      } catch (promoErr) {
+        if (promotionErrorSkipsEntry()) {
+          await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: promoted-guard check FAILED (${promoErr?.message ?? promoErr}) \u2014 entry skipped rather than traded without the guards you promoted on Guards & Trails (fail-closed).`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" }).catch(() => {
+          });
+          return;
+        }
       }
     }
     const _baseN = cfg._paper ? Math.max(5, Number(cfg._paperBalance || 1e3) * Number(process.env.CRYPTO_PAPER_SIZE_PCT ?? 2) / 100) : Math.max(1, cfg.defiNotionalUsd ?? 25);
@@ -43858,6 +44107,17 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
           console.error("[cryptocom-scanner] rotation check failed (non-fatal):", e?.message || e);
         }
       }
+      if (process.env.CRYPTO_LIVE_COST_FLOOR !== "off") {
+        const { estimateCryptoRoundTripBps: estimateCryptoRoundTripBps2 } = await Promise.resolve().then(() => (init_paper_costs(), paper_costs_exports));
+        const rtBps = estimateCryptoRoundTripBps2({ notionalUsd: notionalD, liquidityUsd: disc?.liquidityUsd, slippageCapBps: slip }).roundTripBps;
+        const mult = Number(process.env.CRYPTO_PAPER_COST_FLOOR_MULT ?? 3);
+        const floor = evaluateCostFloor({ stopPct: slPctD, roundTripBps: rtBps, mult, notionalUsd: notionalD });
+        if (!floor.pass) {
+          await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: cost floor: stop $${floor.stopUsd.toFixed(2)} < ${mult}\xD7 round-trip cost $${floor.floorUsd.toFixed(2)} (modeled round trip $${floor.roundTripCostUsd.toFixed(2)} on a $${notionalD.toFixed(2)} trade) \u2014 the trade cannot outrun its own fees, so it is skipped.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" }).catch(() => {
+          });
+          return;
+        }
+      }
       const r = await defiEntryBuy2(userId, chain, disc?.address ?? symbol, notionalD, slip, disc?.priceUsd ?? result.price ?? void 0);
       if (!r.ok) {
         if (r.pending && r.txHash) {
@@ -43878,7 +44138,8 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
             entryReasoning: `UNCONFIRMED at entry: ${r.reason}. Recorded so the position is monitored; quantity reconciled from the wallet next cycle.`,
             status: "open",
             tokenAddress: disc?.address ?? null,
-            poolAddress: disc?.poolAddress ?? null
+            poolAddress: disc?.poolAddress ?? null,
+            entryGasUsd: r.gasUsd ?? null
           });
           await storage.createCryptocomEngineActivity({ userId, symbol, decision: "signal", strategy: result.strategy, reasoning: `${symbol}: entry BROADCAST but unconfirmed (tx ${r.txHash.slice(0, 12)}\u2026) \u2014 recorded OPEN so it is monitored rather than abandoned; quantity will be reconciled from the wallet.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" }).catch(() => {
           });
@@ -43908,7 +44169,8 @@ async function executeSignalSingle(service, connection, userId, symbol, result, 
         // moving window; a token that falls out of it must still be priceable
         // and sellable.
         tokenAddress: disc?.address ?? null,
-        poolAddress: disc?.poolAddress ?? null
+        poolAddress: disc?.poolAddress ?? null,
+        entryGasUsd: r.gasUsd ?? null
       });
       await storage.createCryptocomEngineActivity({ userId, symbol, decision: "signal", strategy: result.strategy, reasoning: `${symbol}: EXECUTED on DeFi (${chain}) \u2014 swapped ~$${notionalD.toFixed(0)} USDC \u2192 ${r.qtyBase} ${r.token} @ ~$${r.entryPrice.toFixed(2)}. TP +${tpPctD.toFixed(1)}% / SL -${slPctD.toFixed(1)}%.${_sizeNote} tx ${r.txHash?.slice(0, 12) ?? ""}\u2026 ${result.reasoning}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
     } catch (err) {
@@ -44153,7 +44415,17 @@ async function scanOneUser(userId) {
             }
           }
         }
-        const tradeAllowed = await assembleConsensus(userId, symbol, result, config).catch(() => true);
+        let tradeAllowed = false;
+        try {
+          tradeAllowed = await assembleConsensus(userId, symbol, result, config);
+        } catch (consErr) {
+          if (consensusThrowAllowsTrade()) {
+            tradeAllowed = true;
+          } else {
+            await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: consensus check FAILED (${consErr?.message ?? consErr}) \u2014 entry skipped rather than allowed without the Dual-Vote verdict (fail-closed).`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" }).catch(() => {
+            });
+          }
+        }
         if (!tradeAllowed) {
           void Promise.resolve().then(() => (init_runtime_state(), runtime_state_exports)).then((m) => m.saveRuntimeState("crypto_ai_skip", `${userId}|${symbol}|${result.direction}|${result.strategy}`, { at: Date.now(), score: result.score ?? 0 })).catch(() => {
           });
@@ -44543,6 +44815,7 @@ var init_cryptocom_scanner = __esm({
     init_trail_guards();
     init_trail_brain();
     init_cefi_executor();
+    init_crypto_fix_pack();
     MIN_SCAN_INTERVAL_MS = 6e4;
     lastScanAt = /* @__PURE__ */ new Map();
     scanCursor = /* @__PURE__ */ new Map();
