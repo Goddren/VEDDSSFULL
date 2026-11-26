@@ -21,11 +21,15 @@
 //      (any error or any other answer → no orders).
 //   5. The margin balance reads successfully and yields an equity figure
 //      (sizing is impossible without it → no orders), AND the usable
-//      balance covers the margin the lane's standard notional needs at
-//      the assumed leverage (env KALSHI_PERP_LIVE_ASSUMED_LEVERAGE,
-//      default 5x): an account funded below one standard trade would
-//      only ever dribble out sub-contract sizes or be rejected by
-//      Kalshi for insufficient margin → no orders.
+//      balance covers the margin the trade needs at the assumed leverage
+//      (env KALSHI_PERP_LIVE_ASSUMED_LEVERAGE, default 5x). With the
+//      small-account brain ON (kalshi-perp-small-account.ts, default),
+//      the coverage test runs PER CANDIDATE against the trade the ladder
+//      actually sized; with KALSHI_PERP_SMALL_ACCOUNT=off it is the
+//      pre-build lane-level test against the standard notional: an
+//      account funded below one standard trade would only ever dribble
+//      out sub-contract sizes or be rejected by Kalshi for insufficient
+//      margin → no orders.
 //   6. The strategy is ARMED via the in-app toggle (getArmedPerpStrategies
 //      — default NOT armed; an unreadable arm state reads as not armed).
 //   7. The strategy meets the EXISTING promotion bar on FRESH shadow
@@ -36,6 +40,15 @@
 //      KALSHI_PERP_LIVE_MAX_OPEN), ≤2 per strategy, ≤10 live orders per
 //      UTC day, one live position per strategy+underlying, per-trade
 //      notional ≤ the shadow model's $250 AND ≤ 25% of margin equity.
+//      SMALL-ACCOUNT BRAIN (default on, KALSHI_PERP_SMALL_ACCOUNT=off
+//      restores the pre-build lane wholesale): the equity read at gate 5
+//      also picks the ladder mode — SURVIVAL (<$100: risk 2% of equity
+//      per trade, fractional contracts, ≤1 open) / GROWTH ($100–$1,000:
+//      risk 3%, ≤2 open) / STANDARD (≥$1,000: the sizing above) — plus
+//      two survival brakes in the gate chain: a hard equity floor
+//      (default $10) and a consecutive-loss pause (default 3 losses →
+//      entries paused until the next UTC day). Exits and reconciliation
+//      are NEVER gated by the brakes, the ladder, or the kill switch.
 // EXITS are not gated by 1–8: exit monitoring and reconciliation run even
 // with the kill switch off, because stranding a real position is worse
 // than closing it. The kill switch stops NEW entries, never exits.
@@ -84,6 +97,11 @@ import { accountReplay } from './kalshi-stock-shadow';
 import {
   exactCostsEnabled, COST_MODEL_EXACT, resolveFeeSchedule, feeUsd,
 } from './kalshi-perp-costs';
+import {
+  smallAccountEnabled, perpSaMode, perpSaRiskPct, perpSaMaxOpen, sizePerpByRisk,
+  perpLossStreak, SA_MIN_INCREMENT, SA_EQUITY_FLOOR_USD, SA_LOSS_STREAK,
+  type PerpSaMode,
+} from './kalshi-perp-small-account';
 
 const num = (n: string, d: number) => { const v = Number(process.env[n]); return Number.isFinite(v) && v > 0 ? v : d; };
 export const perpLiveEnabled = () => process.env.KALSHI_PERP_LIVE !== 'off';
@@ -198,6 +216,21 @@ export function sizeLiveEntry(equityUsd: number | null, price: number): { contra
   return { contracts, notionalUsd: contracts * price, targetUsd, reason: null };
 }
 
+/** Small-account sizing (kalshi-perp-small-account.ts): SURVIVAL and
+ *  GROWTH size by risk — a fixed % of equity riding on the trade's own
+ *  stop distance, in fractional contracts, capped by the notional cap
+ *  and by the margin actually available. STANDARD (and an unreadable
+ *  equity, which gate 5 blocks before this is ever reached in the entry
+ *  loop) keeps the legacy sizing above, byte-for-byte. Same return
+ *  shape as sizeLiveEntry so the entry loop reads either the same way;
+ *  `contracts` may be fractional (≥ the 0.02 minimum increment). */
+export function sizeLiveEntrySA(equityUsd: number | null, price: number, slPct: number, availableMarginUsd: number | null): { contracts: number; notionalUsd: number; targetUsd: number; reason: string | null } {
+  const mode = perpSaMode(equityUsd);
+  if (mode === 'standard' || equityUsd == null) return sizeLiveEntry(equityUsd, price);
+  const s = sizePerpByRisk({ equityUsd, price, slPct, mode, availableMarginUsd, leverage: ASSUMED_LEVERAGE() });
+  return { contracts: s.contracts, notionalUsd: s.notionalUsd, targetUsd: s.targetUsd, reason: s.reason };
+}
+
 /** Gate 5b — margin coverage for the lane's STANDARD trade. Sizing alone
  *  cannot stop an underfunded order: the 25%-of-equity cap shrinks the
  *  target until a cheap contract fits, so a $2.61 account would otherwise
@@ -295,12 +328,23 @@ interface PerpLiveState {
   unknownPositions: Array<{ ticker: string; contracts: number; seenAt: string }>;
   lastCycleAt: string | null;
   lastBlockReason: string | null;
+  // Small-account brain stamps (panel display; recomputed every cycle
+  // from the live equity read + the durable close journal — the journal
+  // is the streak's source of truth, these fields only mirror it).
+  saMode: PerpSaMode | null;
+  saEquityUsd: number | null;
+  saRiskPct: number | null;
+  saLossStreak: number;
+  saStreakPaused: boolean;
+  saFloorBlocked: boolean;
 }
 const STATE_SCOPE = 'kalshi_perp_live';
 const defaultState = (): PerpLiveState => ({
   pausedUntilMs: 0, pauseReason: null, consecutiveApiErrors: 0,
   dayAnchorDate: null, dayAnchorEquityUsd: null, unknownPositions: [],
   lastCycleAt: null, lastBlockReason: null,
+  saMode: null, saEquityUsd: null, saRiskPct: null,
+  saLossStreak: 0, saStreakPaused: false, saFloorBlocked: false,
 });
 async function loadPerpLiveState(userId: number): Promise<PerpLiveState> {
   try {
@@ -375,6 +419,11 @@ async function sendMarginOrderIntent(userId: number, intent: {
   const outcome = await placeKalshiMarginOrder(userId, {
     ticker: intent.ticker, clientOrderId: intent.clientOrderId, side: intent.side,
     count: intent.count, price: intent.price, tickSize: intent.tickSize, reduceOnly: intent.reduceOnly,
+    // Fractional counts ride the order body's opt-in only when the
+    // small-account brain is on — or when the count itself is already
+    // fractional (an exit of a fractional position must never be
+    // floored up past the position, whatever the switch says).
+    fractional: smallAccountEnabled() || !Number.isInteger(intent.count),
   });
   if (outcome.outcome === 'responded') {
     const status = outcome.fillCount <= 0 ? 'canceled' : outcome.remainingCount > 0 ? 'partial' : 'filled';
@@ -796,10 +845,25 @@ async function processLiveEntries(
   try { marginBalance = await getKalshiMarginBalance(userId); equityUsd = marginBalance.equityUsd; }
   catch (e: any) { state.consecutiveApiErrors++; return block(`margin balance read failed: ${e?.message ?? e}`); }
   if (equityUsd == null || !(equityUsd > 0)) return block('margin balance unreadable — cannot size safely');
-  // Gate 5b — the usable balance must cover the margin for the lane's
-  // standard notional at the assumed leverage (see marginCoverageBlock).
-  const coverageBlock = marginCoverageBlock(marginBalance, NOTIONAL(), ASSUMED_LEVERAGE());
-  if (coverageBlock) return block(coverageBlock);
+  // Small-account brain: the equity just read picks the ladder mode for
+  // this cycle (no second read — gate 5's figure is the one truth).
+  // Stamped on lane state for the panel even when a later gate blocks.
+  const saOn = smallAccountEnabled();
+  const saMode: PerpSaMode | null = saOn ? perpSaMode(equityUsd) : null;
+  if (saOn) {
+    state.saMode = saMode;
+    state.saEquityUsd = equityUsd;
+    state.saRiskPct = saMode ? perpSaRiskPct(saMode) : null;
+  }
+  // Gate 5b — the usable balance must cover the margin for the trade at
+  // the assumed leverage (see marginCoverageBlock). With the
+  // small-account brain ON the test runs per candidate below against
+  // the notional the ladder actually sized; OFF it is the pre-build
+  // lane-level test against the standard notional.
+  if (!saOn) {
+    const coverageBlock = marginCoverageBlock(marginBalance, NOTIONAL(), ASSUMED_LEVERAGE());
+    if (coverageBlock) return block(coverageBlock);
+  }
   // Day anchor + Gate 2b — daily-loss halt (Ruin Guard daily leg shape).
   const today = utcDayKey(Date.now());
   if (state.dayAnchorDate !== today || state.dayAnchorEquityUsd == null) {
@@ -831,6 +895,28 @@ async function processLiveEntries(
   if (anchor > 0 && realizedToday + floatingToday <= -(DAILY_LOSS_PCT() / 100) * anchor) {
     return block(`daily-loss halt: realized ${realizedToday.toFixed(2)} + floating ${floatingToday.toFixed(2)} today vs −${DAILY_LOSS_PCT()}% of the day's opening equity $${anchor.toFixed(2)}`);
   }
+  // Gate 2c — small-account survival brakes (entries only; exits and
+  // reconciliation already ran ungated). The streak is recomputed from
+  // the durable close journal every cycle, so a restart can neither
+  // invent nor forget a pause.
+  if (saOn) {
+    const floorUsd = SA_EQUITY_FLOOR_USD();
+    state.saFloorBlocked = equityUsd < floorUsd;
+    if (state.saFloorBlocked) {
+      return block(`small-account equity floor: margin equity $${equityUsd.toFixed(2)} is below the $${floorUsd.toFixed(2)} floor — entries paused (exits unaffected)`);
+    }
+    const { rows: streakRows } = await pool.query(
+      `SELECT net_pnl_usd, closed_at FROM kalshi_perp_live_trades
+        WHERE user_id=$1 AND status='closed' AND net_pnl_usd IS NOT NULL
+        ORDER BY closed_at DESC, id DESC LIMIT 25`, [userId]);
+    const streak = perpLossStreak(streakRows.map((r: any) => ({ netPnlUsd: r.net_pnl_usd == null ? null : Number(r.net_pnl_usd) })));
+    const lastLossDay = streakRows.length ? utcDayKey(new Date(streakRows[0].closed_at).getTime()) : null;
+    state.saLossStreak = streak;
+    state.saStreakPaused = streak >= SA_LOSS_STREAK() && lastLossDay === today;
+    if (state.saStreakPaused) {
+      return block(`small-account loss-streak pause: ${streak} consecutive live losses — entries paused until the next UTC day (exits unaffected)`);
+    }
+  }
   // Gate 6 — armed strategies (fresh read; unreadable = none armed).
   const armed = await getArmedPerpStrategies(userId);
   if (!armed.size) return block('no perp strategy is armed for live (toggle is off for every strategy)');
@@ -855,11 +941,15 @@ async function processLiveEntries(
   // may already be a real position on Kalshi, so it must consume cap and
   // uniqueness exactly like an open row until reconciliation resolves it.
   let openLive = [...openRows];
+  // The ladder tightens the open-position cap on small accounts
+  // (SURVIVAL 1, GROWTH 2); STANDARD and the kill switch keep the
+  // lane's own cap.
+  const maxOpenCap = (saMode ? perpSaMaxOpen(saMode) : null) ?? MAX_OPEN();
 
   for (const s of candidates) {
     const strategy = String(s.strategy);
     if (!armed.has(strategy)) continue;
-    if (openLive.length >= MAX_OPEN()) { block(`live cap reached (${MAX_OPEN()} open)`); break; }
+    if (openLive.length >= maxOpenCap) { block(`live cap reached (${maxOpenCap} open)`); break; }
     if (ordersToday >= MAX_ORDERS_DAY()) { block(`daily live order cap reached (${MAX_ORDERS_DAY()})`); break; }
     if (openLive.filter((r: any) => r.strategy === strategy).length >= MAX_PER_STRAT()) continue;
     if (openLive.some((r: any) => r.strategy === strategy && r.underlying === s.underlying)) continue;
@@ -876,15 +966,25 @@ async function processLiveEntries(
     const short = s.direction === 'short';
     if (short ? touch.ask >= Number(s.stop_loss) : touch.bid <= Number(s.stop_loss)) continue; // setup already failed
     const entryBasis = short ? touch.bid : touch.ask;
-    const sizing = sizeLiveEntry(equityUsd, entryBasis);
-    if (sizing.contracts < 1) { block(`${strategy}/${s.ticker}: ${sizing.reason}`); continue; }
+    const sizing = saOn
+      ? sizeLiveEntrySA(equityUsd, entryBasis, Number(s.sl_pct), marginBalance?.availableUsd ?? marginBalance?.equityUsd ?? null)
+      : sizeLiveEntry(equityUsd, entryBasis);
+    if (sizing.contracts < (saOn ? SA_MIN_INCREMENT() : 1)) { block(`${strategy}/${s.ticker}: ${sizing.reason}`); continue; }
+    // Gate 5b (small-account form): the usable balance must cover the
+    // margin for THIS trade — the notional the ladder actually sized —
+    // at the assumed leverage.
+    if (saOn) {
+      const cov = marginCoverageBlock(marginBalance, sizing.notionalUsd, ASSUMED_LEVERAGE());
+      if (cov) { block(`${strategy}/${s.ticker}: ${cov}`); continue; }
+    }
 
     const ins = await pool.query(
       `INSERT INTO kalshi_perp_live_trades (user_id, shadow_trade_id, strategy, ticker, underlying, direction,
-         contracts, stop_loss, take_profit, sl_pct, notional_usd, max_hours, entry_client_order_id, status)
-       VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8,$9,0,$10,$11,'pending_entry')
+         contracts, stop_loss, take_profit, sl_pct, notional_usd, max_hours, entry_client_order_id, status, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8,$9,0,$10,$11,'pending_entry',$12)
        ON CONFLICT (shadow_trade_id) DO NOTHING RETURNING id`,
-      [userId, s.id, strategy, s.ticker, s.underlying, s.direction, s.stop_loss, s.take_profit, s.sl_pct, s.max_hours, `vedd-perp-e${s.id}`]);
+      [userId, s.id, strategy, s.ticker, s.underlying, s.direction, s.stop_loss, s.take_profit, s.sl_pct, s.max_hours, `vedd-perp-e${s.id}`,
+       saOn ? `small-account mode=${saMode} equity=$${equityUsd.toFixed(2)} risk=${state.saRiskPct ?? 'legacy'}%/trade; ` : null]);
     const liveId = ins.rows[0]?.id;
     if (!liveId) continue; // raced with another cycle — the other intent owns it
     ordersToday++;
@@ -992,6 +1092,18 @@ export interface KalshiPerpLiveReport {
   todayRealizedPnlUsd: number;
   todayOrders: number;
   caps: { maxOpen: number; maxPerStrategy: number; maxOrdersPerDay: number; notionalUsd: number; dailyLossPct: number };
+  /** Small-account brain state (kalshi-perp-small-account.ts): the
+   *  ladder mode the brain is trading in, the equity it read, the risk
+   *  % in force, and the survival brakes. Stamped by the entry cycle;
+   *  mode/equity fall back to the report's own diagnostic read so the
+   *  panel line is honest before the first cycle lands. */
+  smallAccount: {
+    enabled: boolean;
+    mode: PerpSaMode | null;
+    equityUsd: number | null;
+    riskPct: number | null;
+    brakes: { lossStreak: number; streakPaused: boolean; equityFloorUsd: number; floorBlocked: boolean };
+  };
   strategies: Array<{ strategy: string; armed: boolean; bar: PerpPromotionBar }>;
   openPositions: Array<{
     id: number; strategy: string; ticker: string; underlying: string; direction: string; status: string;
@@ -1059,6 +1171,22 @@ export async function getKalshiPerpLiveReport(userId: number): Promise<KalshiPer
     todayRealizedPnlUsd: Number(pnlRes.rows[0]?.realized) || 0,
     todayOrders: Number(ordRes.rows[0]?.n) || 0,
     caps: { maxOpen: MAX_OPEN(), maxPerStrategy: MAX_PER_STRAT(), maxOrdersPerDay: MAX_ORDERS_DAY(), notionalUsd: NOTIONAL(), dailyLossPct: DAILY_LOSS_PCT() },
+    smallAccount: (() => {
+      const equityUsd = state.saEquityUsd ?? marginDiagnostic?.balanceParsed?.equityUsd ?? null;
+      const mode = state.saMode ?? (smallAccountEnabled() ? perpSaMode(equityUsd) : null);
+      return {
+        enabled: smallAccountEnabled(),
+        mode,
+        equityUsd,
+        riskPct: state.saRiskPct ?? (mode ? perpSaRiskPct(mode) : null),
+        brakes: {
+          lossStreak: state.saLossStreak ?? 0,
+          streakPaused: state.saStreakPaused ?? false,
+          equityFloorUsd: SA_EQUITY_FLOOR_USD(),
+          floorBlocked: state.saFloorBlocked ?? (equityUsd != null && equityUsd < SA_EQUITY_FLOOR_USD()),
+        },
+      };
+    })(),
     strategies,
     openPositions: openRes.rows.map((p: any) => {
       const touch = touches.get(String(p.ticker)) || null;
