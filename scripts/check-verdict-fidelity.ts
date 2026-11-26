@@ -137,8 +137,9 @@ const sw = src('../client/public/sw.js');
     routes.includes('(aiConfirmation as any).modelAiConfidence = _modelVerdict.confidence;'));
   check('C8 the confidence rewrite survives exactly once — inside the kill-switch-off branch',
     count(routes, 'aiConfirmation.aiConfidence = Math.max(60, Math.min(preConfirmConfidence, 75));') === 1);
-  check('C9 ADVISORY_OVERRIDE label on both the log write and the outcome row',
-    count(routes, "aiDecision: _advisoryLabel ? 'ADVISORY_OVERRIDE' :") === 2);
+  check('C9 ADVISORY_OVERRIDE label on both the log write and the outcome row (behind the 2026-11-26 RULES_ONLY_BUDGET head — mutually exclusive: the override cannot fire on an errored verdict, a degraded one never carries its label)',
+    count(routes, "_advisoryLabel ? 'ADVISORY_OVERRIDE' :") === 2 &&
+    count(routes, "aiDecision: _budgetDegraded ? 'RULES_ONLY_BUDGET' :") === 2);
   check('C10 raw-verdict snapshot is taken before the gate (before tradeAllowed)',
     routes.indexOf('const _modelVerdict = {') > -1 &&
     routes.indexOf('const _modelVerdict = {') < routes.indexOf('const tradeAllowed = !_smcSaysNo'));

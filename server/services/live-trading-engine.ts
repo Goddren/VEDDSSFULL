@@ -5464,7 +5464,7 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
       if (scanCtl) scanCtl.fallbackDone = true;
       if (_fxShadow) logAiShadow(userId, _scanId, _fxMode, 'budget_degraded', null);
       try {
-        const picks = _rulesP ?? await buildRulesPicks(userId, { ...marketAnalysis }, htfMarketData, newsContext).catch(() => [] as RulesPick[]);
+        const picks = await (_rulesP ?? buildRulesPicks(userId, { ...marketAnalysis }, htfMarketData, newsContext).catch(() => [] as RulesPick[]));
         for (const p of picks) (p.decision as any).aiMode = AI_BUDGET_DEGRADED_MODE;
         addActivity(userId, { type: 'info', message: `💤 ${AI_BUDGET_DEGRADED_REASON} — the AI analysis call was not bought this scan; the deterministic rules lane decides through the normal gates.` });
         await actOnRulesPicks(userId, _scanId, _fxMode, picks, newsContext, AI_BUDGET_DEGRADED_REASON);
