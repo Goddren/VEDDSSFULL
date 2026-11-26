@@ -145,6 +145,7 @@ import {
   type PerpAccountContext, type PerpShadowWallet,
 } from './kalshi-perp-small-account';
 import { loadKalshiCredentials, getKalshiMarginBalance } from './kalshi-trading';
+import { AI_BUDGET_DEGRADED_MODE } from './ai-budget-degrade';
 
 export const stockOrbEnabled = () => process.env.KALSHI_STOCK_ORB !== 'off';
 
@@ -1680,6 +1681,15 @@ export async function runKalshiStockShadowCycle(userId: number): Promise<{ opene
         } catch { res = { action: 'fallback' }; }
         if (res.action === 'skip') continue;
         viaPlan = res.action === 'triggered';
+        if (res.action === 'fallback' && res.budgetDegraded) {
+          // AI budget degrade (2026-11-26): this entry proceeds on the
+          // strategy's own signal because the watch-plan STUDY was
+          // budget-refused — no plan was bought and no AI was involved.
+          // The context row's tags carry the durable rules_only_budget
+          // marker (the lane's plan-error fallback stays untagged: that
+          // one is a malfunction, not a budget state).
+          tags.push(AI_BUDGET_DEGRADED_MODE);
+        }
       }
       // ── AI judge (kalshi-perp-ai-judge.ts): this candidate has passed
       // EVERY gate above (earnings, brain, improvement throttle, VP

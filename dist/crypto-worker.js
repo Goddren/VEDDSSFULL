@@ -9622,6 +9622,25 @@ var init_crypto_fix_pack = __esm({
   }
 });
 
+// server/services/ai-budget-degrade.ts
+function aiBudgetDegradeEnabled(env = process.env) {
+  return env.AI_BUDGET_DEGRADE !== "off";
+}
+function isBudgetRefusalError(err) {
+  return !!err && (err.budgetBlocked === true || err.aiErrorStatus === "budget");
+}
+function cryptoBudgetDegradedAllowed(quantVerdict) {
+  return quantVerdict === "CONFIRM";
+}
+var AI_BUDGET_DEGRADED_MODE, AI_BUDGET_DEGRADED_REASON;
+var init_ai_budget_degrade = __esm({
+  "server/services/ai-budget-degrade.ts"() {
+    "use strict";
+    AI_BUDGET_DEGRADED_MODE = "rules_only_budget";
+    AI_BUDGET_DEGRADED_REASON = "no AI (budget out) \u2014 rules decided";
+  }
+});
+
 // server/services/kalshi-perps.ts
 var kalshi_perps_exports = {};
 __export(kalshi_perps_exports, {
@@ -16303,7 +16322,8 @@ Would you independently confirm this ${opts.direction} setup on its own merits a
       aiConfidence: 0,
       reasoning: `Crypto AI confirmation error: ${err?.message ?? err}`,
       aiError: true,
-      aiErrorStatus: typeof statusCode === "number" ? statusCode : null
+      aiErrorStatus: typeof statusCode === "number" ? statusCode : null,
+      ...isBudgetRefusalError(err) ? { aiBudgetBlocked: true } : {}
     };
   }
 }
@@ -16313,6 +16333,7 @@ var init_crypto_ai_confirmation = __esm({
     "use strict";
     init_openai();
     init_ai_confirmation_cache();
+    init_ai_budget_degrade();
     cryptoConfirmationCache = createConfirmationCache({
       barEnabled: cryptoBarCacheEnabled,
       barTimeframe: (tf) => tf.includes(":shadow-h1") ? "1h" : tf
@@ -29408,6 +29429,20 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
     }
     if (_fxShadow) logAiShadow(userId, _scanId, _fxMode, usedMultiModel ? "ok:multi" : "ok", decisions.decisions || null, _gate);
   } catch (err) {
+    let _budgetDegradedScan = false;
+    if (_fxMode === "ai" && !scanCtl?.cancelled && !scanCtl?.fallbackDone && isBudgetRefusalError(err) && aiBudgetDegradeEnabled()) {
+      if (scanCtl) scanCtl.fallbackDone = true;
+      if (_fxShadow) logAiShadow(userId, _scanId, _fxMode, "budget_degraded", null);
+      try {
+        const picks = await (_rulesP ?? buildRulesPicks(userId, { ...marketAnalysis }, htfMarketData, newsContext).catch(() => []));
+        for (const p of picks) p.decision.aiMode = AI_BUDGET_DEGRADED_MODE;
+        addActivity(userId, { type: "info", message: `\u{1F4A4} ${AI_BUDGET_DEGRADED_REASON} \u2014 the AI analysis call was not bought this scan; the deterministic rules lane decides through the normal gates.` });
+        await actOnRulesPicks(userId, _scanId, _fxMode, picks, newsContext, AI_BUDGET_DEGRADED_REASON);
+        _budgetDegradedScan = true;
+      } catch {
+      }
+    }
+    if (_budgetDegradedScan) return;
     if (_fxMode !== "ai" || _fxShadow) {
       try {
         await _aiFailed(`failed:${String(err?.status || err?.statusCode || "")} ${String(err?.message || "").slice(0, 60)}`);
@@ -32960,6 +32995,7 @@ var init_live_trading_engine = __esm({
     init_goal_pace();
     init_ai_level();
     init_fx_rules_score();
+    init_ai_budget_degrade();
     init_tradelocker();
     init_tradelocker_sync();
     init_indicators();
@@ -41156,6 +41192,7 @@ var init_kalshi_perp_watch_plans = __esm({
     "use strict";
     init_openai();
     init_ai_engine_budget();
+    init_ai_budget_degrade();
     init_runtime_state();
     init_kalshi_perp_small_account();
     init_db();
@@ -41228,6 +41265,7 @@ var init_kalshi_stock_shadow = __esm({
     init_kalshi_perp_watch_plans();
     init_kalshi_perp_small_account();
     init_kalshi_trading();
+    init_ai_budget_degrade();
     TICK_MS = 5 * 6e4;
     CRYPTO_PORTS = ["breakout", "trend_following", "structure", "divergence", "order_flow", "volume_profile"];
     OPTIONS_PORTS = ["orb", "volume_profile", "breakout", "momentum", "order_flow"];
@@ -43712,7 +43750,7 @@ Reasoning: ${result.reasoning}`;
     const reasoning = parsed.reasoning != null && String(parsed.reasoning).trim() ? String(parsed.reasoning) : "(lite fallback: model returned no reasoning text)";
     return { confirmed: !!parsed.confirmed, confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)), reasoning };
   } catch (err) {
-    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
+    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}`, ...isBudgetRefusalError(err) ? { budgetBlocked: true } : {} };
   }
 }
 async function getCryptocomAiConfirmation(userId, symbol, result, chain) {
@@ -43743,6 +43781,9 @@ async function getCryptocomAiConfirmation(userId, symbol, result, chain) {
       candles
     });
     if (conf.aiError) {
+      if (conf.aiBudgetBlocked && aiBudgetDegradeEnabled()) {
+        return { confirmed: false, confidence: 0, reasoning: conf.reasoning, budgetBlocked: true };
+      }
       return getCryptocomAiConfirmationLite(userId, symbol, result);
     }
     const dirOk = conf.aiDirection === "NEUTRAL" || conf.aiDirection === proposedSignal;
@@ -43791,8 +43832,16 @@ async function assembleConsensus(userId, symbol, result, cfg) {
   else if (quantVerdict === "SKIP" && aiVerdict === "SKIP") consensus = "STRONG_SKIP";
   else if (quantVerdict === "CONFIRM" && aiVerdict === "SKIP" || quantVerdict === "SKIP" && aiVerdict === "CONFIRM") consensus = "CAUTION";
   else consensus = "WATCH";
-  const tradeAllowed = consensus !== "STRONG_SKIP" && aiVerdict === "CONFIRM";
-  pushConsensus(userId, { symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0, aiVerdict, aiConfidence: ai.confidence, aiReasoning: (ai.reasoning || "") + procTag, consensus, tradeAllowed, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+  let tradeAllowed = consensus !== "STRONG_SKIP" && aiVerdict === "CONFIRM";
+  let aiReasoningOut = ai.reasoning || "";
+  if (ai.budgetBlocked === true && aiBudgetDegradeEnabled()) {
+    tradeAllowed = cryptoBudgetDegradedAllowed(quantVerdict);
+    aiReasoningOut = `${aiReasoningOut} \u2014 ${AI_BUDGET_DEGRADED_REASON} (quant ${quantVerdict} ${result.score ?? 0}/100)`.trim();
+    if (tradeAllowed) {
+      result.reasoning = `${result.reasoning || ""} [${AI_BUDGET_DEGRADED_REASON}]`.trim();
+    }
+  }
+  pushConsensus(userId, { symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0, aiVerdict, aiConfidence: ai.confidence, aiReasoning: aiReasoningOut + procTag, consensus, tradeAllowed, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
   return tradeAllowed;
 }
 async function executeSignal(service, connection, userId, symbol, result, cfg) {
@@ -44812,6 +44861,7 @@ var init_cryptocom_scanner = __esm({
     init_trail_brain();
     init_cefi_executor();
     init_crypto_fix_pack();
+    init_ai_budget_degrade();
     MIN_SCAN_INTERVAL_MS = 6e4;
     lastScanAt = /* @__PURE__ */ new Map();
     scanCursor = /* @__PURE__ */ new Map();

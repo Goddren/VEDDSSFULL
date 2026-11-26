@@ -25,6 +25,7 @@
 
 import { coerceConfidence, noteConfidenceSample, getUniversalAIClientForUser } from '../openai';
 import { createConfirmationCache } from './ai-confirmation-cache';
+import { isBudgetRefusalError } from './ai-budget-degrade';
 import type { CandleData } from '../indicators';
 
 // ── Verdict cache (AI cost audit 2026-11-08, item #10) ─────────────────────
@@ -79,6 +80,13 @@ export interface CryptoAiConfirmation {
    *  an outage must never be read as "the AI said skip". */
   aiError?: boolean;
   aiErrorStatus?: number | null;
+  /** True ONLY when the failure was the budget layer's typed refusal
+   *  (engineAiBudgetError's markers: budgetBlocked / aiErrorStatus
+   *  'budget') — never for provider errors, whose status is numeric.
+   *  The scanner's consensus layer degrades on this marker (spend cap ≠
+   *  trade lock, 2026-11-26); without it the marker died here and a dry
+   *  pool was indistinguishable from an outage. */
+  aiBudgetBlocked?: boolean;
 }
 
 export async function getCryptoAiConfirmation(opts: {
@@ -274,6 +282,7 @@ Would you independently confirm this ${opts.direction} setup on its own merits a
       reasoning: `Crypto AI confirmation error: ${err?.message ?? err}`,
       aiError: true,
       aiErrorStatus: typeof statusCode === 'number' ? statusCode : null,
+      ...(isBudgetRefusalError(err) ? { aiBudgetBlocked: true } : {}),
     };
   }
 }

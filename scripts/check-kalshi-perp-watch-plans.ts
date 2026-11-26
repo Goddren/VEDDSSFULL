@@ -20,11 +20,15 @@
  *      per-cycle cap, protected-lane metering exactly once at 2 units,
  *      dry pool buys nothing.
  *   E. Failure modes: store failure → mechanical fallback (lane never
- *      throws); provider/budget failure → skip, NOT fallback.
+ *      throws); provider failure → skip, NOT fallback; budget refusal →
+ *      mechanical fallback flagged budgetDegraded (2026-11-26 degrade —
+ *      the pool caps spend, never trading; AI_BUDGET_DEGRADE=off
+ *      restores the skip). Full degrade pins live in
+ *      check-ai-budget-degrade.ts.
  *   F. Kill switch + wiring pins: lane consults plans only when on,
  *      after every existing gate, before the judge + INSERT; report and
  *      panel expose aiWatchPlans; judge suite surface untouched;
- *      kalshi-perp-live.ts has zero plan references; sw vedd-v297.
+ *      kalshi-perp-live.ts has zero plan references; sw vedd-v298.
  */
 import { readFileSync } from 'node:fs';
 import * as wp from '../server/services/kalshi-perp-watch-plans';
@@ -272,8 +276,16 @@ async function main(): Promise<void> {
     const r3 = await wp.resolvePerpWatchPlan(studyInput({ ticker: 'KXMSFTPERP1', underlying: 'MSFT' }), wp.newPerpPlanCycle(), {
       callDeep: async () => { throw new Error('provider 500'); }, now: () => NOW, strategyKeys: KEYS,
     });
-    check('E2 budget/provider failure → SKIP (stewardship outcome), not fallback',
-      r2.action === 'skip' && r3.action === 'skip' && wp.perpWatchPlanCountersToday(42).fallbacks === 0);
+    check('E2 budget refusal → FALLBACK flagged budgetDegraded (2026-11-26 degrade); provider failure → SKIP, not fallback',
+      r2.action === 'fallback' && (r2 as any).budgetDegraded === true && r3.action === 'skip' &&
+      wp.perpWatchPlanCountersToday(42).fallbacks === 1);
+    process.env.AI_BUDGET_DEGRADE = 'off';
+    const r2b = await wp.resolvePerpWatchPlan(studyInput({ ticker: 'KXTSLAPERP1', underlying: 'TSLA' }), wp.newPerpPlanCycle(), {
+      callDeep: async () => { throw budgetErr; }, now: () => NOW, strategyKeys: KEYS,
+    });
+    delete process.env.AI_BUDGET_DEGRADE;
+    check('E2b AI_BUDGET_DEGRADE=off → budget refusal restores the stewardship SKIP',
+      r2b.action === 'skip' && wp.perpWatchPlanCountersToday(42).fallbacks === 1);
     const r4 = await wp.resolvePerpWatchPlan(studyInput({ ticker: 'KXNVDA PERP'.replace(' ', ''), underlying: 'NVDA' }), wp.newPerpPlanCycle(), {
       callDeep: async () => ({ content: planReply(longFields({ stopLoss: 150, takeProfit: 300 })), model: 'm' }), now: () => NOW, strategyKeys: KEYS,
     });
@@ -310,7 +322,7 @@ async function main(): Promise<void> {
     const live = src('server/services/kalshi-perp-live.ts');
     check('F9 live-lane isolation: kalshi-perp-live.ts has zero watch-plan references',
       !live.includes('kalshi-perp-watch-plans') && !live.includes('PerpWatchPlan') && !live.includes('resolvePerpWatchPlan'));
-    check('F10 sw bumped to vedd-v297', src('client/public/sw.js').includes("CACHE_VERSION = 'vedd-v297'"));
+    check('F10 sw bumped to vedd-v298', src('client/public/sw.js').includes("CACHE_VERSION = 'vedd-v298'"));
     check('F11 plan layer reuses the FX trigger evaluator + judge evidence types (no forked logic)',
       svcSrc.includes("from './ai-watch-plans'") && svcSrc.includes('evaluateWatchPlan') &&
       svcSrc.includes("from './kalshi-perp-ai-judge'"));
