@@ -22,7 +22,7 @@
  *   I. Wiring pins — scanner/executor/swap/storage/schema markers and
  *      every kill switch.
  *   J. UX — status line + budget honesty, plain labels, proc-tag strip,
- *      footnotes, paper readiness, judge empty state, sw vedd-v296.
+ *      footnotes, paper readiness, judge empty state, sw vedd-v297.
  */
 import { readFileSync } from 'node:fs';
 import * as fx from '../server/services/crypto-fix-pack';
@@ -189,7 +189,7 @@ async function main(): Promise<void> {
     safeguards.includes('(Number(s.n) || 0) > 0') && safeguards.includes('The judge is collecting evidence'));
   check('J16 watch-plans panel renders payload values (no hard-coded 0 state)',
     safeguards.includes('{wp.activePlans} plans live') && safeguards.includes('{wp.entriesViaPlan} entries via plan today'));
-  check('J17 sw bumped to vedd-v296', sw.includes("CACHE_VERSION = 'vedd-v296'"));
+  check('J17 sw bumped to vedd-v297', sw.includes("CACHE_VERSION = 'vedd-v297'"));
 
   console.log(`\n${total - failures}/${total} checks passed`);
   if (failures) process.exit(1);
