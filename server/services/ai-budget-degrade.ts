@@ -34,8 +34,21 @@
 /** Durable marker stamped on degraded decision / trade / context rows. */
 export const AI_BUDGET_DEGRADED_MODE = 'rules_only_budget';
 
-/** Human-readable reason every degraded decision carries, verbatim. */
-export const AI_BUDGET_DEGRADED_REASON = 'no AI (budget out) — rules decided';
+/** Short human-readable label for a degraded decision (log lines and the
+ *  live engine's rules-lane activity label). Plain-voice pass 2026-11-26:
+ *  every degraded surface speaks the same street-plain language — the
+ *  full per-lane sentences are composed by the helpers below. */
+export const AI_BUDGET_DEGRADED_REASON = 'AI money tapped out — the playbook ran it solo, no AI';
+
+/** Common opener for the FX degraded decision texts (chart-data gate). */
+export const AI_BUDGET_DEGRADED_OPENER = "AI money tapped out for today — the AI didn't touch this one. The playbook (VEDD's built-in rules) ran it by itself.";
+
+/** FX live-engine activity line when a scan degrades to the rules lane. */
+export const FX_ENGINE_DEGRADED_ACTIVITY = 'AI money tapped out — the rules ran this whole scan by themselves, no AI. It refills at midnight UTC.';
+
+/** Kalshi perp shadow: the human line recorded on a degraded entry's
+ *  context row (next to the unchanged rules_only_budget tag). */
+export const KALSHI_PERP_DEGRADED_CONTEXT_LINE = "AI money tapped out — couldn't buy a study, so this entry ran on the strategy's own signal. Playbook rules only.";
 
 /** Master kill switch: AI_BUDGET_DEGRADE=off → block-on-budget (legacy). */
 export function aiBudgetDegradeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -92,17 +105,33 @@ export function fxBudgetDegradedDecision(input: {
   eaConfidence: number;
   confluenceConflicts: boolean;
 }): { allowed: boolean; blockReason: string } {
+  // blockReason is the FULL displayed text (plain-voice pass 2026-11-26):
+  // the degraded decision's reasoning stands alone in the feed — the
+  // budget gate's own verdict text is never appended to it.
   if (input.quantVerdict !== 'CONFIRM') {
     const score = typeof input.quantScore === 'number' ? ` (${input.quantScore})` : '';
-    return { allowed: false, blockReason: `quant rules verdict ${input.quantVerdict}${score} is not CONFIRM` };
+    if (input.quantVerdict === 'WATCH') {
+      return { allowed: false, blockReason: `${AI_BUDGET_DEGRADED_OPENER} Playbook says WATCH${score} — that's a 'hold on, not yet,' not a green light. We sitting this one out till it looks right. AI money's back at midnight UTC.` };
+    }
+    return { allowed: false, blockReason: `${AI_BUDGET_DEGRADED_OPENER} Playbook says ${input.quantVerdict}${score} — that's a straight pass. No trade — we not forcing nothing. AI money's back at midnight UTC.` };
   }
   if (!(input.eaConfidence >= FX_DEGRADED_EA_FLOOR)) {
-    return { allowed: false, blockReason: `EA confidence ${input.eaConfidence}% is below the ${FX_DEGRADED_EA_FLOOR}% execution floor` };
+    return { allowed: false, blockReason: `${AI_BUDGET_DEGRADED_OPENER} The setup only scored ${input.eaConfidence}% confidence and it needs ${FX_DEGRADED_EA_FLOOR}% to play. Too weak — we not forcing it. No trade. AI money's back at midnight UTC.` };
   }
   if (input.confluenceConflicts) {
-    return { allowed: false, blockReason: 'deterministic structure check conflicts with the signal direction' };
+    return { allowed: false, blockReason: `${AI_BUDGET_DEGRADED_OPENER} The chart's moving one way and the signal's saying another — they fighting each other. Playbook said nah. No trade. AI money's back at midnight UTC.` };
   }
   return { allowed: true, blockReason: '' };
+}
+
+/**
+ * The displayed reasoning for a degraded FX decision the rules ALLOWED
+ * (quant CONFIRM + EA at/above the floor + no structure conflict — the
+ * fxBudgetDegradedDecision gate above). Plain voice, stands alone: it
+ * replaces the budget gate's verdict text on the approval record.
+ */
+export function fxBudgetDegradedGoText(eaConfidence: number): string {
+  return `${AI_BUDGET_DEGRADED_OPENER} And it said GO. The setup came in at ${eaConfidence}% confidence, over the ${FX_DEGRADED_EA_FLOOR}% it needs to play. Trade's on — just know this is the playbook's call, not the AI's. AI money's back at midnight UTC.`;
 }
 
 // ── Crypto Dual-Vote gate (cryptocom-scanner.ts) ───────────────────────────
@@ -117,4 +146,16 @@ export function fxBudgetDegradedDecision(input: {
  */
 export function cryptoBudgetDegradedAllowed(quantVerdict: string): boolean {
   return quantVerdict === 'CONFIRM';
+}
+
+/**
+ * The displayed reasoning for a degraded crypto consensus row (plain
+ * voice, stands alone — it replaces the budget error text the AI
+ * confirmation carried, never appends to it). GO when the quant score
+ * confirmed on its own; a plain pass otherwise.
+ */
+export function cryptoBudgetDegradedText(quantVerdict: string, score: number): string {
+  return quantVerdict === 'CONFIRM'
+    ? `AI money tapped out — the scanner ran this one by itself, no AI second look. Scanner said GO (${score}). This entry is all scanner, no AI.`
+    : `AI money tapped out — the scanner ran this one by itself, no AI second look. Scanner said pass (${score}). No trade.`;
 }
