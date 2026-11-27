@@ -30,7 +30,7 @@
  *      gate runs before the execution call; SL/TP prices come from the
  *      signal while volume is the per-account connLot; the Gate 0f
  *      consistency block is untouched; the old lot-copy cascade init is
- *      gone; no client change (sw stays vedd-v299).
+ *      gone; no client change (sw stays vedd-v300).
  */
 import { readFileSync } from 'node:fs';
 import {
@@ -154,7 +154,7 @@ check('E9 old lot-copy cascade init is gone', !routes.includes('let connLot = tr
 check('E10 module is pure: no direct env reads, no execution calls, no master-switch read',
   !moduleSrc.includes('process.env') && !moduleSrc.includes('executeMT5SignalOnTradeLocker') && !moduleSrc.includes('process.env.CHART_DATA_AUTOTRADE_ENABLED'));
 check('E11 margin gate reads THIS account\'s free margin live', routes.includes('const _mgInfo: any = await _mgSvc.getAccountInfo();') && routes.includes('_mgInfo?.freeMargin'));
-check('E12 no client change: sw stays vedd-v299', sw.includes("CACHE_VERSION = 'vedd-v299'"));
+check('E12 no client change: sw stays vedd-v300', sw.includes("CACHE_VERSION = 'vedd-v300'"));
 
 console.log(`\n${total - failures}/${total} checks passed`);
 if (failures > 0) process.exit(1);

@@ -326,7 +326,7 @@ async function main(): Promise<void> {
   }
 
   // ── I. sw pin ──────────────────────────────────────────────────────
-  check('I1 sw bumped to vedd-v299', src('client/public/sw.js').includes("CACHE_VERSION = 'vedd-v299'"));
+  check('I1 sw bumped to vedd-v300', src('client/public/sw.js').includes("CACHE_VERSION = 'vedd-v300'"));
 
   wp.__setPerpWatchPlanStoreForCheck(null);
   console.log(`\n${total - failures}/${total} checks passed`);
