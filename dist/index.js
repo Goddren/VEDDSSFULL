@@ -19080,6 +19080,63 @@ var init_fx_rules_score = __esm({
   }
 });
 
+// server/services/mt5-risk-sizing.ts
+var mt5_risk_sizing_exports = {};
+__export(mt5_risk_sizing_exports, {
+  MT5_RISK_PCT_DEFAULT: () => MT5_RISK_PCT_DEFAULT,
+  computeRiskPctLot: () => computeRiskPctLot,
+  mt5RiskPctSizingEnabled: () => mt5RiskPctSizingEnabled,
+  resolveRiskPercentPerTrade: () => resolveRiskPercentPerTrade,
+  riskPctSizingLogLine: () => riskPctSizingLogLine
+});
+function mt5RiskPctSizingEnabled(env = process.env) {
+  return env.MT5_RISK_PCT_SIZING !== "off";
+}
+function resolveRiskPercentPerTrade(config) {
+  const n = Number(config?.riskPercentPerTrade);
+  return Number.isFinite(n) && n > 0 && n <= 100 ? n : MT5_RISK_PCT_DEFAULT;
+}
+function computeRiskPctLot(input) {
+  const equity = Number(input.equity);
+  const riskPct = Number(input.riskPct);
+  const entry = Number(input.entryPrice);
+  const stop = Number(input.stopLoss);
+  if (!Number.isFinite(equity) || equity <= 0) return null;
+  if (!Number.isFinite(riskPct) || riskPct <= 0) return null;
+  if (!Number.isFinite(entry) || !Number.isFinite(stop) || entry <= 0 || stop <= 0) return null;
+  const pipSize2 = getPipSize(input.symbol || "");
+  const pipValuePerLot = getPipValue(input.symbol || "");
+  if (!(pipSize2 > 0) || !(pipValuePerLot > 0)) return null;
+  const stopPips = Math.abs(entry - stop) / pipSize2;
+  if (!(stopPips > 0)) return null;
+  const riskUsd = equity * (riskPct / 100);
+  const riskPerLotUsd = stopPips * pipValuePerLot;
+  const rawLot = riskUsd / riskPerLotUsd;
+  if (!Number.isFinite(rawLot) || rawLot <= 0) return null;
+  const floored = Math.floor(rawLot * 100) / 100;
+  const minLotApplied = floored < 0.01;
+  const lot = Math.max(0.01, floored);
+  return {
+    lot,
+    riskUsd,
+    realizedRiskUsd: lot * riskPerLotUsd,
+    stopPips,
+    pipValuePerLot,
+    minLotApplied
+  };
+}
+function riskPctSizingLogLine(symbol, riskPct, equity, r) {
+  return `Sized ${r.lot.toFixed(2)} lots \u2014 ${riskPct}% of $${Math.round(equity).toLocaleString("en-US")} equity = $${r.riskUsd.toFixed(2)} risk over a ${Math.round(r.stopPips)}-pip stop ($${r.pipValuePerLot}/pip per lot)`;
+}
+var MT5_RISK_PCT_DEFAULT;
+var init_mt5_risk_sizing = __esm({
+  "server/services/mt5-risk-sizing.ts"() {
+    "use strict";
+    init_pipUtils();
+    MT5_RISK_PCT_DEFAULT = 0.5;
+  }
+});
+
 // server/utils/candleNormalize.ts
 function pick(src, keys) {
   for (const k2 of keys) {
@@ -27278,6 +27335,8 @@ function getDefaultConfig(userId) {
     // resize any single trade so its stop-out can't lose >2% of balance
     maxLot: 0,
     // 0 = no absolute lot ceiling (balance-scaled cap still applies)
+    riskPercentPerTrade: 0.5,
+    // MT5 risk-% sizing target: 0.5% of equity risked per trade (Chris, Nov 27, 2026)
     autoFlattenOnBreach: false,
     // opt-in — also CLOSE open positions when a breaker trips
     reversalExitEnabled: false,
@@ -30184,6 +30243,10 @@ DUAL-MODE ACTIVE: Kelly Criterion + Auto-Pyramid are both enabled. You MUST choo
       dualModeSection = `AUTO-PYRAMID ACTIVE: For trending setups (ADX \u2265 25) with strong momentum, the engine will automatically add to winning positions at +15 pips. Favour momentum and breakout strategies for pyramid-eligible setups.
 `;
     }
+    if (mt5RiskPctSizingEnabled()) {
+      dualModeSection += `RISK-% SIZING ACTIVE: Every trade is sized by the engine to risk ${resolveRiskPercentPerTrade(config)}% of account equity, calculated from your stop-loss distance. Your suggested lotSize will be overridden by the risk-% math. Focus on direction, entry, stop and target \u2014 the engine handles sizing.
+`;
+    }
     let shieldSection = "";
     if (state.drawdownShieldActive) {
       shieldSection = `
@@ -31794,6 +31857,8 @@ async function processDecision(userId, decision, newsCtx) {
         }
       }
     }
+    const _riskPctOn = mt5RiskPctSizingEnabled();
+    const _riskPct = resolveRiskPercentPerTrade(config);
     let brainLocked = false;
     let brainTotalTrades = 0;
     let brainOverallWinRate = 0;
@@ -31813,21 +31878,45 @@ async function processDecision(userId, decision, newsCtx) {
       addActivity(userId, {
         type: "info",
         symbol: decision.symbol,
-        message: brainLocked ? `\u{1F9E0} Learning Mode: lot locked at 0.01 (${brainTotalTrades}/10 trades, ${brainOverallWinRate}%/60% WR) \u2014 full sizing unlocks automatically` : `\u{1F9E0} Brain unlocked: ${brainTotalTrades} trades @ ${brainOverallWinRate}% WR \u2014 full risk sizing active`
+        message: _riskPctOn ? brainLocked ? `\u{1F9E0} Learning Mode: 0.01 lot lock lifted \u2014 sizing is risk-% based (${_riskPct}% of equity per trade) (${brainTotalTrades}/10 trades, ${brainOverallWinRate}%/60% WR)` : `\u{1F9E0} Brain unlocked: ${brainTotalTrades} trades @ ${brainOverallWinRate}% WR \u2014 risk-% sizing active (${_riskPct}% of equity per trade)` : brainLocked ? `\u{1F9E0} Learning Mode: lot locked at 0.01 (${brainTotalTrades}/10 trades, ${brainOverallWinRate}%/60% WR) \u2014 full sizing unlocks automatically` : `\u{1F9E0} Brain unlocked: ${brainTotalTrades} trades @ ${brainOverallWinRate}% WR \u2014 full risk sizing active`
       });
     }
-    let rawLotBase = brainLocked ? 0.01 : parseNum(decision.lotSize) || config.baseLotSize || 0.01;
+    let _riskSized = null;
+    if (_riskPctOn) {
+      _riskSized = computeRiskPctLot({
+        equity: config.accountBalance,
+        riskPct: _riskPct,
+        symbol: decision.symbol,
+        entryPrice,
+        stopLoss
+      });
+      if (_riskSized) {
+        addActivity(userId, {
+          type: "info",
+          symbol: decision.symbol,
+          message: `\u{1F4D0} Risk-% sizing: ${riskPctSizingLogLine(decision.symbol, _riskPct, config.accountBalance, _riskSized)}${_riskSized.minLotApplied ? " (0.01 minimum lot \u2014 target risk was below one minimum lot)" : ""}`
+        });
+      } else {
+        addActivity(userId, {
+          type: "info",
+          symbol: decision.symbol,
+          message: `\u{1F4D0} Risk-% sizing unavailable (balance or stop unknown) \u2014 legacy sizing applies for this trade`
+        });
+      }
+    }
+    const riskPctSized = _riskSized !== null;
+    let rawLotBase = riskPctSized ? _riskSized.lot : brainLocked ? 0.01 : parseNum(decision.lotSize) || config.baseLotSize || 0.01;
     {
       const _un = Number(decision._slExpUnapplied) || 1;
-      if (!brainLocked && _un > 1) {
+      if (!riskPctSized && !brainLocked && _un > 1) {
         const _was = rawLotBase;
         rawLotBase = Math.max(0.01, Math.floor(rawLotBase / _un * 100) / 100);
         logGuard(userId, "sl_widen_lot_cut", decision.symbol, `stop widened \xD7${_un.toFixed(2)} with no AI lot \u2014 base lot ${_was} \u2192 ${rawLotBase}`);
       }
     }
-    const brainMult = brainLocked ? 1 : decision._brainLotMultiplier || 1;
+    const brainMult = riskPctSized ? 1 : brainLocked ? 1 : decision._brainLotMultiplier || 1;
     const consistencyMult = state._consistencyRiskOverride ?? 1;
-    const rawLotSize = Math.round(rawLotBase * brainMult * consistencyMult * 100) / 100;
+    const rawLotSize = riskPctSized ? Math.max(0.01, Math.floor(rawLotBase * consistencyMult * 100) / 100) : Math.round(rawLotBase * brainMult * consistencyMult * 100) / 100;
     const isSmallAccount = config.accountBalance > 0 && config.accountBalance < 500;
     const _dynMaxLot = config.accountBalance > 0 ? Math.max(0.1, Math.round(config.accountBalance * 0.05 / (15 * getPipValue(decision.symbol)) * 100) / 100) : 0.1;
     const safeMaxLot = isSmallAccount ? Math.min(0.02, config.maxLotSize || 0.1) : Math.max(config.maxLotSize || 0, _dynMaxLot);
@@ -31957,7 +32046,7 @@ async function processDecision(userId, decision, newsCtx) {
       sizingMode = "pyramid";
     }
     let kellyLot = rawLotSize;
-    if ((sizingMode === "kelly" || sizingMode === "kelly_base_pyramid_allowed") && config.accountBalance > 0) {
+    if (!riskPctSized && (sizingMode === "kelly" || sizingMode === "kelly_base_pyramid_allowed") && config.accountBalance > 0) {
       const strat = (decision.strategy || "auto").toLowerCase();
       const ks = state.goalTracker.kellyStats?.[strat];
       const wins = ks?.wins || 0;
@@ -31988,9 +32077,9 @@ async function processDecision(userId, decision, newsCtx) {
       return;
     }
     const safeCompoundMult = isSmallAccount ? Math.min(state.goalTracker.compoundMultiplier, 1.25) : state.goalTracker.compoundMultiplier;
-    const baseLotForCalc = sizingMode === "kelly" || sizingMode === "kelly_base_pyramid_allowed" ? kellyLot : rawLotSize;
-    const compoundedLot = config.enableCompounding ? Math.round(baseLotForCalc * safeCompoundMult * 100) / 100 : baseLotForCalc;
-    const isDynamicSizingEnabled = !brainLocked && !decision.pyramidOf;
+    const baseLotForCalc = riskPctSized ? rawLotSize : sizingMode === "kelly" || sizingMode === "kelly_base_pyramid_allowed" ? kellyLot : rawLotSize;
+    const compoundedLot = !riskPctSized && config.enableCompounding ? Math.round(baseLotForCalc * safeCompoundMult * 100) / 100 : baseLotForCalc;
+    const isDynamicSizingEnabled = !riskPctSized && !brainLocked && !decision.pyramidOf;
     let dynamicLot = compoundedLot;
     if (isDynamicSizingEnabled) {
       const confTier = getConfidenceLotMultiplier(adjustedConfidence);
@@ -32008,14 +32097,16 @@ async function processDecision(userId, decision, newsCtx) {
     const volHardMax = _volCap ? _volCap.hardMaxLot : Infinity;
     let _multSized = isDynamicSizingEnabled ? dynamicLot : compoundedLot;
     {
-      const _ls = Number(decision._lotScale);
-      if (_ls > 0 && _ls < 1) _multSized = _multSized * _ls;
-      const _sm = Number(decision._sizeMult);
-      if (_sm > 0 && _sm !== 1) _multSized = _multSized * _sm;
+      if (!riskPctSized) {
+        const _ls = Number(decision._lotScale);
+        if (_ls > 0 && _ls < 1) _multSized = _multSized * _ls;
+        const _sm = Number(decision._sizeMult);
+        if (_sm > 0 && _sm !== 1) _multSized = _multSized * _sm;
+      }
       _multSized = Math.max(0.01, Math.floor(_multSized * 100) / 100);
     }
-    const preCappedLot = Math.max(0.01, Math.min(_multSized, safeMaxLot));
-    if (_multSized > safeMaxLot) logGuard(userId, "size_cap", decision.symbol, `sized ${_multSized} lots \u2192 safe max ${safeMaxLot}`);
+    const preCappedLot = riskPctSized ? _multSized : Math.max(0.01, Math.min(_multSized, safeMaxLot));
+    if (!riskPctSized && _multSized > safeMaxLot) logGuard(userId, "size_cap", decision.symbol, `sized ${_multSized} lots \u2192 safe max ${safeMaxLot}`);
     const volCappedLot = Math.min(preCappedLot, volHardMax);
     if (_volCap && preCappedLot > volHardMax) {
       addActivity(userId, {
@@ -32060,7 +32151,7 @@ async function processDecision(userId, decision, newsCtx) {
     }
     {
       const _mlS = Number(config.maxLotSize) || 0;
-      if (_mlS > 0 && lotSize > _mlS) {
+      if (!riskPctSized && _mlS > 0 && lotSize > _mlS) {
         logGuard(userId, "size_cap", decision.symbol, `${lotSize} lots \u2192 maxLotSize ${_mlS}`);
         lotSize = _mlS;
       }
@@ -34331,6 +34422,7 @@ var init_live_trading_engine = __esm({
     init_ai_level();
     init_fx_rules_score();
     init_ai_budget_degrade();
+    init_mt5_risk_sizing();
     init_tradelocker();
     init_tradelocker_sync();
     init_indicators();
@@ -92625,9 +92717,9 @@ async function getStopOrdersForUser(userId, filters = {}) {
 init_schema();
 
 // server/build-info.ts
-var BUILD_COMMIT = "5a70433e";
-var BUILD_BRANCH = "main";
-var BUILT_AT = "2026-11-26T21:55:36.863Z";
+var BUILD_COMMIT = "d590f2a2";
+var BUILD_BRANCH = "feat/mt5-risk-pct-sizing";
+var BUILT_AT = "2026-11-27T11:41:14.504Z";
 
 // server/stripe.ts
 init_db();
@@ -105898,7 +105990,9 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
       const useRiskPercent = matchingEA?.useRiskPercent ?? true;
       const { getLiveEngineState: _getLES } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const _liveState = _getLES(token.userId);
-      const liveEngineRiskPct = _liveState?.config?.riskPerTrade ?? 1;
+      const { mt5RiskPctSizingEnabled: _mt5RiskOnFn, resolveRiskPercentPerTrade: _resolveRiskPct } = await Promise.resolve().then(() => (init_mt5_risk_sizing(), mt5_risk_sizing_exports));
+      const _mt5RiskOn = _mt5RiskOnFn();
+      const liveEngineRiskPct = _mt5RiskOn ? _resolveRiskPct(_liveState?.config) : _liveState?.config?.riskPerTrade ?? 1;
       const riskPercentSetting = matchingEA?.riskPercent != null ? matchingEA.riskPercent : liveEngineRiskPct;
       const fixedVolumeSetting = matchingEA?.volume ?? 0.01;
       const _mt5Raw = global.mt5AccountData?.[token.userId];
@@ -105941,7 +106035,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
         if (slPips > 0) {
           const calculatedLots = riskAmount / (slPips * symPipValue);
           const engineMaxLot = effectiveMaxLot(_liveState?.config?.maxLotSize, accountBalance, sanitizedSymbol);
-          mt5Volume = Math.max(0.01, Math.min(engineMaxLot, Math.round(calculatedLots * 100) / 100));
+          mt5Volume = Math.max(0.01, Math.min(engineMaxLot, _mt5RiskOn ? Math.floor(calculatedLots * 100) / 100 : Math.round(calculatedLots * 100) / 100));
         }
         console.log(`[POWER] Balance CIPHER: $${accountBalance.toFixed(2)} | Risk ${riskPercentSetting}% = $${riskAmount.toFixed(2)} at stake`);
         console.log(`[POWER] SL Distance: ${slDistance} | Pips: ${slPips.toFixed(1)} | Lots MANIFESTED: ${mt5Volume}`);
@@ -105953,7 +106047,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
         if (fallbackSlPips > 0 && symPipValueFb > 0) {
           const calculatedLotsFb = riskAmount / (fallbackSlPips * symPipValueFb);
           const engineMaxLotFb = effectiveMaxLot(_liveState?.config?.maxLotSize, accountBalance, sanitizedSymbol);
-          mt5Volume = Math.max(0.01, Math.min(engineMaxLotFb, Math.round(calculatedLotsFb * 100) / 100));
+          mt5Volume = Math.max(0.01, Math.min(engineMaxLotFb, _mt5RiskOn ? Math.floor(calculatedLotsFb * 100) / 100 : Math.round(calculatedLotsFb * 100) / 100));
           console.log(`[LOT FALLBACK] ${sanitizedSymbol}: ATR=${fallbackAtr.toFixed(5)}, fallback SL=${fallbackSlPips.toFixed(1)} pips, risk=$${riskAmount.toFixed(2)}, lots=${mt5Volume}`);
         } else {
           mt5Volume = fixedVolumeSetting;
@@ -105963,13 +106057,13 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
         console.log(`[EQUALITY] Fixed lot mode active - ${fixedVolumeSetting} lots. Word is BOND.`);
         mt5Volume = fixedVolumeSetting;
       }
-      if (goalIntelligenceActive && goalLotMultiplier !== 1 && analysis.signal !== "NEUTRAL") {
+      if (!_mt5RiskOn && goalIntelligenceActive && goalLotMultiplier !== 1 && analysis.signal !== "NEUTRAL") {
         const preMult = mt5Volume;
         const _goalMaxLot = effectiveMaxLot(_liveState?.config?.maxLotSize, accountBalance, sanitizedSymbol);
         mt5Volume = Math.max(0.01, Math.min(_goalMaxLot, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
         console.log(`[VEDD Goal Intelligence] Lot adjustment (${goalPaceMode}): ${preMult} \u2192 ${mt5Volume} lots (\xD7${goalLotMultiplier.toFixed(2)})`);
       }
-      if (goalIntelligenceActive && goalLotMultiplier !== 1 && veddLotOverride > 0) {
+      if (!_mt5RiskOn && goalIntelligenceActive && goalLotMultiplier !== 1 && veddLotOverride > 0) {
         const preMult = mt5Volume;
         const _goalMaxLot2 = effectiveMaxLot(_liveState?.config?.maxLotSize, accountBalance, sanitizedSymbol);
         mt5Volume = Math.max(0.01, Math.min(_goalMaxLot2, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
@@ -114363,7 +114457,7 @@ Respond with ONLY valid JSON:
   app2.post("/api/vedd-live-engine/start", async (req, res2) => {
     if (!req.isAuthenticated()) return res2.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, maxDailyTrades, aiMode, breakevenBufferPips, directionFilter, pairDirectionOverrides, trailMethod, trailFixedPips, trailStepPips, trailProfitLockPct, trailActivationPips, trailSarInitialAF, trailSarMaxAF, brainLearningMode, enableCompositeAutonomous, compositeMinEdgeScore, enableORBAutonomous, enableSniperORB, copyMode, volatileCapMode, pairLotOverrides } = req.body;
+    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, maxDailyTrades, aiMode, breakevenBufferPips, directionFilter, pairDirectionOverrides, trailMethod, trailFixedPips, trailStepPips, trailProfitLockPct, trailActivationPips, trailSarInitialAF, trailSarMaxAF, brainLearningMode, enableCompositeAutonomous, compositeMinEdgeScore, enableORBAutonomous, enableSniperORB, copyMode, volatileCapMode, pairLotOverrides, riskPercentPerTrade } = req.body;
     let resolvedAccountBalance = accountBalance !== void 0 && accountBalance !== null ? Number(accountBalance) : 0;
     if (!resolvedAccountBalance) {
       try {
@@ -114386,6 +114480,7 @@ Respond with ONLY valid JSON:
         scanIntervalMs: scanIntervalMs ? Math.max(3e4, Number(scanIntervalMs)) : void 0,
         maxOpenTrades: maxOpenTrades ? Number(maxOpenTrades) : void 0,
         riskPerTrade: riskPerTrade ? Number(riskPerTrade) : void 0,
+        riskPercentPerTrade: riskPercentPerTrade !== void 0 && Number(riskPercentPerTrade) > 0 && Number(riskPercentPerTrade) <= 100 ? Number(riskPercentPerTrade) : void 0,
         minConfidence: minConfidence ? Number(minConfidence) : void 0,
         maxLotSize: maxLotSize ? Number(maxLotSize) : void 0,
         enablePositionManagement: enablePositionManagement !== void 0 ? enablePositionManagement : void 0,
