@@ -4848,6 +4848,14 @@ DUAL-MODE ACTIVE: Kelly Criterion + Auto-Pyramid are both enabled. You MUST choo
     } else if (config.enablePyramiding) {
       dualModeSection = `AUTO-PYRAMID ACTIVE: For trending setups (ADX ≥ 25) with strong momentum, the engine will automatically add to winning positions at +15 pips. Favour momentum and breakout strategies for pyramid-eligible setups.\n`;
     }
+    // ── MT5 risk-% sizing note (Nov 27, 2026): same pattern as the Kelly
+    // note above — when risk-% sizing is on, the engine sizes every trade
+    // to risk riskPercentPerTrade% of equity from the stop distance, so
+    // the AI's lotSize suggestion is inert for sizing. Say so, or the
+    // model keeps anchoring on micro lots.
+    if (mt5RiskPctSizingEnabled()) {
+      dualModeSection += `RISK-% SIZING ACTIVE: Every trade is sized by the engine to risk ${resolveRiskPercentPerTrade(config)}% of account equity, calculated from your stop-loss distance. Your suggested lotSize will be overridden by the risk-% math. Focus on direction, entry, stop and target — the engine handles sizing.\n`;
+    }
 
     // ── Shield Override Block ──────────────────────────────────────────
     let shieldSection = '';

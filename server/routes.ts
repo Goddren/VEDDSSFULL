@@ -12080,7 +12080,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const useRiskPercent = matchingEA?.useRiskPercent ?? true;
       const { getLiveEngineState: _getLES } = await import('./services/live-trading-engine');
       const _liveState = _getLES(token.userId);
-      const liveEngineRiskPct: number = _liveState?.config?.riskPerTrade ?? 1.0;
+      // MT5 risk-% sizing (Chris, Nov 27, 2026): when on, the engine-side
+      // risk % is config.riskPercentPerTrade (default 0.5 — the flat
+      // per-trade target) instead of the legacy riskPerTrade (default 1).
+      // The EA-level override below still wins. Kill switch
+      // MT5_RISK_PCT_SIZING=off restores the legacy source exactly.
+      const { mt5RiskPctSizingEnabled: _mt5RiskOnFn, resolveRiskPercentPerTrade: _resolveRiskPct } = await import('./services/mt5-risk-sizing');
+      const _mt5RiskOn = _mt5RiskOnFn();
+      const liveEngineRiskPct: number = _mt5RiskOn
+        ? _resolveRiskPct(_liveState?.config)
+        : (_liveState?.config?.riskPerTrade ?? 1.0);
       // EA-level override wins; otherwise use what the user set in the engine UI
       const riskPercentSetting = matchingEA?.riskPercent != null ? matchingEA.riskPercent : liveEngineRiskPct;
       const fixedVolumeSetting = matchingEA?.volume ?? 0.01;
@@ -12134,7 +12143,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         if (slPips > 0) {
           const calculatedLots = riskAmount / (slPips * symPipValue);
           const engineMaxLot = effectiveMaxLot(_liveState?.config?.maxLotSize, accountBalance, sanitizedSymbol);
-          mt5Volume = Math.max(0.01, Math.min(engineMaxLot, Math.round(calculatedLots * 100) / 100));
+          // Risk-% path floors to the 0.01 step (rounding up would risk
+          // MORE than the target %); legacy path keeps its rounding.
+          mt5Volume = Math.max(0.01, Math.min(engineMaxLot, _mt5RiskOn ? Math.floor(calculatedLots * 100) / 100 : Math.round(calculatedLots * 100) / 100));
         }
         console.log(`[POWER] Balance CIPHER: $${accountBalance.toFixed(2)} | Risk ${riskPercentSetting}% = $${riskAmount.toFixed(2)} at stake`);
         console.log(`[POWER] SL Distance: ${slDistance} | Pips: ${slPips.toFixed(1)} | Lots MANIFESTED: ${mt5Volume}`);
@@ -12149,7 +12160,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         if (fallbackSlPips > 0 && symPipValueFb > 0) {
           const calculatedLotsFb = riskAmount / (fallbackSlPips * symPipValueFb);
           const engineMaxLotFb = effectiveMaxLot(_liveState?.config?.maxLotSize, accountBalance, sanitizedSymbol);
-          mt5Volume = Math.max(0.01, Math.min(engineMaxLotFb, Math.round(calculatedLotsFb * 100) / 100));
+          mt5Volume = Math.max(0.01, Math.min(engineMaxLotFb, _mt5RiskOn ? Math.floor(calculatedLotsFb * 100) / 100 : Math.round(calculatedLotsFb * 100) / 100));
           console.log(`[LOT FALLBACK] ${sanitizedSymbol}: ATR=${fallbackAtr.toFixed(5)}, fallback SL=${fallbackSlPips.toFixed(1)} pips, risk=$${riskAmount.toFixed(2)}, lots=${mt5Volume}`);
         } else {
           mt5Volume = fixedVolumeSetting;
@@ -12161,14 +12172,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       }
 
       // ── Goal Intelligence: apply lot multiplier AFTER base lot is computed ──
-      if (goalIntelligenceActive && goalLotMultiplier !== 1.0 && analysis.signal !== 'NEUTRAL') {
+      // Skipped while MT5 risk-% sizing is on: a goal-pace multiplier must
+      // not move a trade off its flat risk-% size (Chris, Nov 27, 2026).
+      if (!_mt5RiskOn && goalIntelligenceActive && goalLotMultiplier !== 1.0 && analysis.signal !== 'NEUTRAL') {
         const preMult = mt5Volume;
         const _goalMaxLot = effectiveMaxLot(_liveState?.config?.maxLotSize, accountBalance, sanitizedSymbol);
         mt5Volume = Math.max(0.01, Math.min(_goalMaxLot, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
         console.log(`[VEDD Goal Intelligence] Lot adjustment (${goalPaceMode}): ${preMult} → ${mt5Volume} lots (×${goalLotMultiplier.toFixed(2)})`);
       }
       // Also override plan lot size with goal multiplier in LOCK_IN/CATCH_UP
-      if (goalIntelligenceActive && goalLotMultiplier !== 1.0 && veddLotOverride > 0) {
+      if (!_mt5RiskOn && goalIntelligenceActive && goalLotMultiplier !== 1.0 && veddLotOverride > 0) {
         const preMult = mt5Volume;
         const _goalMaxLot2 = effectiveMaxLot(_liveState?.config?.maxLotSize, accountBalance, sanitizedSymbol);
         mt5Volume = Math.max(0.01, Math.min(_goalMaxLot2, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
