@@ -11,6 +11,7 @@ import { getPacePlan, paceWindowFor, pacePromptSection, computePacePlan } from '
 import { getAiLevelSync } from './ai-level';
 import { scoreFxPair, fxDecisionMode, fxRulesShadowOn, fxRulesMinScore, type RulesScore } from './fx-rules-score';
 import { aiBudgetDegradeEnabled, isBudgetRefusalError, AI_BUDGET_DEGRADED_MODE, AI_BUDGET_DEGRADED_REASON, FX_ENGINE_DEGRADED_ACTIVITY } from './ai-budget-degrade';
+import { mt5RiskPctSizingEnabled, resolveRiskPercentPerTrade, computeRiskPctLot, riskPctSizingLogLine, type RiskPctLotResult } from './mt5-risk-sizing';
 import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection, getTLAccountValue, getOrCreateService as getTradeLockerService, setUsdJpyRate } from '../tradelocker';
 import { refreshTlAfterTrade } from './tradelocker-sync';
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
@@ -6813,6 +6814,12 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       }
     }
 
+    // ── MT5 risk-% sizing switch + target (Chris, Nov 27, 2026) ─────────
+    // Kill switch MT5_RISK_PCT_SIZING=off restores the legacy chain below
+    // exactly (brain lock, AI/base lot, multipliers, max-lot ceiling).
+    const _riskPctOn = mt5RiskPctSizingEnabled();
+    const _riskPct = resolveRiskPercentPerTrade(config);
+
     // ── Brain Learning Mode: lock at 0.01 until 60%+ WR (if toggle ON) ──
     // Raised from 55% → 60% WR required to unlock full sizing.
     // At 55% WR with 1:1.5 R:R the expectancy is barely positive — full lots at that
@@ -6836,26 +6843,70 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       addActivity(userId, {
         type: 'info',
         symbol: decision.symbol,
-        message: brainLocked
-          ? `🧠 Learning Mode: lot locked at 0.01 (${brainTotalTrades}/10 trades, ${brainOverallWinRate}%/60% WR) — full sizing unlocks automatically`
-          : `🧠 Brain unlocked: ${brainTotalTrades} trades @ ${brainOverallWinRate}% WR — full risk sizing active`,
+        message: _riskPctOn
+          ? (brainLocked
+            ? `🧠 Learning Mode: 0.01 lot lock lifted — sizing is risk-% based (${_riskPct}% of equity per trade) (${brainTotalTrades}/10 trades, ${brainOverallWinRate}%/60% WR)`
+            : `🧠 Brain unlocked: ${brainTotalTrades} trades @ ${brainOverallWinRate}% WR — risk-% sizing active (${_riskPct}% of equity per trade)`)
+          : (brainLocked
+            ? `🧠 Learning Mode: lot locked at 0.01 (${brainTotalTrades}/10 trades, ${brainOverallWinRate}%/60% WR) — full sizing unlocks automatically`
+            : `🧠 Brain unlocked: ${brainTotalTrades} trades @ ${brainOverallWinRate}% WR — full risk sizing active`),
       });
     }
 
-    let rawLotBase = brainLocked ? 0.01 : (parseNum(decision.lotSize) || config.baseLotSize || 0.01);
+    // ── MT5 risk-% sizing (Chris, Nov 27, 2026) ─────────────────────────
+    // When on, the lot is computed HERE from the FINAL stop distance (the
+    // ATR floor + volatile-SL widening above have already settled it, so
+    // their risk-constant rescale composes through the denominator) and
+    // the engine's account balance — the same equity Gate 0e and the risk
+    // cap below read. The brain lock, the AI/base lot, and every
+    // risk-inflating multiplier downstream are bypassed for this base:
+    // risk is the configured %, flat. If the size cannot be computed
+    // honestly (unknown balance, missing entry/stop), fall back to the
+    // legacy chain rather than inventing a size.
+    let _riskSized: RiskPctLotResult | null = null;
+    if (_riskPctOn) {
+      _riskSized = computeRiskPctLot({
+        equity: config.accountBalance,
+        riskPct: _riskPct,
+        symbol: decision.symbol,
+        entryPrice,
+        stopLoss,
+      });
+      if (_riskSized) {
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: `📐 Risk-% sizing: ${riskPctSizingLogLine(decision.symbol, _riskPct, config.accountBalance, _riskSized)}${_riskSized.minLotApplied ? ' (0.01 minimum lot — target risk was below one minimum lot)' : ''}`,
+        });
+      } else {
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: `📐 Risk-% sizing unavailable (balance or stop unknown) — legacy sizing applies for this trade`,
+        });
+      }
+    }
+    const riskPctSized = _riskSized !== null;
+
+    let rawLotBase = riskPctSized ? _riskSized!.lot : (brainLocked ? 0.01 : (parseNum(decision.lotSize) || config.baseLotSize || 0.01));
     {
       const _un = Number((decision as any)._slExpUnapplied) || 1;
-      if (!brainLocked && _un > 1) {
+      if (!riskPctSized && !brainLocked && _un > 1) {
         const _was = rawLotBase;
         rawLotBase = Math.max(0.01, Math.floor((rawLotBase / _un) * 100) / 100);
         logGuard(userId, 'sl_widen_lot_cut', decision.symbol, `stop widened ×${_un.toFixed(2)} with no AI lot — base lot ${_was} → ${rawLotBase}`);
       }
     }
-    // Apply brain-tuned lot multiplier (Kelly-based, clamped 0.5–1.5)
-    const brainMult = brainLocked ? 1.0 : ((decision as any)._brainLotMultiplier || 1.0);
-    // Apply consistency risk override (0.25 or 0.5 when consistency is at risk)
+    // Apply brain-tuned lot multiplier (Kelly-based, clamped 0.5–1.5).
+    // NEVER on a risk-% sized trade: the % is the size, flat (Chris).
+    const brainMult = riskPctSized ? 1.0 : (brainLocked ? 1.0 : ((decision as any)._brainLotMultiplier || 1.0));
+    // Apply consistency risk override (0.25 or 0.5 when consistency is at
+    // risk) — risk-REDUCING, so it still applies on the risk-% path, with
+    // floor rounding so the trimmed size can never round UP past target.
     const consistencyMult = (state as any)._consistencyRiskOverride ?? 1.0;
-    const rawLotSize = Math.round(rawLotBase * brainMult * consistencyMult * 100) / 100;
+    const rawLotSize = riskPctSized
+      ? Math.max(0.01, Math.floor(rawLotBase * consistencyMult * 100) / 100)
+      : Math.round(rawLotBase * brainMult * consistencyMult * 100) / 100;
     const isSmallAccount = config.accountBalance > 0 && config.accountBalance < 500;
     // Balance-scaled ceiling so large accounts ($100k+) aren't choked by a small
     // configured/default cap. Ceiling = lot risking ~5% at a 15-pip reference stop.
@@ -7039,7 +7090,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
 
     // ── Kelly Criterion Lot Sizing ─────────────────────────────────────
     let kellyLot = rawLotSize;
-    if ((sizingMode === 'kelly' || sizingMode === 'kelly_base_pyramid_allowed') && config.accountBalance > 0) {
+    if (!riskPctSized && (sizingMode === 'kelly' || sizingMode === 'kelly_base_pyramid_allowed') && config.accountBalance > 0) {
       const strat = (decision.strategy || 'auto').toLowerCase();
       const ks = state.goalTracker.kellyStats?.[strat];
       const wins = ks?.wins || 0;
@@ -7079,15 +7130,16 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     const safeCompoundMult = isSmallAccount
       ? Math.min(state.goalTracker.compoundMultiplier, 1.25)
       : state.goalTracker.compoundMultiplier;
-    const baseLotForCalc = (sizingMode === 'kelly' || sizingMode === 'kelly_base_pyramid_allowed') ? kellyLot : rawLotSize;
-    const compoundedLot = config.enableCompounding
+    // Risk-% sized trades skip Kelly AND compounding: risk is the %, flat.
+    const baseLotForCalc = riskPctSized ? rawLotSize : ((sizingMode === 'kelly' || sizingMode === 'kelly_base_pyramid_allowed') ? kellyLot : rawLotSize);
+    const compoundedLot = (!riskPctSized && config.enableCompounding)
       ? Math.round(baseLotForCalc * safeCompoundMult * 100) / 100
       : baseLotForCalc;
 
     // ── Dynamic Lot Scaling: confidence + strategy + exposure ────────────────
     // Only applies when brain is NOT locked (learning mode allows 0.01 micro-lots only).
     // Skip for pyramid entries (they have their own lot logic) and shield mode (already handled).
-    const isDynamicSizingEnabled = !brainLocked && !decision.pyramidOf;
+    const isDynamicSizingEnabled = !riskPctSized && !brainLocked && !decision.pyramidOf;
     let dynamicLot = compoundedLot;
 
     if (isDynamicSizingEnabled) {
@@ -7117,14 +7169,22 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // safe max, the volatile-pair cap, the per-pair limit or the risk-% cap.
     let _multSized = isDynamicSizingEnabled ? dynamicLot : compoundedLot;
     {
-      const _ls = Number((decision as any)._lotScale);
-      if (_ls > 0 && _ls < 1) _multSized = _multSized * _ls;
-      const _sm = Number((decision as any)._sizeMult);
-      if (_sm > 0 && _sm !== 1) _multSized = _multSized * _sm;
+      // Profile/MTF size scales do not touch a risk-% sized trade: the
+      // sizer already used the FINAL stop (post BTC-profile stop, post
+      // SL-widening), so $ risk is set by the % alone.
+      if (!riskPctSized) {
+        const _ls = Number((decision as any)._lotScale);
+        if (_ls > 0 && _ls < 1) _multSized = _multSized * _ls;
+        const _sm = Number((decision as any)._sizeMult);
+        if (_sm > 0 && _sm !== 1) _multSized = _multSized * _sm;
+      }
       _multSized = Math.max(0.01, Math.floor(_multSized * 100) / 100);
     }
-    const preCappedLot = Math.max(0.01, Math.min(_multSized, safeMaxLot));
-    if (_multSized > safeMaxLot) logGuard(userId, 'size_cap', decision.symbol, `sized ${_multSized} lots → safe max ${safeMaxLot}`);
+    // On the risk-% path the risk ceiling replaces the lot-count ceiling:
+    // safeMaxLot (config.maxLotSize) must not shrink a trade sized to the
+    // target %. Gate 0e's 5% backstop below remains the outer wall.
+    const preCappedLot = riskPctSized ? _multSized : Math.max(0.01, Math.min(_multSized, safeMaxLot));
+    if (!riskPctSized && _multSized > safeMaxLot) logGuard(userId, 'size_cap', decision.symbol, `sized ${_multSized} lots → safe max ${safeMaxLot}`);
     const volCappedLot = Math.min(preCappedLot, volHardMax);
     if (_volCap && preCappedLot > volHardMax) {
       addActivity(userId, {
@@ -7186,8 +7246,11 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // weekend factor, in the per-account loop.
     {
       // (multipliers now applied before the caps — see _multSized above)
+      // Skipped on the risk-% path: maxLotSize is a lot-count ceiling and
+      // the risk ceiling governs there instead (brief: the fixed 0.10
+      // default must not shrink a correctly risk-sized trade).
       const _mlS = Number((config as any).maxLotSize) || 0;
-      if (_mlS > 0 && lotSize > _mlS) { logGuard(userId, 'size_cap', decision.symbol, `${lotSize} lots → maxLotSize ${_mlS}`); lotSize = _mlS; }
+      if (!riskPctSized && _mlS > 0 && lotSize > _mlS) { logGuard(userId, 'size_cap', decision.symbol, `${lotSize} lots → maxLotSize ${_mlS}`); lotSize = _mlS; }
     }
 
     // ── Per-trade 5% backstop + aggregate exposure cap (ports Gate 0d/0e) ──
