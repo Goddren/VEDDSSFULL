@@ -364,6 +364,12 @@ interface LiveEngineConfig {
   maxDrawdownPct: number;
   maxRiskPerTradePct: number;
   maxLot: number;
+  // MT5 risk-% sizing target (Chris, Nov 27, 2026): when MT5_RISK_PCT_SIZING
+  // is on, MT5 trades are sized to risk exactly this % of equity per trade,
+  // computed from the trade's stop distance (see services/mt5-risk-sizing.ts)
+  // — replacing the AI/base-lot chain and the Learning Mode 0.01 lock.
+  // Distinct from maxRiskPerTradePct above, which remains a resize CAP.
+  riskPercentPerTrade: number;
   autoFlattenOnBreach: boolean;
   // Deterministic reversal exit: close an open position when a strong opposing
   // trend forms (DI cross against it + ADX strength), instead of waiting for the
@@ -1215,6 +1221,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     maxDrawdownPct: 8,         // halt once equity is 8% below its running peak
     maxRiskPerTradePct: 2,     // resize any single trade so its stop-out can't lose >2% of balance
     maxLot: 0,                 // 0 = no absolute lot ceiling (balance-scaled cap still applies)
+    riskPercentPerTrade: 0.5,  // MT5 risk-% sizing target: 0.5% of equity risked per trade (Chris, Nov 27, 2026)
     autoFlattenOnBreach: false, // opt-in — also CLOSE open positions when a breaker trips
     reversalExitEnabled: false, // OFF by default — it was closing winners too early on
                                 // routine trend noise. Opt-in via the weekly-strategy toggle.

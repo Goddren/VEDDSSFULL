@@ -22089,7 +22089,7 @@ Respond with ONLY valid JSON:
   app.post("/api/vedd-live-engine/start", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, maxDailyTrades, aiMode, breakevenBufferPips, directionFilter, pairDirectionOverrides, trailMethod, trailFixedPips, trailStepPips, trailProfitLockPct, trailActivationPips, trailSarInitialAF, trailSarMaxAF, brainLearningMode, enableCompositeAutonomous, compositeMinEdgeScore, enableORBAutonomous, enableSniperORB, copyMode, volatileCapMode, pairLotOverrides } = req.body;
+    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, maxDailyTrades, aiMode, breakevenBufferPips, directionFilter, pairDirectionOverrides, trailMethod, trailFixedPips, trailStepPips, trailProfitLockPct, trailActivationPips, trailSarInitialAF, trailSarMaxAF, brainLearningMode, enableCompositeAutonomous, compositeMinEdgeScore, enableORBAutonomous, enableSniperORB, copyMode, volatileCapMode, pairLotOverrides, riskPercentPerTrade } = req.body;
 
     // Auto-detect reference balance from the first active TL connection when the caller
     // hasn't explicitly set one. This ensures proportional lot-sizing always has a
@@ -22116,6 +22116,7 @@ Respond with ONLY valid JSON:
         scanIntervalMs: scanIntervalMs ? Math.max(30000, Number(scanIntervalMs)) : undefined,
         maxOpenTrades: maxOpenTrades ? Number(maxOpenTrades) : undefined,
         riskPerTrade: riskPerTrade ? Number(riskPerTrade) : undefined,
+        riskPercentPerTrade: riskPercentPerTrade !== undefined && Number(riskPercentPerTrade) > 0 && Number(riskPercentPerTrade) <= 100 ? Number(riskPercentPerTrade) : undefined,
         minConfidence: minConfidence ? Number(minConfidence) : undefined,
         maxLotSize: maxLotSize ? Number(maxLotSize) : undefined,
         enablePositionManagement: enablePositionManagement !== undefined ? enablePositionManagement : undefined,
